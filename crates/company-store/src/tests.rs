@@ -401,4 +401,118 @@ async fn durable_agent_rate_limit_allows_once_then_blocks_until_window() {
 
     assert_eq!(first, roles);
     assert!(second.is_empty());
+
+#[tokio::test]
+async fn agent_memory_round_trip_is_bounded_and_persistent() {
+    let Some(store) = connect_store().await else {
+        return;
+    };
+
+    let company_id = uuid::Uuid::new_v4().to_string();
+    store
+        .ensure_company(&company_id, "Memory Test", "USD")
+        .await
+        .unwrap();
+
+    store
+        .upsert_agent_memory(
+            &company_id,
+            AgentRole::Analyst,
+            "lesson",
+            &serde_json::json!({"finding":"coupon quality matters"}),
+            9_000,
+            80,
+        )
+        .await
+        .unwrap();
+
+    let memory = store
+        .load_agent_memory(&company_id, AgentRole::Analyst, 20)
+        .await
+        .unwrap();
+    assert_eq!(memory.len(), 1);
+    assert_eq!(memory[0].key, "lesson");
+    assert_eq!(memory[0].confidence_bps, 9_000);
+    assert_eq!(memory[0].importance, 80);
+}
+
+#[tokio::test]
+async fn durable_agent_rate_limit_blocks_second_call_in_same_window() {
+    let Some(store) = connect_store().await else {
+        return;
+    };
+
+    let company_id = uuid::Uuid::new_v4().to_string();
+    store
+        .ensure_company(&company_id, "Rate Test", "USD")
+        .await
+        .unwrap();
+
+    let first = store
+        .claim_agent_run_slots(&company_id, &[AgentRole::Analyst], 3_600, 1)
+        .await
+        .unwrap();
+    let second = store
+        .claim_agent_run_slots(&company_id, &[AgentRole::Analyst], 3_600, 1)
+        .await
+        .unwrap();
+
+    assert_eq!(first, vec![AgentRole::Analyst]);
+    assert!(second.is_empty());
+}
+
+#[tokio::test]
+async fn scheduler_lease_can_be_recovered_by_another_store() {
+    let Some(store) = connect_store().await else {
+        return;
+    };
+    let Some(database_url) = std::env::var("DATABASE_URL").ok() else {
+        return;
+    };
+    let store_two = CompanyStore::connect(&database_url).await.unwrap();
+    store_two.migrate().await.unwrap();
+
+    let company_id = uuid::Uuid::new_v4().to_string();
+    store
+        .ensure_company(&company_id, "Scheduler Test", "USD")
+        .await
+        .unwrap();
+    store
+        .ensure_recurring_job(&company_id, "recovery-test", 15)
+        .await
+        .unwrap();
+
+    let first = store
+        .claim_due_job(&company_id, "recovery-test")
+        .await
+        .unwrap();
+    assert!(first.is_some());
+
+    let second = store_two
+        .claim_due_job(&company_id, "recovery-test")
+        .await
+        .unwrap();
+    assert!(second.is_none());
+
+    {
+        let client = store_two.client.lock().await;
+        client
+            .execute(
+                "UPDATE scheduled_jobs
+                    SET locked_until = now() - interval '1 second',
+                        next_run_at = now() - interval '1 second'
+                  WHERE company_id = $1 AND job_type = 'recovery-test'",
+                &[&uuid::Uuid::parse_str(&company_id).unwrap()],
+            )
+            .await
+            .unwrap();
+    }
+
+    let recovered = store_two
+        .claim_due_job(&company_id, "recovery-test")
+        .await
+        .unwrap();
+    assert!(recovered.is_some());
+}
+
 }
