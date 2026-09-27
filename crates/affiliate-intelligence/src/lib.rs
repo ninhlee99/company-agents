@@ -93,6 +93,8 @@ pub struct ProductSearchQuery {
     pub require_coupon: bool,
     pub min_rating_bps: Option<u32>,
     pub min_reviews: Option<u64>,
+    pub min_quality_bps: Option<u32>,
+    pub require_attributable_coupon: bool,
     pub in_stock_only: bool,
     pub max_results: usize,
     pub as_of_date: Option<String>,
@@ -111,6 +113,8 @@ impl Default for ProductSearchQuery {
             require_coupon: false,
             min_rating_bps: None,
             min_reviews: None,
+            min_quality_bps: None,
+            require_attributable_coupon: false,
             in_stock_only: true,
             max_results: 20,
             as_of_date: None,
@@ -237,19 +241,30 @@ pub fn rank_products(
             continue;
         }
 
+        if !source_is_fresh(product, query.max_source_age_seconds) {
+            continue;
+        }
+
+        let quality = quality_assessment(product);
+        if query
+            .min_quality_bps
+            .is_some_and(|minimum| quality.score_bps < minimum)
+        {
+            continue;
+        }
+
         let usable_coupons = coupons
             .iter()
             .filter(|coupon| coupon.active)
             .filter(|coupon| coupon.advertiser_id == product.advertiser_id)
             .filter(|coupon| coupon_is_active_on(coupon, query.as_of_date.as_deref()))
+            .filter(|coupon| !query.require_attributable_coupon || coupon.attributable)
             .cloned()
             .collect::<Vec<_>>();
 
         if query.require_coupon && usable_coupons.is_empty() {
             continue;
         }
-
-        let quality = quality_assessment(product);
         let economics = economics_assessment(product, &usable_coupons);
         let content_fit_bps = content_fit(product, query);
         let data_confidence_bps = confidence(product, &quality, &economics);
@@ -324,6 +339,13 @@ fn validate_query(query: &ProductSearchQuery) -> Result<(), AffiliateError> {
         if min > SCORE_MAX {
             return Err(AffiliateError::InvalidQuery(
                 "commission must be <= 10000 bps".into(),
+            ));
+        }
+    }
+    if let Some(quality) = query.min_quality_bps {
+        if quality > SCORE_MAX {
+            return Err(AffiliateError::InvalidQuery(
+                "quality must be <= 10000 bps".into(),
             ));
         }
     }
@@ -631,6 +653,24 @@ fn dedupe_key(product: &Product) -> String {
         return format!("gtin:{gtin}");
     }
     format!("{}:{}", product.advertiser_id, product.id)
+}
+
+fn source_is_fresh(product: &Product, max_age_seconds: Option<u64>) -> bool {
+    let Some(max_age_seconds) = max_age_seconds else {
+        return true;
+    };
+    let Some(updated_at) = product.source_updated_at.as_deref() else {
+        return false;
+    };
+    let Ok(updated_at) = time::OffsetDateTime::parse(
+        updated_at,
+        &time::format_description::well_known::Rfc3339,
+    ) else {
+        return false;
+    };
+    let now = time::OffsetDateTime::now_utc();
+    let age = now - updated_at;
+    age >= time::Duration::ZERO && age.whole_seconds() as u64 <= max_age_seconds
 }
 
 fn coupon_is_active_on(coupon: &Coupon, as_of_date: Option<&str>) -> bool {
