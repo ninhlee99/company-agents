@@ -33,7 +33,11 @@ pub trait AgentStateProvider: Send + Sync {
         agent: AgentRole,
     ) -> Result<serde_json::Value, String>;
 
-    async fn admit_model_call(&self, company_id: &str, agent: AgentRole) -> Result<(), String>;
+    async fn admit_model_call(
+        &self,
+        company_id: &str,
+        agent: AgentRole,
+    ) -> Result<(), String>;
 }
 
 #[async_trait]
