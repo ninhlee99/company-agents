@@ -85,9 +85,14 @@ impl Model for OpenAiCompatibleModel {
             .map_err(|e| ModelError::Transport(e.to_string()))?;
 
         if !response.status().is_success() {
-            return Err(ModelError::Transport(
-                response.text().await.unwrap_or_else(|_| "unknown http error".into()),
-            ));
+            let status = response.status();
+            let body = response
+                .bytes()
+                .await
+                .map_err(|e| ModelError::Transport(e.to_string()))?;
+            let bounded = &body[..body.len().min(65_536)];
+            let detail = String::from_utf8_lossy(bounded);
+            return Err(ModelError::Transport(format!("HTTP {status}: {detail}")));
         }
 
         let body = response
