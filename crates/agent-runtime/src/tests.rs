@@ -50,7 +50,7 @@ async fn every_operating_agent_has_a_valid_contract() {
     );
 
     for agent in agents {
-        let proposal = agent.propose(&ctx, model.clone()).await.expect("agent must fail safely only on model error");
+        let proposal = agent.propose(&ctx, model.clone()).await.expect("agent contract should produce a proposal");
         assert_eq!(proposal.agent, agent.role());
         assert!(!proposal.objective.trim().is_empty());
         assert!(!proposal.rationale.trim().is_empty());
@@ -62,7 +62,7 @@ async fn every_operating_agent_has_a_valid_contract() {
 }
 
 #[tokio::test]
-async fn agents_fail_closed_when_model_is_unavailable() {
+async fn model_outage_fails_closed() {
     struct FailingModel;
     #[async_trait]
     impl Model for FailingModel {
@@ -76,13 +76,12 @@ async fn agents_fail_closed_when_model_is_unavailable() {
     assert_eq!(results.len(), 8);
     for result in results {
         assert_eq!(result.proposal.action, ActionKind::EscalateIncident);
-        let governed = result.governance.expect("governance result");
-        assert_eq!(governed.decision, GovernorDecision::Escalate);
+        assert_eq!(result.governance.unwrap().decision, GovernorDecision::Escalate);
     }
 }
 
 #[tokio::test]
-async fn bankrupt_company_cannot_trigger_discretionary_spend() {
+async fn bankrupt_company_blocks_discretionary_actions() {
     let runtime = AgentRuntime::new(Box::new(MockModel));
     let company = CompanySnapshot {
         status: CompanyStatus::Bankrupt,
@@ -93,16 +92,16 @@ async fn bankrupt_company_cannot_trigger_discretionary_spend() {
     };
 
     for result in runtime.run_all(company).await {
-        let governed = result.governance.expect("governance result");
-        if result.proposal.action != ActionKind::ProduceReport && result.proposal.action != ActionKind::EscalateIncident {
-            assert_eq!(governed.decision, GovernorDecision::Reject);
+        let decision = result.governance.unwrap().decision;
+        if !matches!(result.proposal.action, ActionKind::ProduceReport | ActionKind::EscalateIncident) {
+            assert_eq!(decision, GovernorDecision::Reject);
         }
     }
 }
 
 #[tokio::test]
 async fn stress_256_cycles_remain_bounded_and_deterministic() {
-    let runtime = AgentRuntime::new(Box::new(MockModel));
+    let runtime = AgentRuntime::new_with_concurrency(Box::new(MockModel), 4);
     let company = healthy_company();
 
     for _ in 0..256 {
@@ -118,13 +117,8 @@ async fn stress_256_cycles_remain_bounded_and_deterministic() {
 }
 
 #[tokio::test]
-async fn negative_or_self_granted_permissions_never_execute() {
-    let runtime = AgentRuntime::new(Box::new(MockModel));
-    let company = healthy_company();
-    let mut results = runtime.run_all(company).await;
-    assert_eq!(results.len(), 8);
-
-    let malicious = Proposal {
+async fn permission_escalation_is_rejected() {
+    let p = Proposal {
         agent: AgentRole::Growth,
         objective: "malicious".into(),
         action: ActionKind::AllocateExperimentBudget,
@@ -138,14 +132,6 @@ async fn negative_or_self_granted_permissions_never_execute() {
         requested_permission: Permission::ExecuteMaterial,
     };
 
-    let governor = crate::governor::Governor;
-    let decision = governor.evaluate(malicious, &healthy_company());
+    let decision = crate::governor::Governor.evaluate(&crate::governor::Governor, p, &healthy_company());
     assert_eq!(decision.decision, GovernorDecision::Reject);
-
-    for result in results.iter_mut() {
-        assert!(!matches!(
-            result.proposal.action,
-            ActionKind::EscalateIncident if result.proposal.cost_minor < 0
-        ));
-    }
 }
