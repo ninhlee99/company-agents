@@ -25,6 +25,7 @@ pub struct PayrollObligation {
     pub employee_id: String,
     pub amount_minor: i128,
     pub due_day: u64,
+    pub recurrence_days: Option<u64>,
     pub priority: u8,
 }
 
@@ -155,6 +156,14 @@ impl BusinessUnit {
             if obligation.due_day > day {
                 continue;
             }
+            let due = match obligation.recurrence_days {
+                Some(period) if period > 0 => (day - obligation.due_day) % period == 0,
+                Some(_) => false,
+                None => day == obligation.due_day,
+            };
+            if !due {
+                continue;
+            }
             if obligation.amount_minor <= cash {
                 cash = cash
                     .checked_sub(obligation.amount_minor)
@@ -250,6 +259,38 @@ pub struct PortfolioDayResult {
 }
 
 impl CompanyPortfolio {
+    pub fn total_cash_minor(&self) -> Result<i128, BusinessError> {
+        self.units.iter().try_fold(0_i128, |total, unit| {
+            total.checked_add(unit.cash_minor).ok_or(BusinessError::Overflow)
+        })
+    }
+
+    pub fn apply_external_cash_delta(&mut self, delta_minor: i128) -> Result<(), BusinessError> {
+        if self.units.is_empty() {
+            return Err(BusinessError::Invalid("portfolio has no business units".into()));
+        }
+        if delta_minor >= 0 {
+            self.units[0].cash_minor = self.units[0]
+                .cash_minor
+                .checked_add(delta_minor)
+                .ok_or(BusinessError::Overflow)?;
+            return Ok(());
+        }
+
+        let mut remaining = delta_minor.unsigned_abs();
+        for unit in &mut self.units {
+            let reduction = remaining.min(unit.cash_minor as u128) as i128;
+            unit.cash_minor = unit.cash_minor.saturating_sub(reduction);
+            remaining -= reduction as u128;
+            if remaining == 0 {
+                return Ok(());
+            }
+        }
+        Err(BusinessError::Invalid(
+            "external cash adjustment exceeds portfolio cash".into(),
+        ))
+    }
+
     pub fn validate(&self) -> Result<(), BusinessError> {
         for unit in &self.units {
             unit.validate()?;
@@ -321,6 +362,7 @@ mod tests {
                 employee_id: "editor-1".into(),
                 amount_minor: 200,
                 due_day: 1,
+                recurrence_days: Some(1),
                 priority: 100,
             }],
             contracts: vec![],
@@ -362,5 +404,35 @@ mod tests {
         value.fixed_cost_minor = 0;
         value.payroll.clear();
         assert_eq!(value.monthly_runway_days(), u64::MAX);
+    }
+
+    #[test]
+    fn recurring_payroll_is_paid_each_period() {
+        let mut value = unit();
+        let day_one = value.settle_day(1, 1_000, 0).unwrap();
+        let day_two = value.settle_day(2, 1_000, 0).unwrap();
+        assert_eq!(day_one.payroll_paid_minor, 200);
+        assert_eq!(day_two.payroll_paid_minor, 200);
+    }
+
+    #[test]
+    fn external_cash_adjustment_preserves_portfolio_total() {
+        let mut portfolio = CompanyPortfolio {
+            units: vec![unit(), BusinessUnit {
+                id: "creator-2".into(),
+                name: "Creator B".into(),
+                kind: BusinessUnitKind::Creator,
+                status: BusinessUnitStatus::Growing,
+                cash_minor: 5_000,
+                revenue_minor: 0,
+                direct_cost_minor: 0,
+                fixed_cost_minor: 0,
+                payroll: vec![],
+                contracts: vec![],
+            }],
+        };
+        let before = portfolio.total_cash_minor().unwrap();
+        portfolio.apply_external_cash_delta(-1_500).unwrap();
+        assert_eq!(portfolio.total_cash_minor().unwrap(), before - 1_500);
     }
 }
