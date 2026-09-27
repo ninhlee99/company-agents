@@ -1,7 +1,11 @@
 [package]
 name = "company-os"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
+agent-runtime = { path = "../../crates/agent-runtime" }
+axum = "0.8"
 economic-core = { path = "../../crates/economic-core" }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
