@@ -622,8 +622,12 @@ fn coupon_is_active_on(coupon: &Coupon, as_of_date: Option<&str>) -> bool {
     if !coupon.active {
         return false;
     }
-    let Some(today) = as_of_date else {
-        return true;
+    let owned_today;
+    let today = if let Some(value) = as_of_date {
+        value
+    } else {
+        owned_today = time::OffsetDateTime::now_utc().date().to_string();
+        owned_today.as_str()
     };
     if let Some(start) = coupon.starts_at.as_deref().map(date_prefix) {
         if today < start.as_str() {
@@ -1784,6 +1788,31 @@ mod tests {
         let query = ProductSearchQuery {
             require_coupon: true,
             as_of_date: Some("2026-09-27".into()),
+            ..Default::default()
+        };
+        assert!(rank_products(&[p], &[coupon], &query).is_empty());
+    }
+
+    #[test]
+    fn expired_coupon_is_rejected_even_without_explicit_as_of_date() {
+        let p = product("expired-default", "A", Some(2_000), Some(9_000), Some(100));
+        let coupon = Coupon {
+            id: "expired".into(),
+            advertiser_id: "expired-default".into(),
+            title: "expired".into(),
+            description: "".into(),
+            code: Some("EXPIRED".into()),
+            discount_bps: Some(9_000),
+            starts_at: Some("2020-01-01".into()),
+            ends_at: Some("2020-01-02".into()),
+            active: true,
+            exclusive: false,
+            attributable: true,
+            url: None,
+            source: "test".into(),
+        };
+        let query = ProductSearchQuery {
+            require_coupon: true,
             ..Default::default()
         };
         assert!(rank_products(&[p], &[coupon], &query).is_empty());
