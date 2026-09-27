@@ -1552,7 +1552,139 @@ impl CompanyStore {
                     &(attribution.confidence_bps as i32),
                 ],
             )
+            .await?;        let target_recognized = if matches!(
+            reconciled.status,
+            affiliate_attribution::ReconciliationStatus::Verified
+        ) {
+            reconciled.net_commission_minor
+        } else {
+            0
+        };
+
+        let prior = tx
+            .query_opt(
+                "SELECT recognized_minor::text, currency
+                   FROM affiliate_revenue_recognition
+                  WHERE company_id=$1 AND conversion_id=$2
+                  FOR UPDATE",
+                &[&company_id, &event.conversion_id],
+            )
             .await?;
+        let prior_recognized = prior
+            .as_ref()
+            .map(|row| parse_i128_numeric(&row.get::<_, String>(0)))
+            .transpose()?
+            .unwrap_or(0);
+        let delta = target_recognized
+            .checked_sub(prior_recognized)
+            .ok_or("affiliate revenue recognition delta overflow")?;
+
+        if delta != 0 {
+            let (cash_account, receivable_account, revenue_account) =
+                ensure_affiliate_accounts(&tx, company_id, &event_currency(&event.source, &self.company_currency(&company_id).await?),).await?;
+            let transaction_id = Uuid::new_v4();
+            let amount = delta.unsigned_abs().to_string();
+            tx.execute(
+                "INSERT INTO ledger_transactions
+                 (id, company_id, description, idempotency_key)
+                 VALUES ($1,$2,'affiliate revenue recognition',$3)",
+                &[
+                    &transaction_id,
+                    &company_id,
+                    &format!("affiliate:recognition:{}", event.conversion_id),
+                ],
+            )
+            .await?;
+            if delta > 0 {
+                insert_ledger_entry(
+                    &tx,
+                    transaction_id,
+                    receivable_account,
+                    &amount,
+                    "0",
+                    &self.company_currency(&company_id).await?,
+                )
+                .await?;
+                insert_ledger_entry(
+                    &tx,
+                    transaction_id,
+                    revenue_account,
+                    "0",
+                    &amount,
+                    &self.company_currency(&company_id).await?,
+                )
+                .await?;
+            } else {
+                insert_ledger_entry(
+                    &tx,
+                    transaction_id,
+                    revenue_account,
+                    &amount,
+                    "0",
+                    &self.company_currency(&company_id).await?,
+                )
+                .await?;
+                insert_ledger_entry(
+                    &tx,
+                    transaction_id,
+                    receivable_account,
+                    "0",
+                    &amount,
+                    &self.company_currency(&company_id).await?,
+                )
+                .await?;
+            }
+
+            update_snapshot_financials(&tx, company_id, |snapshot| {
+                if delta > 0 {
+                    snapshot.revenue_minor = snapshot
+                        .revenue_minor
+                        .checked_add(delta)
+                        .ok_or("affiliate revenue overflow".to_string())?;
+                    snapshot.assets_minor = snapshot
+                        .assets_minor
+                        .checked_add(delta)
+                        .ok_or("affiliate receivable asset overflow".to_string())?;
+                } else {
+                    let decrease = delta
+                        .checked_neg()
+                        .ok_or("affiliate revenue adjustment overflow".to_string())?;
+                    snapshot.revenue_minor = snapshot
+                        .revenue_minor
+                        .checked_sub(decrease)
+                        .ok_or("affiliate revenue underflow".to_string())?;
+                    snapshot.assets_minor = snapshot
+                        .assets_minor
+                        .checked_sub(decrease)
+                        .ok_or("affiliate receivable asset underflow".to_string())?;
+                }
+                Ok(())
+            })
+            .await?;
+        }
+
+        tx.execute(
+            "INSERT INTO affiliate_revenue_recognition
+             (company_id, conversion_id, currency, recognized_minor, status, ledger_transaction_id)
+             VALUES ($1,$2,$3,$4::numeric,$5,$6)
+             ON CONFLICT (company_id, conversion_id)
+             DO UPDATE SET recognized_minor=EXCLUDED.recognized_minor,
+                           currency=EXCLUDED.currency,
+                           status=EXCLUDED.status,
+                           ledger_transaction_id=EXCLUDED.ledger_transaction_id,
+                           updated_at=now()",
+            &[
+                &company_id,
+                &event.conversion_id,
+                &self.company_currency(&company_id).await?,
+                &target_recognized.to_string(),
+                &if target_recognized > 0 { "RECOGNIZED" } else { "PENDING" },
+                &if delta != 0 { Some(Uuid::new_v4()) } else { None },
+            ],
+        )
+        .await?;
+
+
         }
 
         tx.execute(
