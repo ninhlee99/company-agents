@@ -35,7 +35,13 @@ impl AgentRuntime {
     }
 
     pub async fn run_all(&self, company: CompanySnapshot) -> Vec<AgentRunResult> {
-        self.run_all_with_timeout(company, std::time::Duration::from_millis(15_000)).await
+        let timeout_ms = std::env::var("MODEL_TIMEOUT_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .filter(|v| (250..=120_000).contains(v))
+            .unwrap_or(15_000);
+
+        self.run_all_with_timeout(company, std::time::Duration::from_millis(timeout_ms)).await
     }
 
     pub async fn run_all_with_timeout(&self, company: CompanySnapshot, model_timeout: std::time::Duration) -> Vec<AgentRunResult> {
@@ -51,7 +57,27 @@ impl AgentRuntime {
             let ctx = AgentContext { company: ctx.company.clone(), model_timeout: ctx.model_timeout };
 
             async move {
-                let _permit = concurrency.acquire_owned().await.expect("agent semaphore closed");
+                let permit = concurrency.acquire_owned().await;
+                if permit.is_err() {
+                    return AgentRunResult {
+                        agent: agent.role(),
+                        proposal: crate::types::Proposal {
+                            agent: agent.role(),
+                            objective: "agent runtime unavailable".into(),
+                            action: crate::types::ActionKind::EscalateIncident,
+                            cost_minor: 0,
+                            expected_revenue_minor: 0,
+                            risk: crate::types::RiskTier::Critical,
+                            confidence_bps: 10_000,
+                            evidence: vec!["agent semaphore is closed".into()],
+                            rationale: "runtime failed closed".into(),
+                            reversible: true,
+                            requested_permission: crate::types::Permission::Propose,
+                        },
+                        governance: None,
+                    };
+                }
+                let _permit = permit.expect("checked above");
                 match agent.propose(&ctx, model).await {
                     Ok(proposal) => {
                         let governance = governor.evaluate(proposal.clone(), &ctx.company);
