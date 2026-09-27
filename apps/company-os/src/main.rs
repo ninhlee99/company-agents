@@ -86,12 +86,12 @@ async fn run_cycle(state: &AppState) -> Result<CycleResponse, Box<dyn std::error
     let persisted = state.store.persist_and_execute_cycle(&company, &results).await?;
 
     *state.company.write().await = persisted.snapshot.clone();
-    *state.latest.write().await = results.clone();
+    *state.latest.write().await = persisted.results.clone();
     *state.latest_cycle.write().await = Some(persisted.clone());
 
     Ok(CycleResponse {
         snapshot: persisted.snapshot,
-        results,
+        results: persisted.results,
         receipts: persisted.receipts,
     })
 }
