@@ -1,5 +1,6 @@
 use crate::{
     governor::Governor,
+    tools::ToolRegistry,
     types::{ActionKind, AgentRunResult, CompanySnapshot, GovernedProposal, GovernorDecision},
 };
 
@@ -107,6 +108,30 @@ impl ExecutionEngine {
         governed: &GovernedProposal,
     ) -> ExecutionOutcome {
         let proposal = &governed.proposal;
+        if let Some(tool) = ToolRegistry::for_action(proposal.action) {
+            if !ToolRegistry::allowed(proposal.agent, tool) {
+                return ExecutionOutcome {
+                    agent: proposal.agent,
+                    action: proposal.action,
+                    decision: GovernorDecision::Reject,
+                    executed: false,
+                    state_changed: false,
+                    cost_minor: 0,
+                    reason: "least-privilege tool registry denied the action".into(),
+                };
+            }
+        } else {
+            return ExecutionOutcome {
+                agent: proposal.agent,
+                action: proposal.action,
+                decision: GovernorDecision::Reject,
+                executed: false,
+                state_changed: false,
+                cost_minor: 0,
+                reason: "action has no executable tool binding".into(),
+            };
+        }
+
         if governed.decision != GovernorDecision::Approve {
             return ExecutionOutcome {
                 agent: proposal.agent,
