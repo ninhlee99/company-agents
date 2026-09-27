@@ -174,7 +174,7 @@ pub struct ModelSuggestion {
     pub reversible: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Proposal {
     pub agent: AgentRole,
     pub objective: String,
@@ -189,14 +189,14 @@ pub struct Proposal {
     pub requested_permission: Permission,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GovernedProposal {
     pub proposal: Proposal,
     pub decision: GovernorDecision,
     pub reason: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentRunResult {
     pub agent: AgentRole,
     pub proposal: Proposal,
