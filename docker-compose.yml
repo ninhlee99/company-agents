@@ -6,20 +6,28 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     environment:
+      DATABASE_URL: postgresql://company_os:company_os@postgres:5432/company_agents
+      COMPANY_ID: ${COMPANY_ID:-00000000-0000-0000-0000-000000000001}
+      COMPANY_NAME: ${COMPANY_NAME:-Demo Company}
+      COMPANY_CURRENCY: ${COMPANY_CURRENCY:-USD}
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434/v1}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:4b}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.6-flash}
-      AGENT_CYCLE_SECONDS: ${AGENT_CYCLE_SECONDS:-60}
-      COMPANY_ID: ${COMPANY_ID:-demo-company}
+      AGENT_CYCLE_SECONDS: ${AGENT_CYCLE_SECONDS:-300}
     depends_on:
       postgres:
-        condition: service_started
+        condition: service_healthy
       ollama:
         condition: service_healthy
       ollama-init:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/app/company-os"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
 
   ollama:
@@ -46,19 +54,24 @@ services:
     volumes:
       - ollama_models:/root/.ollama
     entrypoint: ["/bin/sh", "-c"]
-    command: ["ollama pull \\"$OLLAMA_MODEL\\""]
+    command: ["ollama pull \"$OLLAMA_MODEL\""]
     restart: "no"
 
   postgres:
     image: pgvector/pgvector:pg17
     environment:
       POSTGRES_DB: company_agents
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: company_os
+      POSTGRES_PASSWORD: company_os
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
       - company_agents_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U company_os -d company_agents"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
   redis:
     image: redis:7-alpine
