@@ -10,7 +10,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 const SCORE_MAX: u32 = 10_000;
 const DEFAULT_HTTP_TIMEOUT: Duration = Duration::from_secs(15);
@@ -194,6 +194,8 @@ pub struct TikTokShopProvider {
     shop_cipher: Option<String>,
     advertiser_id: String,
     coupon_search_path: String,
+    last_coupons: RwLock<Vec<Coupon>>,
+    search_lock: Mutex<()>,
 }
 
 impl TikTokShopProvider {
@@ -244,6 +246,8 @@ impl TikTokShopProvider {
             shop_cipher,
             advertiser_id,
             coupon_search_path,
+            last_coupons: RwLock::new(Vec::new()),
+            search_lock: Mutex::new(()),
         })
     }
 
@@ -331,6 +335,144 @@ impl TikTokShopProvider {
     }
 
     #[derive(Debug)]
+struct TikTokCouponPage {
+    next_page_token: String,
+    coupons: Vec<Coupon>,
+}
+
+fn parse_tiktok_coupon_response(
+    value: &serde_json::Value,
+    advertiser_id: &str,
+    source: &str,
+) -> Result<TikTokCouponPage, AffiliateError> {
+    let code = value.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
+    if code != 0 {
+        let message = value
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown TikTok coupon API error");
+        return Err(AffiliateError::Provider(format!(
+            "TikTok coupon API code={code}: {message}"
+        )));
+    }
+    let data = value
+        .get("data")
+        .ok_or_else(|| AffiliateError::Parse("TikTok coupon response missing data".into()))?;
+    let next_page_token = data
+        .get("next_page_token")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_owned();
+    let items = data
+        .get("coupons")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| AffiliateError::Parse("TikTok coupon response missing coupons array".into()))?;
+
+    let mut coupons = Vec::new();
+    for item in items.iter().take(100) {
+        let id = match item.get("id").and_then(|v| v.as_str()) {
+            Some(id) if !id.trim().is_empty() => id.trim().to_owned(),
+            _ => continue,
+        };
+        let title = item
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("TikTok Shop coupon")
+            .trim()
+            .to_owned();
+        let display_type = item
+            .get("display_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        let status = item
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        if !status.eq_ignore_ascii_case("ONGOING") {
+            continue;
+        }
+
+        let code = item
+            .get("code")
+            .and_then(|v| v.as_str())
+            .or_else(|| item.get("promo_code").and_then(|v| v.as_str()))
+            .or_else(|| item.get("promotion_code").and_then(|v| v.as_str()))
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(ToOwned::to_owned);
+
+        let discount_bps = item
+            .get("discount")
+            .and_then(|discount| {
+                discount
+                    .get("percentage")
+                    .or_else(|| discount.get("discount_percentage"))
+                    .and_then(|v| v.as_f64())
+            })
+            .filter(|v| v.is_finite() && *v >= 0.0)
+            .map(|v| (v * 100.0).round().min(SCORE_MAX as f64) as u32)
+            .or_else(|| parse_percent_from_text(&title));
+
+        let (starts_at, ends_at) = parse_tiktok_coupon_window(item);
+
+        coupons.push(Coupon {
+            id,
+            advertiser_id: advertiser_id.to_owned(),
+            title,
+            description: if display_type.is_empty() {
+                "TikTok Shop promotion".into()
+            } else {
+                format!("TikTok Shop {display_type} coupon")
+            },
+            code,
+            discount_bps,
+            starts_at,
+            ends_at,
+            active: true,
+            exclusive: display_type.eq_ignore_ascii_case("CREATOR_EXCLUSIVE"),
+            attributable: true,
+            url: None,
+            source: source.into(),
+        });
+    }
+
+    Ok(TikTokCouponPage {
+        next_page_token,
+        coupons,
+    })
+}
+
+fn parse_tiktok_coupon_window(item: &serde_json::Value) -> (Option<String>, Option<String>) {
+    for key in ["redemption_duration", "claim_duration"] {
+        if let Some(duration) = item.get(key) {
+            let start = duration
+                .get("start_time")
+                .and_then(|v| v.as_i64())
+                .and_then(format_unix_rfc3339);
+            let end = duration
+                .get("end_time")
+                .and_then(|v| v.as_i64())
+                .and_then(format_unix_rfc3339);
+            if start.is_some() || end.is_some() {
+                return (start, end);
+            }
+        }
+    }
+    (None, None)
+}
+
+fn format_unix_rfc3339(value: i64) -> Option<String> {
+    let datetime = time::OffsetDateTime::from_unix_timestamp(value).ok()?;
+    datetime
+        .format(&time::format_description::well_known::Rfc3339)
+        .ok()
+}
+
+#[derive(Debug)]
 struct TikTokSearchPage {
     next_page_token: String,
     products: Vec<Product>,
@@ -693,17 +835,15 @@ impl AffiliateProvider for TikTokShopProvider {
     }
 
     async fn search(&self, query: &ProductSearchQuery) -> Result<Vec<Product>, AffiliateError> {
+        let _guard = self.search_lock.lock().await;
         let products = self.fetch_products(query).await?;
         let coupons = self.fetch_coupons(query).await?;
-        if coupons.is_empty() {
-            Ok(products)
-        } else {
-            Ok(products)
-        }
+        *self.last_coupons.write().await = coupons;
+        Ok(products)
     }
 
     async fn coupons(&self) -> Result<Vec<Coupon>, AffiliateError> {
-        Ok(Vec::new())
+        Ok(self.last_coupons.read().await.clone())
     }
 }
 
