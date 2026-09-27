@@ -4,6 +4,10 @@ pub struct Governor;
 
 impl Governor {
     pub fn evaluate(&self, proposal: Proposal, company: &CompanySnapshot) -> GovernedProposal {
+        if let Err(error) = proposal.validate() {
+            return GovernedProposal { proposal, decision: GovernorDecision::Reject, reason: error };
+        }
+
         if proposal.agent == AgentRole::Governor {
             return GovernedProposal {
                 proposal,
