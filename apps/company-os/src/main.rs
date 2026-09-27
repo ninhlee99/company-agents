@@ -390,6 +390,28 @@ async fn affiliate_performance_api(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
+async fn journal_api(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    state
+        .store
+        .recent_journal(&state.company_id, 100)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn affiliate_performance_api(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    state
+        .store
+        .content_affiliate_performance(&state.company_id, 100)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 async fn healthz() -> &'static str {
     "ok"
 }
@@ -497,6 +519,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/affiliate/click", post(affiliate_click_api))
         .route("/api/affiliate/conversion", post(affiliate_conversion_api))
         .route("/api/affiliate/performance", get(affiliate_performance_api))
+        .route("/api/journal", get(journal_api))
         .route("/healthz", get(healthz))
         .with_state(state);
 
