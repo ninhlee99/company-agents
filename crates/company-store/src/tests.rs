@@ -283,6 +283,48 @@ async fn durable_agent_memory_round_trips_and_rate_limit_is_enforced() {
 }
 
 #[tokio::test]
+async fn affiliate_partial_reconciliation_replays_exact_status_and_variance() {
+    let Some(store) = connect_store().await else {
+        return;
+    };
+
+    let company_id = uuid::Uuid::new_v4().to_string();
+    store
+        .ensure_company(&company_id, "Affiliate Replay Test", "USD")
+        .await
+        .unwrap();
+
+    let event = affiliate_attribution::ConversionEvent {
+        company_id: company_id.clone(),
+        conversion_id: "conversion-partial".into(),
+        click_id: None,
+        order_id: "order-partial".into(),
+        product_id: "product-no-click".into(),
+        advertiser_id: "advertiser".into(),
+        occurred_at: "2026-09-27T10:00:00Z".into(),
+        order_value_minor: 1_000,
+        commission_minor: 100,
+        refunded_minor: 0,
+        cancelled: false,
+        source: "integration-test".into(),
+    };
+
+    let first = store
+        .record_affiliate_conversion(&event, affiliate_attribution::AttributionModel::LastClick)
+        .await
+        .unwrap();
+    let second = store
+        .record_affiliate_conversion(&event, affiliate_attribution::AttributionModel::LastClick)
+        .await
+        .unwrap();
+
+    assert_eq!(first.status, affiliate_attribution::ReconciliationStatus::Partial);
+    assert_eq!(first.reconciliation_variance_minor, 100);
+    assert_eq!(second.status, first.status);
+    assert_eq!(second.reconciliation_variance_minor, first.reconciliation_variance_minor);
+}
+
+#[tokio::test]
 async fn invalid_company_id_is_rejected() {
     let Some(store) = connect_store().await else {
         return;
