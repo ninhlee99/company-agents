@@ -4,14 +4,13 @@ on:
     types: [synchronize, reopened]
 permissions:
   contents: read
-  issues: write
 jobs:
   report:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Run compile diagnostics
+      - name: Run diagnostics
         shell: bash
         run: |
           set +e
@@ -22,9 +21,12 @@ jobs:
             echo '=== CHECK ==='
             cargo check --workspace --all-targets
             echo CHECK_EXIT=$?
-          } 2>&1 | tee /tmp/ci-output.log
-      - name: Create temporary issue with diagnostic
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh issue create --repo "${{ github.repository }}" --title "TEMP-CI-DIAGNOSTIC-${{ github.event.pull_request.number }}" --body-file /tmp/ci-output.log
+          } 2>&1 | tee diagnostic.log
+          exit 0
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: company-agents-diagnostic
+          path: diagnostic.log
+          if-no-files-found: error
