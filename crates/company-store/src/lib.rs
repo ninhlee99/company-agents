@@ -1606,6 +1606,7 @@ impl CompanyStore {
                     "schema_version": row.get::<_, i32>(4),
                     "payload": row.get::<_, serde_json::Value>(5),
                     "attempt_count": row.get::<_, i32>(6),
+                    "lease_token": row.get::<_, Option<Uuid>>(7).map(|value| value.to_string()),
                 })
             })
             .collect::<Vec<_>>();
