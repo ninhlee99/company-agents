@@ -560,6 +560,55 @@ async fn affiliate_providers(State(state): State<AppState>) -> Json<Vec<String>>
     )
 }
 
+async fn outbox_worker(
+    store: Arc<CompanyStore>,
+    client: reqwest::Client,
+    webhook_url: Option<String>,
+    bearer: Option<String>,
+    owner: String,
+) {
+    loop {
+        if let Some(url) = webhook_url.as_deref() {
+            match store.claim_outbox_events(&owner, 10, 120).await {
+                Ok(events) => {
+                    for event in events {
+                        let mut request = client.post(url).json(&event);
+                        if let Some(token) = bearer.as_deref() {
+                            request = request.bearer_auth(token);
+                        }
+                        let result = request.send().await.and_then(|response| {
+                            if response.status().is_success() {
+                                Ok(())
+                            } else {
+                                Err(reqwest::Error::from(
+                                    reqwest::StatusCode::INTERNAL_SERVER_ERROR
+                                ))
+                            }
+                        });
+
+                        match result {
+                            Ok(()) => {
+                                let _ = store.mark_outbox_published(event.id).await;
+                            }
+                            Err(error) => {
+                                let _ = store.fail_outbox_event(
+                                    event.id,
+                                    &owner,
+                                    &error.to_string(),
+                                    30,
+                                ).await;
+                            }
+                        }
+                    }
+                }
+                Err(error) => eprintln!("outbox claim error: {error}"),
+            }
+        }
+
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+}
+
 async fn healthz() -> &'static str {
     "ok"
 }
@@ -611,6 +660,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .store
         .ensure_cycle_schedule(&company_id, interval_secs as i64)
         .await?;
+
+    let outbox_client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(20))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+    let outbox_store = state.store.clone();
+    let outbox_url = std::env::var("OUTBOX_WEBHOOK_URL").ok().filter(|v| !v.trim().is_empty());
+    let outbox_bearer = std::env::var("OUTBOX_WEBHOOK_BEARER").ok().filter(|v| !v.trim().is_empty());
+    let outbox_owner = format!("company-os:{}", Uuid::new_v4());
+    tokio::spawn(outbox_worker(
+        outbox_store,
+        outbox_client,
+        outbox_url,
+        outbox_bearer,
+        outbox_owner,
+    ));
 
     let background = state.clone();
     let scheduled_company_id = company_id.clone();
