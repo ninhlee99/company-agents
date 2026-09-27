@@ -125,24 +125,27 @@ async fn run_cycle_with_id(
         .persist_decision_cycle(&next_company, &cycle_id, &results, &outcomes)
         .await?;
 
-    if persisted == company_store::PersistCycleResult::AlreadyProcessed {
-        if let Some(existing) = state.store.load_cycle_results(&cycle_id).await? {
-            *state.latest.write().await = existing.clone();
-            if let Some(snapshot) = state.store.load_snapshot(&next_company.company_id).await? {
-                *state.company.write().await = snapshot;
+    match persisted {
+        company_store::PersistCycleResult::AlreadyProcessed => {
+            if let Some(existing) = state.store.load_cycle_results(&cycle_id).await? {
+                *state.latest.write().await = existing.clone();
+                if let Some(snapshot) = state.store.load_snapshot(&next_company.company_id).await? {
+                    *state.company.write().await = snapshot;
+                }
+                return Ok(existing);
             }
-            return Ok(existing);
+            Err("cycle was already processed but durable results are unavailable".into())
+        }
+        company_store::PersistCycleResult::InProgress => {
+            Err("cycle is already being processed by another Company OS instance".into())
+        }
+        company_store::PersistCycleResult::Committed => {
+            *state.company.write().await = next_company;
+            *state.latest.write().await = results.clone();
+            *state.latest_outcomes.write().await = outcomes;
+            Ok(results)
         }
     }
-
-    *state.company.write().await = next_company;
-    *state.latest.write().await = results.clone();
-    *state.latest_outcomes.write().await = outcomes;
-    Ok(results)
-}
-
-async fn run_cycle(state: &AppState) -> Result<Vec<AgentRunResult>, Box<dyn std::error::Error + Send + Sync>> {
-    run_cycle_with_id(state, Uuid::new_v4().to_string()).await
 }
 
 async fn store_cycle(
@@ -358,10 +361,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let scheduled_company_id = company_id.clone();
     tokio::spawn(async move {
         loop {
+            if let Err(error) = background.store.recover_stale_cycles(900).await {
+                eprintln!("scheduler recovery error: {error}");
+            }
+
             match background.store.claim_due_cycle_for(&scheduled_company_id).await {
                 Ok(true) => {
                     if let Err(error) = run_cycle(&background).await {
                         eprintln!("scheduled agent cycle error: {error}");
+                        if let Err(retry_error) = background.store
+                            .retry_cycle_schedule(&scheduled_company_id, 30)
+                            .await
+                        {
+                            eprintln!("scheduler retry error: {retry_error}");
+                        }
                     }
                 }
                 Ok(false) => {}
