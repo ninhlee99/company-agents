@@ -878,15 +878,17 @@ impl CompanyStore {
                     )
                     .await?
                     .into_iter()
-                    .map(|r| affiliate_attribution::Attribution {
-                        click_id: r.get(0),
-                        product_id: r.get(1),
-                        content_id: r.get(2),
-                        attributed_order_value_minor: parse_i128_numeric(&r.get::<_, String>(3))?,
-                        attributed_commission_minor: parse_i128_numeric(&r.get::<_, String>(4))?,
-                        confidence_bps: (r.get::<_, i32>(5)).clamp(0, 10_000) as u32,
+                    .map(|r| -> Result<affiliate_attribution::Attribution, Box<dyn std::error::Error + Send + Sync>> {
+                        Ok(affiliate_attribution::Attribution {
+                            click_id: r.get(0),
+                            product_id: r.get(1),
+                            content_id: r.get(2),
+                            attributed_order_value_minor: parse_i128_numeric(&r.get::<_, String>(3))?,
+                            attributed_commission_minor: parse_i128_numeric(&r.get::<_, String>(4))?,
+                            confidence_bps: (r.get::<_, i32>(5)).clamp(0, 10_000) as u32,
+                        })
                     })
-                    .collect(),
+                    .collect::<Result<Vec<_>, _>>()?,
                 net_commission_minor: parse_i128_numeric(&row.get::<_, String>(2))?,
                 reconciliation_variance_minor: 0,
                 status: affiliate_attribution::ReconciliationStatus::Verified,
