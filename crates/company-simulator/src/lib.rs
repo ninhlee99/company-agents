@@ -108,7 +108,7 @@ pub async fn run(config: SimConfig) -> SimulationResult {
         let content_revenue = audience
             .saturating_mul(conversion_bps as u64)
             .saturating_mul(content_efficiency_bps as u64)
-            .saturating_div(100_000_000) as i128;
+            / 100_000_000_u64 as i128;
 
         let sponsor_revenue = if rng.pct(150) { 250_i128 } else { 0 };
         let affiliate_revenue = content_revenue / 2;
