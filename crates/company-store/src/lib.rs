@@ -694,54 +694,73 @@ impl CompanyStore {
         };
         let job_id: Uuid = row.get(0);
         let run_token: Uuid = row.get(1);
+        let lease_token = Uuid::new_v4();
         tx.execute(
             "UPDATE scheduled_jobs
                 SET locked_until = now() + interval '5 minutes',
+                    lease_token = $2,
                     updated_at = now()
               WHERE id = $1",
-            &[&job_id],
+            &[&job_id, &lease_token],
         )
         .await?;
         tx.commit().await?;
-        Ok(Some((job_id, run_token)))
+        Ok(Some((job_id, run_token, lease_token)))
     }
 
     pub async fn complete_job(
         &self,
         job_id: Uuid,
+        run_token: Uuid,
+        lease_token: Uuid,
         next_run_token: Uuid,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let client = self.client.lock().await;
-        client
+        let updated = client
             .execute(
                 "UPDATE scheduled_jobs
                     SET next_run_at = now() +
                         make_interval(secs => interval_seconds),
                         locked_until = NULL,
-                        run_token = $2,
+                        lease_token = NULL,
+                        run_token = $4,
                         updated_at = now()
-                  WHERE id = $1",
-                &[&job_id, &next_run_token],
+                  WHERE id = $1
+                    AND run_token = $2
+                    AND lease_token = $3
+                    AND locked_until > now()",
+                &[&job_id, &run_token, &lease_token, &next_run_token],
             )
             .await?;
+        if updated != 1 {
+            return Err("scheduler completion rejected: stale or invalid lease".into());
+        }
         Ok(())
     }
 
     pub async fn release_job_after_failure(
         &self,
         job_id: Uuid,
+        run_token: Uuid,
+        lease_token: Uuid,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let client = self.client.lock().await;
-        client
+        let updated = client
             .execute(
                 "UPDATE scheduled_jobs
                     SET next_run_at = now() + interval '30 seconds',
                         locked_until = NULL,
+                        lease_token = NULL,
                         updated_at = now()
-                  WHERE id = $1",
-                &[&job_id],
+                  WHERE id = $1
+                    AND run_token = $2
+                    AND lease_token = $3",
+                &[&job_id, &run_token, &lease_token],
             )
             .await?;
+        if updated != 1 {
+            return Err("scheduler failure release rejected: stale or invalid lease".into());
+        }
         Ok(())
     }
 
