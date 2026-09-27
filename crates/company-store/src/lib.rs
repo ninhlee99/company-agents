@@ -1416,61 +1416,46 @@ impl CompanyStore {
         &self,
         event: &affiliate_attribution::ConversionEvent,
         model: affiliate_attribution::AttributionModel,
-    ) -> Result<affiliate_attribution::ReconciledConversion, Box<dyn std::error::Error + Send + Sync>>
-    {
+    ) -> Result<
+        affiliate_attribution::ReconciledConversion,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
         let company_id = Uuid::parse_str(&event.company_id)?;
+        let currency = self.company_currency(&company_id).await?;
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
+        let idempotency_key = affiliate_attribution::conversion_idempotency_key(event);
 
         if let Some(row) = tx
             .query_opt(
-                "SELECT conversion_id, order_value_minor::text, commission_minor::text,
-                        refunded_minor::text, cancelled, click_id, product_id,
-                        advertiser_id, occurred_at, source,
-                        reconciliation_status, reconciliation_variance_minor::text
+                "SELECT conversion_id, commission_minor::text,
+                        reconciliation_status,
+                        reconciliation_variance_minor::text
                    FROM affiliate_conversions
-                  WHERE company_id = $1 AND idempotency_key = $2",
-                &[
-                    &company_id,
-                    &affiliate_attribution::conversion_idempotency_key(event),
-                ],
+                  WHERE company_id=$1 AND idempotency_key=$2",
+                &[&company_id, &idempotency_key],
             )
             .await?
         {
             let conversion_id: String = row.get(0);
-            let result = affiliate_attribution::ReconciledConversion {
-                conversion_id,
-                attributed: tx
-                    .query(
-                        "SELECT click_id, product_id, content_id,
-                                attributed_order_value_minor::text,
-                                attributed_commission_minor::text,
-                                confidence_bps
-                           FROM affiliate_attributions
-                          WHERE company_id = $1 AND conversion_id = $2
-                          ORDER BY click_id",
-                        &[&company_id, &row.get::<_, String>(0)],
-                    )
-                    .await?
-                    .into_iter()
-                    .map(|r| affiliate_attribution::Attribution {
-                        click_id: r.get(0),
-                        product_id: r.get(1),
-                        content_id: r.get(2),
-                        attributed_order_value_minor: parse_i128_numeric(&r.get::<_, String>(3))?,
-                        attributed_commission_minor: parse_i128_numeric(&r.get::<_, String>(4))?,
-                        confidence_bps: (r.get::<_, i32>(5)).clamp(0, 10_000) as u32,
-                    })
-                    .collect(),
-                net_commission_minor: parse_i128_numeric(&row.get::<_, String>(2))?,
-                reconciliation_variance_minor: parse_i128_numeric(
-                    &row.get::<_, String>(11),
-                )?,
-                status: parse_reconciliation_status(&row.get::<_, String>(10))?,
-                idempotency_key: affiliate_attribution::conversion_idempotency_key(event),
-            };
+            let status = parse_reconciliation_status(&row.get::<_, String>(2))?;
+            let variance = parse_i128_numeric(&row.get::<_, String>(3))?;
+            let attributed = load_affiliate_attributions(
+                &tx,
+                company_id,
+                &conversion_id,
+            )
+            .await?;
+            let net_commission = parse_i128_numeric(&row.get::<_, String>(1))?;
             tx.rollback().await?;
-            return Ok(result);
+            return Ok(affiliate_attribution::ReconciledConversion {
+                conversion_id,
+                attributed,
+                net_commission_minor: net_commission,
+                reconciliation_variance_minor: variance,
+                status,
+                idempotency_key,
+            });
         }
 
         let rows = tx
@@ -1478,11 +1463,12 @@ impl CompanyStore {
                 "SELECT click_id, company_id, product_id, advertiser_id, content_id,
                         occurred_at, source
                    FROM affiliate_clicks
-                  WHERE company_id = $1 AND product_id = $2 AND advertiser_id = $3
+                  WHERE company_id=$1 AND product_id=$2 AND advertiser_id=$3
                   ORDER BY occurred_at ASC, click_id ASC",
                 &[&company_id, &event.product_id, &event.advertiser_id],
             )
             .await?;
+
         let clicks = rows
             .into_iter()
             .map(|row| affiliate_attribution::ClickEvent {
@@ -1502,14 +1488,13 @@ impl CompanyStore {
         let order_value = event.order_value_minor.to_string();
         let commission = event.commission_minor.to_string();
         let refunded = event.refunded_minor.to_string();
-        let idempotency_key = reconciled.idempotency_key.clone();
 
         tx.execute(
             "INSERT INTO affiliate_conversions
              (company_id, conversion_id, click_id, order_id, product_id,
               advertiser_id, occurred_at, order_value_minor, commission_minor,
               refunded_minor, cancelled, source, idempotency_key,
-             reconciliation_status, reconciliation_variance_minor)
+              reconciliation_status, reconciliation_variance_minor)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8::numeric,$9::numeric,$10::numeric,
                      $11,$12,$13,$14,$15::numeric)",
             &[
@@ -1534,11 +1519,12 @@ impl CompanyStore {
 
         for attribution in &reconciled.attributed {
             let value = attribution.attributed_order_value_minor.to_string();
-            let commission = attribution.attributed_commission_minor.to_string();
+            let attributed_commission = attribution.attributed_commission_minor.to_string();
             tx.execute(
                 "INSERT INTO affiliate_attributions
                  (company_id, conversion_id, click_id, product_id, content_id,
-                  attributed_order_value_minor, attributed_commission_minor, confidence_bps)
+                  attributed_order_value_minor, attributed_commission_minor,
+                  confidence_bps)
                  VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8)
                  ON CONFLICT (company_id, conversion_id, click_id) DO NOTHING",
                 &[
@@ -1548,11 +1534,14 @@ impl CompanyStore {
                     &attribution.product_id,
                     &attribution.content_id,
                     &value,
-                    &commission,
+                    &attributed_commission,
                     &(attribution.confidence_bps as i32),
                 ],
             )
-            .await?;        let target_recognized = if matches!(
+            .await?;
+        }
+
+        let target_recognized = if matches!(
             reconciled.status,
             affiliate_attribution::ReconciliationStatus::Verified
         ) {
@@ -1563,27 +1552,36 @@ impl CompanyStore {
 
         let prior = tx
             .query_opt(
-                "SELECT recognized_minor::text, currency
+                "SELECT recognized_minor::text, ledger_transaction_id
                    FROM affiliate_revenue_recognition
                   WHERE company_id=$1 AND conversion_id=$2
                   FOR UPDATE",
                 &[&company_id, &event.conversion_id],
             )
             .await?;
+
         let prior_recognized = prior
             .as_ref()
             .map(|row| parse_i128_numeric(&row.get::<_, String>(0)))
             .transpose()?
             .unwrap_or(0);
+
         let delta = target_recognized
             .checked_sub(prior_recognized)
             .ok_or("affiliate revenue recognition delta overflow")?;
 
+        let mut ledger_transaction_id = prior
+            .as_ref()
+            .and_then(|row| row.get::<_, Option<Uuid>>(1));
+
         if delta != 0 {
             let (cash_account, receivable_account, revenue_account) =
-                ensure_affiliate_accounts(&tx, company_id, &event_currency(&event.source, &self.company_currency(&company_id).await?),).await?;
+                ensure_affiliate_accounts(&tx, company_id, &currency).await?;
+
             let transaction_id = Uuid::new_v4();
+            ledger_transaction_id = Some(transaction_id);
             let amount = delta.unsigned_abs().to_string();
+
             tx.execute(
                 "INSERT INTO ledger_transactions
                  (id, company_id, description, idempotency_key)
@@ -1595,6 +1593,7 @@ impl CompanyStore {
                 ],
             )
             .await?;
+
             if delta > 0 {
                 insert_ledger_entry(
                     &tx,
@@ -1602,7 +1601,7 @@ impl CompanyStore {
                     receivable_account,
                     &amount,
                     "0",
-                    &self.company_currency(&company_id).await?,
+                    &currency,
                 )
                 .await?;
                 insert_ledger_entry(
@@ -1611,7 +1610,7 @@ impl CompanyStore {
                     revenue_account,
                     "0",
                     &amount,
-                    &self.company_currency(&company_id).await?,
+                    &currency,
                 )
                 .await?;
             } else {
@@ -1621,7 +1620,7 @@ impl CompanyStore {
                     revenue_account,
                     &amount,
                     "0",
-                    &self.company_currency(&company_id).await?,
+                    &currency,
                 )
                 .await?;
                 insert_ledger_entry(
@@ -1630,7 +1629,7 @@ impl CompanyStore {
                     receivable_account,
                     "0",
                     &amount,
-                    &self.company_currency(&company_id).await?,
+                    &currency,
                 )
                 .await?;
             }
@@ -1665,7 +1664,8 @@ impl CompanyStore {
 
         tx.execute(
             "INSERT INTO affiliate_revenue_recognition
-             (company_id, conversion_id, currency, recognized_minor, status, ledger_transaction_id)
+             (company_id, conversion_id, currency, recognized_minor, status,
+              ledger_transaction_id)
              VALUES ($1,$2,$3,$4::numeric,$5,$6)
              ON CONFLICT (company_id, conversion_id)
              DO UPDATE SET recognized_minor=EXCLUDED.recognized_minor,
@@ -1676,20 +1676,17 @@ impl CompanyStore {
             &[
                 &company_id,
                 &event.conversion_id,
-                &self.company_currency(&company_id).await?,
+                &currency,
                 &target_recognized.to_string(),
                 &if target_recognized > 0 { "RECOGNIZED" } else { "PENDING" },
-                &if delta != 0 { Some(Uuid::new_v4()) } else { None },
+                &ledger_transaction_id,
             ],
         )
         .await?;
 
-
-        }
-
         tx.execute(
             "INSERT INTO outbox_events
-             (company_id, event_type, aggregate_id, idempotency_key, payload)
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
              VALUES ($1,'AFFILIATE_CONVERSION_RECONCILED',$2,$3,$4)
              ON CONFLICT (company_id, idempotency_key) DO NOTHING",
             &[
