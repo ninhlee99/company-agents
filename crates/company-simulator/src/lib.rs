@@ -172,6 +172,9 @@ pub async fn run(config: SimConfig) -> SimulationResult {
                     if receipt.status == ExecutionStatus::Rejected {
                         violations.push(format!("day {day}: execution rejected for {:?}: {}", receipt.action, receipt.reason));
                     }
+                    if receipt.status == ExecutionStatus::Executed && receipt.action == agent_runtime::types::ActionKind::CreateExperiment {
+                        content_efficiency_bps = content_efficiency_bps.saturating_add(50).min(20_000);
+                    }
                 }
                 cash = batch.snapshot.cash_minor;
                 expenses = batch.snapshot.expenses_minor;
