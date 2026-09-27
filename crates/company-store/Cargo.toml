@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 agent-runtime = { path = "../agent-runtime" }
+async-trait = "0.1"
 company-execution = { path = "../company-execution" }
 economic-core = { path = "../economic-core" }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
