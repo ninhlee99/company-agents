@@ -483,8 +483,7 @@ fn economics_assessment(product: &Product, coupons: &[Coupon]) -> EconomicsAsses
         .commission_fixed_minor
         .map(|value| {
             let base = product.price_minor.max(1);
-            ((value.max(0).saturating_mul(SCORE_MAX as i128) / base)
-                .min(SCORE_MAX as i128)) as u32
+            ((value.max(0).saturating_mul(SCORE_MAX as i128) / base).min(SCORE_MAX as i128)) as u32
         })
         .unwrap_or(0);
     let coupon_bonus = effective_discount_bps.unwrap_or(0).min(SCORE_MAX);
