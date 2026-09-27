@@ -162,9 +162,7 @@ mod tests {
     #[test]
     fn governor_approves_small_reversible_action() {
         assert_eq!(
-            Governor
-                .evaluate(proposal(), &snapshot())
-                .decision,
+            Governor.evaluate(proposal(), &snapshot()).decision,
             GovernorDecision::Approve
         );
     }
