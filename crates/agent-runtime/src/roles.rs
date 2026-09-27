@@ -6,12 +6,6 @@ use crate::{
 use async_trait::async_trait;
 use std::sync::Arc;
 
-macro_rules! role_prompt {
-    ($path:literal) => {
-        include_str!(concat!("../../../agents/", $path, "/agent.md"))
-    };
-}
-
 fn evidence(ctx: &AgentContext, item: &str) -> Vec<String> {
     vec![item.to_owned(), format!("status={:?}", ctx.company.status), format!("runway_days={}", ctx.company.runway_days)]
 }
