@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "apps/company-os",
+  "apps/media-worker",
   "crates/economic-core",
   "crates/agent-runtime",
   "crates/company-simulator",
