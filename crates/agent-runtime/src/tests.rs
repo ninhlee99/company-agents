@@ -457,6 +457,51 @@ fn governor_firewall_covers_all_agent_action_status_combinations() {
 }
 
 #[tokio::test]
+async fn safety_escalation_is_governable_for_model_failures() {
+    struct FailingModel;
+    #[async_trait]
+    impl Model for FailingModel {
+        async fn propose_json(&self, _: &str, _: &str) -> Result<serde_json::Value, ModelError> {
+            Err(ModelError::Transport("outage".into()))
+        }
+    }
+
+    let runtime = AgentRuntime::new_with_concurrency(Box::new(FailingModel), 4);
+    for result in runtime.run_all(healthy_company()).await {
+        assert_eq!(result.proposal.action, ActionKind::EscalateIncident);
+        assert_eq!(result.governance.unwrap().decision, GovernorDecision::Escalate);
+    }
+}
+
+#[tokio::test]
+async fn context_policy_blocks_growth_experiment_when_conversion_is_weak() {
+    let mut company = healthy_company();
+    company.conversion_bps = 50;
+    let proposal = proposal_for(Arc::new(GrowthAgent), company).await;
+    assert_eq!(proposal.action, ActionKind::ResearchOpportunity);
+    assert_eq!(proposal.cost_minor, 0);
+}
+
+#[tokio::test]
+async fn content_publish_is_material_and_cannot_auto_execute() {
+    let proposal = Proposal {
+        agent: AgentRole::Content,
+        objective: "publish tested content".into(),
+        action: ActionKind::PublishContent,
+        cost_minor: 0,
+        expected_revenue_minor: 100,
+        risk: RiskTier::Medium,
+        confidence_bps: 9000,
+        evidence: vec!["qa approved".into()],
+        rationale: "external side effect".into(),
+        reversible: true,
+        requested_permission: Permission::Propose,
+    };
+    let governed = crate::governor::Governor.evaluate(&crate::governor::Governor, proposal, &healthy_company());
+    assert_eq!(governed.decision, GovernorDecision::Escalate);
+}
+
+#[tokio::test]
 async fn runtime_replay_is_deterministic() {
     let runtime = AgentRuntime::new_with_concurrency(Box::new(MockModel), 2);
     let company = healthy_company();
