@@ -348,7 +348,7 @@ async fn healthz() -> &'static str {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let database_url = std::env::var("DATABASE_URL")?;
     let company_id = std::env::var("COMPANY_ID")
         .unwrap_or_else(|_| "00000000-0000-0000-0000-000000000001".into());
