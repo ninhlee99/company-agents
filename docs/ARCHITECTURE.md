@@ -9,11 +9,11 @@
 5. Workflow — durable event-driven jobs and scheduled loops
 6. Integrations — media platforms, CRM, payments, cloud, communications
 7. Intelligence — analytics, forecasting, experimentation
-8. UI — Go server-rendered company cockpit and audit views
+8. UI — Rust server-rendered company cockpit and audit views
 
 ## Runtime
 
-The primary runtime is a Go modular monolith.
+The primary runtime is a Rust modular monolith.
 
 event -> scheduler -> agent -> typed proposal -> governance -> deterministic executor -> event
 
@@ -21,20 +21,16 @@ Company state is read from domain services and the ledger. Agents never receive 
 
 ## Repository layout
 
-cmd/company-os/
-internal/
-  agent/
-  domain/
-  economics/
-  governance/
-  events/
-  workflow/
-  integrations/
-  analytics/
-  http/
-web/
-  templates/
-  static/
+apps/company-os/
+crates/economic-core/
+internal/agent/
+internal/governance/
+internal/events/
+internal/workflow/
+internal/integrations/
+internal/analytics/
+web/templates/
+web/static/
 agents/
 skills/
 infra/
@@ -43,13 +39,7 @@ simulation/
 
 ## UI strategy
 
-There is no React or Vue application.
-
-The operator UI is served directly by Go:
-- server-rendered HTML templates
-- ordinary HTTP forms/actions
-- progressively enhanced fragments only when useful
-- audit-friendly pages with stable URLs
+There is no React or Vue application. The operator UI is served directly by Rust as server-rendered HTML.
 
 The first dashboard exposes:
 - cash, revenue, expenses, free cash flow and runway
@@ -63,4 +53,4 @@ The first dashboard exposes:
 
 Agents never receive unrestricted database credentials. Tools expose narrow capabilities such as request_expense, propose_hire, create_experiment and publish_content.
 
-Money, permissions and company state are enforced by deterministic Go services and PostgreSQL constraints.
+Money, permissions and company state are enforced by deterministic Rust services and PostgreSQL constraints.
