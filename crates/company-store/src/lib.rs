@@ -1477,23 +1477,26 @@ impl CompanyStore {
         };
         media_pipeline::validate_job(&job).map_err(|error| error.to_string())?;
 
+        let lease_token = Uuid::new_v4();
         tx.execute(
             "UPDATE media_jobs
                 SET status='RUNNING', attempts=attempts+1,
                     locked_until=now()+interval '15 minutes',
+                    lease_token=$2,
                     updated_at=now()
               WHERE id=$1 AND (status='QUEUED' OR (status='RUNNING' AND locked_until <= now()))
             ",
-            &[&id],
+            &[&id, &lease_token],
         )
         .await?;
         tx.commit().await?;
-        Ok(Some(job))
+        Ok(Some((job, lease_token)))
     }
 
     pub async fn finish_media_job(
         &self,
         job_id: &str,
+        lease_token: Uuid,
         status: &str,
         error: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -1511,11 +1514,14 @@ impl CompanyStore {
                           ELSE $2
                         END,
                         locked_until = NULL,
+                        lease_token = NULL,
                         last_error = $3,
                         updated_at = now()
                   WHERE id = $1
-                    AND status = 'RUNNING'",
-                &[&id, &status, &bounded_error],
+                    AND status = 'RUNNING'
+                    AND lease_token = $4
+                    AND locked_until > now()",
+                &[&id, &status, &bounded_error, &lease_token],
             )
             .await?;
         if updated != 1 {
