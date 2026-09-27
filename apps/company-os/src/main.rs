@@ -25,6 +25,7 @@ struct AppState {
     affiliate: Arc<dyn AffiliateProvider>,
     cycle_lock: Arc<Mutex<()>>,
     company_id: String,
+    currency: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -50,14 +51,25 @@ struct AffiliateSearchParams {
     as_of_date: Option<String>,
 }
 
-fn format_minor(value: i128) -> String {
+fn format_minor(value: i128, currency: &str) -> String {
     let negative = value < 0;
     let absolute = value.unsigned_abs();
-    let whole = absolute / 100;
-    let cents = absolute % 100;
-    let rendered = format!("{}.{:02}", whole, cents);
-    let prefix = if negative { "-$" } else { "$" };
-    format!("{}{}", prefix, rendered)
+    let zero_decimal = matches!(
+        currency.to_ascii_uppercase().as_str(),
+        "VND" | "JPY" | "KRW" | "IDR"
+    );
+    let (whole, fraction, digits) = if zero_decimal {
+        (absolute, 0, 0)
+    } else {
+        (absolute / 100, absolute % 100, 2)
+    };
+    let rendered = if digits == 0 {
+        whole.to_string()
+    } else {
+        format!("{}.{:02}", whole, fraction)
+    };
+    let prefix = if negative { "-" } else { "" };
+    format!("{}{} {}", prefix, currency.to_ascii_uppercase(), rendered)
 }
 
 fn seed_company(company_id: String) -> CompanySnapshot {
@@ -224,9 +236,9 @@ code{{background:#f2f2f2;padding:2px 5px;border-radius:5px}}
 <small>Example: <code>/api/affiliate/search?category=electronics&amp;min_commission_bps=1500&amp;require_coupon=true</code></small>
 </div>
 </body></html>"#,
-        format_minor(company.cash_minor),
-        format_minor(company.revenue_minor),
-        format_minor(company.expenses_minor),
+        format_minor(company.cash_minor, &state.currency),
+        format_minor(company.revenue_minor, &state.currency),
+        format_minor(company.expenses_minor, &state.currency),
         company.runway_days,
         company.status,
         executed,
@@ -312,6 +324,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         affiliate,
         cycle_lock: Arc::new(Mutex::new(())),
         company_id: company_id.clone(),
+        currency: currency.clone(),
     };
 
     let interval_secs = std::env::var("AGENT_CYCLE_SECONDS")
