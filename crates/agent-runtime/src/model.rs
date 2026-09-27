@@ -103,13 +103,15 @@ impl Model for OpenAiCompatibleModel {
             .and_then(Value::as_str)
             .ok_or_else(|| ModelError::InvalidResponse("missing choices[0].message.content".into()))?;
 
-        match serde_json::from_str(content) {
-            Ok(value) => Ok(value),
-            Err(_) => Ok(json!({
-                "summary": content,
-                "confidence": 0.0
-            })),
-        }
+        let normalized = content
+            .trim()
+            .strip_prefix("```json")
+            .and_then(|v| v.strip_suffix("```"))
+            .map(str::trim)
+            .unwrap_or_else(|| content.trim());
+
+        serde_json::from_str(normalized)
+            .map_err(|e| ModelError::InvalidResponse(format!("content is not valid JSON: {e}")))
     }
 }
 
