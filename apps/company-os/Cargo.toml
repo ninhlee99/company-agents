@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 agent-runtime = { path = "../../crates/agent-runtime" }
+company-store = { path = "../../crates/company-store" }
 axum = "0.8"
 economic-core = { path = "../../crates/economic-core" }
 serde_json = "1"
