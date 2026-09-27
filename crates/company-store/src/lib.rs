@@ -63,6 +63,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/005_media_jobs.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/006_company_portfolio.sql"
+            ))
             .await
     }
 
@@ -132,6 +137,52 @@ impl CompanyStore {
         .await?;
         update_company_status(&tx, id, snapshot).await?;
         tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn load_portfolio(
+        &self,
+        company_id: &str,
+    ) -> Result<Option<business_economics::CompanyPortfolio>, Box<dyn std::error::Error + Send + Sync>> {
+        let id = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "SELECT state FROM company_portfolio_snapshots WHERE company_id = $1",
+                &[&id],
+            )
+            .await?;
+        match row {
+            Some(row) => {
+                let state: serde_json::Value = row.get(0);
+                let portfolio: business_economics::CompanyPortfolio =
+                    serde_json::from_value(state)?;
+                portfolio.validate().map_err(|error| error.to_string())?;
+                Ok(Some(portfolio))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub async fn save_portfolio(
+        &self,
+        company_id: &str,
+        portfolio: &business_economics::CompanyPortfolio,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        portfolio.validate().map_err(|error| error.to_string())?;
+        let id = Uuid::parse_str(company_id)?;
+        let state = serde_json::to_value(portfolio)?;
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "INSERT INTO company_portfolio_snapshots
+                 (company_id, schema_version, state)
+                 VALUES ($1, 1, $2)
+                 ON CONFLICT (company_id) DO UPDATE
+                 SET schema_version = 1, state = EXCLUDED.state, updated_at = now()",
+                &[&id, &state],
+            )
+            .await?;
         Ok(())
     }
 
