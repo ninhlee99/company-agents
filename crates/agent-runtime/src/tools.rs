@@ -73,6 +73,24 @@ mod tests {
     }
 
     #[test]
+    fn action_tool_bindings_exist_for_executable_actions() {
+        for action in [
+            ActionKind::CreateExperiment,
+            ActionKind::AllocateExperimentBudget,
+            ActionKind::ReduceBudget,
+            ActionKind::RebalanceOperations,
+            ActionKind::ResearchOpportunity,
+            ActionKind::PublishContent,
+            ActionKind::ProposeHire,
+            ActionKind::ProduceReport,
+            ActionKind::EscalateIncident,
+        ] {
+            assert!(ToolRegistry::for_action(action).is_some());
+        }
+        assert!(ToolRegistry::for_action(ActionKind::None).is_none());
+    }
+
+    #[test]
     fn capabilities_follow_role_boundaries() {
         assert!(ToolRegistry::allowed(AgentRole::Analyst, Tool::ReadMetrics));
         assert!(ToolRegistry::allowed(AgentRole::Analyst, Tool::ProduceReport));
