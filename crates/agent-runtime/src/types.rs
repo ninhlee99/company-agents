@@ -33,6 +33,24 @@ impl AgentRole {
             Self::Experiment => "Experiment",
         }
     }
+
+    pub fn allowed_actions(self) -> &'static [ActionKind] {
+        match self {
+            Self::Governor => &[],
+            Self::CEO => &[ActionKind::AllocateExperimentBudget, ActionKind::ReduceBudget, ActionKind::ProduceReport],
+            Self::CFO => &[ActionKind::ReduceBudget, ActionKind::ProduceReport],
+            Self::COO => &[ActionKind::RebalanceOperations, ActionKind::ProduceReport],
+            Self::Growth => &[ActionKind::CreateExperiment, ActionKind::ResearchOpportunity, ActionKind::ProduceReport],
+            Self::Content => &[ActionKind::CreateExperiment, ActionKind::ResearchOpportunity, ActionKind::ProduceReport],
+            Self::Recruiter => &[ActionKind::ProposeHire, ActionKind::ProduceReport],
+            Self::Analyst => &[ActionKind::ProduceReport],
+            Self::Experiment => &[ActionKind::CreateExperiment, ActionKind::ResearchOpportunity, ActionKind::ProduceReport],
+        }
+    }
+
+    pub fn may_propose(self, action: ActionKind) -> bool {
+        self.allowed_actions().contains(&action)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -107,6 +125,36 @@ pub struct Proposal {
     pub rationale: String,
     pub reversible: bool,
     pub requested_permission: Permission,
+}
+
+impl Proposal {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.objective.trim().is_empty() {
+            return Err("objective is required".into());
+        }
+        if self.rationale.trim().is_empty() {
+            return Err("rationale is required".into());
+        }
+        if self.evidence.is_empty() {
+            return Err("at least one evidence item is required".into());
+        }
+        if self.action == ActionKind::None {
+            return Err("action is required".into());
+        }
+        if self.cost_minor < 0 || self.expected_revenue_minor < 0 {
+            return Err("economic values cannot be negative".into());
+        }
+        if self.confidence_bps > 10_000 {
+            return Err("confidence must be <= 10000 basis points".into());
+        }
+        if self.requested_permission != Permission::Propose {
+            return Err("agent proposals may request Propose permission only".into());
+        }
+        if !self.agent.may_propose(self.action) {
+            return Err(format!("agent {} is not allowed to propose {:?}", self.agent.as_str(), self.action));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
