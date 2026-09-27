@@ -120,14 +120,17 @@ fn attach_model_reasoning(mut proposal: Proposal, reasoning: &Value, ctx: &Agent
         }
 
         if let Some(cost) = s.cost_minor.filter(|v| *v >= 0) {
-            proposal.cost_minor = cost
+            proposal.cost_minor = proposal.cost_minor
+                .min(cost)
                 .min(max_safe_cost(proposal.action))
                 .min(ctx.company.budget_remaining_minor.max(0))
                 .min(ctx.company.cash_minor.max(0));
         }
 
         if let Some(expected) = s.expected_revenue_minor.filter(|v| *v >= 0) {
-            proposal.expected_revenue_minor = expected.min(1_000_000_000);
+            proposal.expected_revenue_minor = proposal.expected_revenue_minor
+                .min(expected)
+                .min(1_000_000_000);
         }
 
         if let Some(risk) = s.risk.as_deref().and_then(RiskTier::parse) {
