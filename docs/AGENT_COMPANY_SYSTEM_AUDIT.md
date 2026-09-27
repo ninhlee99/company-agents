@@ -25,6 +25,10 @@ The repository now has a Rust-based Agent Runtime and deterministic economic/gov
 19. Database-side immutable ledger/audit protections and deferred transaction-balance checking.
 20. Local-only Docker service bindings for development.
 
+## Test volume
+
+There are currently 40 test functions across the Rust economic core, Agent Runtime, Governor, tool registry, simulator and PostgreSQL store. In addition, the suite exercises 720 Agent × Action × CompanyStatus combinations, 2,000 randomized company snapshots and 256 full multi-agent cycles.
+
 ## Agent coverage
 | Agent | Primary invariant | Adversarial coverage |
 |---|---|---|
