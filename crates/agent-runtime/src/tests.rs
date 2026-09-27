@@ -123,10 +123,7 @@ async fn bankrupt_company_blocks_discretionary_actions() {
 
     for result in runtime.run_all(company).await {
         let decision = result.governance.unwrap().decision;
-        if !matches!(
-            result.proposal.action,
-            ActionKind::ProduceReport | ActionKind::EscalateIncident
-        ) {
+        if result.proposal.cost_minor > 0 {
             assert_eq!(decision, GovernorDecision::Reject);
         }
     }
