@@ -4,6 +4,11 @@ set -euo pipefail
 : "${DATABASE_URL:?DATABASE_URL is required}"
 : "${DRILL_DATABASE_URL:?DRILL_DATABASE_URL is required}"
 
+if [[ "$DATABASE_URL" == "$DRILL_DATABASE_URL" ]]; then
+  echo "recovery drill requires a separate drill database" >&2
+  exit 2
+fi
+
 BACKUP_DIR="${1:-backups/drill}"
 mkdir -p "$BACKUP_DIR"
 
@@ -18,7 +23,8 @@ echo "[3/4] restore into drill database"
 CONFIRM_RESTORE=YES DATABASE_URL="$DRILL_DATABASE_URL" bash scripts/restore_db.sh "$LATEST"
 
 echo "[4/4] smoke test database"
-psql "$DRILL_DATABASE_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM companies;"
-psql "$DRILL_DATABASE_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM ledger_transactions;"
+for table in companies company_state_snapshots ledger_transactions agent_runs decision_journal outbox_events agent_memory affiliate_conversions media_jobs; do
+  psql "$DRILL_DATABASE_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM $table;"
+done
 
 echo "recovery_drill=ok"
