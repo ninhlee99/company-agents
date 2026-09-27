@@ -1,15 +1,16 @@
 # syntax=docker/dockerfile:1
 
-FROM golang:1.23-alpine AS build
+FROM rust:1-alpine AS build
 WORKDIR /src
-COPY go.mod ./
-COPY cmd ./cmd
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/company-os ./cmd/company-os
+COPY Cargo.toml ./
+COPY apps ./apps
+COPY crates ./crates
+RUN cargo build --release -p company-os
 
 FROM alpine:3.20
 RUN adduser -D -H -u 10001 app
 USER app
 WORKDIR /app
-COPY --from=build /out/company-os /app/company-os
+COPY --from=build /src/target/release/company-os /app/company-os
 EXPOSE 8080
 ENTRYPOINT ["/app/company-os"]
