@@ -152,6 +152,16 @@ pub struct CompanySnapshot {
     pub hiring_need: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentMemory {
+    pub key: String,
+    pub value: serde_json::Value,
+    pub confidence_bps: u16,
+    pub importance: u8,
+    pub updated_at: String,
+    pub expires_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelSuggestion {
     pub action: Option<String>,
