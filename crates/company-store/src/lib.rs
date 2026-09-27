@@ -78,6 +78,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/008_affiliate_payouts.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/009_outbox_dispatch.sql"
+            ))
             .await
     }
 
@@ -1515,6 +1520,106 @@ impl CompanyStore {
                                  company_cycle_health.consecutive_failures + 1,
                                updated_at = now()",
                 &[&id, &bounded],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn claim_outbox_events(
+        &self,
+        company_id: &str,
+        limit: i64,
+        lease_seconds: i64,
+    ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=200).contains(&limit) || !(5..=900).contains(&lease_seconds) {
+            return Err("outbox claim bounds are invalid".into());
+        }
+        let id = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let rows = tx
+            .query(
+                "WITH candidates AS (
+                    SELECT id
+                      FROM outbox_events
+                     WHERE company_id = $1
+                       AND published_at IS NULL
+                       AND (locked_until IS NULL OR locked_until <= now())
+                     ORDER BY created_at ASC
+                     FOR UPDATE SKIP LOCKED
+                     LIMIT $2
+                )
+                UPDATE outbox_events event
+                   SET locked_until = now() + make_interval(secs => $3),
+                       attempt_count = event.attempt_count + 1
+                  FROM candidates
+                 WHERE event.id = candidates.id
+             RETURNING event.id, event.event_type, event.aggregate_id,
+                       event.idempotency_key, event.schema_version,
+                       event.payload, event.attempt_count",
+                &[&id, &limit, &lease_seconds],
+            )
+            .await?;
+
+        let events = rows
+            .into_iter()
+            .map(|row| {
+                serde_json::json!({
+                    "id": row.get::<_, i64>(0),
+                    "event_type": row.get::<_, String>(1),
+                    "aggregate_id": row.get::<_, Option<String>>(2),
+                    "idempotency_key": row.get::<_, String>(3),
+                    "schema_version": row.get::<_, i32>(4),
+                    "payload": row.get::<_, serde_json::Value>(5),
+                    "attempt_count": row.get::<_, i32>(6),
+                })
+            })
+            .collect::<Vec<_>>();
+        tx.commit().await?;
+        Ok(events)
+    }
+
+    pub async fn mark_outbox_published(
+        &self,
+        company_id: &str,
+        event_id: i64,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let id = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let updated = client
+            .execute(
+                "UPDATE outbox_events
+                    SET published_at = now(), locked_until = NULL, last_error = NULL
+                  WHERE company_id = $1 AND id = $2 AND published_at IS NULL",
+                &[&id, &event_id],
+            )
+            .await?;
+        if updated != 1 {
+            return Err("outbox publish acknowledgement rejected".into());
+        }
+        Ok(())
+    }
+
+    pub async fn mark_outbox_failed(
+        &self,
+        company_id: &str,
+        event_id: i64,
+        error: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let id = Uuid::parse_str(company_id)?;
+        let bounded = error.chars().take(4096).collect::<String>();
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "UPDATE outbox_events
+                    SET locked_until = now() +
+                          CASE
+                            WHEN attempt_count >= 8 THEN interval '1 hour'
+                            ELSE make_interval(secs => LEAST(900, GREATEST(5, attempt_count * 15)))
+                          END,
+                        last_error = $3
+                  WHERE company_id = $1 AND id = $2 AND published_at IS NULL",
+                &[&id, &event_id, &bounded],
             )
             .await?;
         Ok(())
