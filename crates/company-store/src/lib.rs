@@ -849,7 +849,10 @@ impl CompanyStore {
                         cancelled, click_id, product_id, advertiser_id, occurred_at, source
                    FROM affiliate_conversions
                   WHERE company_id = $1 AND idempotency_key = $2",
-                &[&company_id, &affiliate_attribution::conversion_idempotency_key(event)],
+                &[
+                    &company_id,
+                    &affiliate_attribution::conversion_idempotency_key(event),
+                ],
             )
             .await?
         {
@@ -909,9 +912,8 @@ impl CompanyStore {
             })
             .collect::<Vec<_>>();
 
-        let reconciled =
-            affiliate_attribution::attribute_conversion(event, &clicks, model)
-                .map_err(|error| error.to_string())?;
+        let reconciled = affiliate_attribution::attribute_conversion(event, &clicks, model)
+            .map_err(|error| error.to_string())?;
 
         let order_value = event.order_value_minor.to_string();
         let commission = event.commission_minor.to_string();
@@ -1172,5 +1174,7 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
 }
 
 fn parse_i128_numeric(value: &str) -> Result<i128, Box<dyn std::error::Error + Send + Sync>> {
-    value.parse::<i128>().map_err(|error| format!("numeric value out of i128 range: {error}").into())
+    value
+        .parse::<i128>()
+        .map_err(|error| format!("numeric value out of i128 range: {error}").into())
 }
