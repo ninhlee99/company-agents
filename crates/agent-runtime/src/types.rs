@@ -44,14 +44,14 @@ impl AgentRole {
     pub fn allowed_actions(self) -> &'static [ActionKind] {
         match self {
             Self::Governor => &[],
-            Self::CEO => &[ActionKind::AllocateExperimentBudget, ActionKind::ReduceBudget, ActionKind::ProduceReport],
-            Self::CFO => &[ActionKind::ReduceBudget, ActionKind::ProduceReport],
-            Self::COO => &[ActionKind::RebalanceOperations, ActionKind::ProduceReport],
-            Self::Growth => &[ActionKind::CreateExperiment, ActionKind::ResearchOpportunity, ActionKind::ProduceReport],
-            Self::Content => &[ActionKind::CreateExperiment, ActionKind::ResearchOpportunity, ActionKind::PublishContent, ActionKind::ProduceReport],
-            Self::Recruiter => &[ActionKind::ProposeHire, ActionKind::ProduceReport],
-            Self::Analyst => &[ActionKind::ProduceReport],
-            Self::Experiment => &[ActionKind::CreateExperiment, ActionKind::ResearchOpportunity, ActionKind::ProduceReport],
+            Self::CEO => &[ActionKind::AllocateExperimentBudget, ActionKind::ReduceBudget, ActionKind::ProduceReport, ActionKind::EscalateIncident],
+            Self::CFO => &[ActionKind::ReduceBudget, ActionKind::ProduceReport, ActionKind::EscalateIncident],
+            Self::COO => &[ActionKind::RebalanceOperations, ActionKind::ProduceReport, ActionKind::EscalateIncident],
+            Self::Growth => &[ActionKind::CreateExperiment, ActionKind::ResearchOpportunity, ActionKind::ProduceReport, ActionKind::EscalateIncident],
+            Self::Content => &[ActionKind::CreateExperiment, ActionKind::ResearchOpportunity, ActionKind::PublishContent, ActionKind::ProduceReport, ActionKind::EscalateIncident],
+            Self::Recruiter => &[ActionKind::ProposeHire, ActionKind::ProduceReport, ActionKind::EscalateIncident],
+            Self::Analyst => &[ActionKind::ProduceReport, ActionKind::EscalateIncident],
+            Self::Experiment => &[ActionKind::CreateExperiment, ActionKind::ResearchOpportunity, ActionKind::ProduceReport, ActionKind::EscalateIncident],
         }
     }
 
