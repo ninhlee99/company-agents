@@ -51,9 +51,8 @@ Remaining before Phase 2 acceptance:
 - stress/adversarial/randomized tests
 
 Remaining before Phase 3 acceptance:
-- durable Agent memory
-- per-agent durable budget/rate-limit accounting
 - distributed tracing/metrics
+- secret-rotation operations
 
 ## Phase 4 — Agents
 **Status: operating Agents implemented and safety-tested**
