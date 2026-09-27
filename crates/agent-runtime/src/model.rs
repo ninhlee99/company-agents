@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use std::{env, fmt};
+use std::{env, fmt, time::Duration};
 
 #[derive(Debug)]
 pub enum ModelError {
@@ -48,7 +48,11 @@ pub struct OpenAiCompatibleModel {
 impl OpenAiCompatibleModel {
     pub fn new(base_url: String, api_key: Option<String>, model: String) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(120))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
             base_url: base_url.trim_end_matches('/').to_owned(),
             api_key,
             model,
@@ -84,19 +88,28 @@ impl Model for OpenAiCompatibleModel {
             .await
             .map_err(|e| ModelError::Transport(e.to_string()))?;
 
-        if !response.status().is_success() {
-            return Err(ModelError::Transport(
-                response.text().await.unwrap_or_else(|_| "unknown http error".into()),
-            ));
+        if let Some(length) = response.content_length() {
+            if length > 1_048_576 {
+                return Err(ModelError::InvalidResponse("model response exceeds 1 MiB safety limit".into()));
+            }
         }
 
-        let body = response
-            .text()
+        let status = response.status();
+        let body_bytes = response
+            .bytes()
             .await
             .map_err(|e| ModelError::Transport(e.to_string()))?;
 
-        if body.len() > 1_048_576 {
+        if body_bytes.len() > 1_048_576 {
             return Err(ModelError::InvalidResponse("model response exceeds 1 MiB safety limit".into()));
+        }
+
+        let body = String::from_utf8(body_bytes.to_vec())
+            .map_err(|e| ModelError::InvalidResponse(format!("model response is not UTF-8: {e}")))?;
+
+        if !status.is_success() {
+            let safe = body.chars().take(512).collect::<String>();
+            return Err(ModelError::Transport(format!("http {status}: {safe}")));
         }
 
         let envelope: Value = serde_json::from_str(&body)
