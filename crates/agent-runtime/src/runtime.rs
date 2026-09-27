@@ -20,8 +20,8 @@ impl AgentRuntime {
     pub fn new(model: Box<dyn Model>) -> Self {
         let concurrency = std::env::var("AGENT_CONCURRENCY")
             .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .map(|v| v.clamp(1, 8))
+            .and_then(|value| value.parse::<usize>().ok())
+            .map(|value| value.clamp(1, 8))
             .unwrap_or(2);
         Self::new_with_concurrency(model, concurrency)
     }
@@ -36,7 +36,7 @@ impl AgentRuntime {
     }
 
     pub fn agent_roles(&self) -> Vec<AgentRole> {
-        self.agents.iter().map(|a| a.role()).collect()
+        self.agents.iter().map(|agent| agent.role()).collect()
     }
 
     pub async fn run_all(&self, company: CompanySnapshot) -> Vec<AgentRunResult> {
@@ -50,14 +50,15 @@ impl AgentRuntime {
     ) -> Vec<AgentRunResult> {
         let timeout_ms = std::env::var("MODEL_TIMEOUT_MS")
             .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-            .filter(|v| (250..=120_000).contains(v))
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|value| (250..=120_000).contains(value))
             .unwrap_or(15_000);
 
-        self.run_all_with_memory_timeout(
+        self.run_roles_with_state(
             company,
             std::time::Duration::from_millis(timeout_ms),
-            &HashMap::new(),
+            self.agent_roles(),
+            state,
         )
         .await
     }
@@ -67,7 +68,7 @@ impl AgentRuntime {
         company: CompanySnapshot,
         model_timeout: std::time::Duration,
     ) -> Vec<AgentRunResult> {
-        self.run_all_with_memory_timeout(company, model_timeout, &HashMap::new())
+        self.run_roles_with_state(company, model_timeout, self.agent_roles(), None)
             .await
     }
 
@@ -77,8 +78,13 @@ impl AgentRuntime {
         model_timeout: std::time::Duration,
         memory: &HashMap<AgentRole, Vec<AgentMemory>>,
     ) -> Vec<AgentRunResult> {
-        self.run_roles_with_memory(company, model_timeout, self.agent_roles(), memory)
-            .await
+        self.run_roles_with_memory(
+            company,
+            model_timeout,
+            self.agent_roles(),
+            memory,
+        )
+        .await
     }
 
     pub async fn run_roles_with_memory(
@@ -88,11 +94,51 @@ impl AgentRuntime {
         roles: Vec<AgentRole>,
         memory: &HashMap<AgentRole, Vec<AgentMemory>>,
     ) -> Vec<AgentRunResult> {
-        let ctx = AgentContext {
+        self.run_roles_internal(
             company,
             model_timeout,
-            memory: Vec::new(),
-        };
+            roles,
+            memory,
+            None,
+        )
+        .await
+    }
+
+    async fn run_roles_with_state(
+        &self,
+        company: CompanySnapshot,
+        model_timeout: std::time::Duration,
+        roles: Vec<AgentRole>,
+        state: Option<Arc<dyn AgentStateProvider>>,
+    ) -> Vec<AgentRunResult> {
+        if state.is_none() {
+            return self.run_roles_with_memory(
+                company,
+                model_timeout,
+                roles,
+                &HashMap::new(),
+            )
+            .await;
+        }
+
+        self.run_roles_internal(
+            company,
+            model_timeout,
+            roles,
+            &HashMap::new(),
+            state,
+        )
+        .await
+    }
+
+    async fn run_roles_internal(
+        &self,
+        company: CompanySnapshot,
+        model_timeout: std::time::Duration,
+        roles: Vec<AgentRole>,
+        memory: &HashMap<AgentRole, Vec<AgentMemory>>,
+        state: Option<Arc<dyn AgentStateProvider>>,
+    ) -> Vec<AgentRunResult> {
         let governor = &self.governor;
         let model = self.model.clone();
         let concurrency = self.concurrency.clone();
@@ -101,84 +147,70 @@ impl AgentRuntime {
             .agents
             .iter()
             .filter(|agent| roles.contains(&agent.role()))
+            .cloned()
             .collect::<Vec<_>>();
-        selected.sort_by_key(|agent| AgentRole::ALL.iter().position(|role| *role == agent.role()));
+        selected.sort_by_key(|agent| {
+            AgentRole::ALL
+                .iter()
+                .position(|role| *role == agent.role())
+                .unwrap_or(usize::MAX)
+        });
 
         let futures = selected.into_iter().map(|agent| {
-            let agent = agent.clone();
             let model = model.clone();
             let concurrency = concurrency.clone();
-            let ctx = AgentContext {
-                company: ctx.company.clone(),
-                model_timeout: ctx.model_timeout,
-                memory: memory.get(&agent.role()).cloned().unwrap_or_default(),
-            };
+            let state = state.clone();
+            let company = company.clone();
+            let memory = memory.get(&agent.role()).cloned().unwrap_or_default();
 
             async move {
                 let _permit = match concurrency.acquire_owned().await {
                     Ok(permit) => permit,
                     Err(_) => {
-                        let proposal = crate::types::Proposal {
-                            agent: agent.role(),
-                            objective: "agent runtime unavailable".into(),
-                            action: crate::types::ActionKind::EscalateIncident,
-                            cost_minor: 0,
-                            expected_revenue_minor: 0,
-                            risk: crate::types::RiskTier::Critical,
-                            confidence_bps: 10_000,
-                            evidence: vec!["agent semaphore is closed".into()],
-                            rationale: "runtime failed closed".into(),
-                            reversible: true,
-                            requested_permission: crate::types::Permission::Propose,
-                        };
-                        let governance = governor.evaluate(proposal.clone(), &ctx.company);
-                        return AgentRunResult {
-                            agent: agent.role(),
-                            proposal,
-                            governance: Some(governance),
-                        };
+                        return fail_closed(
+                            agent.role(),
+                            &company,
+                            governor,
+                            "agent semaphore is closed",
+                        );
                     }
                 };
-                let memory = if let Some(state) = &state {
-                    match state
-                        .admit_model_call(&ctx_company.company_id, agent.role())
-                        .await
-                    {
-                        Ok(()) => state
-                            .load_memory(&ctx_company.company_id, agent.role())
+
+                let effective_memory = match state.as_ref() {
+                    Some(provider) => {
+                        if let Err(reason) = provider
+                            .admit_model_call(&company.company_id, agent.role())
                             .await
-                            .unwrap_or_else(|_| serde_json::json!({})),
-                        Err(reason) => {
-                            let proposal = crate::types::Proposal {
-                                agent: agent.role(),
-                                objective: "agent call admission denied".into(),
-                                action: crate::types::ActionKind::EscalateIncident,
-                                cost_minor: 0,
-                                expected_revenue_minor: 0,
-                                risk: crate::types::RiskTier::Critical,
-                                confidence_bps: 10_000,
-                                evidence: vec![reason],
-                                rationale:
-                                    "durable rate limit or state admission failed; execution halted"
-                                        .into(),
-                                reversible: true,
-                                requested_permission: crate::types::Permission::Propose,
-                            };
-                            let governance = governor.evaluate(proposal.clone(), &ctx_company);
-                            return AgentRunResult {
-                                agent: agent.role(),
-                                proposal,
-                                governance: Some(governance),
-                            };
+                        {
+                            return fail_closed(
+                                agent.role(),
+                                &company,
+                                governor,
+                                &reason,
+                            );
+                        }
+                        match provider
+                            .load_memory(&company.company_id, agent.role())
+                            .await
+                        {
+                            Ok(value) => memory_from_provider_value(value),
+                            Err(reason) => {
+                                return fail_closed(
+                                    agent.role(),
+                                    &company,
+                                    governor,
+                                    &format!("agent memory load failed: {reason}"),
+                                );
+                            }
                         }
                     }
-                } else {
-                    serde_json::json!({})
+                    None => memory,
                 };
+
                 let ctx = AgentContext {
-                    company: ctx_company,
-                    model_timeout: timeout,
-                    memory,
+                    company,
+                    model_timeout,
+                    memory: effective_memory,
                 };
 
                 match agent.propose(&ctx, model).await {
@@ -190,31 +222,51 @@ impl AgentRuntime {
                             governance: Some(governance),
                         }
                     }
-                    Err(error) => {
-                        let proposal = crate::types::Proposal {
-                            agent: agent.role(),
-                            objective: "agent failure".into(),
-                            action: crate::types::ActionKind::EscalateIncident,
-                            cost_minor: 0,
-                            expected_revenue_minor: 0,
-                            risk: crate::types::RiskTier::Critical,
-                            confidence_bps: 10_000,
-                            evidence: vec![error.to_string()],
-                            rationale: "agent failed safely and did not execute an action".into(),
-                            reversible: true,
-                            requested_permission: crate::types::Permission::Propose,
-                        };
-                        let governance = governor.evaluate(proposal.clone(), &ctx.company);
-                        AgentRunResult {
-                            agent: agent.role(),
-                            proposal,
-                            governance: Some(governance),
-                        }
-                    }
+                    Err(error) => fail_closed(
+                        agent.role(),
+                        &ctx.company,
+                        governor,
+                        &error.to_string(),
+                    ),
                 }
             }
         });
 
         join_all(futures).await
+    }
+}
+
+fn memory_from_provider_value(value: serde_json::Value) -> Vec<AgentMemory> {
+    value
+        .get("items")
+        .and_then(|items| items.as_array())
+        .and_then(|items| serde_json::from_value(items.clone()).ok())
+        .unwrap_or_default()
+}
+
+fn fail_closed(
+    role: AgentRole,
+    company: &CompanySnapshot,
+    governor: &Governor,
+    reason: &str,
+) -> AgentRunResult {
+    let proposal = crate::types::Proposal {
+        agent: role,
+        objective: "agent execution blocked; escalate".into(),
+        action: crate::types::ActionKind::EscalateIncident,
+        cost_minor: 0,
+        expected_revenue_minor: 0,
+        risk: crate::types::RiskTier::Critical,
+        confidence_bps: 10_000,
+        evidence: vec![reason.chars().take(4_000).collect()],
+        rationale: "runtime failed closed without performing an economic side effect".into(),
+        reversible: true,
+        requested_permission: crate::types::Permission::Propose,
+    };
+    let governance = governor.evaluate(proposal.clone(), company);
+    AgentRunResult {
+        agent: role,
+        proposal,
+        governance: Some(governance),
     }
 }
