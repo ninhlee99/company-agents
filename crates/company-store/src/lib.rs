@@ -914,30 +914,13 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         company_id: &str,
         agent: agent_runtime::types::AgentRole,
     ) -> Result<serde_json::Value, String> {
-        let company_uuid = Uuid::parse_str(company_id).map_err(|e| e.to_string())?;
-        let agent_name = agent.as_str();
-        let client = self.client.lock().await;
-        let rows = client
-            .query(
-                "SELECT memory_key, value
-                   FROM agent_memory
-                  WHERE company_id = $1
-                    AND agent_name = $2
-                    AND (expires_at IS NULL OR expires_at > now())
-                  ORDER BY importance DESC, updated_at DESC
-                  LIMIT 50",
-                &[&company_uuid, &agent_name],
-            )
+        let records = self
+            .load_agent_memory(company_id, agent, 50)
             .await
-            .map_err(|e| e.to_string())?;
-
-        let mut object = serde_json::Map::new();
-        for row in rows {
-            let key: String = row.get(0);
-            let value: serde_json::Value = row.get(1);
-            object.insert(key, value);
-        }
-        Ok(serde_json::Value::Object(object))
+            .map_err(|error| error.to_string())?;
+        Ok(serde_json::json!({
+            "items": records,
+        }))
     }
 
     async fn admit_model_call(
@@ -945,80 +928,27 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         company_id: &str,
         agent: agent_runtime::types::AgentRole,
     ) -> Result<(), String> {
-        let company_uuid = Uuid::parse_str(company_id).map_err(|e| e.to_string())?;
-        let agent_name = agent.as_str();
-        let max_calls = std::env::var("AGENT_MAX_MODEL_CALLS_PER_MINUTE")
+        let window_seconds = std::env::var("AGENT_RATE_WINDOW_SECONDS")
+            .ok()
+            .and_then(|v| v.parse::<i64>().ok())
+            .filter(|v| (15..=86_400).contains(v))
+            .unwrap_or(60);
+        let max_calls = std::env::var("AGENT_MAX_MODEL_CALLS_PER_WINDOW")
             .ok()
             .and_then(|v| v.parse::<i32>().ok())
-            .filter(|v| *v > 0)
+            .filter(|v| (1..=100).contains(v))
             .unwrap_or(60);
-        let mut client = self.client.lock().await;
-        let tx = client
-            .transaction()
+        let allowed = self
+            .claim_agent_run_slots(company_id, &[agent], window_seconds, max_calls)
             .await
-            .map_err(|e| e.to_string())?;
-
-        let row = tx
-            .query_opt(
-                "SELECT window_started_at, call_count
-                   FROM agent_rate_windows
-                  WHERE company_id = $1 AND agent_name = $2
-                  FOR UPDATE",
-                &[&company_uuid, &agent_name],
-            )
-            .await
-            .map_err(|e| e.to_string())?;
-
-        let now = std::time::SystemTime::now();
-        let _ = now;
-
-        match row {
-            Some(row) => {
-                let window_started_at: time::OffsetDateTime = row.get(0);
-                let call_count: i32 = row.get(1);
-                let elapsed = time::OffsetDateTime::now_utc() - window_started_at;
-                if elapsed.whole_seconds() >= 60 {
-                    tx.execute(
-                        "UPDATE agent_rate_windows
-                            SET window_started_at = now(), call_count = 1,
-                                max_calls = $3, updated_at = now()
-                          WHERE company_id = $1 AND agent_name = $2",
-                        &[&company_uuid, &agent_name, &max_calls],
-                    )
-                    .await
-                    .map_err(|e| e.to_string())?;
-                } else if call_count >= max_calls {
-                    tx.rollback().await.map_err(|e| e.to_string())?;
-                    return Err(format!(
-                        "durable rate limit exceeded for {}: {}/minute",
-                        agent_name, max_calls
-                    ));
-                } else {
-                    tx.execute(
-                        "UPDATE agent_rate_windows
-                            SET call_count = call_count + 1,
-                                max_calls = $3, updated_at = now()
-                          WHERE company_id = $1 AND agent_name = $2",
-                        &[&company_uuid, &agent_name, &max_calls],
-                    )
-                    .await
-                    .map_err(|e| e.to_string())?;
-                }
-            }
-            None => {
-                tx.execute(
-                    "INSERT INTO agent_rate_windows
-                     (company_id, agent_name, window_started_at,
-                      call_count, max_calls)
-                     VALUES ($1, $2, now(), 1, $3)",
-                    &[&company_uuid, &agent_name, &max_calls],
-                )
-                .await
-                .map_err(|e| e.to_string())?;
-            }
+            .map_err(|error| error.to_string())?;
+        if allowed.contains(&agent) {
+            Ok(())
+        } else {
+            Err(format!(
+                "durable model-call rate limit exceeded for {} ({max_calls} calls/{window_seconds}s)",
+                agent.as_str()
+            ))
         }
-
-        tx.commit().await.map_err(|e| e.to_string())?;
-        Ok(())
     }
 }
