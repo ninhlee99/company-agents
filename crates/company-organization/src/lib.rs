@@ -58,7 +58,9 @@ pub struct PayrollObligation {
 pub struct PortfolioMetrics {
     pub revenue_minor: i128,
     pub contribution_margin_minor: i128,
-    pub operating_cost_minor: i128,
+    pub variable_cost_minor: i128,
+    pub fixed_cost_minor: i128,
+    pub total_cost_minor: i128,
     pub burn_minor: i128,
 }
 
@@ -103,7 +105,8 @@ pub fn unit_contribution_margin(unit: &BusinessUnit) -> Result<i128, Organizatio
 pub fn summarize_portfolio(units: &[BusinessUnit]) -> Result<PortfolioMetrics, OrganizationError> {
     let mut revenue = 0_i128;
     let mut contribution = 0_i128;
-    let mut operating = 0_i128;
+    let mut variable = 0_i128;
+    let mut fixed = 0_i128;
 
     for unit in units {
         if unit.currency.len() != 3 || !unit.currency.bytes().all(|b| b.is_ascii_uppercase()) {
@@ -127,7 +130,10 @@ pub fn summarize_portfolio(units: &[BusinessUnit]) -> Result<PortfolioMetrics, O
         contribution = contribution
             .checked_add(unit_contribution_margin(unit)?)
             .ok_or(OrganizationError::Overflow)?;
-        operating = operating
+        variable = variable
+            .checked_add(unit.variable_cost_minor)
+            .ok_or(OrganizationError::Overflow)?;
+        fixed = fixed
             .checked_add(unit.fixed_cost_minor)
             .ok_or(OrganizationError::Overflow)?;
     }
@@ -135,7 +141,11 @@ pub fn summarize_portfolio(units: &[BusinessUnit]) -> Result<PortfolioMetrics, O
     Ok(PortfolioMetrics {
         revenue_minor: revenue,
         contribution_margin_minor: contribution,
-        operating_cost_minor: operating,
+        variable_cost_minor: variable,
+        fixed_cost_minor: fixed,
+        total_cost_minor: variable
+            .checked_add(fixed)
+            .ok_or(OrganizationError::Overflow)?,
         burn_minor: contribution.saturating_neg().max(0),
     })
 }
@@ -196,6 +206,9 @@ mod tests {
         .unwrap();
         assert_eq!(metrics.revenue_minor, 3_000);
         assert_eq!(metrics.contribution_margin_minor, 2_250);
+        assert_eq!(metrics.variable_cost_minor, 600);
+        assert_eq!(metrics.fixed_cost_minor, 150);
+        assert_eq!(metrics.total_cost_minor, 750);
     }
 
     #[test]
