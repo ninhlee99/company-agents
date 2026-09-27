@@ -514,6 +514,19 @@ mod tests {
     }
 
     #[test]
+    fn mismatched_agent_identity_is_rejected() {
+        let mut result = AgentRunResult {
+            agent: AgentRole::Growth,
+            proposal: governed(ActionKind::CreateExperiment, 100).proposal.clone(),
+            governance: Some(governed(ActionKind::CreateExperiment, 100)),
+        };
+        result.proposal.agent = AgentRole::Experiment;
+        let batch = execute_approved_results(snapshot(), &[result], ExecutionPolicy::default()).unwrap();
+        assert!(batch.receipts.iter().any(|r| r.status == ExecutionStatus::Rejected));
+        assert_eq!(batch.snapshot.cash_minor, 10_000);
+    }
+
+    #[test]
     fn material_actions_never_execute() {
         let p = Proposal {
             agent: AgentRole::Content,
