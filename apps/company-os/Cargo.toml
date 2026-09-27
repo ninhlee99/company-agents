@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 agent-runtime = { path = "../../crates/agent-runtime" }
+business-economics = { path = "../../crates/business-economics" }
 affiliate-intelligence = { path = "../../crates/affiliate-intelligence" }
 affiliate-attribution = { path = "../../crates/affiliate-attribution" }
 company-execution = { path = "../../crates/company-execution" }
