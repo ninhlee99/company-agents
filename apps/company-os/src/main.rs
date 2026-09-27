@@ -247,7 +247,7 @@ code{{background:#f2f2f2;padding:2px 5px;border-radius:5px}}
 }
 
 async fn run_html(State(state): State<AppState>) -> (StatusCode, Html<String>) {
-    match run_cycle(&state).await {
+    match run_cycle(&state, &uuid::Uuid::new_v4().to_string()).await {
         Ok(_) => (
             StatusCode::SEE_OTHER,
             Html(r#"<meta http-equiv="refresh" content="0; url=/" />"#.into()),
