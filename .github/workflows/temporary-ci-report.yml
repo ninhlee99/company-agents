@@ -10,23 +10,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Run diagnostics
+      - name: Check economic core
         shell: bash
         run: |
           set +e
-          {
-            echo '=== FMT ==='
-            cargo fmt --all -- --check
-            echo FMT_EXIT=$?
-            echo '=== CHECK ==='
-            cargo check --workspace --all-targets
-            echo CHECK_EXIT=$?
-          } 2>&1 | tee diagnostic.log
+          cargo check -p economic-core > diagnostic.log 2>&1
+          echo CHECK_EXIT=$? >> diagnostic.log
+          cargo test -p economic-core -- --nocapture >> diagnostic.log 2>&1
+          echo TEST_EXIT=$? >> diagnostic.log
           exit 0
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: company-agents-diagnostic
+          name: economic-core-diagnostic
           path: diagnostic.log
           if-no-files-found: error
