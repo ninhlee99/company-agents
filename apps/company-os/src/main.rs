@@ -281,17 +281,28 @@ async fn affiliate_search(
         now_epoch: now_epoch(),
     };
 
-    intelligence.search(query).await
-        .map(Json)
-        .map_err(|error| {
+    match intelligence.search(query.clone()).await {
+        Ok(result) => {
+            let company_id = state.company.read().await.company_id.clone();
+            if let Err(error) = state.store.record_affiliate_search(&company_id, &query, &result).await {
+                eprintln!("affiliate search persistence error: {error}");
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ValueError { error: "affiliate research could not be persisted".into() }),
+                ));
+            }
+            Ok(Json(result))
+        }
+        Err(error) => {
             let status = match &error {
                 ProviderError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
                 ProviderError::RateLimited => StatusCode::TOO_MANY_REQUESTS,
                 ProviderError::Configuration(_) => StatusCode::BAD_REQUEST,
                 ProviderError::InvalidData(_) | ProviderError::Transport(_) => StatusCode::BAD_GATEWAY,
             };
-            (status, Json(ValueError { error: error.to_string() }))
-        })
+            Err((status, Json(ValueError { error: error.to_string() })))
+        }
+    }
 }
 
 async fn affiliate_providers(State(state): State<AppState>) -> Json<Vec<String>> {
