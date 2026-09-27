@@ -981,25 +981,46 @@ impl CompanyStore {
         affiliate_attribution::validate_click_event(event)
             .map_err(|error| error.to_string())?;
         let company_id = Uuid::parse_str(&event.company_id)?;
-        let client = self.client.lock().await;
-        client
-            .execute(
-                "INSERT INTO affiliate_clicks
-                 (company_id, click_id, product_id, advertiser_id, content_id,
-                  occurred_at, source)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7)
-                 ON CONFLICT (company_id, click_id) DO NOTHING",
-                &[
-                    &company_id,
-                    &event.click_id,
-                    &event.product_id,
-                    &event.advertiser_id,
-                    &event.content_id,
-                    &event.occurred_at,
-                    &event.source,
-                ],
+        let payload_hash = affiliate_click_payload_hash(event);
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        if let Some(row) = tx
+            .query_opt(
+                "SELECT payload_hash
+                   FROM affiliate_clicks
+                  WHERE company_id = $1 AND click_id = $2
+                  FOR UPDATE",
+                &[&company_id, &event.click_id],
             )
-            .await?;
+            .await?
+        {
+            let existing_hash: Option<String> = row.get(0);
+            if existing_hash.as_deref() != Some(payload_hash.as_str()) {
+                tx.rollback().await?;
+                return Err("affiliate click idempotency key reused with a different payload".into());
+            }
+            tx.rollback().await?;
+            return Ok(());
+        }
+
+        tx.execute(
+            "INSERT INTO affiliate_clicks
+             (company_id, click_id, product_id, advertiser_id, content_id,
+              occurred_at, source, payload_hash)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+            &[
+                &company_id,
+                &event.click_id,
+                &event.product_id,
+                &event.advertiser_id,
+                &event.content_id,
+                &event.occurred_at,
+                &event.source,
+                &payload_hash,
+            ],
+        )
+        .await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -1015,11 +1036,12 @@ impl CompanyStore {
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
 
+        let payload_hash = affiliate_conversion_payload_hash(event);
         if let Some(row) = tx
             .query_opt(
                 "SELECT conversion_id, order_value_minor::text, commission_minor::text,
                         refunded_minor::text, cancelled, click_id, product_id,
-                        advertiser_id, occurred_at, currency, source
+                        advertiser_id, occurred_at, currency, source, payload_hash
                    FROM affiliate_conversions
                   WHERE company_id = $1 AND idempotency_key = $2",
                 &[
@@ -1029,6 +1051,11 @@ impl CompanyStore {
             )
             .await?
         {
+            let existing_hash: Option<String> = row.get(11);
+            if existing_hash.as_deref() != Some(payload_hash.as_str()) {
+                tx.rollback().await?;
+                return Err("affiliate conversion idempotency key reused with a different payload".into());
+            }
             let conversion_id: String = row.get(0);
             let result = affiliate_attribution::ReconciledConversion {
                 conversion_id,
@@ -1118,9 +1145,9 @@ impl CompanyStore {
             "INSERT INTO affiliate_conversions
              (company_id, conversion_id, click_id, order_id, product_id,
               advertiser_id, occurred_at, currency, order_value_minor, commission_minor,
-              refunded_minor, cancelled, source, idempotency_key)
+              refunded_minor, cancelled, source, idempotency_key, payload_hash)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::numeric,$10::numeric,$11::numeric,
-                     $12,$13,$14)",
+                     $12,$13,$14,$15)",
             &[
                 &company_id,
                 &event.conversion_id,
@@ -1136,6 +1163,7 @@ impl CompanyStore {
                 &event.cancelled,
                 &event.source,
                 &idempotency_key,
+                &payload_hash,
             ],
         )
         .await?;
@@ -1223,9 +1251,10 @@ impl CompanyStore {
         }
 
         let idempotency_key = affiliate_attribution::payout_idempotency_key(event);
+        let payload_hash = affiliate_payout_payload_hash(event);
         if tx
             .query_opt(
-                "SELECT payout_id
+                "SELECT payout_id, payload_hash
                    FROM affiliate_payouts
                   WHERE company_id = $1 AND idempotency_key = $2
                   FOR UPDATE",
@@ -1264,8 +1293,8 @@ impl CompanyStore {
         tx.execute(
             "INSERT INTO affiliate_payouts
              (company_id, payout_id, occurred_at, amount_minor,
-              currency, source, idempotency_key)
-             VALUES ($1,$2,$3,$4::numeric,$5,$6,$7)",
+              currency, source, idempotency_key, payload_hash)
+             VALUES ($1,$2,$3,$4::numeric,$5,$6,$7,$8)",
             &[
                 &company_id,
                 &event.payout_id,
@@ -1274,6 +1303,7 @@ impl CompanyStore {
                 &event.currency,
                 &event.source,
                 &idempotency_key,
+                &payload_hash,
             ],
         )
         .await?;
@@ -1396,15 +1426,34 @@ impl CompanyStore {
             media_pipeline::MediaFormat::Mp4H264 => "Mp4H264",
             media_pipeline::MediaFormat::WebMvp9 => "WebMvp9",
         };
-        let client = self.client.lock().await;
-        client
-            .execute(
-                "INSERT INTO media_jobs
+        let payload_hash = media_job_payload_hash(company_id, job);
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        if let Some(row) = tx
+            .query_opt(
+                "SELECT payload_hash
+                   FROM media_jobs
+                  WHERE company_id = $1 AND idempotency_key = $2
+                  FOR UPDATE",
+                &[&company_id, &idempotency_key],
+            )
+            .await?
+        {
+            let existing_hash: Option<String> = row.get(0);
+            if existing_hash.as_deref() != Some(payload_hash.as_str()) {
+                tx.rollback().await?;
+                return Err("media idempotency key reused with a different payload".into());
+            }
+            tx.rollback().await?;
+            return Ok(());
+        }
+
+        tx.execute(
+            "INSERT INTO media_jobs
                  (id, company_id, input_path, output_path, format,
                   width, height, fps, max_duration_seconds,
-                  normalize_audio, status, idempotency_key)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'QUEUED',$11)
-                 ON CONFLICT (company_id, idempotency_key) DO NOTHING",
+                  normalize_audio, status, idempotency_key, payload_hash)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'QUEUED',$11,$12)",
                 &[
                     &Uuid::parse_str(&job.id)?,
                     &company_id,
@@ -1417,9 +1466,11 @@ impl CompanyStore {
                     &(job.max_duration_seconds as i32),
                     &job.normalize_audio,
                     &idempotency_key,
+                    &payload_hash,
                 ],
             )
             .await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -2093,6 +2144,94 @@ fn execution_policy() -> ExecutionPolicy {
     ExecutionPolicy {
         max_spend_per_cycle_minor: max_spend,
     }
+}
+
+fn hash_fields(fields: &[&str]) -> String {
+    let mut digest = Sha256::new();
+    for (index, field) in fields.iter().enumerate() {
+        if index > 0 {
+            digest.update([0x1f]);
+        }
+        digest.update(field.as_bytes());
+    }
+    format!("{:x}", digest.finalize())
+}
+
+fn affiliate_click_payload_hash(event: &affiliate_attribution::ClickEvent) -> String {
+    hash_fields(&[
+        &event.company_id,
+        &event.click_id,
+        &event.product_id,
+        &event.advertiser_id,
+        &event.content_id,
+        &event.occurred_at,
+        &event.source,
+    ])
+}
+
+fn affiliate_conversion_payload_hash(
+    event: &affiliate_attribution::ConversionEvent,
+) -> String {
+    let click_id = event.click_id.as_deref().unwrap_or_default();
+    let order_value = event.order_value_minor.to_string();
+    let commission = event.commission_minor.to_string();
+    let refunded = event.refunded_minor.to_string();
+    let cancelled = event.cancelled.to_string();
+    hash_fields(&[
+        &event.company_id,
+        &event.conversion_id,
+        click_id,
+        &event.order_id,
+        &event.product_id,
+        &event.advertiser_id,
+        &event.occurred_at,
+        &event.currency,
+        &order_value,
+        &commission,
+        &refunded,
+        &cancelled,
+        &event.source,
+    ])
+}
+
+fn affiliate_payout_payload_hash(
+    event: &affiliate_attribution::AffiliatePayoutEvent,
+) -> String {
+    let amount = event.amount_minor.to_string();
+    hash_fields(&[
+        &event.company_id,
+        &event.payout_id,
+        &event.occurred_at,
+        &amount,
+        &event.currency,
+        &event.source,
+    ])
+}
+
+fn media_job_payload_hash(
+    company_id: Uuid,
+    job: &media_pipeline::MediaJob,
+) -> String {
+    let id = job.id.as_str();
+    let company = company_id.to_string();
+    let width = job.width.to_string();
+    let height = job.height.to_string();
+    let fps = job.fps.to_string();
+    let max_duration = job.max_duration_seconds.to_string();
+    let normalize_audio = job.normalize_audio.to_string();
+    let format = format!("{:?}", job.format);
+    hash_fields(&[
+        &company,
+        id,
+        &job.input_path,
+        &job.output_path,
+        &format,
+        &width,
+        &height,
+        &fps,
+        &max_duration,
+        &normalize_audio,
+    ])
 }
 
 fn cycle_digest(
