@@ -4,6 +4,7 @@ use crate::{
     types::*,
 };
 use async_trait::async_trait;
+use serde_json::Value;
 use std::sync::Arc;
 
 fn evidence(ctx: &AgentContext, item: &str) -> Vec<String> {
@@ -35,8 +36,9 @@ macro_rules! define_agent {
             fn permission(&self) -> Permission { $permission }
             fn system_prompt(&self) -> &'static str { include_str!(concat!("../../../agents/", $prompt, "/agent.md")) }
             async fn propose(&self, ctx: &AgentContext, model: Arc<dyn Model>) -> Result<Proposal, AgentError> {
-                let _reasoning = model.propose_json(self.system_prompt(), &model_context(ctx)).await.map_err(AgentError::Model)?;
-                Ok($body(ctx))
+                let reasoning = model.propose_json(self.system_prompt(), &model_context(ctx)).await.map_err(AgentError::Model)?;
+                let proposal = $body(ctx);
+                Ok(attach_model_reasoning(proposal, &reasoning))
             }
         }
     };
