@@ -871,4 +871,159 @@ fn status_string(status: economic_core::CompanyStatus) -> String {
 }
 
 #[cfg(test)]
+mod tests;    pub async fn claim_due_cycle_for(
+        &self,
+        company_id: &str,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client.query_opt(
+            "WITH due AS (
+                SELECT id
+                FROM company_schedules
+                WHERE enabled=true
+                  AND company_id=$1
+                  AND job_type='AGENT_CYCLE'
+                  AND next_run_at <= now()
+                ORDER BY next_run_at
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+             )
+             UPDATE company_schedules s
+                SET next_run_at = now() + (s.interval_seconds * interval '1 second'),
+                    updated_at = now()
+              FROM due
+              WHERE s.id = due.id
+              RETURNING s.id",
+            &[&company_uuid],
+        ).await?;
+        Ok(row.is_some())
+    }
+
+    pub async fn set_schedule_enabled(
+        &self,
+        company_id: &str,
+        enabled: bool,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        Ok(client.execute(
+            "UPDATE company_schedules SET enabled=$2, updated_at=now()
+             WHERE company_id=$1 AND job_type='AGENT_CYCLE'",
+            &[&company_uuid, &enabled],
+        ).await? == 1)
+    }
+
+    pub async fn load_cycle_results(
+        &self,
+        cycle_id: &str,
+    ) -> Result<Option<Vec<AgentRunResult>>, Box<dyn std::error::Error + Send + Sync>> {
+        let cycle_uuid = Uuid::parse_str(cycle_id)?;
+        let client = self.client.lock().await;
+        let rows = client.query(
+            "SELECT proposal_json
+             FROM decision_journal
+             WHERE cycle_id=$1
+             ORDER BY id",
+            &[&cycle_uuid],
+        ).await?;
+        if rows.is_empty() {
+            return Ok(None);
+        }
+        let mut results = Vec::with_capacity(rows.len());
+        for row in rows {
+            let value: Value = row.get(0);
+            results.push(serde_json::from_value(value)?);
+        }
+        Ok(Some(results))
+    }
+
+    /// Compatibility wrapper for existing callers/tests. New code should use
+    /// persist_decision_cycle so actions and journal records are durable.
+    pub async fn persist_cycle(
+        &self,
+        snapshot: &CompanySnapshot,
+        results: &[AgentRunResult],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut clone_results = results.to_vec();
+        let mut working = snapshot.clone();
+        let outcomes = ExecutionEngine::default().execute_batch(&mut working, &mut clone_results);
+        let cycle_id = Uuid::new_v4().to_string();
+        let _ = self.persist_decision_cycle(&working, &cycle_id, &clone_results, &outcomes).await?;
+        Ok(())
+    }
+
+    pub async fn recover_stale_cycles(&self, stale_after_secs: i64) -> Result<u64, tokio_postgres::Error> {
+        let threshold = stale_after_secs.clamp(60, 86_400);
+        let client = self.client.lock().await;
+        let mut recovered = 0_u64;
+        recovered += client.execute(
+            "UPDATE cycle_runs SET status='FAILED', completed_at=now(),
+                response_json=jsonb_build_object('error','stale cycle recovered')
+             WHERE status='PROCESSING'
+               AND created_at < now() - ($1 * interval '1 second')",
+            &[&threshold],
+        ).await?;
+        recovered += client.execute(
+            "UPDATE idempotency_keys SET status='FAILED',
+                response_json=jsonb_build_object('error','stale cycle recovered'),
+                updated_at=now()
+             WHERE command_type='AGENT_CYCLE'
+               AND status='PROCESSING'
+               AND updated_at < now() - ($1 * interval '1 second')",
+            &[&threshold],
+        ).await?;
+        Ok(recovered)
+    }
+
+    pub async fn pending_outbox(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<OutboxEvent>, tokio_postgres::Error> {
+        let limit = limit.clamp(1, 1000);
+        let client = self.client.lock().await;
+        let rows = client.query(
+            "SELECT id, company_id, event_type, aggregate_id, idempotency_key, schema_version, payload
+             FROM outbox_events
+             WHERE published_at IS NULL
+             ORDER BY id
+             LIMIT $1",
+            &[&limit],
+        ).await?;
+        rows.into_iter().map(|row| {
+            Ok(OutboxEvent {
+                id: row.get(0),
+                company_id: row.get::<_, Uuid>(1).to_string(),
+                event_type: row.get(2),
+                aggregate_id: row.get(3),
+                idempotency_key: row.get(4),
+                schema_version: row.get(5),
+                payload: row.get(6),
+            })
+        }).collect()
+    }
+
+    pub async fn mark_outbox_published(&self, event_id: i64) -> Result<bool, tokio_postgres::Error> {
+        let client = self.client.lock().await;
+        Ok(client.execute(
+            "UPDATE outbox_events SET published_at=now() WHERE id=$1 AND published_at IS NULL",
+            &[&event_id],
+        ).await? == 1)
+    }
+}
+
+fn status_string(status: economic_core::CompanyStatus) -> String {
+    match status {
+        economic_core::CompanyStatus::Active => "ACTIVE",
+        economic_core::CompanyStatus::Growth => "GROWTH",
+        economic_core::CompanyStatus::Warning => "WARNING",
+        economic_core::CompanyStatus::CostControl => "COST_CONTROL",
+        economic_core::CompanyStatus::Distress => "DISTRESS",
+        economic_core::CompanyStatus::Emergency => "EMERGENCY",
+        economic_core::CompanyStatus::Liquidation => "LIQUIDATION",
+        economic_core::CompanyStatus::Bankrupt => "BANKRUPT",
+    }.into()
+}
+
+#[cfg(test)]
 mod tests;
