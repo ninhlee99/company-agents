@@ -252,10 +252,14 @@ async fn run_html(State(state): State<AppState>) -> (StatusCode, Html<String>) {
             StatusCode::SEE_OTHER,
             Html(r#"<meta http-equiv="refresh" content="0; url=/" />"#.into()),
         ),
-        Err(_) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Html("cycle failed safely; inspect logs".into()),
-        ),
+        Err(error) => {
+            let message = error.to_string();
+            let _ = state.store.record_cycle_failure(&state.company_id, &message).await;
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Html("cycle failed safely; inspect logs".into()),
+            )
+        }
     }
 }
 
@@ -263,7 +267,13 @@ async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, S
     run_cycle(&state)
         .await
         .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .map_err(|error| {
+            let state = state.clone();
+            tokio::spawn(async move {
+                let _ = state.store.record_cycle_failure(&state.company_id, &error.to_string()).await;
+            });
+            StatusCode::INTERNAL_SERVER_ERROR
+        })
 }
 
 async fn agents_api(State(state): State<AppState>) -> Json<Vec<AgentRunResult>> {
