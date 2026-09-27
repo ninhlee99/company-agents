@@ -513,13 +513,24 @@ impl AffiliateProvider for MockAffiliateProvider {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AwinCsvProvider {
     pub feed_url: String,
     pub bearer_token: Option<String>,
     pub commission_group_rates_bps: HashMap<String, u32>,
     pub client: reqwest::Client,
     pub coupon_feed_url: Option<String>,
+}
+
+impl fmt::Debug for AwinCsvProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AwinCsvProvider")
+            .field("feed_url", &"[REDACTED]")
+            .field("bearer_token", &self.bearer_token.as_ref().map(|_| "[REDACTED]"))
+            .field("commission_group_rates_bps", &self.commission_group_rates_bps)
+            .field("coupon_feed_url", &self.coupon_feed_url.as_ref().map(|_| "[REDACTED]"))
+            .finish_non_exhaustive()
+    }
 }
 
 impl AwinCsvProvider {
@@ -739,7 +750,7 @@ fn parse_epoch(value: &str) -> Option<i64> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TikTokShopOpenCollaborationProvider {
     pub app_key: String,
     pub app_secret: String,
@@ -748,6 +759,19 @@ pub struct TikTokShopOpenCollaborationProvider {
     pub api_base: String,
     pub api_path: String,
     pub client: reqwest::Client,
+}
+
+impl fmt::Debug for TikTokShopOpenCollaborationProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TikTokShopOpenCollaborationProvider")
+            .field("app_key", &self.app_key)
+            .field("app_secret", &"[REDACTED]")
+            .field("access_token", &"[REDACTED]")
+            .field("shop_cipher", &"[REDACTED]")
+            .field("api_base", &self.api_base)
+            .field("api_path", &self.api_path)
+            .finish_non_exhaustive()
+    }
 }
 
 impl TikTokShopOpenCollaborationProvider {
