@@ -5,7 +5,7 @@ use agent_runtime::{AgentRunResult, CompanySnapshot};
 use company_execution::{
     execute_approved_results, proposal_idempotency_key, ExecutionPolicy, ExecutionReceipt,
 };
-use economic_core::{validate_balanced_transaction, LedgerTransaction};
+use economic_core::{validate_balanced_transaction, LedgerEntry, LedgerTransaction};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
