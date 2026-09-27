@@ -88,6 +88,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/010_lease_tokens.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/011_idempotency_payload_hashes.sql"
+            ))
             .await
     }
 
