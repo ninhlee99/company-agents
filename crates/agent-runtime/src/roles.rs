@@ -8,10 +8,25 @@ use serde_json::Value;
 use std::sync::Arc;
 
 fn evidence(ctx: &AgentContext, item: &str) -> Vec<String> {
-    vec![item.to_owned(), format!("status={:?}", ctx.company.status), format!("runway_days={}", ctx.company.runway_days)]
+    vec![
+        item.to_owned(),
+        format!("status={:?}", ctx.company.status),
+        format!("runway_days={}", ctx.company.runway_days),
+    ]
 }
 
-fn base_proposal(agent: AgentRole, action: ActionKind, ctx: &AgentContext, objective: &str, cost: i128, expected: i128, risk: RiskTier, confidence: u16, rationale: &str, reversible: bool) -> Proposal {
+fn base_proposal(
+    agent: AgentRole,
+    action: ActionKind,
+    ctx: &AgentContext,
+    objective: &str,
+    cost: i128,
+    expected: i128,
+    risk: RiskTier,
+    confidence: u16,
+    rationale: &str,
+    reversible: bool,
+) -> Proposal {
     Proposal {
         agent,
         objective: objective.into(),
@@ -25,6 +40,94 @@ fn base_proposal(agent: AgentRole, action: ActionKind, ctx: &AgentContext, objec
         reversible,
         requested_permission: Permission::Propose,
     }
+}
+
+fn max_safe_cost(action: ActionKind) -> i128 {
+    match action {
+        ActionKind::CreateExperiment
+        | ActionKind::AllocateExperimentBudget
+        | ActionKind::ResearchOpportunity => 500,
+        ActionKind::ProposeHire => 1_000,
+        ActionKind::PublishContent
+        | ActionKind::ProduceReport
+        | ActionKind::ReduceBudget
+        | ActionKind::RebalanceOperations
+        | ActionKind::EscalateIncident
+        | ActionKind::None => 0,
+    }
+}
+
+fn floor_risk_for_action(action: ActionKind) -> RiskTier {
+    match action {
+        ActionKind::ProposeHire => RiskTier::High,
+        ActionKind::AllocateExperimentBudget
+        | ActionKind::CreateExperiment
+        | ActionKind::ResearchOpportunity
+        | ActionKind::PublishContent => RiskTier::Medium,
+        ActionKind::ReduceBudget
+        | ActionKind::RebalanceOperations
+        | ActionKind::ProduceReport
+        | ActionKind::EscalateIncident
+        | ActionKind::None => RiskTier::Low,
+    }
+}
+
+fn attach_model_reasoning(mut proposal: Proposal, reasoning: &Value) -> Proposal {
+    let suggestion = serde_json::from_value::<ModelSuggestion>(reasoning.clone()).ok();
+
+    if let Some(s) = suggestion {
+        if let Some(action_name) = s.action.as_deref() {
+            if let Some(action) = ActionKind::parse(action_name) {
+                if proposal.agent.may_propose(action) {
+                    proposal.action = action;
+                }
+            }
+        }
+
+        if let Some(objective) = s.objective.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()) {
+            if objective.len() <= 2_000 {
+                proposal.objective = objective;
+            }
+        }
+
+        if let Some(rationale) = s.rationale.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()) {
+            if rationale.len() <= 4_000 {
+                proposal.rationale = rationale;
+            }
+        }
+
+        if let Some(cost) = s.cost_minor.filter(|v| *v >= 0) {
+            proposal.cost_minor = cost
+                .min(max_safe_cost(proposal.action))
+                .min(ctx_budget(proposal.agent, 0));
+        }
+
+        if let Some(expected) = s.expected_revenue_minor.filter(|v| *v >= 0) {
+            proposal.expected_revenue_minor = expected.min(1_000_000_000);
+        }
+
+        if let Some(risk) = s.risk.as_deref().and_then(RiskTier::parse) {
+            proposal.risk = floor_risk_for_action(proposal.action).max(risk);
+        } else {
+            proposal.risk = proposal.risk.max(floor_risk_for_action(proposal.action));
+        }
+
+        if let Some(confidence) = s.confidence {
+            proposal.confidence_bps = proposal.confidence_bps.min(proposal_confidence(confidence));
+        }
+
+        if let Some(reversible) = s.reversible {
+            proposal.reversible = proposal.reversible && reversible;
+        }
+    }
+
+    proposal.evidence.push("llm_reasoning_is_untrusted_metadata".into());
+    proposal
+}
+
+fn ctx_budget(_agent: AgentRole, _fallback: i128) -> i128 {
+    // Budget/cash limits are enforced by Governor and economic kernel.
+    i128::MAX
 }
 
 macro_rules! define_agent {
