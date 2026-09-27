@@ -1,43 +1,66 @@
 # Technology Stack
 
-## Objective
-Build a fast, RAM/CPU/SSD-efficient, local-first autonomous media company platform.
+## Primary platform language
+Go is the primary implementation language for the Company OS.
 
-## Core stack
-- TypeScript + Node.js 22+: Company OS, API, agent runtime, governance and workflows.
+Use Go for:
+- Company OS API
+- Agent runtime and scheduler
+- Governance and permission enforcement
+- Economic/domain services
+- Workflow orchestration
+- Operator dashboard
+- External integration adapters
+- Background workers
+
+Use Rust selectively when a component has a measured need for:
+- very high-throughput or low-latency processing
+- memory-tight media/data pipelines
+- CPU-heavy workloads that benefit materially from Rust
+
+Do not introduce Rust by default. A component must justify the additional language/runtime complexity with measured performance or isolation requirements.
+
+## UI
+No React and no Vue.
+
+The initial operator UI is server-rendered HTML using Go html/template with a small amount of progressive enhancement only where useful. Prefer ordinary HTML forms, links and tables over a client-side SPA.
+
+Possible lightweight enhancement:
+- HTMX only for small interactive fragments, not as an application framework.
+- Plain CSS or a small CSS layer; no mandatory frontend build pipeline.
+
+## Data and infrastructure
 - PostgreSQL 17: source of truth for transactional state, accounting, events and metadata.
-- pgvector: semantic retrieval for structured company knowledge; keep embeddings selective.
+- pgvector: selective semantic retrieval for company knowledge.
 - Redis 7: optional cache/short-lived coordination only; never the financial source of truth.
-- Object storage: video, audio, images and large artifacts; PostgreSQL stores metadata and checksums.
-- FFmpeg: isolated media worker for transcoding, clipping and normalization.
-- Python: analytics/forecasting/ML workloads only where it provides clear value.
-- pnpm workspaces: minimal monorepo management.
-- Docker Compose: local development and simulation environment.
+- Object storage: video/audio/images and large artifacts; PostgreSQL keeps metadata/checksums.
+- FFmpeg: isolated media worker.
+- Python: analytics/forecasting/ML only where it provides clear value.
+- Docker Compose: local development and simulation.
 
 ## Architecture principles
-1. Modular monolith first; split services only when load or isolation requires it.
-2. Event-driven waking; agents sleep when no work exists.
-3. PostgreSQL transactional outbox before Kafka.
-4. Deterministic code owns money, permissions, state transitions and limits.
-5. LLMs propose typed commands; they never mutate critical state directly.
+1. Modular monolith first.
+2. Event-driven agent waking; idle agents sleep.
+3. PostgreSQL transactional outbox before adding Kafka/NATS.
+4. Deterministic code owns money, permissions, limits and state transitions.
+5. LLMs propose typed commands; they never directly mutate critical state.
 6. Large media never enters prompts or PostgreSQL rows.
-7. Store structured facts and summaries rather than unbounded chat history.
-8. Every external integration is an adapter with retries, rate limits, idempotency and audit logs.
+7. Store structured facts and lessons rather than unbounded chat history.
+8. External integrations use adapters with retries, rate limits, idempotency and audit.
+9. Keep the hot path small: standard library first, dependencies only when justified.
 
 ## Runtime processes
-- company-api: HTTP/API and operator UI backend.
-- company-worker: event consumption, agent scheduling, governance and jobs.
-- media-worker: CPU/GPU-heavy media processing.
+- company-os: Go HTTP API, server-rendered operator UI, agent scheduler and control plane.
+- company-worker: Go background execution when workload isolation is required.
+- media-worker: FFmpeg/Python/Rust process isolated from agent runtime.
 - postgres: durable state.
 - redis: optional acceleration layer.
 
-## Performance budgets
-Initial target on a developer machine:
-- API idle RAM < 250 MB.
-- Worker idle RAM < 350 MB.
-- Media jobs isolated from agent worker.
-- No polling loops faster than 1 second.
-- Batch analytics queries; avoid N+1 queries.
-- Use indexes only for measured access paths.
-- Retain raw high-volume metrics in partitioned/aggregated storage policies.
-- Compress archived events and media derivatives.
+## Performance targets
+Initial developer-machine targets:
+- company-os idle RAM < 100 MB before database connections and model clients.
+- background worker idle RAM < 150 MB.
+- agent wakeups are event driven; no polling loops faster than 1 second.
+- batch analytics queries; avoid N+1 queries.
+- isolate CPU/GPU-heavy media work.
+- measure before introducing caches, queues or service splits.
