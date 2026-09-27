@@ -1,11 +1,11 @@
 #![forbid(unsafe_code)]
 
+use agent_runtime::types::AgentRole;
 use agent_runtime::{AgentRunResult, CompanySnapshot};
 use company_execution::{
     execute_approved_results, proposal_idempotency_key, ExecutionPolicy, ExecutionReceipt,
 };
 use economic_core::{validate_balanced_transaction, LedgerEntry, LedgerTransaction};
-use agent_runtime::types::AgentRole;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
@@ -622,7 +622,10 @@ impl CompanyStore {
         company_id: &str,
         agent: AgentRole,
         limit: i64,
-    ) -> Result<Vec<agent_runtime::types::AgentMemory>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<
+        Vec<agent_runtime::types::AgentMemory>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
         if !(1..=100).contains(&limit) {
             return Err("memory limit must be between 1 and 100".into());
         }
@@ -672,7 +675,9 @@ impl CompanyStore {
             if agent == AgentRole::Governor {
                 continue;
             }
-            let memory = self.load_agent_memory(company_id, agent, limit_per_agent).await?;
+            let memory = self
+                .load_agent_memory(company_id, agent, limit_per_agent)
+                .await?;
             result.insert(agent, memory);
         }
         Ok(result)
