@@ -49,6 +49,9 @@ impl CompanyStore {
             .await?;
         client
             .batch_execute(include_str!("../../../infra/db/migrations/002_company_control.sql"))
+            .await?;
+        client
+            .batch_execute(include_str!("../../../infra/db/migrations/003_ledger_completeness.sql"))
             .await
     }
 
@@ -136,6 +139,20 @@ impl CompanyStore {
 
         tx.commit().await?;
         Ok(transaction_uuid)
+    }
+
+    pub async fn account_id_by_code(
+        &self,
+        company_id: &str,
+        code: &str,
+    ) -> Result<Option<Uuid>, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client.query_opt(
+            "SELECT id FROM ledger_accounts WHERE company_id=$1 AND code=$2",
+            &[&company_uuid, &code],
+        ).await?;
+        Ok(row.map(|r| r.get(0)))
     }
 
     pub async fn load_snapshot(
