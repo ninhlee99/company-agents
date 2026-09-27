@@ -93,3 +93,6 @@ Quality checks:
 - POST /run — run one cycle and return to dashboard
 
 The current runtime uses a deterministic demo company snapshot. PostgreSQL schema and economic migrations are present, while durable persistence and external platform integrations are wired in later milestones.
+
+
+<!-- CI validation marker -->
