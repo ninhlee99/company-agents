@@ -469,7 +469,8 @@ fn economics_assessment(product: &Product, coupons: &[Coupon]) -> EconomicsAsses
     let expected_commission_minor = product
         .commission_rate_bps
         .and_then(|rate| product.price_minor.checked_mul(rate as i128))
-        .map(|v| v / SCORE_MAX as i128);
+        .map(|v| v / SCORE_MAX as i128)
+        .or(product.commission_fixed_minor);
 
     let effective_discount_bps = coupons
         .iter()
@@ -478,8 +479,18 @@ fn economics_assessment(product: &Product, coupons: &[Coupon]) -> EconomicsAsses
         .max();
 
     let commission_score = product.commission_rate_bps.unwrap_or(0).min(SCORE_MAX);
+    let fixed_commission_score = product
+        .commission_fixed_minor
+        .map(|value| {
+            let base = product.price_minor.max(1);
+            ((value.max(0).saturating_mul(SCORE_MAX as i128) / base)
+                .min(SCORE_MAX as i128)) as u32
+        })
+        .unwrap_or(0);
     let coupon_bonus = effective_discount_bps.unwrap_or(0).min(SCORE_MAX);
-    let score_bps = ((commission_score as u64 * 7 + coupon_bonus as u64 * 3) / 10) as u32;
+    let score_bps = ((commission_score.max(fixed_commission_score) as u64 * 7
+        + coupon_bonus as u64 * 3)
+        / 10) as u32;
 
     if let Some(rate) = product.commission_rate_bps {
         reasons.push(format!("commission rate={rate} bps"));
@@ -493,7 +504,7 @@ fn economics_assessment(product: &Product, coupons: &[Coupon]) -> EconomicsAsses
     }
 
     let confidence_bps = [
-        product.commission_rate_bps.is_some(),
+        product.commission_rate_bps.is_some() || product.commission_fixed_minor.is_some(),
         effective_discount_bps.is_some(),
         expected_commission_minor.is_some(),
     ]
@@ -902,6 +913,7 @@ impl AwinProvider {
         let mut advertisers = Vec::new();
         for product in products.iter() {
             if product.commission_rate_bps.is_none()
+                && product.commission_fixed_minor.is_none()
                 && !advertisers
                     .iter()
                     .any(|v: &String| v == &product.advertiser_id)
