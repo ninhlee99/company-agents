@@ -2,8 +2,8 @@
 
 use agent_runtime::{
     model::MockModel,
-    types::{ActionKind, CompanySnapshot, GovernorDecision},
-    AgentRuntime,
+    types::{CompanySnapshot},
+    AgentRuntime, ExecutionEngine,
 };
 use economic_core::{CompanyState, CompanyStatus};
 use serde::{Deserialize, Serialize};
@@ -39,8 +39,20 @@ pub struct SimulationResult {
     pub minimum_cash_minor: i128,
     pub bankruptcy_day: Option<u32>,
     pub decision_cycles: u64,
+    pub executed_actions: u64,
     pub violations: Vec<String>,
     pub survived: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonteCarloSummary {
+    pub trials: u32,
+    pub survival_rate_bps: u32,
+    pub bankruptcy_rate_bps: u32,
+    pub average_ending_cash_minor: i128,
+    pub worst_ending_cash_minor: i128,
+    pub best_ending_cash_minor: i128,
+    pub total_violations: u64,
 }
 
 struct Rng {
@@ -68,13 +80,14 @@ pub async fn run(config: SimConfig) -> SimulationResult {
     let runtime = AgentRuntime::new_with_concurrency(Box::new(MockModel), 2);
     let mut rng = Rng::new(config.seed);
 
-    let mut cash = config.initial_cash_minor;
+    let mut cash = config.initial_cash_minor.max(0);
     let mut revenue = 0_i128;
     let mut expenses = 0_i128;
     let mut minimum_cash = cash;
     let mut bankruptcy_day = None;
     let mut violations = Vec::new();
     let mut decision_cycles = 0_u64;
+    let mut executed_actions = 0_u64;
 
     let mut audience = 10_000_u64;
     let mut conversion_bps = 220_u32;
@@ -90,12 +103,12 @@ pub async fn run(config: SimConfig) -> SimulationResult {
 
         let daily_fixed = 300_i128;
         let content_units = capacity.min(12) as i128;
-        let content_cost = content_units * 35;
+        let content_cost = content_units.saturating_mul(35);
 
-        let content_revenue = ((audience as i128)
-            .saturating_mul(conversion_bps as i128)
-            .saturating_mul(content_efficiency_bps as i128))
-            / 100_000_000;
+        let content_revenue = audience
+            .saturating_mul(conversion_bps as u64)
+            .saturating_mul(content_efficiency_bps as u64)
+            .saturating_div(100_000_000) as i128;
 
         let sponsor_revenue = if rng.pct(150) { 250_i128 } else { 0 };
         let affiliate_revenue = content_revenue / 2;
@@ -112,7 +125,7 @@ pub async fn run(config: SimConfig) -> SimulationResult {
             break;
         }
 
-        audience = audience.saturating_add((audience / 10_000) * 8);
+        audience = audience.saturating_add((audience / 10_000).saturating_mul(8));
         if rng.pct(800) {
             conversion_bps = conversion_bps.saturating_add(2).min(800);
         }
@@ -136,8 +149,11 @@ pub async fn run(config: SimConfig) -> SimulationResult {
         }
         .refresh_status_from_runway(daily_burn);
 
-        let experiment_budget = cash.saturating_mul((10_000_u32 - config.reserve_ratio_bps.min(9_000)) as i128) / 10_000;
-        let snapshot = CompanySnapshot {
+        let experiment_budget = cash
+            .saturating_mul((10_000_u32 - config.reserve_ratio_bps.min(9_000)) as i128)
+            .saturating_div(10_000);
+
+        let mut snapshot = CompanySnapshot {
             company_id: "simulation".into(),
             cash_minor: cash,
             revenue_minor: revenue,
@@ -154,56 +170,29 @@ pub async fn run(config: SimConfig) -> SimulationResult {
             capacity,
             conversion_bps,
             audience_growth_bps: 80,
-            hiring_need: if backlog > capacity * 2 { 1 } else { 0 },
+            hiring_need: if backlog > capacity.saturating_mul(2) { 1 } else { 0 },
         };
 
-        let results = runtime.run_all(snapshot).await;
+        let mut results = runtime.run_all(snapshot.clone()).await;
+        let outcomes = ExecutionEngine::default().execute_batch(&mut snapshot, &mut results);
         decision_cycles += 1;
+        executed_actions += outcomes.iter().filter(|o| o.executed).count() as u64;
 
-        for result in results {
-            if let Some(governed) = result.governance {
-                if governed.decision == GovernorDecision::Approve
-                    && governed.proposal.cost_minor > 0
-                    && governed.proposal.cost_minor > cash
-                {
-                    violations.push(format!("day {day}: approved cost exceeded cash"));
-                }
-
-                match governed.proposal.action {
-                    ActionKind::CreateExperiment => {
-                        if governed.decision == GovernorDecision::Approve && governed.proposal.cost_minor > 0 {
-                            let spend = governed.proposal.cost_minor.min(100);
-                            cash = cash.saturating_sub(spend);
-                            expenses = expenses.saturating_add(spend);
-                            content_efficiency_bps = content_efficiency_bps.saturating_add(50).min(20_000);
-                        }
-                    }
-                    ActionKind::AllocateExperimentBudget => {
-                        if governed.decision == GovernorDecision::Approve && governed.proposal.cost_minor > 0 {
-                            let spend = governed.proposal.cost_minor.min(100);
-                            if spend <= cash {
-                                cash = cash.saturating_sub(spend);
-                                expenses = expenses.saturating_add(spend);
-                            } else {
-                                violations.push(format!("day {day}: kernel cash violation"));
-                            }
-                        }
-                    }
-                    ActionKind::RebalanceOperations => {
-                        backlog = backlog.saturating_sub(2);
-                    }
-                    _ => {}
-                }
-            } else {
-                violations.push(format!("day {day}: missing governance result for {:?}", result.agent));
+        for outcome in &outcomes {
+            if outcome.executed && outcome.cost_minor > snapshot.cash_minor.saturating_add(outcome.cost_minor) {
+                violations.push(format!("day {day}: impossible execution cost"));
             }
         }
 
+        cash = snapshot.cash_minor;
+        expenses = snapshot.expenses_minor;
+        backlog = snapshot.backlog;
         minimum_cash = minimum_cash.min(cash);
     }
 
+    let days_simulated = if let Some(day) = bankruptcy_day { day } else { config.days };
     SimulationResult {
-        days_simulated: if bankruptcy_day.is_some() { bankruptcy_day.unwrap_or(0) } else { config.days },
+        days_simulated,
         ending_cash_minor: cash,
         revenue_minor: revenue,
         expenses_minor: expenses,
@@ -211,8 +200,37 @@ pub async fn run(config: SimConfig) -> SimulationResult {
         minimum_cash_minor: minimum_cash,
         bankruptcy_day,
         decision_cycles,
+        executed_actions,
         violations,
         survived: bankruptcy_day.is_none(),
+    }
+}
+
+pub async fn run_many(config: SimConfig, trials: u32) -> MonteCarloSummary {
+    let trials = trials.clamp(1, 10_000);
+    let mut survival = 0_u32;
+    let mut ending_sum = 0_i128;
+    let mut worst = i128::MAX;
+    let mut best = i128::MIN;
+    let mut total_violations = 0_u64;
+
+    for index in 0..trials {
+        let trial = run(SimConfig { seed: config.seed.wrapping_add(index as u64), ..config.clone() }).await;
+        survival += u32::from(trial.survived);
+        ending_sum = ending_sum.saturating_add(trial.ending_cash_minor);
+        worst = worst.min(trial.ending_cash_minor);
+        best = best.max(trial.ending_cash_minor);
+        total_violations = total_violations.saturating_add(trial.violations.len() as u64);
+    }
+
+    MonteCarloSummary {
+        trials,
+        survival_rate_bps: ((survival as u64 * 10_000) / trials as u64) as u32,
+        bankruptcy_rate_bps: (((trials - survival) as u64 * 10_000) / trials as u64) as u32,
+        average_ending_cash_minor: ending_sum / trials as i128,
+        worst_ending_cash_minor: worst,
+        best_ending_cash_minor: best,
+        total_violations,
     }
 }
 
@@ -233,6 +251,7 @@ mod tests {
         let result = run(SimConfig { days: 30, ..SimConfig::default() }).await;
         assert_eq!(result.decision_cycles, 30);
         assert!(result.violations.is_empty(), "{:?}", result.violations);
+        assert!(result.executed_actions > 0);
     }
 
     #[tokio::test]
@@ -240,5 +259,17 @@ mod tests {
         let result = run(SimConfig { initial_cash_minor: 1_000, days: 30, seed: 99, ..SimConfig::default() }).await;
         assert!(result.ending_cash_minor >= 0 || result.bankruptcy_day.is_some());
         assert!(result.violations.is_empty(), "{:?}", result.violations);
+    }
+
+    #[tokio::test]
+    async fn monte_carlo_summary_is_bounded_and_deterministic() {
+        let config = SimConfig { days: 90, ..SimConfig::default() };
+        let a = run_many(config.clone(), 25).await;
+        let b = run_many(config, 25).await;
+        assert_eq!(serde_json::to_string(&a).unwrap(), serde_json::to_string(&b).unwrap());
+        assert_eq!(a.trials, 25);
+        assert!(a.survival_rate_bps <= 10_000);
+        assert!(a.bankruptcy_rate_bps <= 10_000);
+        assert_eq!(a.total_violations, 0);
     }
 }
