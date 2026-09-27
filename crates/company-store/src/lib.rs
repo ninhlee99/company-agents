@@ -368,6 +368,26 @@ impl CompanyStore {
                 ],
             )
             .await?;
+            upsert_agent_memory_tx(
+                &tx,
+                company_id,
+                result.agent,
+                "last_cycle_decision",
+                &serde_json::json!({
+                    "cycle_id": cycle_id,
+                    "action": format!("{:?}", proposal.action),
+                    "decision": decision,
+                    "reason": reason,
+                    "cost_minor": proposal.cost_minor,
+                    "expected_revenue_minor": proposal.expected_revenue_minor,
+                    "confidence_bps": proposal.confidence_bps,
+                    "executed": executed,
+                }),
+                proposal.confidence_bps,
+                70,
+            )
+            .await?;
+
         }
 
         let persisted = PersistedCycle {
@@ -1904,6 +1924,47 @@ where
     )
     .await?;
     update_company_status(tx, company_id, &snapshot).await?;
+    Ok(())
+}
+
+async fn upsert_agent_memory_tx(
+    tx: &Transaction<'_>,
+    company_id: Uuid,
+    agent: AgentRole,
+    key: &str,
+    value: &serde_json::Value,
+    confidence_bps: u16,
+    importance: u8,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if agent == AgentRole::Governor {
+        return Err("Governor cannot persist operational agent memory".into());
+    }
+    if key.is_empty() || key.len() > 128 || confidence_bps > 10_000 || importance > 100 {
+        return Err("invalid agent memory metadata".into());
+    }
+    let encoded = serde_json::to_vec(value)?;
+    if encoded.len() > 16 * 1024 {
+        return Err("agent memory value exceeds 16 KiB".into());
+    }
+    tx.execute(
+        "INSERT INTO agent_memory
+         (company_id, agent_name, memory_key, value, confidence_bps, importance)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (company_id, agent_name, memory_key)
+         DO UPDATE SET value=EXCLUDED.value,
+                       confidence_bps=EXCLUDED.confidence_bps,
+                       importance=EXCLUDED.importance,
+                       expires_at=NULL",
+        &[
+            &company_id,
+            &agent.as_str(),
+            &key,
+            &value,
+            &(confidence_bps as i32),
+            &(importance as i16),
+        ],
+    )
+    .await?;
     Ok(())
 }
 
