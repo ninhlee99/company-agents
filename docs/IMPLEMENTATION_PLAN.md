@@ -4,9 +4,10 @@
 **Status: foundation implemented; durable execution still pending**
 - Rust deterministic economic core
 - immutable double-entry ledger validation
-- company state and budget guards
-- idempotency primitives
+- company state, runway and budget guards
+- checked arithmetic / overflow protection
 - PostgreSQL schema with ledger, budget, idempotency, outbox and audit tables
+- database-side ledger balance/dependency checks
 - bankruptcy/liquidation spending guards
 - invariant tests
 
@@ -17,31 +18,44 @@ Remaining before Phase 1 acceptance:
 - recovery/restore test
 
 ## Phase 2 — Simulator
-**Status: next**
-- deterministic seeded world
-- creators, content, traffic, conversion and revenue models
-- expense/payroll models
-- adversarial scenarios
-- replayable simulation
+**Status: initial deterministic simulator implemented**
+- seeded/replayable company world
+- daily revenue/cost/cash model
+- content, affiliate and sponsor signals
+- Agent Runtime + Governor inside simulation
+- bankruptcy/cash shock scenarios
+- deterministic simulation tests
+
+Remaining before Phase 2 acceptance:
+- richer creator/business-unit economics
+- payroll/contract liabilities
+- traffic/campaign distributions calibrated from real observations
+- multi-run statistical evaluation
+- replayable decision journal
 
 ## Phase 3 — Agent Harness
-**Status: core implemented; full persistence/tooling pending**
-- typed agent contract
-- OpenAI-compatible model router + safe Mock Model
+**Status: safety-focused runtime implemented; durable tooling pending**
+- typed Agent contract
+- local Ollama + Gemini/OpenAI-compatible model adapters
 - bounded concurrent Agent Runtime
-- Governor policy engine
-- fail-closed model outage behavior
-- agent contract and stress tests
+- model timeout
+- fail-closed model error handling
+- per-Agent action capability matrix
+- context-aware action envelope
+- proposal validation
+- least-privilege Tool Registry
+- stress/adversarial/randomized tests
 
 Remaining before Phase 3 acceptance:
-- typed tool registry with capability enforcement
-- durable agent memory
+- execution-bound tool registry
+- durable Agent memory
 - persisted event scheduler
 - per-agent durable budget/rate-limit accounting
 - replayable decision journal
+- observability/tracing
 
 ## Phase 4 — Agents
-**Status: implemented and tested**
+**Status: operating Agents implemented and safety-tested**
 - Governor policy engine
 - CEO
 - CFO
@@ -52,44 +66,30 @@ Remaining before Phase 3 acceptance:
 - Analyst
 - Experiment
 
-Each operating agent has:
-- role contract
-- system prompt source in agents/<role>/agent.md
-- deterministic economic policy
-- typed proposal output
+Every operating Agent has:
+- role prompt
+- deterministic baseline policy
+- bounded model suggestion layer
+- typed proposal validation
 - Governor review
-- model-outage fail-closed behavior
+- model-outage and timeout fail-closed behavior
+- scenario and adversarial tests
 
 ## Phase 5 — Media Factory
-**Status: next**
-- research
-- content planning
-- scripting
-- rendering
-- QA
-- publishing adapters
-- analytics
-- attribution
+**Status: planned**
+Research → planning → scripting → production → QA → publishing → analytics → attribution.
 
 ## Phase 6 — Monetization
-**Status: next**
-- affiliate adapter
-- sponsorship CRM
-- service proposals
-- invoicing
-- verified revenue ingestion
+**Status: planned**
+Affiliate adapters, sponsorship CRM, service proposals, invoicing and verified revenue ingestion.
 
 ## Phase 7 — Human Organization
 **Status: planned**
-- employee records
-- payroll abstractions
-- hiring workflow
-- contractor workflow
-- performance review
+Employees, payroll abstractions, hiring workflow, contractors and performance review.
 
 ## Phase 8 — Controlled Autonomy
 **Status: planned**
-Shadow -> approved actions -> bounded autonomy -> broader autonomy.
+Shadow → approved actions → bounded autonomy → broader autonomy.
 
 ## Phase 9 — Portfolio Company
 **Status: planned**
@@ -97,7 +97,7 @@ Multiple creators/business units, capital allocation and automated shutdown/rein
 
 ## Phase 10 — Self-sustaining operation
 **Status: planned**
-Company can operate recurring cycles with human oversight focused on governance, exceptions and strategic review.
+Recurring autonomous operating cycles with human oversight focused on governance, exceptions and strategic review.
 
-## Rule
-Do not advance a phase until its previous phase passes its tests and operational acceptance criteria.
+## Release rule
+Do not advance a phase until its previous phase passes tests and operational acceptance criteria.
