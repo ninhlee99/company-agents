@@ -9,7 +9,7 @@ COPY agents ./agents
 RUN cargo build --release -p company-os -p media-worker
 
 FROM alpine:3.20 AS company-runtime
-RUN adduser -D -H -u 10001 app
+RUN apk add --no-cache ca-certificates && adduser -D -H -u 10001 app
 USER app
 WORKDIR /app
 COPY --from=build /src/target/release/company-os /app/company-os
