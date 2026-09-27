@@ -267,6 +267,57 @@ pub struct PortfolioDayResult {
 }
 
 impl CompanyPortfolio {
+    pub fn startup_default(initial_cash_minor: i128) -> Result<Self, BusinessError> {
+        if initial_cash_minor < 0 {
+            return Err(BusinessError::Invalid(
+                "startup cash cannot be negative".into(),
+            ));
+        }
+        let creator_cash = initial_cash_minor.saturating_mul(70) / 100;
+        let portfolio = Self {
+            units: vec![
+                BusinessUnit {
+                    id: "creator-media".into(),
+                    name: "Creator Media".into(),
+                    kind: BusinessUnitKind::Creator,
+                    status: BusinessUnitStatus::Testing,
+                    cash_minor: creator_cash,
+                    revenue_minor: 0,
+                    direct_cost_minor: 0,
+                    fixed_cost_minor: 180,
+                    payroll: vec![PayrollObligation {
+                        employee_id: "editor-1".into(),
+                        amount_minor: 70,
+                        due_day: 1,
+                        recurrence_days: Some(1),
+                        priority: 100,
+                    }],
+                    contracts: vec![],
+                },
+                BusinessUnit {
+                    id: "affiliate-commerce".into(),
+                    name: "Affiliate Commerce".into(),
+                    kind: BusinessUnitKind::AffiliateChannel,
+                    status: BusinessUnitStatus::Testing,
+                    cash_minor: initial_cash_minor.saturating_sub(creator_cash),
+                    revenue_minor: 0,
+                    direct_cost_minor: 0,
+                    fixed_cost_minor: 120,
+                    payroll: vec![PayrollObligation {
+                        employee_id: "ops-1".into(),
+                        amount_minor: 50,
+                        due_day: 1,
+                        recurrence_days: Some(1),
+                        priority: 80,
+                    }],
+                    contracts: vec![],
+                },
+            ],
+        };
+        portfolio.validate()?;
+        Ok(portfolio)
+    }
+
     pub fn total_cash_minor(&self) -> Result<i128, BusinessError> {
         self.units.iter().try_fold(0_i128, |total, unit| {
             total.checked_add(unit.cash_minor).ok_or(BusinessError::Overflow)
