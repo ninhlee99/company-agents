@@ -113,6 +113,18 @@ pub struct CompanySnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelSuggestion {
+    pub action: Option<String>,
+    pub objective: Option<String>,
+    pub cost_minor: Option<i128>,
+    pub expected_revenue_minor: Option<i128>,
+    pub risk: Option<String>,
+    pub confidence: Option<f64>,
+    pub rationale: Option<String>,
+    pub reversible: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Proposal {
     pub agent: AgentRole,
     pub objective: String,
@@ -169,4 +181,50 @@ pub struct AgentRunResult {
     pub agent: AgentRole,
     pub proposal: Proposal,
     pub governance: Option<GovernedProposal>,
+}
+
+
+impl RiskTier {
+    pub fn rank(self) -> u8 {
+        match self {
+            Self::Low => 0,
+            Self::Medium => 1,
+            Self::High => 2,
+            Self::Critical => 3,
+        }
+    }
+
+    pub fn max(self, other: Self) -> Self {
+        if self.rank() >= other.rank() { self } else { other }
+    }
+}
+
+impl ActionKind {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "createexperiment" | "create_experiment" => Some(Self::CreateExperiment),
+            "allocateexperimentbudget" | "allocate_experiment_budget" => Some(Self::AllocateExperimentBudget),
+            "reducebudget" | "reduce_budget" => Some(Self::ReduceBudget),
+            "rebalanceoperations" | "rebalance_operations" => Some(Self::RebalanceOperations),
+            "researchopportunity" | "research_opportunity" => Some(Self::ResearchOpportunity),
+            "publishcontent" | "publish_content" => Some(Self::PublishContent),
+            "proposehire" | "propose_hire" => Some(Self::ProposeHire),
+            "producereport" | "produce_report" => Some(Self::ProduceReport),
+            "escalateincident" | "escalate_incident" => Some(Self::EscalateIncident),
+            "none" => Some(Self::None),
+            _ => None,
+        }
+    }
+}
+
+impl RiskTier {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "low" => Some(Self::Low),
+            "medium" => Some(Self::Medium),
+            "high" => Some(Self::High),
+            "critical" => Some(Self::Critical),
+            _ => None,
+        }
+    }
 }
