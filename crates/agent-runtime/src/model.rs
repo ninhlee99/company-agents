@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use std::{env, fmt, time::Duration};
+use std::{env, fmt, fs, path::Path, time::Duration};
 
 #[derive(Debug)]
 pub enum ModelError {
@@ -43,6 +43,38 @@ pub struct OpenAiCompatibleModel {
     base_url: String,
     api_key: Option<String>,
     model: String,
+}
+
+fn secret_from_env(name: &str) -> Result<String, ModelError> {
+    let file_key = format!("{name}_FILE");
+    let direct = env::var(name).ok();
+    let file = env::var(&file_key).ok();
+
+    if direct.is_some() && file.is_some() {
+        return Err(ModelError::MissingConfiguration);
+    }
+
+    let value = match (direct, file) {
+        (Some(value), None) => value,
+        (None, Some(path)) => {
+            if path.trim().is_empty() || Path::new(&path).is_dir() {
+                return Err(ModelError::MissingConfiguration);
+            }
+            let metadata = fs::metadata(&path).map_err(|_| ModelError::MissingConfiguration)?;
+            if metadata.len() > 16 * 1024 {
+                return Err(ModelError::MissingConfiguration);
+            }
+            fs::read_to_string(&path).map_err(|_| ModelError::MissingConfiguration)?
+        }
+        (None, None) => return Err(ModelError::MissingConfiguration),
+        _ => unreachable!(),
+    };
+
+    let trimmed = value.trim().to_owned();
+    if trimmed.is_empty() {
+        return Err(ModelError::MissingConfiguration);
+    }
+    Ok(trimmed)
 }
 
 impl OpenAiCompatibleModel {
@@ -176,9 +208,8 @@ pub struct GeminiModel(OpenAiCompatibleModel);
 
 impl GeminiModel {
     pub fn from_env() -> Result<Self, ModelError> {
-        let api_key = env::var("GEMINI_API_KEY")
-            .or_else(|_| env::var("LLM_API_KEY"))
-            .map_err(|_| ModelError::MissingConfiguration)?;
+        let api_key = secret_from_env("GEMINI_API_KEY")
+            .or_else(|_| secret_from_env("LLM_API_KEY"))?;
 
         let model = env::var("GEMINI_MODEL")
             .or_else(|_| env::var("LLM_MODEL"))
@@ -213,7 +244,7 @@ pub fn model_from_env() -> Box<dyn Model> {
         },
         "openai-compatible" => {
             let base_url = env::var("LLM_BASE_URL").ok();
-            let key = env::var("LLM_API_KEY").ok();
+            let key = secret_from_env("LLM_API_KEY").ok();
             let model = env::var("LLM_MODEL").ok();
             match (base_url, model) {
                 (Some(base_url), Some(model)) => {
