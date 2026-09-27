@@ -87,7 +87,9 @@ impl FfmpegExecutor {
         timeout: Duration,
     ) -> Result<Self, MediaError> {
         if timeout < Duration::from_secs(1) || timeout > Duration::from_secs(86_400) {
-            return Err(MediaError::InvalidJob("FFmpeg timeout outside safe bounds".into()));
+            return Err(MediaError::InvalidJob(
+                "FFmpeg timeout outside safe bounds".into(),
+            ));
         }
         Ok(Self {
             executable: executable.into(),
@@ -100,7 +102,9 @@ impl FfmpegExecutor {
         let executable = std::env::var("FFMPEG_BIN").unwrap_or_else(|_| "ffmpeg".into());
         let workspace = std::env::var("MEDIA_WORKSPACE")
             .map(PathBuf::from)
-            .map_err(|_| MediaError::InvalidJob("MEDIA_WORKSPACE is required for FFmpeg execution".into()))?;
+            .map_err(|_| {
+                MediaError::InvalidJob("MEDIA_WORKSPACE is required for FFmpeg execution".into())
+            })?;
         let timeout_seconds = std::env::var("FFMPEG_TIMEOUT_SECONDS")
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
@@ -124,8 +128,9 @@ impl MediaExecutor for FfmpegExecutor {
             return Err(MediaError::InvalidJob("input media does not exist".into()));
         }
         if let Some(parent) = output.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| MediaError::InvalidJob(format!("cannot create output directory: {e}")))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                MediaError::InvalidJob(format!("cannot create output directory: {e}"))
+            })?;
         }
 
         let mut child = Command::new(&self.executable)
