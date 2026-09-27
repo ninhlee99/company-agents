@@ -389,6 +389,54 @@ async fn payroll_accrual_and_payment_are_ledger_consistent() {
 }
 
 #[tokio::test]
+async fn business_unit_upsert_and_portfolio_metrics_round_trip() {
+    let Some(store) = connect_store().await else {
+        return;
+    };
+
+    let company_id = uuid::Uuid::new_v4().to_string();
+    store
+        .ensure_company(&company_id, "Business Unit Test", "USD")
+        .await
+        .unwrap();
+
+    let first = company_organization::BusinessUnit {
+        id: uuid::Uuid::new_v4().to_string(),
+        name: "Owned Media".into(),
+        currency: "USD".into(),
+        cash_minor: 5_000,
+        revenue_minor: 2_000,
+        variable_cost_minor: 500,
+        fixed_cost_minor: 250,
+        budget_minor: 1_000,
+        lifecycle: company_organization::BusinessUnitLifecycle::Growing,
+    };
+    let second = company_organization::BusinessUnit {
+        id: uuid::Uuid::new_v4().to_string(),
+        name: "Affiliate Commerce".into(),
+        currency: "USD".into(),
+        cash_minor: 4_000,
+        revenue_minor: 1_500,
+        variable_cost_minor: 300,
+        fixed_cost_minor: 200,
+        budget_minor: 700,
+        lifecycle: company_organization::BusinessUnitLifecycle::Testing,
+    };
+
+    store.upsert_business_unit(&company_id, &first).await.unwrap();
+    store.upsert_business_unit(&company_id, &second).await.unwrap();
+
+    let units = store.list_business_units(&company_id).await.unwrap();
+    assert_eq!(units.len(), 2);
+
+    let metrics = store.portfolio_metrics(&company_id).await.unwrap();
+    assert_eq!(metrics.revenue_minor, 3_500);
+    assert_eq!(metrics.variable_cost_minor, 800);
+    assert_eq!(metrics.fixed_cost_minor, 450);
+    assert_eq!(metrics.total_cost_minor, 1_250);
+}
+    
+#[tokio::test]
 async fn invalid_company_id_is_rejected() {
     let Some(store) = connect_store().await else {
         return;
