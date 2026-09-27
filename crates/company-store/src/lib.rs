@@ -845,8 +845,9 @@ impl CompanyStore {
 
         if let Some(row) = tx
             .query_opt(
-                "SELECT conversion_id, order_value_minor, commission_minor, refunded_minor,
-                        cancelled, click_id, product_id, advertiser_id, occurred_at, source
+                "SELECT conversion_id, order_value_minor::text, commission_minor::text,
+                        refunded_minor::text, cancelled, click_id, product_id,
+                        advertiser_id, occurred_at, source
                    FROM affiliate_conversions
                   WHERE company_id = $1 AND idempotency_key = $2",
                 &[
@@ -862,7 +863,8 @@ impl CompanyStore {
                 attributed: tx
                     .query(
                         "SELECT click_id, product_id, content_id,
-                                attributed_order_value_minor, attributed_commission_minor,
+                                attributed_order_value_minor::text,
+                                attributed_commission_minor::text,
                                 confidence_bps
                            FROM affiliate_attributions
                           WHERE company_id = $1 AND conversion_id = $2
