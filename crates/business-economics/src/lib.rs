@@ -114,8 +114,10 @@ impl BusinessUnit {
 
     pub fn monthly_runway_days(&self) -> u64 {
         let recurring = self
-            .fixed_cost_minor
-            .saturating_add(self.payroll.iter().map(|item| item.amount_minor).sum());
+            .payroll
+            .iter()
+            .try_fold(self.fixed_cost_minor, |total, item| total.checked_add(item.amount_minor))
+            .unwrap_or(i128::MAX);
         if recurring == 0 {
             return u64::MAX;
         }
@@ -150,20 +152,26 @@ impl BusinessUnit {
             .checked_sub(self.fixed_cost_minor)
             .ok_or(BusinessError::Overflow)?;
 
-        let mut payroll_paid = 0_i128;
-        let mut unpaid_priority = 0_i128;
-        for obligation in &self.payroll {
+        let mut due_payroll = self.payroll.iter().collect::<Vec<_>>();
+        due_payroll.retain(|obligation| {
             if obligation.due_day > day {
-                continue;
+                return false;
             }
-            let due = match obligation.recurrence_days {
+            match obligation.recurrence_days {
                 Some(period) if period > 0 => (day - obligation.due_day) % period == 0,
                 Some(_) => false,
                 None => day == obligation.due_day,
-            };
-            if !due {
-                continue;
             }
+        });
+        due_payroll.sort_by(|a, b| {
+            b.priority
+                .cmp(&a.priority)
+                .then_with(|| a.employee_id.cmp(&b.employee_id))
+        });
+
+        let mut payroll_paid = 0_i128;
+        let mut unpaid_priority = 0_i128;
+        for obligation in due_payroll {
             if obligation.amount_minor <= cash {
                 cash = cash
                     .checked_sub(obligation.amount_minor)
@@ -318,13 +326,14 @@ impl CompanyPortfolio {
         for (index, unit) in self.units.iter_mut().enumerate() {
             let result = unit.settle_day(day, revenues_minor[index], direct_costs_minor[index])?;
             revenue = revenue.checked_add(result.revenue_minor).ok_or(BusinessError::Overflow)?;
+            let unit_costs = result
+                .direct_cost_minor
+                .checked_add(result.fixed_cost_minor)
+                .and_then(|value| value.checked_add(result.payroll_paid_minor))
+                .and_then(|value| value.checked_add(result.contracts_paid_minor))
+                .ok_or(BusinessError::Overflow)?;
             costs = costs
-                .checked_add(
-                    result.direct_cost_minor
-                        .saturating_add(result.fixed_cost_minor)
-                        .saturating_add(result.payroll_paid_minor)
-                        .saturating_add(result.contracts_paid_minor),
-                )
+                .checked_add(unit_costs)
                 .ok_or(BusinessError::Overflow)?;
             cash = cash.checked_add(result.closing_cash_minor).ok_or(BusinessError::Overflow)?;
             unpaid = unpaid.checked_add(result.unpaid_priority_minor).ok_or(BusinessError::Overflow)?;
