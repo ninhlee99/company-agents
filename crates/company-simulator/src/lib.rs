@@ -140,7 +140,7 @@ pub async fn run(config: SimConfig) -> SimulationResult {
 
         let units = vec![
             company_organization::BusinessUnit {
-                id: business_units[0].0.into(),
+                id: business_units[0].into(),
                 name: "Owned Media".into(),
                 currency: config.currency.clone(),
                 cash_minor: cash.max(0),
@@ -151,7 +151,7 @@ pub async fn run(config: SimConfig) -> SimulationResult {
                 lifecycle: company_organization::BusinessUnitLifecycle::Growing,
             },
             company_organization::BusinessUnit {
-                id: business_units[1].0.into(),
+                id: business_units[1].into(),
                 name: "Affiliate Commerce".into(),
                 currency: config.currency.clone(),
                 cash_minor: cash.max(0),
@@ -162,7 +162,7 @@ pub async fn run(config: SimConfig) -> SimulationResult {
                 lifecycle: company_organization::BusinessUnitLifecycle::Growing,
             },
             company_organization::BusinessUnit {
-                id: business_units[2].0.into(),
+                id: business_units[2].into(),
                 name: "Services".into(),
                 currency: config.currency.clone(),
                 cash_minor: cash.max(0),
@@ -226,12 +226,11 @@ pub async fn run(config: SimConfig) -> SimulationResult {
         }
 
         let daily_burn = (expenses / day as i128).max(1);
-        let projected_expenses = expenses.saturating_add(day_expense.max(0));
         let economic = CompanyState {
             company_id: "simulation".into(),
             cash_minor: cash,
             revenue_minor: revenue,
-            expenses_minor: projected_expenses,
+            expenses_minor: expenses,
             liabilities_minor: liabilities.max(0),
             assets_minor: cash,
             runway_days: 0,
@@ -247,8 +246,8 @@ pub async fn run(config: SimConfig) -> SimulationResult {
             cash_minor: cash,
             revenue_minor: revenue,
             expenses_minor: expenses,
-            liabilities_minor: 0,
-            assets_minor: cash,
+            liabilities_minor: liabilities.max(0),
+            assets_minor: cash.saturating_add(liabilities.max(0)),
             runway_days: economic.runway_days,
             status: economic.status,
             budget_remaining_minor: experiment_budget.max(0),
