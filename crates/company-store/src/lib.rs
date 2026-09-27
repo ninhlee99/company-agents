@@ -4,6 +4,7 @@ use agent_runtime::{
     ExecutionEngine, ExecutionOutcome, AgentRunResult, CompanySnapshot,
 };
 use affiliate_intelligence::{AffiliateSearchResult, ProductSearchQuery};
+use company_domain::{ContentAsset, Contract, CreatorUnit, Employee, Experiment, Task};
 use economic_core::{validate_balanced_transaction, LedgerEntry, LedgerTransaction};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
@@ -59,6 +60,9 @@ impl CompanyStore {
             .await?;
         client
             .batch_execute(include_str!("../../../infra/db/migrations/005_durable_scheduler.sql"))
+            .await?;
+        client
+            .batch_execute(include_str!("../../../infra/db/migrations/006_company_operations.sql"))
             .await
     }
 
@@ -149,6 +153,162 @@ impl CompanyStore {
 
         tx.commit().await?;
         Ok(transaction_uuid)
+    }
+
+    pub async fn save_creator(
+        &self,
+        company_id: &str,
+        creator: &CreatorUnit,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        creator.validate().map_err(|e| e.to_string())?;
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        client.execute(
+            "INSERT INTO creators
+             (id,company_id,name,currency,status,cash_minor,revenue_minor,expenses_minor,audience,content_count)
+             VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8::numeric,$9,$10)
+             ON CONFLICT (id) DO UPDATE SET
+               name=EXCLUDED.name,currency=EXCLUDED.currency,status=EXCLUDED.status,
+               cash_minor=EXCLUDED.cash_minor,revenue_minor=EXCLUDED.revenue_minor,
+               expenses_minor=EXCLUDED.expenses_minor,audience=EXCLUDED.audience,
+               content_count=EXCLUDED.content_count,updated_at=now()
+             WHERE creators.company_id=EXCLUDED.company_id",
+            &[
+                &creator.id,&company_uuid,&creator.name,&creator.currency,
+                &format!("{:?}",creator.status),
+                &creator.cash_minor.to_string(),&creator.revenue_minor.to_string(),
+                &creator.expenses_minor.to_string(),&(creator.audience as i64),&(creator.content_count as i64)
+            ],
+        ).await?;
+        Ok(())
+    }
+
+    pub async fn save_content_asset(
+        &self,
+        company_id: &str,
+        content: &ContentAsset,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        content.validate().map_err(|e| e.to_string())?;
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        client.execute(
+            "INSERT INTO content_assets
+             (id,company_id,creator_id,title,channel,status,production_cost_minor,attributed_revenue_minor,
+              affiliate_commission_minor,views,clicks,orders,published_at_epoch)
+             VALUES ($1,$2,$3,$4,$5,$6,$7::numeric,$8::numeric,$9::numeric,$10,$11,$12,$13)
+             ON CONFLICT (id) DO UPDATE SET
+               title=EXCLUDED.title,channel=EXCLUDED.channel,status=EXCLUDED.status,
+               production_cost_minor=EXCLUDED.production_cost_minor,
+               attributed_revenue_minor=EXCLUDED.attributed_revenue_minor,
+               affiliate_commission_minor=EXCLUDED.affiliate_commission_minor,
+               views=EXCLUDED.views,clicks=EXCLUDED.clicks,orders=EXCLUDED.orders,
+               published_at_epoch=EXCLUDED.published_at_epoch,updated_at=now()
+             WHERE content_assets.company_id=EXCLUDED.company_id",
+            &[
+                &content.id,&company_uuid,&content.creator_id,&content.title,&content.channel,
+                &format!("{:?}",content.status),&content.production_cost_minor.to_string(),
+                &content.attributed_revenue_minor.to_string(),&content.affiliate_commission_minor.to_string(),
+                &(content.views as i64),&(content.clicks as i64),&(content.orders as i64),&content.published_at_epoch
+            ],
+        ).await?;
+        Ok(())
+    }
+
+    pub async fn save_experiment(
+        &self,
+        company_id: &str,
+        experiment: &Experiment,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        experiment.validate().map_err(|e| e.to_string())?;
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        client.execute(
+            "INSERT INTO experiments
+             (id,company_id,name,hypothesis,status,budget_minor,spent_minor,expected_revenue_minor)
+             VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8::numeric)
+             ON CONFLICT (id) DO UPDATE SET
+               name=EXCLUDED.name,hypothesis=EXCLUDED.hypothesis,status=EXCLUDED.status,
+               budget_minor=EXCLUDED.budget_minor,spent_minor=EXCLUDED.spent_minor,
+               expected_revenue_minor=EXCLUDED.expected_revenue_minor,updated_at=now()
+             WHERE experiments.company_id=EXCLUDED.company_id",
+            &[
+                &experiment.id,&company_uuid,&experiment.name,&experiment.hypothesis,
+                &format!("{:?}",experiment.status),&experiment.budget_minor.to_string(),
+                &experiment.spent_minor.to_string(),&experiment.expected_revenue_minor.to_string()
+            ],
+        ).await?;
+        Ok(())
+    }
+
+    pub async fn save_employee(
+        &self,
+        company_id: &str,
+        employee: &Employee,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        employee.validate().map_err(|e| e.to_string())?;
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        client.execute(
+            "INSERT INTO employees
+             (id,company_id,name,role,status,monthly_cost_minor,start_epoch)
+             VALUES ($1,$2,$3,$4,$5,$6::numeric,$7)
+             ON CONFLICT (id) DO UPDATE SET
+               name=EXCLUDED.name,role=EXCLUDED.role,status=EXCLUDED.status,
+               monthly_cost_minor=EXCLUDED.monthly_cost_minor,start_epoch=EXCLUDED.start_epoch,updated_at=now()
+             WHERE employees.company_id=EXCLUDED.company_id",
+            &[
+                &employee.id,&company_uuid,&employee.name,&employee.role,
+                &format!("{:?}",employee.status),&employee.monthly_cost_minor.to_string(),&employee.start_epoch
+            ],
+        ).await?;
+        Ok(())
+    }
+
+    pub async fn save_contract(
+        &self,
+        company_id: &str,
+        contract: &Contract,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        contract.validate().map_err(|e| e.to_string())?;
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        client.execute(
+            "INSERT INTO contracts
+             (id,company_id,counterparty,contract_type,status,value_minor,start_epoch,end_epoch)
+             VALUES ($1,$2,$3,$4,$5,$6::numeric,$7,$8)
+             ON CONFLICT (id) DO UPDATE SET
+               counterparty=EXCLUDED.counterparty,contract_type=EXCLUDED.contract_type,status=EXCLUDED.status,
+               value_minor=EXCLUDED.value_minor,start_epoch=EXCLUDED.start_epoch,end_epoch=EXCLUDED.end_epoch,updated_at=now()
+             WHERE contracts.company_id=EXCLUDED.company_id",
+            &[
+                &contract.id,&company_uuid,&contract.counterparty,&contract.contract_type,
+                &format!("{:?}",contract.status),&contract.value_minor.to_string(),&contract.start_epoch,&contract.end_epoch
+            ],
+        ).await?;
+        Ok(())
+    }
+
+    pub async fn save_task(
+        &self,
+        company_id: &str,
+        task: &Task,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        task.validate().map_err(|e| e.to_string())?;
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        client.execute(
+            "INSERT INTO tasks (id,company_id,title,status,priority,owner_agent,creator_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)
+             ON CONFLICT (id) DO UPDATE SET
+               title=EXCLUDED.title,status=EXCLUDED.status,priority=EXCLUDED.priority,
+               owner_agent=EXCLUDED.owner_agent,creator_id=EXCLUDED.creator_id,updated_at=now()
+             WHERE tasks.company_id=EXCLUDED.company_id",
+            &[
+                &task.id,&company_uuid,&task.title,&format!("{:?}",task.status),
+                &(task.priority as i16),&task.owner_agent,&task.creator_id
+            ],
+        ).await?;
+        Ok(())
     }
 
     pub async fn record_cash_revenue(
