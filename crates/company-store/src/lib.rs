@@ -749,10 +749,8 @@ impl CompanyStore {
         &self,
         company_id: &str,
         enabled: bool,
-    ) -> Result<bool, tokio_postgres::Error> {
-        let company_uuid = Uuid::parse_str(company_id).map_err(|_| tokio_postgres::Error::from(
-            tokio_postgres::error::DbError::closed()
-        ))?;
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
         let client = self.client.lock().await;
         Ok(client.execute(
             "UPDATE company_schedules SET enabled=$2, updated_at=now()
