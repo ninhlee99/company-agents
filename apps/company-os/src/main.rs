@@ -448,6 +448,28 @@ async fn journal_api(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
+async fn business_units_api(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<company_organization::BusinessUnit>>, StatusCode> {
+    state
+        .store
+        .list_business_units(&state.company_id)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn portfolio_metrics_api(
+    State(state): State<AppState>,
+) -> Result<Json<company_organization::PortfolioMetrics>, StatusCode> {
+    state
+        .store
+        .portfolio_metrics(&state.company_id)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 async fn employees_api(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<company_organization::Employee>>, StatusCode> {
@@ -605,6 +627,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/affiliate/performance", get(affiliate_performance_api))
         .route("/api/employees", get(employees_api))
         .route("/api/payroll/due", get(payroll_due_api))
+        .route("/api/business-units", get(business_units_api))
+        .route("/api/portfolio/metrics", get(portfolio_metrics_api))
         .route("/api/journal", get(journal_api))
         .route("/healthz", get(healthz))
         .route("/metrics", get(metrics))
