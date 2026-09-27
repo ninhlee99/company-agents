@@ -437,6 +437,170 @@ async fn business_unit_upsert_and_portfolio_metrics_round_trip() {
 }
     
 #[tokio::test]
+async fn verified_affiliate_conversion_becomes_receivable_then_cash() {
+    let Some(store) = connect_store().await else {
+        return;
+    };
+
+    let company_id = uuid::Uuid::new_v4().to_string();
+    store
+        .ensure_company(&company_id, "Affiliate Accounting Test", "USD")
+        .await
+        .unwrap();
+    store.save_snapshot(&snapshot(&company_id)).await.unwrap();
+
+    store
+        .record_affiliate_click(&affiliate_attribution::ClickEvent {
+            click_id: "click-1".into(),
+            company_id: company_id.clone(),
+            product_id: "product-1".into(),
+            advertiser_id: "advertiser-1".into(),
+            content_id: "content-1".into(),
+            occurred_at: "2026-09-27T09:00:00Z".into(),
+            source: "test".into(),
+        })
+        .await
+        .unwrap();
+
+    let conversion = affiliate_attribution::ConversionEvent {
+        company_id: company_id.clone(),
+        conversion_id: "conversion-1".into(),
+        click_id: Some("click-1".into()),
+        order_id: "order-1".into(),
+        product_id: "product-1".into(),
+        advertiser_id: "advertiser-1".into(),
+        occurred_at: "2026-09-27T10:00:00Z".into(),
+        order_value_minor: 2_000,
+        commission_minor: 101,
+        refunded_minor: 0,
+        cancelled: false,
+        source: "test".into(),
+    };
+
+    let recognized = store
+        .record_affiliate_conversion(
+            &conversion,
+            affiliate_attribution::AttributionModel::LastClick,
+        )
+        .await
+        .unwrap();
+    assert_eq!(recognized.status, affiliate_attribution::ReconciliationStatus::Verified);
+    assert_eq!(recognized.net_commission_minor, 101);
+
+    let after_recognition = store.load_snapshot(&company_id).await.unwrap().unwrap();
+    assert_eq!(after_recognition.cash_minor, 10_000);
+    assert_eq!(after_recognition.revenue_minor, 5_101);
+    assert_eq!(after_recognition.assets_minor, 10_101);
+
+    store
+        .record_affiliate_payout(
+            &company_id,
+            "payout-1",
+            60,
+            "USD",
+            "2026-09-28T00:00:00Z",
+        )
+        .await
+        .unwrap();
+    store
+        .record_affiliate_payout(
+            &company_id,
+            "payout-1",
+            60,
+            "USD",
+            "2026-09-28T00:00:00Z",
+        )
+        .await
+        .unwrap();
+    store
+        .record_affiliate_payout(
+            &company_id,
+            "payout-2",
+            41,
+            "USD",
+            "2026-09-29T00:00:00Z",
+        )
+        .await
+        .unwrap();
+
+    let after_payout = store.load_snapshot(&company_id).await.unwrap().unwrap();
+    assert_eq!(after_payout.cash_minor, 10_101);
+    assert_eq!(after_payout.revenue_minor, 5_101);
+    assert_eq!(after_payout.assets_minor, 10_101);
+
+    assert!(store
+        .record_affiliate_payout(
+            &company_id,
+            "payout-3",
+            1,
+            "USD",
+            "2026-09-30T00:00:00Z",
+        )
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn cross_company_employee_and_business_unit_ids_cannot_overwrite() {
+    let Some(store) = connect_store().await else {
+        return;
+    };
+
+    let company_a = uuid::Uuid::new_v4().to_string();
+    let company_b = uuid::Uuid::new_v4().to_string();
+    store.ensure_company(&company_a, "A", "USD").await.unwrap();
+    store.ensure_company(&company_b, "B", "USD").await.unwrap();
+
+    let employee_id = uuid::Uuid::new_v4().to_string();
+    let employee_a = company_organization::Employee {
+        id: employee_id.clone(),
+        name: "A Employee".into(),
+        role: "editor".into(),
+        monthly_cost_minor: 100,
+        currency: "USD".into(),
+        status: company_organization::EmployeeStatus::Active,
+    };
+    let employee_b = company_organization::Employee {
+        id: employee_id,
+        name: "B Employee".into(),
+        role: "editor".into(),
+        monthly_cost_minor: 200,
+        currency: "USD".into(),
+        status: company_organization::EmployeeStatus::Active,
+    };
+
+    store.upsert_employee(&company_a, &employee_a).await.unwrap();
+    assert!(store.upsert_employee(&company_b, &employee_b).await.is_err());
+
+    let unit_id = uuid::Uuid::new_v4().to_string();
+    let unit_a = company_organization::BusinessUnit {
+        id: unit_id.clone(),
+        name: "A Unit".into(),
+        currency: "USD".into(),
+        cash_minor: 1_000,
+        revenue_minor: 100,
+        variable_cost_minor: 20,
+        fixed_cost_minor: 10,
+        budget_minor: 50,
+        lifecycle: company_organization::BusinessUnitLifecycle::Testing,
+    };
+    let unit_b = company_organization::BusinessUnit {
+        id: unit_id,
+        name: "B Unit".into(),
+        currency: "USD".into(),
+        cash_minor: 2_000,
+        revenue_minor: 200,
+        variable_cost_minor: 30,
+        fixed_cost_minor: 20,
+        budget_minor: 60,
+        lifecycle: company_organization::BusinessUnitLifecycle::Testing,
+    };
+
+    store.upsert_business_unit(&company_a, &unit_a).await.unwrap();
+    assert!(store.upsert_business_unit(&company_b, &unit_b).await.is_err());
+}
+
+#[tokio::test]
 async fn invalid_company_id_is_rejected() {
     let Some(store) = connect_store().await else {
         return;
