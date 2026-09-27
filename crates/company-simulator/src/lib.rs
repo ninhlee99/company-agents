@@ -2,6 +2,9 @@
 
 use agent_runtime::{model::MockModel, types::CompanySnapshot, AgentRuntime};
 use company_execution::{execute_approved_results, ExecutionPolicy, ExecutionStatus};
+use business_economics::{
+    BusinessUnit, BusinessUnitKind, BusinessUnitStatus, CompanyPortfolio, PayrollObligation,
+};
 use economic_core::{CompanyState, CompanyStatus};
 use serde::{Deserialize, Serialize};
 
@@ -68,7 +71,64 @@ pub async fn run(config: SimConfig) -> SimulationResult {
     let mut cash = config.initial_cash_minor;
     let mut revenue = 0_i128;
     let mut expenses = 0_i128;
+    let mut liabilities = 0_i128;
     let mut minimum_cash = cash;
+
+    let mut portfolio = CompanyPortfolio {
+        units: vec![
+            BusinessUnit {
+                id: "creator-media".into(),
+                name: "Creator Media".into(),
+                kind: BusinessUnitKind::Creator,
+                status: BusinessUnitStatus::Growing,
+                cash_minor: cash.saturating_mul(70) / 100,
+                revenue_minor: 0,
+                direct_cost_minor: 0,
+                fixed_cost_minor: 180,
+                payroll: vec![PayrollObligation {
+                    employee_id: "editor-1".into(),
+                    amount_minor: 70,
+                    due_day: 1,
+                    recurrence_days: Some(1),
+                    priority: 100,
+                }],
+                contracts: vec![],
+            },
+            BusinessUnit {
+                id: "affiliate-commerce".into(),
+                name: "Affiliate Commerce".into(),
+                kind: BusinessUnitKind::AffiliateChannel,
+                status: BusinessUnitStatus::Growing,
+                cash_minor: cash.saturating_sub(cash.saturating_mul(70) / 100),
+                revenue_minor: 0,
+                direct_cost_minor: 0,
+                fixed_cost_minor: 120,
+                payroll: vec![PayrollObligation {
+                    employee_id: "ops-1".into(),
+                    amount_minor: 50,
+                    due_day: 1,
+                    recurrence_days: Some(1),
+                    priority: 80,
+                }],
+                contracts: vec![],
+            },
+        ],
+    };
+
+    if portfolio.validate().is_err() {
+        return SimulationResult {
+            days_simulated: 0,
+            ending_cash_minor: cash,
+            revenue_minor: 0,
+            expenses_minor: 0,
+            free_cash_flow_minor: 0,
+            minimum_cash_minor: cash,
+            bankruptcy_day: None,
+            decision_cycles: 0,
+            violations: vec!["initial business portfolio is invalid".into()],
+            survived: false,
+        };
+    }
     let mut bankruptcy_day = None;
     let mut violations = Vec::new();
     let mut decision_cycles = 0_u64;
@@ -85,7 +145,6 @@ pub async fn run(config: SimConfig) -> SimulationResult {
             break;
         }
 
-        let daily_fixed = 300_i128;
         let content_units = capacity.min(12) as i128;
         let content_cost = content_units * 35;
 
@@ -97,11 +156,29 @@ pub async fn run(config: SimConfig) -> SimulationResult {
         let sponsor_revenue = if rng.pct(150) { 250_i128 } else { 0 };
         let affiliate_revenue = content_revenue / 2;
         let day_revenue = content_revenue + affiliate_revenue + sponsor_revenue;
-        let day_expense = daily_fixed + content_cost;
 
-        revenue = revenue.saturating_add(day_revenue.max(0));
-        expenses = expenses.saturating_add(day_expense.max(0));
-        cash = cash.saturating_add(day_revenue).saturating_sub(day_expense);
+        let portfolio_day = portfolio
+            .settle_day(
+                day as u64,
+                &[content_revenue.max(0), affiliate_revenue.saturating_add(sponsor_revenue).max(0)],
+                &[content_cost.max(0), 0],
+            )
+            .unwrap_or_else(|error| {
+                violations.push(format!("day {day}: portfolio economics error: {error}"));
+                business_economics::PortfolioDayResult {
+                    day: day as u64,
+                    revenue_minor: 0,
+                    costs_minor: 0,
+                    cash_minor: portfolio.total_cash_minor().unwrap_or(0),
+                    unpaid_priority_minor: 0,
+                    distressed_units: portfolio.units.len(),
+                }
+            });
+
+        revenue = revenue.saturating_add(portfolio_day.revenue_minor.max(0));
+        expenses = expenses.saturating_add(portfolio_day.costs_minor.max(0));
+        liabilities = liabilities.saturating_add(portfolio_day.unpaid_priority_minor.max(0));
+        cash = portfolio.total_cash_minor().unwrap_or(portfolio_day.cash_minor);
         minimum_cash = minimum_cash.min(cash);
 
         if cash <= 0 {
@@ -121,17 +198,21 @@ pub async fn run(config: SimConfig) -> SimulationResult {
         }
 
         let daily_burn = (expenses / day as i128).max(1);
-        let economic = CompanyState {
+        let mut economic = CompanyState {
             company_id: "simulation".into(),
             cash_minor: cash,
             revenue_minor: revenue,
             expenses_minor: expenses,
-            liabilities_minor: 0,
-            assets_minor: cash,
+            liabilities_minor: liabilities,
+            assets_minor: cash.saturating_add(liabilities),
             runway_days: 0,
             status: CompanyStatus::Active,
         }
         .refresh_status_from_runway(daily_burn);
+
+        if portfolio_day.distressed_units > 0 || portfolio_day.unpaid_priority_minor > 0 {
+            economic.status = CompanyStatus::Distress;
+        }
 
         let experiment_budget = cash
             .saturating_mul((10_000_u32 - config.reserve_ratio_bps.min(9_000)) as i128)
@@ -141,8 +222,8 @@ pub async fn run(config: SimConfig) -> SimulationResult {
             cash_minor: cash,
             revenue_minor: revenue,
             expenses_minor: expenses,
-            liabilities_minor: 0,
-            assets_minor: cash,
+            liabilities_minor: liabilities,
+            assets_minor: cash.saturating_add(liabilities),
             runway_days: economic.runway_days,
             status: economic.status,
             budget_remaining_minor: experiment_budget.max(0),
@@ -153,7 +234,7 @@ pub async fn run(config: SimConfig) -> SimulationResult {
             capacity,
             conversion_bps,
             audience_growth_bps: 80,
-            hiring_need: if backlog > capacity * 2 { 1 } else { 0 },
+            hiring_need: if backlog > capacity * 2 && cash > 2_000 { 1 } else { 0 },
         };
 
         let results = runtime.run_all(snapshot.clone()).await;
@@ -182,8 +263,15 @@ pub async fn run(config: SimConfig) -> SimulationResult {
                             content_efficiency_bps.saturating_add(50).min(20_000);
                     }
                 }
-                cash = batch.snapshot.cash_minor;
+                let cash_delta = batch.snapshot.cash_minor.saturating_sub(snapshot.cash_minor);
+                if let Err(error) = portfolio.apply_external_cash_delta(cash_delta) {
+                    violations.push(format!(
+                        "day {day}: portfolio cash synchronization error: {error}"
+                    ));
+                }
+                cash = portfolio.total_cash_minor().unwrap_or(batch.snapshot.cash_minor);
                 expenses = batch.snapshot.expenses_minor;
+                liabilities = batch.snapshot.liabilities_minor;
                 backlog = batch.snapshot.backlog;
             }
             Err(error) => violations.push(format!("day {day}: execution engine error: {error}")),
