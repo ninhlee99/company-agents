@@ -347,21 +347,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         affiliate: build_affiliate_intelligence(),
     };
 
-    let background = state.clone();
     let interval_secs = std::env::var("AGENT_CYCLE_SECONDS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
         .filter(|v| *v >= 15)
         .unwrap_or(300);
+    state.store.ensure_cycle_schedule(&company_id, interval_secs as i64).await?;
 
+    let background = state.clone();
+    let scheduled_company_id = company_id.clone();
     tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(Duration::from_secs(interval_secs));
-        ticker.tick().await;
         loop {
-            ticker.tick().await;
-            if let Err(error) = run_cycle(&background).await {
-                eprintln!("agent cycle error: {error}");
+            match background.store.claim_due_cycle_for(&scheduled_company_id).await {
+                Ok(true) => {
+                    if let Err(error) = run_cycle(&background).await {
+                        eprintln!("scheduled agent cycle error: {error}");
+                    }
+                }
+                Ok(false) => {}
+                Err(error) => eprintln!("scheduler error: {error}"),
             }
+            tokio::time::sleep(Duration::from_secs(5)).await;
         }
     });
 
