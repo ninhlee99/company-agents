@@ -103,7 +103,11 @@ impl CompanyStore {
         match row {
             Some(row) => {
                 let state: serde_json::Value = row.get(0);
-                Ok(Some(serde_json::from_value(state)?))
+                let snapshot: CompanySnapshot = serde_json::from_value(state)?;
+                snapshot
+                    .validate()
+                    .map_err(|error| format!("persisted company snapshot is invalid: {error}"))?;
+                Ok(Some(snapshot))
             }
             None => Ok(None),
         }
@@ -113,6 +117,7 @@ impl CompanyStore {
         &self,
         snapshot: &CompanySnapshot,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        snapshot.validate().map_err(|error| error.to_string())?;
         let id = Uuid::parse_str(&snapshot.company_id)?;
         let state = serde_json::to_value(snapshot)?;
         let mut client = self.client.lock().await;
@@ -159,6 +164,9 @@ impl CompanyStore {
         if cycle_id.trim().is_empty() {
             return Err("cycle id is required".into());
         }
+        proposed_snapshot
+            .validate()
+            .map_err(|error| error.to_string())?;
 
         let company_id = Uuid::parse_str(&proposed_snapshot.company_id)?;
         let mut client = self.client.lock().await;
