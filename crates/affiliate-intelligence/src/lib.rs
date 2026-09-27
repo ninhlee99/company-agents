@@ -573,7 +573,16 @@ fn tiktok_sign(
     let mut mac = Hmac::<sha2::Sha256>::new_from_slice(app_secret.as_bytes())
         .map_err(|_| AffiliateError::Provider("invalid TikTok app secret".into()))?;
     mac.update(signing_payload.as_bytes());
-    Ok(hex::encode(mac.finalize().into_bytes()))
+    Ok(bytes_to_hex(&mac.finalize().into_bytes()))
+}
+
+fn bytes_to_hex(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(hex_digit(byte >> 4));
+        out.push(hex_digit(byte & 0x0f));
+    }
+    out
 }
 
 fn response_retry_delay(retry_after: Option<&str>, attempt: u32) -> Duration {
@@ -615,6 +624,10 @@ async fn send_tiktok_request(
                 .map_err(|error| AffiliateError::Provider(error.to_string()))?;
 
             let status = response.status();
+            let retry_after = response
+                .headers()
+                .get("retry-after")
+                .and_then(|value| value.to_str().ok());
             let bytes = response
                 .bytes()
                 .await
@@ -626,8 +639,7 @@ async fn send_tiktok_request(
             if status.as_u16() == 429 || status.is_server_error() {
                 last_error = Some(format!("TikTok HTTP {status}"));
                 if attempt < 2 {
-                    let delay = response_retry_delay(&bytes, attempt);
-                    tokio::time::sleep(delay).await;
+                    tokio::time::sleep(response_retry_delay(retry_after, attempt)).await;
                     continue;
                 }
             } else if !status.is_success() {
@@ -639,6 +651,11 @@ async fn send_tiktok_request(
 
             let value = serde_json::from_slice::<serde_json::Value>(&bytes)
                 .map_err(|error| AffiliateError::Parse(error.to_string()))?;
+            let code = value.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
+            if code == 36009002 && attempt < 2 {
+                tokio::time::sleep(response_retry_delay(retry_after, attempt)).await;
+                continue;
+            }
             return Ok(value);
         }
 
