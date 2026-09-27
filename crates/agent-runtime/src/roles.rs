@@ -173,10 +173,8 @@ fn attach_model_reasoning(
         .min(max_safe_cost(proposal.action))
         .min(ctx.company.budget_remaining_minor.max(0))
         .min(ctx.company.cash_minor.max(0));
-    proposal.expected_revenue_minor = proposal
-        .expected_revenue_minor
-        .max(0)
-        .min(1_000_000_000);
+    proposal.expected_revenue_minor =
+        proposal.expected_revenue_minor.max(0).min(1_000_000_000);
     proposal.risk = proposal.risk.max(floor_risk_for_action(proposal.action));
 
     proposal
