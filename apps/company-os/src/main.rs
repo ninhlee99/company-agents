@@ -12,8 +12,57 @@ use axum::{
 };
 use company_store::{CompanyStore, PersistedCycle};
 use serde::{Deserialize, Serialize};
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant},
+};
 use tokio::sync::{Mutex, RwLock};
+
+#[derive(Default)]
+struct RuntimeMetrics {
+    cycles_started_total: AtomicU64,
+    cycles_succeeded_total: AtomicU64,
+    cycles_failed_total: AtomicU64,
+    affiliate_search_total: AtomicU64,
+    affiliate_search_failed_total: AtomicU64,
+    last_cycle_latency_ms: AtomicU64,
+}
+
+impl RuntimeMetrics {
+    fn prometheus(&self) -> String {
+        format!(
+            concat!(
+                "# HELP company_cycles_started_total Agent cycles started.\n",
+                "# TYPE company_cycles_started_total counter\n",
+                "company_cycles_started_total {}\n",
+                "# HELP company_cycles_succeeded_total Agent cycles succeeded.\n",
+                "# TYPE company_cycles_succeeded_total counter\n",
+                "company_cycles_succeeded_total {}\n",
+                "# HELP company_cycles_failed_total Agent cycles failed.\n",
+                "# TYPE company_cycles_failed_total counter\n",
+                "company_cycles_failed_total {}\n",
+                "# HELP affiliate_search_total Affiliate searches received.\n",
+                "# TYPE affiliate_search_total counter\n",
+                "affiliate_search_total {}\n",
+                "# HELP affiliate_search_failed_total Affiliate searches failed.\n",
+                "# TYPE affiliate_search_failed_total counter\n",
+                "affiliate_search_failed_total {}\n",
+                "# HELP company_cycle_last_latency_ms Last completed cycle latency in ms.\n",
+                "# TYPE company_cycle_last_latency_ms gauge\n",
+                "company_cycle_last_latency_ms {}\n"
+            ),
+            self.cycles_started_total.load(Ordering::Relaxed),
+            self.cycles_succeeded_total.load(Ordering::Relaxed),
+            self.cycles_failed_total.load(Ordering::Relaxed),
+            self.affiliate_search_total.load(Ordering::Relaxed),
+            self.affiliate_search_failed_total.load(Ordering::Relaxed),
+            self.last_cycle_latency_ms.load(Ordering::Relaxed),
+        )
+    }
+}
 
 #[derive(Clone)]
 struct AppState {
@@ -26,6 +75,7 @@ struct AppState {
     cycle_lock: Arc<Mutex<()>>,
     company_id: String,
     currency: String,
+    metrics: Arc<RuntimeMetrics>,
 }
 
 #[derive(Debug, Serialize)]
@@ -105,6 +155,8 @@ async fn run_cycle(
     cycle_id: &str,
 ) -> Result<CycleResponse, Box<dyn std::error::Error + Send + Sync>> {
     let _cycle_guard = state.cycle_lock.lock().await;
+    let started = Instant::now();
+    state.metrics.cycles_started_total.fetch_add(1, Ordering::Relaxed);
     let company = state.company.read().await.clone();
 
     let runtime_state: Arc<dyn agent_runtime::agent::AgentStateProvider> = state.store.clone();
@@ -120,6 +172,11 @@ async fn run_cycle(
     *state.company.write().await = persisted.snapshot.clone();
     *state.latest.write().await = persisted.results.clone();
     *state.latest_cycle.write().await = Some(persisted.clone());
+    state.metrics.cycles_succeeded_total.fetch_add(1, Ordering::Relaxed);
+    state.metrics.last_cycle_latency_ms.store(
+        started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+        Ordering::Relaxed,
+    );
 
     Ok(CycleResponse {
         snapshot: persisted.snapshot,
@@ -302,10 +359,29 @@ async fn affiliate_search_api(
     State(state): State<AppState>,
     Query(params): Query<AffiliateSearchParams>,
 ) -> Result<Json<SearchResponse>, StatusCode> {
-    search_affiliate(state.affiliate.clone(), affiliate_query(params))
-        .await
-        .map(Json)
-        .map_err(|_| StatusCode::BAD_REQUEST)
+    state
+        .metrics
+        .affiliate_search_total
+        .fetch_add(1, Ordering::Relaxed);
+    match search_affiliate(state.affiliate.clone(), affiliate_query(params)).await {
+        Ok(value) => Ok(Json(value)),
+        Err(error) => {
+            state
+                .metrics
+                .affiliate_search_failed_total
+                .fetch_add(1, Ordering::Relaxed);
+            tracing::warn!(error = %error, "affiliate search failed");
+            Err(StatusCode::BAD_REQUEST)
+        }
+    }
+}
+
+async fn metrics(State(state): State<AppState>) -> (StatusCode, [(axum::http::HeaderName, &'static str); 1], String) {
+    (
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+        state.metrics.prometheus(),
+    )
 }
 
 async fn affiliate_click_api(
@@ -412,6 +488,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         other => return Err(format!("unknown AFFILIATE_PROVIDER={other}").into()),
     };
 
+    tracing_subscriber::fmt()
+        .json()
+        .with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()))
+        .try_init()
+        .ok();
+
     let runtime = Arc::new(AgentRuntime::new(model_from_env()));
     let state = AppState {
         runtime,
@@ -423,6 +505,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         cycle_lock: Arc::new(Mutex::new(())),
         company_id: company_id.clone(),
         currency: currency.clone(),
+        metrics: Arc::new(RuntimeMetrics::default()),
     };
 
     let interval_secs = std::env::var("AGENT_CYCLE_SECONDS")
@@ -487,6 +570,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/affiliate/performance", get(affiliate_performance_api))
         .route("/api/journal", get(journal_api))
         .route("/healthz", get(healthz))
+        .route("/metrics", get(metrics))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", 8080)).await?;
