@@ -63,6 +63,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/005_media_jobs.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/006_affiliate_reconciliation_state.sql"
+            ))
             .await
     }
 
@@ -852,7 +857,8 @@ impl CompanyStore {
             .query_opt(
                 "SELECT conversion_id, order_value_minor::text, commission_minor::text,
                         refunded_minor::text, cancelled, click_id, product_id,
-                        advertiser_id, occurred_at, source
+                        advertiser_id, occurred_at, source,
+                        reconciliation_status, reconciliation_variance_minor::text
                    FROM affiliate_conversions
                   WHERE company_id = $1 AND idempotency_key = $2",
                 &[
@@ -888,8 +894,10 @@ impl CompanyStore {
                     })
                     .collect(),
                 net_commission_minor: parse_i128_numeric(&row.get::<_, String>(2))?,
-                reconciliation_variance_minor: 0,
-                status: affiliate_attribution::ReconciliationStatus::Verified,
+                reconciliation_variance_minor: parse_i128_numeric(
+                    &row.get::<_, String>(11),
+                )?,
+                status: parse_reconciliation_status(&row.get::<_, String>(10))?,
                 idempotency_key: affiliate_attribution::conversion_idempotency_key(event),
             };
             tx.rollback().await?;
@@ -948,6 +956,8 @@ impl CompanyStore {
                 &event.cancelled,
                 &event.source,
                 &idempotency_key,
+                &format!("{:?}", reconciled.status).to_ascii_uppercase(),
+                &reconciled.reconciliation_variance_minor.to_string(),
             ],
         )
         .await?;
@@ -1216,6 +1226,17 @@ impl CompanyStore {
             .into_iter()
             .map(|row| row.get::<_, serde_json::Value>(0))
             .collect())
+    }
+}
+
+fn parse_reconciliation_status(
+    value: &str,
+) -> Result<affiliate_attribution::ReconciliationStatus, Box<dyn std::error::Error + Send + Sync>> {
+    match value.to_ascii_uppercase().as_str() {
+        "VERIFIED" => Ok(affiliate_attribution::ReconciliationStatus::Verified),
+        "PARTIAL" => Ok(affiliate_attribution::ReconciliationStatus::Partial),
+        "REJECTED" => Ok(affiliate_attribution::ReconciliationStatus::Rejected),
+        other => Err(format!("unknown affiliate reconciliation status: {other}").into()),
     }
 }
 
