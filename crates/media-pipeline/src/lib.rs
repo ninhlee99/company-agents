@@ -118,6 +118,41 @@ impl FfmpegExecutor {
     }
 }
 
+impl FfmpegExecutor {
+    pub fn probe(&self, relative_path: &str) -> Result<MediaProbe, MediaError> {
+        let path = self.safe_path(relative_path)?;
+        if !path.exists() {
+            return Err(MediaError::InvalidJob("output media does not exist".into()));
+        }
+        let output = Command::new("ffprobe")
+            .current_dir(&self.workspace)
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-show_entries",
+                "stream=codec_type,codec_name,width,height,r_frame_rate",
+                "-of",
+                "json",
+                relative_path,
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .map_err(|e| MediaError::InvalidJob(format!("failed to start ffprobe: {e}")))?;
+        if !output.status.success() {
+            return Err(MediaError::InvalidJob(format!(
+                "ffprobe exited with status {}",
+                output.status
+            )));
+        }
+        parse_probe(&output.stdout, std::fs::metadata(path).map_err(|e| {
+            MediaError::InvalidJob(format!("cannot stat output media: {e}"))
+        })?.len())
+    }
+}
+
 impl MediaExecutor for FfmpegExecutor {
     fn execute(&self, job: &MediaJob) -> Result<(), MediaError> {
         let args = ffmpeg_args(job)?;
@@ -282,6 +317,54 @@ pub fn qa(probe: &MediaProbe, policy: &MediaQaPolicy) -> MediaQaResult {
         passed: failures.is_empty(),
         failures,
     }
+}
+
+fn parse_probe(bytes: &[u8], file_size_bytes: u64) -> Result<MediaProbe, MediaError> {
+    let value: serde_json::Value = serde_json::from_slice(bytes)
+        .map_err(|e| MediaError::InvalidJob(format!("invalid ffprobe JSON: {e}")))?;
+    let streams = value
+        .get("streams")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| MediaError::InvalidJob("ffprobe stream list missing".into()))?;
+
+    let video = streams
+        .iter()
+        .find(|stream| stream.get("codec_type").and_then(|v| v.as_str()) == Some("video"))
+        .ok_or_else(|| MediaError::InvalidJob("video stream missing".into()))?;
+    let audio_present = streams
+        .iter()
+        .any(|stream| stream.get("codec_type").and_then(|v| v.as_str()) == Some("audio"));
+
+    let duration = value
+        .get("format")
+        .and_then(|v| v.get("duration"))
+        .and_then(|v| v.as_str())
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|v| v.is_finite() && *v >= 0.0)
+        .ok_or_else(|| MediaError::InvalidJob("media duration missing".into()))?;
+
+    let (fps_num, fps_den) = video
+        .get("r_frame_rate")
+        .and_then(|v| v.as_str())
+        .and_then(|value| value.split_once('/'))
+        .and_then(|(n, d)| Some((n.parse::<u32>().ok()?, d.parse::<u32>().ok()?)))
+        .filter(|(_, d)| *d != 0)
+        .unwrap_or((0, 1));
+
+    Ok(MediaProbe {
+        duration_millis: (duration * 1000.0).round() as u64,
+        width: video.get("width").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+        height: video.get("height").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+        fps_num,
+        fps_den,
+        codec: video
+            .get("codec_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_owned(),
+        audio_present,
+        file_size_bytes,
+    })
 }
 
 fn validate_safe_path(path: &str) -> Result<(), MediaError> {
