@@ -737,20 +737,43 @@ impl AwinProvider {
     }
 
     async fn refresh_products(&self) -> Result<Vec<Product>, AffiliateError> {
-        let response = self
-            .client
-            .get(&self.product_feed_url)
-            .send()
-            .await
-            .map_err(|e| AffiliateError::Provider(e.to_string()))?;
+        let mut response = None;
+        for attempt in 0..3_u32 {
+            let candidate = self
+                .client
+                .get(&self.product_feed_url)
+                .send()
+                .await
+                .map_err(|e| AffiliateError::Provider(e.to_string()))?;
+            if (candidate.status().as_u16() == 429 || candidate.status().is_server_error()) && attempt < 2 {
+                tokio::time::sleep(Duration::from_millis(250 * (1_u64 << attempt))).await;
+                continue;
+            }
+            response = Some(candidate);
+            break;
+        }
+        let response = response.ok_or_else(|| AffiliateError::Provider("affiliate feed retry loop exhausted".into()))?;
+        if !response.status().is_success() {
+            return Err(AffiliateError::Provider(format!("Awin product feed HTTP {}", response.status())));
+        }
         if let Some(length) = response.content_length() {
             if length as usize > MAX_FEED_BYTES {
                 return Err(AffiliateError::PayloadTooLarge);
             }
         }
-        let body = response.bytes().await.map_err(|e| AffiliateError::Provider(e.to_string()))?;
+        let mut body = response.bytes().await.map_err(|e| AffiliateError::Provider(e.to_string()))?.to_vec();
         if body.len() > MAX_FEED_BYTES {
             return Err(AffiliateError::PayloadTooLarge);
+        }
+        if body.starts_with(&[0x1f, 0x8b]) {
+            let mut decoder = flate2::read::GzDecoder::new(body.as_slice());
+            let mut decompressed = Vec::new();
+            std::io::Read::read_to_end(&mut decoder, &mut decompressed)
+                .map_err(|e| AffiliateError::Parse(format!("gzip feed decode failed: {e}")))?;
+            if decompressed.len() > MAX_FEED_BYTES {
+                return Err(AffiliateError::PayloadTooLarge);
+            }
+            body = decompressed;
         }
         let delimiter = detect_delimiter(&body);
         parse_awin_feed(&body, delimiter, self.minor_units, &self.commission_map)
@@ -775,16 +798,25 @@ impl AwinProvider {
                     "pageSize": 200
                 }
             });
-            let response = self
-                .client
-                .post(url)
-                .bearer_auth(&self.access_token)
-                .json(&payload)
-                .send()
-                .await
-                .map_err(|e| AffiliateError::Provider(e.to_string()))?;
-
-            if response.status().is_client_error() || response.status().is_server_error() {
+            let mut response = None;
+            for attempt in 0..3_u32 {
+                let candidate = self
+                    .client
+                    .post(&url)
+                    .bearer_auth(&self.access_token)
+                    .json(&payload)
+                    .send()
+                    .await
+                    .map_err(|e| AffiliateError::Provider(e.to_string()))?;
+                if (candidate.status().as_u16() == 429 || candidate.status().is_server_error()) && attempt < 2 {
+                    tokio::time::sleep(Duration::from_millis(250 * (1_u64 << attempt))).await;
+                    continue;
+                }
+                response = Some(candidate);
+                break;
+            }
+            let response = response.ok_or_else(|| AffiliateError::Provider("Awin offer retry loop exhausted".into()))?;
+            if !response.status().is_success() {
                 return Err(AffiliateError::Provider(format!("Awin offers HTTP {}", response.status())));
             }
             let value = response
@@ -891,7 +923,8 @@ fn parse_awin_feed(
         let currency = first_nonempty(&[get("currency")]).unwrap_or_else(|| "USD".into());
 
         let Some(price_raw) = price_raw else { continue };
-        let price_minor = parse_decimal_minor(&price_raw, minor_units)?;
+        let row_minor_units = minor_units_for_currency(&currency, minor_units);
+        let price_minor = parse_decimal_minor(&price_raw, row_minor_units)?;
         if price_minor < 0 { continue; }
 
         let category = first_nonempty(&[
@@ -911,7 +944,11 @@ fn parse_awin_feed(
         let in_stock = first_nonempty(&[get("in_stock"), get("is_for_sale"), get("stock_status")])
             .map(|v| {
                 let value = v.to_ascii_lowercase();
-                !(matches!(value.as_str(), "0" | "false" | "no" | "out" | "outofstock") && stock_quantity.unwrap_or(0) == 0)
+                match value.as_str() {
+                    "0" | "false" | "no" | "out" | "outofstock" | "unavailable" => false,
+                    "1" | "true" | "yes" | "in" | "instock" | "available" => true,
+                    _ => stock_quantity.unwrap_or(0) > 0,
+                }
             })
             .unwrap_or_else(|| stock_quantity.unwrap_or(1) > 0);
         let savings_bps = first_nonempty(&[get("savings_percent"), get("saving")])
@@ -936,7 +973,7 @@ fn parse_awin_feed(
             image_url: first_nonempty(&[get("aw_image_url"), get("merchant_image_url"), get("large_image")]),
             price_minor,
             old_price_minor: first_nonempty(&[get("product_price_old"), get("rrp_price")])
-                .and_then(|v| parse_decimal_minor(&v, minor_units).ok()),
+                .and_then(|v| parse_decimal_minor(&v, row_minor_units).ok()),
             currency,
             rating_bps,
             review_count,
@@ -978,6 +1015,9 @@ fn parse_decimal_minor(value: &str, minor_units: u32) -> Result<i128, AffiliateE
     let whole_value = whole.parse::<i128>().map_err(|_| AffiliateError::Parse("price overflow".into()))?;
     let mut fraction = fractional.to_owned();
     if fraction.len() > minor_units as usize {
+        if fraction.as_bytes()[minor_units as usize..].iter().any(|b| *b != b'0') {
+            return Err(AffiliateError::Parse(format!("price has more precision than currency allows: {value}")));
+        }
         fraction.truncate(minor_units as usize);
     }
     while fraction.len() < minor_units as usize {
@@ -991,6 +1031,14 @@ fn parse_decimal_minor(value: &str, minor_units: u32) -> Result<i128, AffiliateE
         .and_then(|v| v.checked_add(fractional_value))
         .ok_or_else(|| AffiliateError::Parse("price overflow".into()))?;
     Ok(if negative { -result } else { result })
+}
+
+fn minor_units_for_currency(currency: &str, fallback: u32) -> u32 {
+    match currency.to_ascii_uppercase().as_str() {
+        "VND" | "JPY" | "KRW" | "IDR" => 0,
+        "BHD" | "JOD" | "KWD" | "OMR" => 3,
+        _ => fallback.min(6),
+    }
 }
 
 fn parse_rating_bps(value: &str) -> Option<u32> {
