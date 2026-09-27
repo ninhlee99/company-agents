@@ -76,6 +76,7 @@ pub trait MediaExecutor {
 
 pub struct FfmpegExecutor {
     executable: PathBuf,
+    probe_executable: PathBuf,
     workspace: PathBuf,
     timeout: Duration,
 }
@@ -93,9 +94,15 @@ impl FfmpegExecutor {
         }
         Ok(Self {
             executable: executable.into(),
+            probe_executable: PathBuf::from("ffprobe"),
             workspace: workspace.into(),
             timeout,
         })
+    }
+
+    pub fn with_probe_executable(mut self, executable: impl Into<PathBuf>) -> Self {
+        self.probe_executable = executable.into();
+        self
     }
 
     pub fn from_env() -> Result<Self, MediaError> {
@@ -114,7 +121,42 @@ impl FfmpegExecutor {
 
     fn safe_path(&self, relative: &str) -> Result<PathBuf, MediaError> {
         validate_safe_path(relative)?;
-        Ok(self.workspace.join(relative))
+        let workspace = self.workspace.canonicalize().map_err(|error| {
+            MediaError::InvalidJob(format!("media workspace is unavailable: {error}"))
+        })?;
+        let candidate = self.workspace.join(relative);
+
+        let mut ancestor = candidate.as_path();
+        while !ancestor.exists() {
+            ancestor = ancestor.parent().ok_or_else(|| {
+                MediaError::InvalidJob("media path has no existing ancestor".into())
+            })?;
+        }
+        let canonical_ancestor = ancestor.canonicalize().map_err(|error| {
+            MediaError::InvalidJob(format!("media path ancestor cannot be canonicalized: {error}"))
+        })?;
+        if !canonical_ancestor.starts_with(&workspace) {
+            return Err(MediaError::InvalidJob(
+                "media path escapes the configured workspace".into(),
+            ));
+        }
+
+        let suffix = candidate
+            .strip_prefix(ancestor)
+            .map_err(|_| MediaError::InvalidJob("media path prefix validation failed".into()))?;
+        let resolved = canonical_ancestor.join(suffix);
+        if resolved.exists() {
+            let canonical = resolved.canonicalize().map_err(|error| {
+                MediaError::InvalidJob(format!("media path cannot be canonicalized: {error}"))
+            })?;
+            if !canonical.starts_with(&workspace) {
+                return Err(MediaError::InvalidJob(
+                    "media path escapes the configured workspace".into(),
+                ));
+            }
+            return Ok(canonical);
+        }
+        Ok(resolved)
     }
 }
 
@@ -124,7 +166,7 @@ impl FfmpegExecutor {
         if !path.exists() {
             return Err(MediaError::InvalidJob("output media does not exist".into()));
         }
-        let output = Command::new("ffprobe")
+        let output = Command::new(&self.probe_executable)
             .current_dir(&self.workspace)
             .args([
                 "-v",
@@ -442,6 +484,22 @@ mod tests {
         );
         assert!(!result.passed);
         assert_eq!(result.failures.len(), 2);
+    }
+
+    #[test]
+    fn symlinked_media_path_cannot_escape_workspace() {
+        #[cfg(unix)]
+        {
+            let root = std::env::temp_dir().join(format!("company-agents-symlink-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(root.join("safe")).unwrap();
+            let outside = root.join("outside");
+            std::fs::create_dir_all(&outside).unwrap();
+            std::os::unix::fs::symlink(&outside, root.join("safe").join("link")).unwrap();
+            let executor = FfmpegExecutor::new("ffmpeg", &root, Duration::from_secs(10)).unwrap();
+            assert!(executor.safe_path("safe/link/escape.mp4").is_err());
+            let _ = std::fs::remove_dir_all(root);
+        }
     }
 
     #[test]
