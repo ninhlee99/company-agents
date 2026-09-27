@@ -23,15 +23,7 @@ pg_dump   --format=custom   --no-owner   --no-acl   --file="$BACKUP_FILE"   "$SO
 
 test -s "$BACKUP_FILE"
 
-psql "$DRILL_DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
-DO $$
-BEGIN
-  IF current_database() = current_database() THEN
-    PERFORM 1;
-  END IF;
-END
-$$;
-SQL
+psql "$DRILL_DATABASE_URL" -v ON_ERROR_STOP=1 -c "SELECT 1;" >/dev/null
 
 pg_restore   --clean   --if-exists   --no-owner   --no-acl   --exit-on-error   --dbname="$DRILL_DATABASE_URL"   "$BACKUP_FILE"
 
