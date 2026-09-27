@@ -4,26 +4,27 @@ Autonomous Company OS — an AI-native operating system for building and operati
 
 The initial business model is an AI-native media and creator company. The deeper goal is a reusable economic operating system in which AI agents can research opportunities, create businesses, allocate capital, hire, execute, learn from outcomes, scale winners, shut down losers, and eventually enter distress or bankruptcy.
 
+## Primary implementation
+
+The production platform is being built in **Go**.
+
+There is **no React and no Vue**. The operator dashboard is server-rendered by Go using html/template, keeping the runtime small and operationally simple.
+
+Rust is optional and introduced only for measured CPU/memory-intensive components where it provides a clear advantage.
+
 ## Core thesis
 
 > Build a company that optimizes for sustainable free cash flow, not agent activity or vanity metrics.
-
-## Architecture
-
-- TypeScript / Node.js — Company OS, APIs, agent runtime
-- Python — analytics, forecasting, media processing
-- PostgreSQL + pgvector — system of record and organizational memory
-- Redis / NATS — events and queues
-- Temporal — durable workflows
-- Next.js — operations dashboard
-- Docker — local development and deployment
-- OpenTelemetry — observability
 
 ## First vertical
 
 AI-native media / creator factory:
 
 Research → ideation → production → distribution → measurement → monetization → reinvestment.
+
+## Current build order
+
+Economic kernel → simulator → Go agent runtime → governance → executive agents → media factory → monetization → controlled autonomy.
 
 ## Non-negotiable economic rules
 
@@ -36,18 +37,22 @@ Research → ideation → production → distribution → measurement → moneti
 7. Failed businesses can be shut down.
 8. If the company cannot satisfy mandatory obligations and no recovery plan exists, it enters liquidation/bankruptcy.
 
-## Development strategy
+## Local development
 
-Build the simulator and economic engine before connecting real-world money or platform accounts.
+Requirements:
+- Go
+- Docker
 
-See:
-- docs/PROJECT_SPEC.md
-- docs/ARCHITECTURE.md
-- docs/COMPANY_CONSTITUTION.md
-- docs/BUSINESS_MODEL.md
-- docs/ROADMAP.md
-- docs/AGENT_HARNESS.md
+Start infrastructure:
 
-## Status
+    docker compose up -d
 
-Specification-first foundation. Implementation should proceed vertically: ledger → simulator → governance → agents → media → external integrations.
+Start the Company OS:
+
+    go run ./cmd/company-os
+
+Then open:
+
+    http://localhost:8080
+
+The current dashboard is intentionally minimal while the economic kernel and agent runtime are being wired in.
