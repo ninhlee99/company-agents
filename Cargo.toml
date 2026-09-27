@@ -2,5 +2,6 @@
 resolver = "2"
 members = [
   "apps/company-os",
-  "crates/economic-core"
+  "crates/economic-core",
+  "crates/agent-runtime"
 ]
