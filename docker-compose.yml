@@ -6,7 +6,7 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     environment:
-      DATABASE_URL: postgresql://company_os:company_os@postgres:5432/company_agents
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/company_agents
       COMPANY_ID: ${COMPANY_ID:-00000000-0000-0000-0000-000000000001}
       COMPANY_NAME: ${COMPANY_NAME:-Demo Company}
       COMPANY_CURRENCY: ${COMPANY_CURRENCY:-USD}
@@ -23,11 +23,6 @@ services:
         condition: service_healthy
       ollama-init:
         condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD", "/app/company-os"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
     restart: unless-stopped
 
   ollama:
@@ -61,14 +56,14 @@ services:
     image: pgvector/pgvector:pg17
     environment:
       POSTGRES_DB: company_agents
-      POSTGRES_USER: company_os
-      POSTGRES_PASSWORD: company_os
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
       - company_agents_pg:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U company_os -d company_agents"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d company_agents"]
       interval: 5s
       timeout: 5s
       retries: 12
