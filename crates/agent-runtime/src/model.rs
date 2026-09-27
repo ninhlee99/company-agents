@@ -107,8 +107,14 @@ impl Model for OpenAiCompatibleModel {
             return Err(ModelError::Transport(format!("HTTP {status}: {detail}")));
         }
 
+        if response.content_length().is_some_and(|len| len > 1_048_576) {
+            return Err(ModelError::InvalidResponse(
+                "model response exceeds 1 MiB safety limit".into(),
+            ));
+        }
+
         let body = response
-            .text()
+            .bytes()
             .await
             .map_err(|e| ModelError::Transport(e.to_string()))?;
 
@@ -118,7 +124,7 @@ impl Model for OpenAiCompatibleModel {
             ));
         }
 
-        let envelope: Value = serde_json::from_str(&body).map_err(|e| {
+        let envelope: Value = serde_json::from_slice(&body).map_err(|e| {
             ModelError::InvalidResponse(format!("provider response is not JSON: {e}"))
         })?;
 
