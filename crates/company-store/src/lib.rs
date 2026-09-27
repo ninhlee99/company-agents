@@ -622,10 +622,7 @@ impl CompanyStore {
         company_id: &str,
         agent: AgentRole,
         limit: i64,
-    ) -> Result<
-        Vec<agent_runtime::types::AgentMemory>,
-        Box<dyn std::error::Error + Send + Sync>,
-    > {
+    ) -> Result<Vec<agent_runtime::types::AgentMemory>, Box<dyn std::error::Error + Send + Sync>> {
         if !(1..=100).contains(&limit) {
             return Err("memory limit must be between 1 and 100".into());
         }
