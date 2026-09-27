@@ -77,7 +77,7 @@ pub async fn run(config: SimConfig) -> SimulationResult {
     let mut conversion_bps = 220_u32;
     let mut content_efficiency_bps = 12_000_u32;
     let mut backlog = 5_u32;
-    let mut capacity = 10_u32;
+    let capacity = 10_u32;
 
     for day in 1..=config.days {
         if cash <= 0 {
