@@ -583,20 +583,12 @@ async fn outbox_worker(
                             }
                             Ok(response) => {
                                 let error = format!("webhook http {}", response.status());
-                                let _ = store.fail_outbox_event(
-                                    event.id,
-                                    &owner,
-                                    &error,
-                                    30,
-                                ).await;
+                                let _ = store.fail_outbox_event(event.id, &owner, &error, 30).await;
                             }
                             Err(error) => {
-                                let _ = store.fail_outbox_event(
-                                    event.id,
-                                    &owner,
-                                    &error.to_string(),
-                                    30,
-                                ).await;
+                                let _ = store
+                                    .fail_outbox_event(event.id, &owner, &error.to_string(), 30)
+                                    .await;
                             }
                         }
                     }
@@ -608,7 +600,6 @@ async fn outbox_worker(
         tokio::time::sleep(Duration::from_secs(5)).await;
     }
 }
-
 
 async fn healthz() -> &'static str {
     "ok"
@@ -668,8 +659,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
     let outbox_store = state.store.clone();
-    let outbox_url = std::env::var("OUTBOX_WEBHOOK_URL").ok().filter(|v| !v.trim().is_empty());
-    let outbox_bearer = std::env::var("OUTBOX_WEBHOOK_BEARER").ok().filter(|v| !v.trim().is_empty());
+    let outbox_url = std::env::var("OUTBOX_WEBHOOK_URL")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    let outbox_bearer = std::env::var("OUTBOX_WEBHOOK_BEARER")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
     let outbox_owner = format!("company-os:{}", Uuid::new_v4());
     tokio::spawn(outbox_worker(
         outbox_store,
