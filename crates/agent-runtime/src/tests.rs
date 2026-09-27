@@ -250,3 +250,94 @@ async fn randomized_snapshots_preserve_proposal_invariants() {
         }
     }
 }
+
+
+async fn proposal_for(
+    agent: Arc<dyn Agent>,
+    company: CompanySnapshot,
+) -> Proposal {
+    agent
+        .propose(
+            &AgentContext {
+                company,
+                model_timeout: std::time::Duration::from_secs(5),
+            },
+            Arc::new(MockModel),
+        )
+        .await
+        .expect("scenario proposal")
+}
+
+#[tokio::test]
+async fn every_agent_branch_is_exercised() {
+    let mut distress = healthy_company();
+    distress.status = CompanyStatus::Distress;
+
+    let mut low_runway = healthy_company();
+    low_runway.runway_days = 14;
+
+    let mut overloaded = healthy_company();
+    overloaded.backlog = 50;
+    overloaded.capacity = 10;
+
+    let mut weak_conversion = healthy_company();
+    weak_conversion.conversion_bps = 100;
+
+    let mut negative_content = healthy_company();
+    negative_content.content_cost_minor = 1_000;
+    negative_content.content_revenue_minor = 200;
+
+    let mut hiring = healthy_company();
+    hiring.hiring_need = 1;
+    hiring.runway_days = 90;
+
+    let mut no_experiment = healthy_company();
+    no_experiment.experiment_budget_minor = 0;
+
+    let ceo = proposal_for(Arc::new(CeoAgent), distress).await;
+    assert_eq!(ceo.action, ActionKind::ReduceBudget);
+
+    let cfo = proposal_for(Arc::new(CfoAgent), low_runway).await;
+    assert_eq!(cfo.action, ActionKind::ReduceBudget);
+
+    let coo = proposal_for(Arc::new(CooAgent), overloaded).await;
+    assert_eq!(coo.action, ActionKind::RebalanceOperations);
+
+    let growth = proposal_for(Arc::new(GrowthAgent), weak_conversion).await;
+    assert_eq!(growth.action, ActionKind::ResearchOpportunity);
+
+    let content = proposal_for(Arc::new(ContentAgent), negative_content).await;
+    assert_eq!(content.action, ActionKind::ResearchOpportunity);
+
+    let recruiter = proposal_for(Arc::new(RecruiterAgent), hiring).await;
+    assert_eq!(recruiter.action, ActionKind::ProposeHire);
+
+    let analyst = proposal_for(Arc::new(AnalystAgent), healthy_company()).await;
+    assert_eq!(analyst.action, ActionKind::ProduceReport);
+
+    let experiment = proposal_for(Arc::new(ExperimentAgent), no_experiment).await;
+    assert_eq!(experiment.action, ActionKind::ProduceReport);
+}
+
+#[test]
+fn proposal_capability_matrix_rejects_cross_role_actions() {
+    let mut proposal = Proposal {
+        agent: AgentRole::Analyst,
+        objective: "bad".into(),
+        action: ActionKind::ProposeHire,
+        cost_minor: 0,
+        expected_revenue_minor: 0,
+        risk: RiskTier::High,
+        confidence_bps: 10_000,
+        evidence: vec!["test".into()],
+        rationale: "test".into(),
+        reversible: true,
+        requested_permission: Permission::Propose,
+    };
+
+    assert!(proposal.validate().is_err());
+
+    proposal.agent = AgentRole::Recruiter;
+    proposal.action = ActionKind::ProposeHire;
+    assert!(proposal.validate().is_ok());
+}
