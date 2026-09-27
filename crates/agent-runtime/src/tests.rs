@@ -541,11 +541,7 @@ async fn content_publish_is_material_and_cannot_auto_execute() {
         reversible: true,
         requested_permission: Permission::Propose,
     };
-    let governed = crate::governor::Governor.evaluate(
-        &crate::governor::Governor,
-        proposal,
-        &healthy_company(),
-    );
+    let governed = crate::governor::Governor.evaluate(proposal, &healthy_company());
     assert_eq!(governed.decision, GovernorDecision::Escalate);
 }
 
