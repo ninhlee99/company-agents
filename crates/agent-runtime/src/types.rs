@@ -48,7 +48,7 @@ impl AgentRole {
             Self::CFO => &[ActionKind::ReduceBudget, ActionKind::ProduceReport],
             Self::COO => &[ActionKind::RebalanceOperations, ActionKind::ProduceReport],
             Self::Growth => &[ActionKind::CreateExperiment, ActionKind::ResearchOpportunity, ActionKind::ProduceReport],
-            Self::Content => &[ActionKind::CreateExperiment, ActionKind::ResearchOpportunity, ActionKind::ProduceReport],
+            Self::Content => &[ActionKind::CreateExperiment, ActionKind::ResearchOpportunity, ActionKind::PublishContent, ActionKind::ProduceReport],
             Self::Recruiter => &[ActionKind::ProposeHire, ActionKind::ProduceReport],
             Self::Analyst => &[ActionKind::ProduceReport],
             Self::Experiment => &[ActionKind::CreateExperiment, ActionKind::ResearchOpportunity, ActionKind::ProduceReport],
