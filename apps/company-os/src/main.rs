@@ -108,9 +108,8 @@ async fn run_cycle_with_id(
     let _guard = state.cycle_lock.lock().await;
 
     if let Some(existing) = state.store.load_cycle_results(&cycle_id).await? {
-        if let Some(snapshot) = state.store.load_snapshot(
-            &state.company.read().await.company_id
-        ).await? {
+        let company_id = state.company.read().await.company_id.clone();
+        if let Some(snapshot) = state.store.load_snapshot(&company_id).await? {
             *state.company.write().await = snapshot;
         }
         *state.latest.write().await = existing.clone();
