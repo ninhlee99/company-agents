@@ -92,7 +92,7 @@ define_agent!(RecruiterAgent, AgentRole::Recruiter, Permission::Propose, "recrui
     }
 });
 
-define_agent!(AnalystAgent, AgentRole::Analyst, Permission::Read, "analyst", |ctx: &AgentContext| {
+define_agent!(AnalystAgent, AgentRole::Analyst, Permission::Propose, "analyst", |ctx: &AgentContext| {
     base_proposal(AgentRole::Analyst, ActionKind::ProduceReport, ctx, "produce verified decision support", 0, 0, RiskTier::Low, proposal_confidence(0.98), "separate facts, estimates and predictions", true)
 });
 
