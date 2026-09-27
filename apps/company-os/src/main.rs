@@ -5,6 +5,7 @@ use affiliate_intelligence::{
 use agent_runtime::{
     model_from_env, AgentRunResult, AgentRuntime, CompanySnapshot, ExecutionEngine, ExecutionOutcome,
 };
+use company_domain::{ContentAsset, Contract, CreatorUnit, Employee, Experiment, Task};
 use company_store::CompanyStore;
 use axum::{
     extract::{Query, State},
@@ -249,6 +250,66 @@ async fn agents_api(State(state): State<AppState>) -> Json<Vec<AgentRunResult>> 
     Json(state.latest.read().await.clone())
 }
 
+async fn save_creator(
+    State(state): State<AppState>,
+    Json(creator): Json<CreatorUnit>,
+) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
+    let company_id = state.company.read().await.company_id.clone();
+    state.store.save_creator(&company_id, &creator).await
+        .map(|_| StatusCode::CREATED)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ValueError { error: e.to_string() })))
+}
+
+async fn save_content_asset(
+    State(state): State<AppState>,
+    Json(content): Json<ContentAsset>,
+) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
+    let company_id = state.company.read().await.company_id.clone();
+    state.store.save_content_asset(&company_id, &content).await
+        .map(|_| StatusCode::CREATED)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ValueError { error: e.to_string() })))
+}
+
+async fn save_experiment(
+    State(state): State<AppState>,
+    Json(experiment): Json<Experiment>,
+) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
+    let company_id = state.company.read().await.company_id.clone();
+    state.store.save_experiment(&company_id, &experiment).await
+        .map(|_| StatusCode::CREATED)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ValueError { error: e.to_string() })))
+}
+
+async fn save_employee(
+    State(state): State<AppState>,
+    Json(employee): Json<Employee>,
+) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
+    let company_id = state.company.read().await.company_id.clone();
+    state.store.save_employee(&company_id, &employee).await
+        .map(|_| StatusCode::CREATED)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ValueError { error: e.to_string() })))
+}
+
+async fn save_contract(
+    State(state): State<AppState>,
+    Json(contract): Json<Contract>,
+) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
+    let company_id = state.company.read().await.company_id.clone();
+    state.store.save_contract(&company_id, &contract).await
+        .map(|_| StatusCode::CREATED)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ValueError { error: e.to_string() })))
+}
+
+async fn save_task(
+    State(state): State<AppState>,
+    Json(task): Json<Task>,
+) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
+    let company_id = state.company.read().await.company_id.clone();
+    state.store.save_task(&company_id, &task).await
+        .map(|_| StatusCode::CREATED)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ValueError { error: e.to_string() })))
+}
+
 async fn affiliate_search(
     State(state): State<AppState>,
     Query(params): Query<AffiliateQueryParams>,
@@ -378,6 +439,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/run", post(run_html))
         .route("/api/run", post(run_api))
         .route("/api/agents", get(agents_api))
+        .route("/api/creators", post(save_creator))
+        .route("/api/content", post(save_content_asset))
+        .route("/api/experiments", post(save_experiment))
+        .route("/api/employees", post(save_employee))
+        .route("/api/contracts", post(save_contract))
+        .route("/api/tasks", post(save_task))
         .route("/api/affiliate/search", get(affiliate_search))
         .route("/api/affiliate/providers", get(affiliate_providers))
         .route("/healthz", get(healthz))
