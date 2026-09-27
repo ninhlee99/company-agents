@@ -1,4 +1,5 @@
 use agent_runtime::{model_from_env, AgentRunResult, AgentRuntime, CompanySnapshot};
+use company_store::CompanyStore;
 use axum::{extract::State, http::StatusCode, response::Html, routing::{get, post}, Json, Router};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::RwLock;
@@ -6,8 +7,9 @@ use tokio::sync::RwLock;
 #[derive(Clone)]
 struct AppState {
     runtime: Arc<AgentRuntime>,
-    company: CompanySnapshot,
+    company: Arc<RwLock<CompanySnapshot>>,
     latest: Arc<RwLock<Vec<AgentRunResult>>>,
+    store: Arc<CompanyStore>,
 }
 
 fn format_minor(value: i128) -> String {
@@ -18,9 +20,9 @@ fn format_minor(value: i128) -> String {
     let rendered = format!("{}.{:02}", whole, cents);
     if negative { format!("-${}", rendered) } else { format!("${}", rendered) }
 }
-fn seed_company() -> CompanySnapshot {
+fn seed_company(company_id: String) -> CompanySnapshot {
     CompanySnapshot {
-        company_id: std::env::var("COMPANY_ID").unwrap_or_else(|_| "demo-company".into()),
+        company_id,
         cash_minor: 100_000,
         revenue_minor: 25_000,
         expenses_minor: 15_000,
@@ -40,10 +42,13 @@ fn seed_company() -> CompanySnapshot {
     }
 }
 
-async fn run_cycle(state: &AppState) -> Vec<AgentRunResult> {
-    let results = state.runtime.run_all(state.company.clone()).await;
+async fn run_cycle(state: &AppState) -> Result<Vec<AgentRunResult>, Box<dyn std::error::Error + Send + Sync>> {
+    let company = state.company.read().await.clone();
+    let results = state.runtime.run_all(company.clone()).await;
+    state.store.append_agent_runs(&company, &results).await?;
+    state.store.save_snapshot(&company).await?;
     *state.latest.write().await = results.clone();
-    results
+    Ok(results)
 }
 
 async fn index(State(state): State<AppState>) -> Html<String> {
@@ -104,12 +109,14 @@ small{{color:#666}}
 }
 
 async fn run_html(State(state): State<AppState>) -> (StatusCode, Html<String>) {
-    let _ = run_cycle(&state).await;
-    (StatusCode::SEE_OTHER, Html(r#"<meta http-equiv="refresh" content="0; url=/" />"#.into()))
+    match run_cycle(&state).await {
+        Ok(_) => (StatusCode::SEE_OTHER, Html(r#"<meta http-equiv="refresh" content="0; url=/" />"#.into())),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Html("cycle failed safely; inspect logs".into())),
+    }
 }
 
-async fn run_api(State(state): State<AppState>) -> Json<Vec<AgentRunResult>> {
-    Json(run_cycle(&state).await)
+async fn run_api(State(state): State<AppState>) -> Result<Json<Vec<AgentRunResult>>, StatusCode> {
+    run_cycle(&state).await.map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 async fn agents_api(State(state): State<AppState>) -> Json<Vec<AgentRunResult>> {
@@ -122,11 +129,31 @@ async fn healthz() -> &'static str {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let database_url = std::env::var("DATABASE_URL")?;
+    let company_id = std::env::var("COMPANY_ID")
+        .unwrap_or_else(|_| "00000000-0000-0000-0000-000000000001".into());
+    let company_name = std::env::var("COMPANY_NAME").unwrap_or_else(|_| "Demo Company".into());
+    let currency = std::env::var("COMPANY_CURRENCY").unwrap_or_else(|_| "USD".into());
+
+    let store = Arc::new(CompanyStore::connect(&database_url).await?);
+    store.migrate().await?;
+    store.ensure_company(&company_id, &company_name, &currency).await?;
+
+    let company = match store.load_snapshot(&company_id).await? {
+        Some(snapshot) => snapshot,
+        None => {
+            let snapshot = seed_company(company_id.clone());
+            store.save_snapshot(&snapshot).await?;
+            snapshot
+        }
+    };
+
     let runtime = Arc::new(AgentRuntime::new(model_from_env()));
     let state = AppState {
         runtime,
-        company: seed_company(),
+        company: Arc::new(RwLock::new(company)),
         latest: Arc::new(RwLock::new(Vec::new())),
+        store,
     };
 
     let background = state.clone();
@@ -141,7 +168,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ticker.tick().await;
         loop {
             ticker.tick().await;
-            let _ = run_cycle(&background).await;
+            if let Err(error) = run_cycle(&background).await {
+                eprintln!("agent cycle error: {error}");
+            }
         }
     });
 
