@@ -207,6 +207,7 @@ impl TikTokShopProvider {
                 "TTS_BASE_URL must use HTTPS".into(),
             ));
         }
+
         let search_path = std::env::var("TTS_AFFILIATE_SEARCH_PATH").unwrap_or_else(|_| {
             "/affiliate_seller/202405/open_collaborations/products/search".into()
         });
@@ -216,7 +217,16 @@ impl TikTokShopProvider {
             ));
         }
 
+        let coupon_search_path = std::env::var("TTS_COUPON_SEARCH_PATH")
+            .unwrap_or_else(|_| "/promotion/202406/coupons/search".into());
+        if !coupon_search_path.starts_with('/') || coupon_search_path.len() > 256 {
+            return Err(AffiliateError::Provider(
+                "TTS_COUPON_SEARCH_PATH is invalid".into(),
+            ));
+        }
+
         let access_token = secret_from_env("TTS_ACCESS_TOKEN")?;
+        let seller_access_token = secret_from_env_optional("TTS_SELLER_ACCESS_TOKEN")?;
         let app_key = std::env::var("TTS_APP_KEY")
             .map_err(|_| AffiliateError::Provider("TTS_APP_KEY is required".into()))?;
         let app_secret = secret_from_env("TTS_APP_SECRET")?;
@@ -231,12 +241,22 @@ impl TikTokShopProvider {
             .filter(|v| !v.trim().is_empty())
             .map(|v| v.trim().to_owned());
 
+        let advertiser_id = std::env::var("TTS_ADVERTISER_ID")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or_else(|| {
+                shop_cipher
+                    .as_deref()
+                    .map(|value| format!("tiktok:{value}"))
+                    .unwrap_or_else(|| "tiktok:unknown-shop".into())
+            });
+
         Ok(Self {
             client: Client::builder()
                 .timeout(DEFAULT_HTTP_TIMEOUT)
                 .user_agent("company-agents-affiliate/0.1")
                 .build()
-                .map_err(|e| AffiliateError::Provider(e.to_string()))?,
+                .map_err(|error| AffiliateError::Provider(error.to_string()))?,
             base_url: base_url.trim_end_matches('/').to_owned(),
             search_path,
             access_token,
@@ -251,7 +271,10 @@ impl TikTokShopProvider {
         })
     }
 
-    async fn fetch_products(&self, query: &ProductSearchQuery) -> Result<Vec<Product>, AffiliateError> {
+    async fn fetch_products(
+        &self,
+        query: &ProductSearchQuery,
+    ) -> Result<Vec<Product>, AffiliateError> {
         let mut all = Vec::new();
         let mut page_token: Option<String> = None;
 
@@ -268,11 +291,8 @@ impl TikTokShopProvider {
 
             let mut body = serde_json::Map::new();
             if let Some(category) = query.category.as_deref() {
-                if category.chars().all(|c| c.is_ascii_digit()) {
-                    body.insert(
-                        "category".into(),
-                        serde_json::json!({ "id": category }),
-                    );
+                if category.chars().all(|character| character.is_ascii_digit()) {
+                    body.insert("category".into(), serde_json::json!({ "id": category }));
                 }
             }
             if !query.keywords.is_empty() {
@@ -281,36 +301,39 @@ impl TikTokShopProvider {
                     serde_json::json!(query.keywords.iter().take(12).collect::<Vec<_>>()),
                 );
             }
+
             if query.min_price_minor.is_some() || query.max_price_minor.is_some() {
                 let currency = query.currency.clone().unwrap_or_else(|| "USD".into());
                 let units = minor_units_for_currency(&currency, 2);
-                let scale = 10_f64.powi(units as i32);
                 let mut range = serde_json::Map::new();
                 if let Some(min) = query.min_price_minor {
                     range.insert(
                         "amount_ge".into(),
-                        serde_json::Value::String(format!("{:.units$}", min as f64 / scale, units = units as usize)),
+                        serde_json::Value::String(format_major_decimal(min, units)),
                     );
                 }
                 if let Some(max) = query.max_price_minor {
                     range.insert(
                         "amount_lt".into(),
-                        serde_json::Value::String(format!("{:.units$}", max as f64 / scale, units = units as usize)),
+                        serde_json::Value::String(format_major_decimal(max, units)),
                     );
                 }
                 body.insert("sales_price_range".into(), serde_json::Value::Object(range));
             }
+
             if let Some(min_commission) = query.min_commission_bps {
                 body.insert(
                     "commission_rate_range".into(),
                     serde_json::json!({ "rate_ge": min_commission }),
                 );
             }
+
             if let Some(token) = page_token.as_deref() {
                 body.insert("page_token".into(), serde_json::Value::String(token.into()));
             }
 
-            let body_bytes = serde_json::to_vec(&serde_json::Value::Object(body))
+            let body_value = serde_json::Value::Object(body);
+            let body_bytes = serde_json::to_vec(&body_value)
                 .map_err(|error| AffiliateError::Parse(error.to_string()))?;
             let sign = tiktok_sign(
                 &self.search_path,
@@ -321,10 +344,16 @@ impl TikTokShopProvider {
             query_params.push(("sign".into(), sign));
 
             let response = self
-                .send_tiktok_request(&query_params, &body_bytes)
+                .send_tiktok_request(
+                    &self.search_path,
+                    &query_params,
+                    &body_bytes,
+                    &self.access_token,
+                )
                 .await?;
             let parsed = parse_tiktok_search_response(&response)?;
             all.extend(parsed.products);
+
             if all.len() >= query.max_results.min(200) || parsed.next_page_token.is_empty() {
                 break;
             }
@@ -334,7 +363,156 @@ impl TikTokShopProvider {
         Ok(all)
     }
 
-    #[derive(Debug)]
+    async fn fetch_coupons(
+        &self,
+        query: &ProductSearchQuery,
+    ) -> Result<Vec<Coupon>, AffiliateError> {
+        let Some(access_token) = self.seller_access_token.as_deref() else {
+            return Ok(Vec::new());
+        };
+        let Some(shop_cipher) = self.shop_cipher.as_deref() else {
+            return Ok(Vec::new());
+        };
+
+        let mut coupons = Vec::new();
+        let mut page_token: Option<String> = None;
+
+        for _ in 0..5 {
+            let timestamp = time::OffsetDateTime::now_utc().unix_timestamp();
+            let mut query_params = vec![
+                ("app_key".to_owned(), self.app_key.clone()),
+                ("page_size".to_owned(), "100".into()),
+                ("timestamp".to_owned(), timestamp.to_string()),
+                ("shop_cipher".to_owned(), shop_cipher.to_owned()),
+            ];
+            if let Some(token) = page_token.as_deref() {
+                query_params.push(("page_token".into(), token.into()));
+            }
+
+            let mut body = serde_json::json!({
+                "status": ["ONGOING"],
+                "display_type": [
+                    "PROMO_CODE",
+                    "CREATOR_EXCLUSIVE",
+                    "LIVE",
+                    "REGULAR"
+                ]
+            });
+            if !query.keywords.is_empty() {
+                body["title_keyword"] = serde_json::Value::String(query.keywords.join(" "));
+            }
+
+            let body_bytes = serde_json::to_vec(&body)
+                .map_err(|error| AffiliateError::Parse(error.to_string()))?;
+            let sign = tiktok_sign(
+                &self.coupon_search_path,
+                &query_params,
+                &body_bytes,
+                &self.app_secret,
+            )?;
+            query_params.push(("sign".into(), sign));
+
+            let value = self
+                .send_tiktok_request(
+                    &self.coupon_search_path,
+                    &query_params,
+                    &body_bytes,
+                    access_token,
+                )
+                .await?;
+
+            let page =
+                parse_tiktok_coupon_response(&value, &self.advertiser_id, &self.coupon_search_path)?;
+            coupons.extend(page.coupons);
+
+            if page.next_page_token.is_empty() {
+                break;
+            }
+            page_token = Some(page.next_page_token);
+        }
+
+        Ok(coupons)
+    }
+
+    async fn send_tiktok_request(
+        &self,
+        path: &str,
+        query_params: &[(String, String)],
+        body: &[u8],
+        access_token: &str,
+    ) -> Result<serde_json::Value, AffiliateError> {
+        let mut url = format!("{}{}", self.base_url, path);
+        let query = query_params
+            .iter()
+            .map(|(key, value)| format!("{}={}", percent_encode(key), percent_encode(value)))
+            .collect::<Vec<_>>()
+            .join("&");
+        url.push('?');
+        url.push_str(&query);
+
+        let mut last_error = None;
+
+        for attempt in 0..3_u32 {
+            let response = self
+                .client
+                .post(&url)
+                .header("content-type", "application/json")
+                .header("x-tts-access-token", access_token)
+                .body(body.to_vec())
+                .send()
+                .await
+                .map_err(|error| AffiliateError::Provider(error.to_string()))?;
+
+            let status = response.status();
+            let retry_after = response
+                .headers()
+                .get("retry-after")
+                .and_then(|value| value.to_str().ok());
+            let bytes = response
+                .bytes()
+                .await
+                .map_err(|error| AffiliateError::Provider(error.to_string()))?;
+
+            if bytes.len() > MAX_TIKTOK_RESPONSE_BYTES {
+                return Err(AffiliateError::PayloadTooLarge);
+            }
+
+            if status.as_u16() == 429 || status.is_server_error() {
+                last_error = Some(format!("TikTok HTTP {status}"));
+                if attempt < 2 {
+                    tokio::time::sleep(response_retry_delay(retry_after, attempt)).await;
+                    continue;
+                }
+                return Err(AffiliateError::Provider(format!(
+                    "TikTok affiliate API HTTP {status}: {}",
+                    String::from_utf8_lossy(&bytes[..bytes.len().min(4096)])
+                )));
+            }
+
+            if !status.is_success() {
+                return Err(AffiliateError::Provider(format!(
+                    "TikTok affiliate API HTTP {status}: {}",
+                    String::from_utf8_lossy(&bytes[..bytes.len().min(4096)])
+                )));
+            }
+
+            let value = serde_json::from_slice::<serde_json::Value>(&bytes)
+                .map_err(|error| AffiliateError::Parse(error.to_string()))?;
+            let code = value.get("code").and_then(|value| value.as_i64()).unwrap_or(-1);
+            if code == 36009002 && attempt < 2 {
+                tokio::time::sleep(response_retry_delay(retry_after, attempt)).await;
+                continue;
+            }
+            return Ok(value);
+        }
+
+        Err(AffiliateError::Provider(
+            last_error.unwrap_or_else(|| "TikTok request failed".into()),
+        ))
+    }
+}
+
+#[derive(Debug)]
 struct TikTokCouponPage {
     next_page_token: String,
     coupons: Vec<Coupon>,
@@ -345,64 +523,66 @@ fn parse_tiktok_coupon_response(
     advertiser_id: &str,
     source: &str,
 ) -> Result<TikTokCouponPage, AffiliateError> {
-    let code = value.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
+    let code = value.get("code").and_then(|value| value.as_i64()).unwrap_or(-1);
     if code != 0 {
         let message = value
             .get("message")
-            .and_then(|v| v.as_str())
+            .and_then(|value| value.as_str())
             .unwrap_or("unknown TikTok coupon API error");
         return Err(AffiliateError::Provider(format!(
             "TikTok coupon API code={code}: {message}"
         )));
     }
+
     let data = value
         .get("data")
         .ok_or_else(|| AffiliateError::Parse("TikTok coupon response missing data".into()))?;
     let next_page_token = data
         .get("next_page_token")
-        .and_then(|v| v.as_str())
+        .and_then(|value| value.as_str())
         .unwrap_or_default()
         .to_owned();
     let items = data
         .get("coupons")
-        .and_then(|v| v.as_array())
+        .and_then(|value| value.as_array())
         .ok_or_else(|| AffiliateError::Parse("TikTok coupon response missing coupons array".into()))?;
 
     let mut coupons = Vec::new();
     for item in items.iter().take(100) {
-        let id = match item.get("id").and_then(|v| v.as_str()) {
+        let id = match item.get("id").and_then(|value| value.as_str()) {
             Some(id) if !id.trim().is_empty() => id.trim().to_owned(),
             _ => continue,
         };
         let title = item
             .get("title")
-            .and_then(|v| v.as_str())
+            .and_then(|value| value.as_str())
             .unwrap_or("TikTok Shop coupon")
             .trim()
             .to_owned();
         let display_type = item
             .get("display_type")
-            .and_then(|v| v.as_str())
+            .and_then(|value| value.as_str())
             .unwrap_or_default()
             .trim()
             .to_owned();
         let status = item
             .get("status")
-            .and_then(|v| v.as_str())
+            .and_then(|value| value.as_str())
             .unwrap_or_default()
             .trim()
             .to_owned();
+
         if !status.eq_ignore_ascii_case("ONGOING") {
             continue;
         }
 
         let code = item
             .get("code")
-            .and_then(|v| v.as_str())
-            .or_else(|| item.get("promo_code").and_then(|v| v.as_str()))
-            .or_else(|| item.get("promotion_code").and_then(|v| v.as_str()))
+            .and_then(|value| value.as_str())
+            .or_else(|| item.get("promo_code").and_then(|value| value.as_str()))
+            .or_else(|| item.get("promotion_code").and_then(|value| value.as_str()))
             .map(str::trim)
-            .filter(|v| !v.is_empty())
+            .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned);
 
         let discount_bps = item
@@ -411,10 +591,10 @@ fn parse_tiktok_coupon_response(
                 discount
                     .get("percentage")
                     .or_else(|| discount.get("discount_percentage"))
-                    .and_then(|v| v.as_f64())
+                    .and_then(|value| value.as_f64())
             })
-            .filter(|v| v.is_finite() && *v >= 0.0)
-            .map(|v| (v * 100.0).round().min(SCORE_MAX as f64) as u32)
+            .filter(|value| value.is_finite() && *value >= 0.0)
+            .map(|value| (value * 100.0).round().min(SCORE_MAX as f64) as u32)
             .or_else(|| parse_percent_from_text(&title));
 
         let (starts_at, ends_at) = parse_tiktok_coupon_window(item);
@@ -451,11 +631,11 @@ fn parse_tiktok_coupon_window(item: &serde_json::Value) -> (Option<String>, Opti
         if let Some(duration) = item.get(key) {
             let start = duration
                 .get("start_time")
-                .and_then(|v| v.as_i64())
+                .and_then(|value| value.as_i64())
                 .and_then(format_unix_rfc3339);
             let end = duration
                 .get("end_time")
-                .and_then(|v| v.as_i64())
+                .and_then(|value| value.as_i64())
                 .and_then(format_unix_rfc3339);
             if start.is_some() || end.is_some() {
                 return (start, end);
@@ -463,13 +643,6 @@ fn parse_tiktok_coupon_window(item: &serde_json::Value) -> (Option<String>, Opti
         }
     }
     (None, None)
-}
-
-fn format_unix_rfc3339(value: i64) -> Option<String> {
-    let datetime = time::OffsetDateTime::from_unix_timestamp(value).ok()?;
-    datetime
-        .format(&time::format_description::well_known::Rfc3339)
-        .ok()
 }
 
 #[derive(Debug)]
@@ -481,15 +654,15 @@ struct TikTokSearchPage {
 fn parse_tiktok_search_response(
     value: &serde_json::Value,
 ) -> Result<TikTokSearchPage, AffiliateError> {
-    let code = value.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
+    let code = value.get("code").and_then(|value| value.as_i64()).unwrap_or(-1);
     if code != 0 {
         let message = value
             .get("message")
-            .and_then(|v| v.as_str())
+            .and_then(|value| value.as_str())
             .unwrap_or("unknown TikTok API error");
         let request_id = value
             .get("request_id")
-            .and_then(|v| v.as_str())
+            .and_then(|value| value.as_str())
             .unwrap_or("unknown");
         return Err(AffiliateError::Provider(format!(
             "TikTok affiliate API code={code}, request_id={request_id}: {message}"
@@ -501,24 +674,25 @@ fn parse_tiktok_search_response(
         .ok_or_else(|| AffiliateError::Parse("TikTok response missing data".into()))?;
     let next_page_token = data
         .get("next_page_token")
-        .and_then(|v| v.as_str())
+        .and_then(|value| value.as_str())
         .unwrap_or_default()
         .to_owned();
-
     let items = data
         .get("products")
-        .and_then(|v| v.as_array())
+        .and_then(|value| value.as_array())
         .ok_or_else(|| AffiliateError::Parse("TikTok response missing products array".into()))?;
 
     let mut products = Vec::with_capacity(items.len().min(20));
+
     for item in items.iter().take(20) {
-        let id = match item.get("id").and_then(|v| v.as_str()).map(str::trim) {
+        let id = match item.get("id").and_then(|value| value.as_str()).map(str::trim) {
             Some(id) if !id.is_empty() => id.to_owned(),
             _ => continue,
         };
+
         let title = item
             .get("title")
-            .and_then(|v| v.as_str())
+            .and_then(|value| value.as_str())
             .unwrap_or_default()
             .trim()
             .to_owned();
@@ -531,27 +705,28 @@ fn parse_tiktok_search_response(
             .or_else(|| item.get("sale_price"));
         let original = item.get("original_price");
         let currency = sale
-            .and_then(|v| v.get("currency"))
-            .and_then(|v| v.as_str())
+            .and_then(|value| value.get("currency"))
+            .and_then(|value| value.as_str())
             .or_else(|| {
                 original
-                    .and_then(|v| v.get("currency"))
-                    .and_then(|v| v.as_str())
+                    .and_then(|value| value.get("currency"))
+                    .and_then(|value| value.as_str())
             })
             .unwrap_or("USD")
             .to_ascii_uppercase();
 
         let sale_amount = sale
-            .and_then(|v| v.get("minimum_amount"))
-            .and_then(|v| v.as_str())
+            .and_then(|value| value.get("minimum_amount"))
+            .and_then(|value| value.as_str())
             .or_else(|| {
                 sale
-                    .and_then(|v| v.get("maximum_amount"))
-                    .and_then(|v| v.as_str())
+                    .and_then(|value| value.get("maximum_amount"))
+                    .and_then(|value| value.as_str())
             });
         let Some(sale_amount) = sale_amount else {
             continue;
         };
+
         let units = minor_units_for_currency(&currency, 2);
         let price_minor = parse_decimal_minor(sale_amount, units)?;
         if price_minor < 0 {
@@ -559,34 +734,35 @@ fn parse_tiktok_search_response(
         }
 
         let old_price_minor = original
-            .and_then(|v| {
-                v.get("maximum_amount")
+            .and_then(|value| {
+                value
+                    .get("maximum_amount")
                     .and_then(|x| x.as_str())
-                    .or_else(|| v.get("minimum_amount").and_then(|x| x.as_str()))
+                    .or_else(|| value.get("minimum_amount").and_then(|x| x.as_str()))
             })
             .and_then(|value| parse_decimal_minor(value, units).ok());
 
         let commission = item.get("commission");
         let commission_rate_bps = commission
-            .and_then(|v| v.get("rate"))
-            .and_then(|v| v.as_u64())
-            .map(|v| (v.min(SCORE_MAX as u64)) as u32);
+            .and_then(|value| value.get("rate"))
+            .and_then(|value| value.as_u64())
+            .map(|value| value.min(SCORE_MAX as u64) as u32);
 
         let commission_fixed_minor = commission
-            .and_then(|v| {
-                let amount = v.get("amount")?.as_str()?;
-                parse_decimal_minor(amount, units).ok()
+            .and_then(|value| {
+                let amount = value.get("amount")?.as_str()?;
+                parse_decimal_minor_floor(amount, units).ok()
             })
             .and_then(|value| if value >= 0 { Some(value) } else { None });
 
         let commission_currency = commission
-            .and_then(|v| v.get("currency"))
-            .and_then(|v| v.as_str())
-            .map(|v| v.to_ascii_uppercase());
+            .and_then(|value| value.get("currency"))
+            .and_then(|value| value.as_str())
+            .map(|value| value.to_ascii_uppercase());
 
         let category = item
             .get("category_chains")
-            .and_then(|v| v.as_array())
+            .and_then(|value| value.as_array())
             .map(|chains| {
                 chains
                     .iter()
@@ -598,13 +774,13 @@ fn parse_tiktok_search_response(
 
         let advertiser_name = item
             .get("shop")
-            .and_then(|v| v.get("name"))
-            .and_then(|v| v.as_str())
+            .and_then(|value| value.get("name"))
+            .and_then(|value| value.as_str())
             .map(ToOwned::to_owned);
 
         let detail_url = item
             .get("detail_link")
-            .and_then(|v| v.as_str())
+            .and_then(|value| value.as_str())
             .unwrap_or_default()
             .to_owned();
         if !detail_url.starts_with("https://") {
@@ -613,8 +789,8 @@ fn parse_tiktok_search_response(
 
         let image_url = item
             .get("main_image_url")
-            .and_then(|v| v.as_str())
-            .filter(|v| v.starts_with("https://"))
+            .and_then(|value| value.as_str())
+            .filter(|value| value.starts_with("https://"))
             .map(ToOwned::to_owned);
 
         let savings_bps = old_price_minor
@@ -622,17 +798,13 @@ fn parse_tiktok_search_response(
             .and_then(|old| {
                 old.checked_sub(price_minor)
                     .and_then(|diff| diff.checked_mul(SCORE_MAX as i128))
-                    .map(|v| ((v / old).min(SCORE_MAX as i128)) as u32)
+                    .map(|value| ((value / old).min(SCORE_MAX as i128)) as u32)
             });
-
-        let advertiser_id = advertiser_name
-            .clone()
-            .unwrap_or_else(|| "tiktok-shop".into());
 
         products.push(Product {
             id,
             gtin: None,
-            advertiser_id,
+            advertiser_id: "tiktok-shop".into(),
             advertiser_name,
             name: title,
             description: String::new(),
@@ -648,7 +820,7 @@ fn parse_tiktok_search_response(
             stock_quantity: None,
             in_stock: item
                 .get("has_inventory")
-                .and_then(|v| v.as_bool())
+                .and_then(|value| value.as_bool())
                 .unwrap_or(true),
             savings_bps,
             seller_reputation_bps: None,
@@ -667,6 +839,13 @@ fn parse_tiktok_search_response(
         next_page_token,
         products,
     })
+}
+
+fn format_unix_rfc3339(value: i64) -> Option<String> {
+    let datetime = time::OffsetDateTime::from_unix_timestamp(value).ok()?;
+    datetime
+        .format(&time::format_description::well_known::Rfc3339)
+        .ok()
 }
 
 fn percent_encode(value: &str) -> String {
@@ -691,6 +870,15 @@ fn hex_digit(value: u8) -> char {
     }
 }
 
+fn bytes_to_hex(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(hex_digit(byte >> 4));
+        out.push(hex_digit(byte & 0x0f));
+    }
+    out
+}
+
 fn tiktok_sign(
     path: &str,
     query: &[(String, String)],
@@ -700,6 +888,7 @@ fn tiktok_sign(
     if path.is_empty() || !path.starts_with('/') {
         return Err(AffiliateError::Provider("TikTok sign path is invalid".into()));
     }
+
     let mut params = query
         .iter()
         .filter(|(key, _)| key != "sign" && key != "access_token")
@@ -708,7 +897,13 @@ fn tiktok_sign(
     params.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
 
     let mut input = String::with_capacity(
-        path.len() + params.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>() + body.len() + app_secret.len() * 2,
+        path.len()
+            + params
+                .iter()
+                .map(|(key, value)| key.len() + value.len())
+                .sum::<usize>()
+            + body.len()
+            + app_secret.len() * 2,
     );
     input.push_str(path);
     for (key, value) in params {
@@ -724,98 +919,14 @@ fn tiktok_sign(
     Ok(bytes_to_hex(&mac.finalize().into_bytes()))
 }
 
-fn bytes_to_hex(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(hex_digit(byte >> 4));
-        out.push(hex_digit(byte & 0x0f));
-    }
-    out
-}
-
 fn response_retry_delay(retry_after: Option<&str>, attempt: u32) -> Duration {
     if let Some(value) = retry_after
-        .and_then(|v| v.parse::<u64>().ok())
-        .filter(|v| *v <= 60)
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value <= 60)
     {
         return Duration::from_secs(value);
     }
     Duration::from_millis(250 * (1_u64 << attempt.min(4)))
-}
-
-async fn send_tiktok_request(
-        &self,
-        query_params: &[(String, String)],
-        body: &[u8],
-    ) -> Result<serde_json::Value, AffiliateError> {
-        let mut url = format!("{}{}", self.base_url, self.search_path);
-        let query = query_params
-            .iter()
-            .map(|(key, value)| {
-                format!("{}={}", percent_encode(key), percent_encode(value))
-            })
-            .collect::<Vec<_>>()
-            .join("&");
-        url.push('?');
-        url.push_str(&query);
-
-        let mut last_error = None;
-        for attempt in 0..3_u32 {
-            let response = self
-                .client
-                .post(&url)
-                .header("content-type", "application/json")
-                .header("x-tts-access-token", access_token)
-                .body(body.to_vec())
-                .send()
-                .await
-                .map_err(|error| AffiliateError::Provider(error.to_string()))?;
-
-            let status = response.status();
-            let retry_after = response
-                .headers()
-                .get("retry-after")
-                .and_then(|value| value.to_str().ok());
-            let bytes = response
-                .bytes()
-                .await
-                .map_err(|error| AffiliateError::Provider(error.to_string()))?;
-            if bytes.len() > MAX_TIKTOK_RESPONSE_BYTES {
-                return Err(AffiliateError::PayloadTooLarge);
-            }
-
-            if status.as_u16() == 429 || status.is_server_error() {
-                last_error = Some(format!("TikTok HTTP {status}"));
-                if attempt < 2 {
-                    tokio::time::sleep(response_retry_delay(retry_after, attempt)).await;
-                    continue;
-                }
-                return Err(AffiliateError::Provider(format!(
-                    "TikTok affiliate API HTTP {status}: {}",
-                    String::from_utf8_lossy(&bytes[..bytes.len().min(4096)])
-                )));
-            }
-            if !status.is_success() {
-                return Err(AffiliateError::Provider(format!(
-                    "TikTok affiliate API HTTP {status}: {}",
-                    String::from_utf8_lossy(&bytes[..bytes.len().min(4096)])
-                )));
-            }
-
-            let value = serde_json::from_slice::<serde_json::Value>(&bytes)
-                .map_err(|error| AffiliateError::Parse(error.to_string()))?;
-            let code = value.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
-            if code == 36009002 && attempt < 2 {
-                tokio::time::sleep(response_retry_delay(retry_after, attempt)).await;
-                continue;
-            }
-            return Ok(value);
-        }
-
-        Err(AffiliateError::Provider(
-            last_error.unwrap_or_else(|| "TikTok request failed".into()),
-        ))
-    }
 }
 
 #[async_trait]
@@ -831,7 +942,7 @@ impl AffiliateProvider for TikTokShopProvider {
     }
 
     async fn coupons(&self) -> Result<Vec<Coupon>, AffiliateError> {
-        Ok(Vec::new())
+        Ok(self.last_coupons.read().await.clone())
     }
 
     async fn search(&self, query: &ProductSearchQuery) -> Result<Vec<Product>, AffiliateError> {
@@ -840,10 +951,6 @@ impl AffiliateProvider for TikTokShopProvider {
         let coupons = self.fetch_coupons(query).await?;
         *self.last_coupons.write().await = coupons;
         Ok(products)
-    }
-
-    async fn coupons(&self) -> Result<Vec<Coupon>, AffiliateError> {
-        Ok(self.last_coupons.read().await.clone())
     }
 }
 
