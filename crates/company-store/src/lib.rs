@@ -73,6 +73,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/007_affiliate_currency.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/008_affiliate_payouts.sql"
+            ))
             .await
     }
 
@@ -1143,6 +1148,12 @@ impl CompanyStore {
                 &currency,
             )
             .await?;
+            increment_company_revenue(
+                &tx,
+                company_id,
+                reconciled.net_commission_minor,
+            )
+            .await?;
         }
 
         tx.execute(
@@ -1161,6 +1172,152 @@ impl CompanyStore {
 
         tx.commit().await?;
         Ok(reconciled)
+    }
+
+    pub async fn record_affiliate_payout(
+        &self,
+        event: &affiliate_attribution::AffiliatePayoutEvent,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        affiliate_attribution::validate_payout_event(event)
+            .map_err(|error| error.to_string())?;
+        let company_id = Uuid::parse_str(&event.company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        let company_currency = company_base_currency(&tx, company_id).await?;
+        if company_currency != event.currency {
+            return Err(format!(
+                "affiliate payout currency {} does not match company currency {}",
+                event.currency, company_currency
+            )
+            .into());
+        }
+
+        let idempotency_key = affiliate_attribution::payout_idempotency_key(event);
+        if tx
+            .query_opt(
+                "SELECT payout_id
+                   FROM affiliate_payouts
+                  WHERE company_id = $1 AND idempotency_key = $2
+                  FOR UPDATE",
+                &[&company_id, &idempotency_key],
+            )
+            .await?
+            .is_some()
+        {
+            tx.rollback().await?;
+            return Ok(());
+        }
+
+        let receivable_balance: String = tx
+            .query_one(
+                "SELECT COALESCE(
+                    SUM(le.debit_minor - le.credit_minor)::numeric, 0
+                )::text
+                   FROM ledger_entries le
+                   JOIN ledger_accounts la ON la.id = le.account_id
+                  WHERE la.company_id = $1
+                    AND la.code = 'AFFILIATE_RECEIVABLE'
+                    AND la.currency = $2",
+                &[&company_id, &event.currency],
+            )
+            .await?
+            .get(0);
+        let receivable = parse_i128_numeric(&receivable_balance)?;
+        if event.amount_minor > receivable {
+            return Err(format!(
+                "affiliate payout {} exceeds outstanding receivable {}",
+                event.amount_minor, receivable
+            )
+            .into());
+        }
+
+        tx.execute(
+            "INSERT INTO affiliate_payouts
+             (company_id, payout_id, occurred_at, amount_minor,
+              currency, source, idempotency_key)
+             VALUES ($1,$2,$3,$4::numeric,$5,$6,$7)",
+            &[
+                &company_id,
+                &event.payout_id,
+                &event.occurred_at,
+                &event.amount_minor.to_string(),
+                &event.currency,
+                &event.source,
+                &idempotency_key,
+            ],
+        )
+        .await?;
+
+        if event.amount_minor > 0 {
+            let receivable_account = ensure_system_account(
+                &tx,
+                company_id,
+                "AFFILIATE_RECEIVABLE",
+                "Affiliate Receivable",
+                "ASSET",
+                &event.currency,
+            )
+            .await?;
+            let cash_account = ensure_system_account(
+                &tx,
+                company_id,
+                "CASH",
+                "Cash",
+                "ASSET",
+                &event.currency,
+            )
+            .await?;
+            let transaction_id = Uuid::new_v4();
+            let amount = event.amount_minor.to_string();
+            tx.execute(
+                "INSERT INTO ledger_transactions
+                 (id, company_id, description, idempotency_key)
+                 VALUES ($1,$2,$3,$4)",
+                &[
+                    &transaction_id,
+                    &company_id,
+                    &"Affiliate payout received",
+                    &format!("ledger:{idempotency_key}"),
+                ],
+            )
+            .await?;
+            tx.execute(
+                "INSERT INTO ledger_entries
+                 (transaction_id, account_id, debit_minor, credit_minor, currency)
+                 VALUES ($1,$2,$3::numeric,0,$4),($1,$5,0,$3::numeric,$4)",
+                &[
+                    &transaction_id,
+                    &cash_account,
+                    &amount,
+                    &event.currency,
+                    &receivable_account,
+                ],
+            )
+            .await?;
+            increment_company_cash(&tx, company_id, event.amount_minor).await?;
+        }
+
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id, event_type, aggregate_id, idempotency_key, payload)
+             VALUES ($1,'AFFILIATE_PAYOUT_RECEIVED',$2,$3,$4)
+             ON CONFLICT (company_id, idempotency_key) DO NOTHING",
+            &[
+                &company_id,
+                &event.payout_id,
+                &format!("outbox:{idempotency_key}"),
+                &serde_json::json!({
+                    "payout_id": event.payout_id,
+                    "amount_minor": event.amount_minor,
+                    "currency": event.currency,
+                }),
+            ],
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
     }
 
     pub async fn content_affiliate_performance(
@@ -1499,6 +1656,68 @@ fn parse_agent_role(value: &str) -> Option<AgentRole> {
     AgentRole::ALL
         .into_iter()
         .find(|role| role.as_str().eq_ignore_ascii_case(value))
+}
+
+async fn update_company_snapshot(
+    tx: &Transaction<'_>,
+    company_id: Uuid,
+    mutate: impl FnOnce(&mut CompanySnapshot) -> Result<(), String>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let row = tx
+        .query_opt(
+            "SELECT state FROM company_state_snapshots WHERE company_id = $1 FOR UPDATE",
+            &[&company_id],
+        )
+        .await?
+        .ok_or("company snapshot is required for economic mutation")?;
+    let state: serde_json::Value = row.get(0);
+    let mut snapshot: CompanySnapshot = serde_json::from_value(state)?;
+    mutate(&mut snapshot).map_err(|error| error.to_string())?;
+    snapshot.validate().map_err(|error| error.to_string())?;
+    let state = serde_json::to_value(&snapshot)?;
+    tx.execute(
+        "UPDATE company_state_snapshots
+            SET state = $2, updated_at = now()
+          WHERE company_id = $1",
+        &[&company_id, &state],
+    )
+    .await?;
+    update_company_status(tx, company_id, &snapshot).await?;
+    Ok(())
+}
+
+async fn increment_company_revenue(
+    tx: &Transaction<'_>,
+    company_id: Uuid,
+    amount_minor: i128,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    update_company_snapshot(tx, company_id, |snapshot| {
+        snapshot.revenue_minor = snapshot
+            .revenue_minor
+            .checked_add(amount_minor)
+            .ok_or_else(|| "revenue arithmetic overflow".to_string())?;
+        Ok(())
+    })
+    .await
+}
+
+async fn increment_company_cash(
+    tx: &Transaction<'_>,
+    company_id: Uuid,
+    amount_minor: i128,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    update_company_snapshot(tx, company_id, |snapshot| {
+        snapshot.cash_minor = snapshot
+            .cash_minor
+            .checked_add(amount_minor)
+            .ok_or_else(|| "cash arithmetic overflow".to_string())?;
+        snapshot.assets_minor = snapshot
+            .assets_minor
+            .checked_add(amount_minor)
+            .ok_or_else(|| "asset arithmetic overflow".to_string())?;
+        Ok(())
+    })
+    .await
 }
 
 async fn persisted_cycle_currency(
