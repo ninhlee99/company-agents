@@ -939,15 +939,8 @@ impl CompanyStore {
         &self,
         event: &affiliate_attribution::ClickEvent,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if event.company_id.trim().is_empty()
-            || event.click_id.trim().is_empty()
-            || event.product_id.trim().is_empty()
-            || event.advertiser_id.trim().is_empty()
-            || event.content_id.trim().is_empty()
-            || event.occurred_at.trim().is_empty()
-        {
-            return Err("affiliate click has incomplete identifiers".into());
-        }
+        affiliate_attribution::validate_click_event(event)
+            .map_err(|error| error.to_string())?;
         let company_id = Uuid::parse_str(&event.company_id)?;
         let client = self.client.lock().await;
         client
@@ -977,6 +970,8 @@ impl CompanyStore {
         model: affiliate_attribution::AttributionModel,
     ) -> Result<affiliate_attribution::ReconciledConversion, Box<dyn std::error::Error + Send + Sync>>
     {
+        affiliate_attribution::validate_conversion_event(event)
+            .map_err(|error| error.to_string())?;
         let company_id = Uuid::parse_str(&event.company_id)?;
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
@@ -1115,6 +1110,22 @@ impl CompanyStore {
                     &commission,
                     &(attribution.confidence_bps as i32),
                 ],
+            )
+            .await?;
+        }
+
+        if matches!(
+            reconciled.status,
+            affiliate_attribution::ReconciliationStatus::Verified
+        ) && reconciled.net_commission_minor > 0
+        {
+            let currency = company_base_currency(&tx, company_id).await?;
+            persist_affiliate_revenue_earned(
+                &tx,
+                company_id,
+                &event.conversion_id,
+                reconciled.net_commission_minor,
+                &currency,
             )
             .await?;
         }
@@ -1371,6 +1382,102 @@ impl CompanyStore {
             .map(|row| row.get::<_, serde_json::Value>(0))
             .collect())
     }
+}
+
+async fn company_base_currency(
+    tx: &Transaction<'_>,
+    company_id: Uuid,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let row = tx
+        .query_one(
+            "SELECT base_currency FROM companies WHERE id = $1",
+            &[&company_id],
+        )
+        .await?;
+    Ok(row.get(0))
+}
+
+async fn persist_affiliate_revenue_earned(
+    tx: &Transaction<'_>,
+    company_id: Uuid,
+    conversion_id: &str,
+    amount_minor: i128,
+    currency: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if amount_minor <= 0 {
+        return Ok(());
+    }
+    let receivable = ensure_system_account(
+        tx,
+        company_id,
+        "AFFILIATE_RECEIVABLE",
+        "Affiliate Receivable",
+        "ASSET",
+        currency,
+    )
+    .await?;
+    let revenue = ensure_system_account(
+        tx,
+        company_id,
+        "AFFILIATE_REVENUE",
+        "Affiliate Revenue",
+        "REVENUE",
+        currency,
+    )
+    .await?;
+    let ledger_key = format!("affiliate-revenue:{conversion_id}");
+    let transaction_id = Uuid::new_v4();
+    let exists = tx
+        .query_opt(
+            "SELECT id FROM ledger_transactions WHERE company_id = $1 AND idempotency_key = $2",
+            &[&company_id, &ledger_key],
+        )
+        .await?
+        .is_some();
+    if exists {
+        return Ok(());
+    }
+
+    tx.execute(
+        "INSERT INTO ledger_transactions
+         (id, company_id, description, idempotency_key)
+         VALUES ($1,$2,$3,$4)",
+        &[
+            &transaction_id,
+            &company_id,
+            &"Affiliate commission earned",
+            &ledger_key,
+        ],
+    )
+    .await?;
+
+    let amount = amount_minor.to_string();
+    tx.execute(
+        "INSERT INTO ledger_entries
+         (transaction_id, account_id, debit_minor, credit_minor, currency)
+         VALUES ($1,$2,$3::numeric,0,$4),($1,$5,0,$3::numeric,$4)",
+        &[&transaction_id, &receivable, &amount, &currency, &revenue],
+    )
+    .await?;
+
+    tx.execute(
+        "INSERT INTO outbox_events
+         (company_id, event_type, aggregate_id, idempotency_key, payload)
+         VALUES ($1,'AFFILIATE_REVENUE_EARNED',$2,$3,$4)
+         ON CONFLICT (company_id, idempotency_key) DO NOTHING",
+        &[
+            &company_id,
+            &conversion_id,
+            &format!("outbox:{ledger_key}"),
+            &serde_json::json!({
+                "conversion_id": conversion_id,
+                "amount_minor": amount_minor,
+                "currency": currency,
+            }),
+        ],
+    )
+    .await?;
+    Ok(())
 }
 
 fn parse_agent_role(value: &str) -> Option<AgentRole> {
