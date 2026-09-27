@@ -161,7 +161,7 @@ macro_rules! define_agent {
             fn system_prompt(&self) -> &'static str { include_str!(concat!("../../../agents/", $prompt, "/agent.md")) }
             async fn propose(&self, ctx: &AgentContext, model: Arc<dyn Model>) -> Result<Proposal, AgentError> {
                 let reasoning = call_model(self, ctx, model).await?;
-                let proposal = $body(ctx);
+                let proposal = ($body)(ctx);
                 Ok(attach_model_reasoning(proposal, &reasoning, ctx))
             }
         }
