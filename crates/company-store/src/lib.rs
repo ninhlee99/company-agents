@@ -1696,6 +1696,10 @@ async fn increment_company_revenue(
             .revenue_minor
             .checked_add(amount_minor)
             .ok_or_else(|| "revenue arithmetic overflow".to_string())?;
+        snapshot.assets_minor = snapshot
+            .assets_minor
+            .checked_add(amount_minor)
+            .ok_or_else(|| "asset arithmetic overflow".to_string())?;
 
         Ok(())
     })
@@ -1712,10 +1716,6 @@ async fn increment_company_cash(
             .cash_minor
             .checked_add(amount_minor)
             .ok_or_else(|| "cash arithmetic overflow".to_string())?;
-        snapshot.assets_minor = snapshot
-            .assets_minor
-            .checked_add(amount_minor)
-            .ok_or_else(|| "asset arithmetic overflow".to_string())?;
         Ok(())
     })
     .await
