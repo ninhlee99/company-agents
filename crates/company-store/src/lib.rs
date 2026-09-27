@@ -68,6 +68,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/006_company_portfolio.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/007_affiliate_currency.sql"
+            ))
             .await
     }
 
@@ -980,7 +985,7 @@ impl CompanyStore {
             .query_opt(
                 "SELECT conversion_id, order_value_minor::text, commission_minor::text,
                         refunded_minor::text, cancelled, click_id, product_id,
-                        advertiser_id, occurred_at, source
+                        advertiser_id, occurred_at, currency, source
                    FROM affiliate_conversions
                   WHERE company_id = $1 AND idempotency_key = $2",
                 &[
@@ -1058,6 +1063,15 @@ impl CompanyStore {
             })
             .collect::<Vec<_>>();
 
+        let company_currency = company_base_currency(&tx, company_id).await?;
+        if company_currency != event.currency {
+            return Err(format!(
+                "affiliate conversion currency {} does not match company currency {}",
+                event.currency, company_currency
+            )
+            .into());
+        }
+
         let reconciled = affiliate_attribution::attribute_conversion(event, &clicks, model)
             .map_err(|error| error.to_string())?;
 
@@ -1069,10 +1083,10 @@ impl CompanyStore {
         tx.execute(
             "INSERT INTO affiliate_conversions
              (company_id, conversion_id, click_id, order_id, product_id,
-              advertiser_id, occurred_at, order_value_minor, commission_minor,
+              advertiser_id, occurred_at, currency, order_value_minor, commission_minor,
               refunded_minor, cancelled, source, idempotency_key)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8::numeric,$9::numeric,$10::numeric,
-                     $11,$12,$13)",
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::numeric,$10::numeric,$11::numeric,
+                     $12,$13,$14)",
             &[
                 &company_id,
                 &event.conversion_id,
@@ -1081,6 +1095,7 @@ impl CompanyStore {
                 &event.product_id,
                 &event.advertiser_id,
                 &event.occurred_at,
+                &event.currency,
                 &order_value,
                 &commission,
                 &refunded,
