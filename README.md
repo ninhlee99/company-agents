@@ -121,3 +121,7 @@ Quality:
 - POST /run — run one cycle and return to dashboard
 
 The current runtime is a safe agent/governance bootstrap. Real money, platform publishing and external account control remain behind later integration and acceptance gates.
+
+
+## Verification
+Run `bash scripts/verify.sh` after cloning to execute formatting, workspace tests and Clippy gates.
