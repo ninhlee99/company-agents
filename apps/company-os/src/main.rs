@@ -335,6 +335,10 @@ async fn run_html(State(state): State<AppState>) -> (StatusCode, Html<String>) {
                 .store
                 .record_cycle_failure(&state.company_id, &message)
                 .await;
+            state
+                .metrics
+                .cycles_failed_total
+                .fetch_add(1, Ordering::Relaxed);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Html("cycle failed safely; inspect logs".into()),
@@ -354,6 +358,10 @@ async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, S
                     .store
                     .record_cycle_failure(&state.company_id, &error.to_string())
                     .await;
+                state
+                    .metrics
+                    .cycles_failed_total
+                    .fetch_add(1, Ordering::Relaxed);
             });
             StatusCode::INTERNAL_SERVER_ERROR
         })
@@ -467,6 +475,15 @@ async fn portfolio_api(
 
 async fn healthz() -> &'static str {
     "ok"
+}
+
+async fn readyz(State(state): State<AppState>) -> Result<&'static str, StatusCode> {
+    state
+        .store
+        .readiness_check(&state.company_id)
+        .await
+        .map(|_| "ready")
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
 
 #[tokio::main]
@@ -687,6 +704,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/affiliate/performance", get(affiliate_performance_api))
         .route("/api/journal", get(journal_api))
         .route("/healthz", get(healthz))
+        .route("/readyz", get(readyz))
         .route("/metrics", get(metrics))
         .with_state(state);
 
