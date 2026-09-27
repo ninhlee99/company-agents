@@ -1,12 +1,24 @@
 #![forbid(unsafe_code)]
 
 use agent_runtime::{AgentRunResult, CompanySnapshot};
+use company_execution::{execute_approved_results, proposal_idempotency_key, ExecutionPolicy, ExecutionReceipt};
+use economic_core::{validate_balanced_transaction, LedgerEntry, LedgerTransaction};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
-use tokio_postgres::{Client, NoTls};
+use tokio_postgres::{Client, NoTls, Transaction};
 use uuid::Uuid;
 
 pub struct CompanyStore {
     client: Mutex<Client>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PersistedCycle {
+    pub snapshot: CompanySnapshot,
+    #[serde(default)]
+    pub results: Vec<AgentRunResult>,
+    pub receipts: Vec<ExecutionReceipt>,
 }
 
 impl CompanyStore {
@@ -28,6 +40,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/001_economic_kernel.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/002_company_execution.sql"
+            ))
             .await
     }
 
@@ -38,10 +55,14 @@ impl CompanyStore {
         currency: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let id = Uuid::parse_str(company_id)?;
+        economic_core::Money::new(0, currency).map_err(|error| error.to_string())?;
         let client = self.client.lock().await;
         client
             .execute(
-                "INSERT INTO companies (id, name, status, base_currency) VALUES ($1, $2, 'ACTIVE', $3) ON CONFLICT (id) DO NOTHING",
+                "INSERT INTO companies (id, name, status, base_currency)
+                 VALUES ($1, $2, 'ACTIVE', $3)
+                 ON CONFLICT (id) DO UPDATE
+                 SET name = EXCLUDED.name",
                 &[&id, &name, &currency],
             )
             .await?;
@@ -76,14 +97,18 @@ impl CompanyStore {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let id = Uuid::parse_str(&snapshot.company_id)?;
         let state = serde_json::to_value(snapshot)?;
-        let client = self.client.lock().await;
-        client
-            .execute(
-                "INSERT INTO company_state_snapshots (company_id, state) VALUES ($1, $2)
-                 ON CONFLICT (company_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()",
-                &[&id, &state],
-            )
-            .await?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        tx.execute(
+            "INSERT INTO company_state_snapshots (company_id, state)
+             VALUES ($1, $2)
+             ON CONFLICT (company_id) DO UPDATE
+             SET state = EXCLUDED.state, updated_at = now()",
+            &[&id, &state],
+        )
+        .await?;
+        update_company_status(&tx, id, snapshot).await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -92,30 +117,593 @@ impl CompanyStore {
         snapshot: &CompanySnapshot,
         results: &[AgentRunResult],
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let company_id = Uuid::parse_str(&snapshot.company_id)?;
-        let state = serde_json::to_value(snapshot)?;
+        self.persist_and_execute_cycle(snapshot, results)
+            .await
+            .map(|_| ())
+    }
+
+    pub async fn persist_and_execute_cycle(
+        &self,
+        proposed_snapshot: &CompanySnapshot,
+        results: &[AgentRunResult],
+    ) -> Result<PersistedCycle, Box<dyn std::error::Error + Send + Sync>> {
+        let cycle_id = cycle_digest(proposed_snapshot, results)?;
+        self.persist_and_execute_cycle_with_id(proposed_snapshot, results, &cycle_id)
+            .await
+    }
+
+    pub async fn persist_and_execute_cycle_with_id(
+        &self,
+        proposed_snapshot: &CompanySnapshot,
+        results: &[AgentRunResult],
+        cycle_id: &str,
+    ) -> Result<PersistedCycle, Box<dyn std::error::Error + Send + Sync>> {
+        if cycle_id.trim().is_empty() {
+            return Err("cycle id is required".into());
+        }
+
+        let company_id = Uuid::parse_str(&proposed_snapshot.company_id)?;
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
 
-        for result in results {
+        let current_snapshot = match tx
+            .query_opt(
+                "SELECT state
+                   FROM company_state_snapshots
+                  WHERE company_id = $1
+                  FOR UPDATE",
+                &[&company_id],
+            )
+            .await?
+        {
+            Some(row) => serde_json::from_value::<CompanySnapshot>(row.get(0))?,
+            None => proposed_snapshot.clone(),
+        };
+
+        if current_snapshot.company_id != proposed_snapshot.company_id {
+            return Err("authoritative snapshot belongs to another company".into());
+        }
+
+        let governor = agent_runtime::governor::Governor;
+        let authoritative_results = results
+            .iter()
+            .map(|result| {
+                let proposal = result
+                    .governance
+                    .as_ref()
+                    .map(|governed| governed.proposal.clone())
+                    .unwrap_or_else(|| result.proposal.clone());
+                let governance = governor.evaluate(proposal.clone(), &current_snapshot);
+                AgentRunResult {
+                    agent: result.agent,
+                    proposal,
+                    governance: Some(governance),
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let cycle_key = format!("cycle:{cycle_id}");
+        if let Some(row) = tx
+            .query_opt(
+                "SELECT status, response_json
+                   FROM idempotency_keys
+                  WHERE company_id = $1 AND key = $2
+                  FOR UPDATE",
+                &[&company_id, &cycle_key],
+            )
+            .await?
+        {
+            let status: String = row.get(0);
+            if status == "SUCCEEDED" {
+                let response = row
+                    .get::<_, Option<serde_json::Value>>(1)
+                    .ok_or("idempotent cycle is missing response_json")?;
+                let persisted = serde_json::from_value::<PersistedCycle>(response)?;
+                tx.rollback().await?;
+                return Ok(persisted);
+            }
+            if status == "PROCESSING" {
+                return Err("cycle is already being processed".into());
+            }
+            return Err("cycle is in a terminal failed state".into());
+        }
+
+        tx.execute(
+            "INSERT INTO idempotency_keys
+             (company_id, key, command_type, status)
+             VALUES ($1, $2, 'agent_cycle', 'PROCESSING')",
+            &[&company_id, &cycle_key],
+        )
+        .await?;
+
+        let batch = execute_approved_results(
+            current_snapshot,
+            &authoritative_results,
+            execution_policy(),
+        )?;
+
+        for result in &authoritative_results {
+            let proposal = &result.proposal;
+            let proposal_digest = proposal_idempotency_key(proposal);
+            let proposal_key = format!("{cycle_key}:{proposal_digest}");
             let payload = serde_json::to_value(result)?;
+
             tx.execute(
-                "INSERT INTO agent_runs (company_id, agent_name, payload) VALUES ($1, $2, $3)",
-                &[&company_id, &result.agent.as_str(), &payload],
+                "INSERT INTO agent_runs
+                 (company_id, agent_name, payload, idempotency_key)
+                 VALUES ($1, $2, $3, $4)
+                 ON CONFLICT (company_id, idempotency_key) DO NOTHING",
+                &[
+                    &company_id,
+                    &result.agent.as_str(),
+                    &payload,
+                    &proposal_key,
+                ],
+            )
+            .await?;
+
+            let receipt = batch
+                .receipts
+                .iter()
+                .find(|item| item.idempotency_key == proposal_digest)
+                .cloned();
+            let decision = result
+                .governance
+                .as_ref()
+                .map(|item| format!("{:?}", item.decision))
+                .unwrap_or_else(|| "MISSING".into());
+            let reason = result
+                .governance
+                .as_ref()
+                .map(|item| item.reason.clone())
+                .unwrap_or_else(|| "missing Governor result".into());
+            let execution = receipt
+                .as_ref()
+                .map(serde_json::to_value)
+                .transpose()?;
+            let executed = receipt.as_ref().is_some_and(|item| {
+                matches!(
+                    item.status,
+                    company_execution::ExecutionStatus::Executed
+                        | company_execution::ExecutionStatus::Noop
+                )
+            });
+
+            tx.execute(
+                "INSERT INTO decision_journal
+                 (company_id, idempotency_key, agent_name, action,
+                  governor_decision, reason, proposal, execution, executed)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                 ON CONFLICT (company_id, idempotency_key) DO NOTHING",
+                &[
+                    &company_id,
+                    &proposal_key,
+                    &result.agent.as_str(),
+                    &format!("{:?}", proposal.action),
+                    &decision,
+                    &reason,
+                    &payload,
+                    &execution,
+                    &executed,
+                ],
+            )
+            .await?;
+
+            tx.execute(
+                "INSERT INTO audit_log
+                 (company_id, actor_type, actor_id, action,
+                  resource_type, resource_id, decision, metadata)
+                 VALUES ($1, 'AGENT', $2, $3, 'COMPANY_STATE',
+                         $4, $5, $6)",
+                &[
+                    &company_id,
+                    &result.agent.as_str(),
+                    &format!("{:?}", proposal.action),
+                    &cycle_key,
+                    &decision,
+                    &serde_json::json!({
+                        "reason": reason,
+                        "execution": execution,
+                    }),
+                ],
+            )
+            .await?;
+
+            tx.execute(
+                "INSERT INTO outbox_events
+                 (company_id, event_type, aggregate_id, idempotency_key, payload)
+                 VALUES ($1, 'AGENT_DECISION_RECORDED', $2, $3, $4)
+                 ON CONFLICT (company_id, idempotency_key) DO NOTHING",
+                &[
+                    &company_id,
+                    &proposed_snapshot.company_id,
+                    &format!("outbox:{proposal_key}"),
+                    &serde_json::json!({
+                        "cycle_id": cycle_id,
+                        "agent": result.agent.as_str(),
+                        "execution": execution,
+                    }),
+                ],
+            )
+            .await?;
+        }
+
+        let persisted = PersistedCycle {
+            snapshot: batch.snapshot.clone(),
+            results: authoritative_results,
+            receipts: batch.receipts,
+        };
+        let response = serde_json::to_value(&persisted)?;
+
+        tx.execute(
+            "INSERT INTO company_state_snapshots (company_id, state)
+             VALUES ($1, $2)
+             ON CONFLICT (company_id) DO UPDATE
+             SET state = EXCLUDED.state, updated_at = now()",
+            &[&company_id, &response["snapshot"]],
+        )
+        .await?;
+        update_company_status(&tx, company_id, &persisted.snapshot).await?;
+
+        tx.execute(
+            "UPDATE idempotency_keys
+                SET status = 'SUCCEEDED', response_json = $3
+              WHERE company_id = $1 AND key = $2",
+            &[&company_id, &cycle_key, &response],
+        )
+        .await?;
+
+        tx.execute(
+            "INSERT INTO company_cycle_health
+             (company_id, last_started_at, last_succeeded_at, last_error,
+              consecutive_failures, updated_at)
+             VALUES ($1, now(), now(), NULL, 0, now())
+             ON CONFLICT (company_id)
+             DO UPDATE SET last_started_at = now(), last_succeeded_at = now(),
+                           last_error = NULL, consecutive_failures = 0,
+                           updated_at = now()",
+            &[&company_id],
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(persisted)
+    }
+
+    pub async fn append_ledger_transaction(
+        &self,
+        company_id: &str,
+        transaction: &LedgerTransaction,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        validate_balanced_transaction(transaction).map_err(|error| error.to_string())?;
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let transaction_uuid = Uuid::parse_str(&transaction.id)?;
+        let idempotency_key = format!("ledger:{}", transaction.id);
+
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        if let Some(row) = tx
+            .query_opt(
+                "SELECT status
+                   FROM idempotency_keys
+                  WHERE company_id = $1 AND key = $2
+                  FOR UPDATE",
+                &[&company_uuid, &idempotency_key],
+            )
+            .await?
+        {
+            let status: String = row.get(0);
+            tx.rollback().await?;
+            return match status.as_str() {
+                "SUCCEEDED" => Ok(()),
+                "PROCESSING" => Err("ledger transaction is already processing".into()),
+                "FAILED" => Err("ledger transaction previously failed".into()),
+                _ => Err("ledger transaction has unknown idempotency state".into()),
+            };
+        }
+
+        tx.execute(
+            "INSERT INTO idempotency_keys
+             (company_id, key, command_type, status)
+             VALUES ($1, $2, 'ledger_transaction', 'PROCESSING')",
+            &[&company_uuid, &idempotency_key],
+        )
+        .await?;
+
+        tx.execute(
+            "INSERT INTO ledger_transactions
+             (id, company_id, description, idempotency_key)
+             VALUES ($1, $2, $3, $4)",
+            &[
+                &transaction_uuid,
+                &company_uuid,
+                &transaction.description,
+                &idempotency_key,
+            ],
+        )
+        .await?;
+
+        for entry in &transaction.entries {
+            let account_uuid = Uuid::parse_str(&entry.account_id)?;
+            let debit = entry.debit_minor.to_string();
+            let credit = entry.credit_minor.to_string();
+            tx.execute(
+                "INSERT INTO ledger_entries
+                 (transaction_id, account_id, debit_minor, credit_minor, currency)
+                 VALUES ($1, $2, $3::numeric, $4::numeric, $5)",
+                &[
+                    &transaction_uuid,
+                    &account_uuid,
+                    &debit,
+                    &credit,
+                    &entry.currency,
+                ],
             )
             .await?;
         }
 
         tx.execute(
-            "INSERT INTO company_state_snapshots (company_id, state) VALUES ($1, $2)
-             ON CONFLICT (company_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()",
-            &[&company_id, &state],
+            "INSERT INTO audit_log
+             (company_id, actor_type, actor_id, action,
+              resource_type, resource_id, decision, metadata)
+             VALUES ($1, 'SYSTEM', 'economic-kernel',
+                     'LEDGER_TRANSACTION_COMMITTED', 'LEDGER_TRANSACTION',
+                     $2, 'APPROVE', $3)",
+            &[
+                &company_uuid,
+                &transaction.id,
+                &serde_json::json!({
+                    "entries": transaction.entries.len(),
+                    "description": transaction.description,
+                }),
+            ],
+        )
+        .await?;
+
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id, event_type, aggregate_id, idempotency_key, payload)
+             VALUES ($1, 'LEDGER_TRANSACTION_COMMITTED', $2, $3, $4)
+             ON CONFLICT (company_id, idempotency_key) DO NOTHING",
+            &[
+                &company_uuid,
+                &transaction.id,
+                &format!("outbox:{idempotency_key}"),
+                &serde_json::json!({
+                    "transaction_id": transaction.id,
+                    "description": transaction.description,
+                }),
+            ],
+        )
+        .await?;
+
+        tx.execute(
+            "UPDATE idempotency_keys
+                SET status = 'SUCCEEDED',
+                    response_json = jsonb_build_object(
+                        'transaction_id', $3)
+              WHERE company_id = $1 AND key = $2",
+            &[&company_uuid, &idempotency_key, &transaction.id],
         )
         .await?;
 
         tx.commit().await?;
         Ok(())
     }
+
+    pub async fn ensure_recurring_job(
+        &self,
+        company_id: &str,
+        job_type: &str,
+        interval_seconds: i64,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if interval_seconds < 15 {
+            return Err("scheduler interval must be >= 15 seconds".into());
+        }
+        let id = Uuid::parse_str(company_id)?;
+        let job_id = Uuid::new_v4();
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "INSERT INTO scheduled_jobs
+                 (id, company_id, job_type, interval_seconds,
+                  next_run_at, status)
+                 VALUES ($1, $2, $3, $4, now(), 'ACTIVE')
+                 ON CONFLICT (company_id, job_type) DO NOTHING",
+                &[
+                    &job_id,
+                    &id,
+                    &job_type,
+                    &interval_seconds,
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn claim_due_job(
+        &self,
+        company_id: &str,
+        job_type: &str,
+    ) -> Result<Option<(Uuid, Uuid)>, Box<dyn std::error::Error + Send + Sync>> {
+        let id = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let row = tx
+            .query_opt(
+                "SELECT id, run_token
+                   FROM scheduled_jobs
+                  WHERE company_id = $1
+                    AND job_type = $2
+                    AND status = 'ACTIVE'
+                    AND next_run_at <= now()
+                    AND (locked_until IS NULL OR locked_until <= now())
+                  FOR UPDATE SKIP LOCKED",
+                &[&id, &job_type],
+            )
+            .await?;
+        let Some(row) = row else {
+            tx.rollback().await?;
+            return Ok(None);
+        };
+        let job_id: Uuid = row.get(0);
+        let run_token: Uuid = row.get(1);
+        tx.execute(
+            "UPDATE scheduled_jobs
+                SET locked_until = now() + interval '5 minutes',
+                    updated_at = now()
+              WHERE id = $1",
+            &[&job_id],
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(Some((job_id, run_token)))
+    }
+
+    pub async fn complete_job(
+        &self,
+        job_id: Uuid,
+        next_run_token: Uuid,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "UPDATE scheduled_jobs
+                    SET next_run_at = now() +
+                        make_interval(secs => interval_seconds),
+                        locked_until = NULL,
+                        run_token = $2,
+                        updated_at = now()
+                  WHERE id = $1",
+                &[&job_id, &next_run_token],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn release_job_after_failure(
+        &self,
+        job_id: Uuid,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "UPDATE scheduled_jobs
+                    SET next_run_at = now() + interval '30 seconds',
+                        locked_until = NULL,
+                        updated_at = now()
+                  WHERE id = $1",
+                &[&job_id],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn record_cycle_failure(
+        &self,
+        company_id: &str,
+        error: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let id = Uuid::parse_str(company_id)?;
+        let bounded = error.chars().take(4096).collect::<String>();
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "INSERT INTO company_cycle_health
+                 (company_id, last_failed_at, last_error,
+                  consecutive_failures, updated_at)
+                 VALUES ($1, now(), $2, 1, now())
+                 ON CONFLICT (company_id)
+                 DO UPDATE SET last_failed_at = now(), last_error = $2,
+                               consecutive_failures =
+                                 company_cycle_health.consecutive_failures + 1,
+                               updated_at = now()",
+                &[&id, &bounded],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn recent_journal(
+        &self,
+        company_id: &str,
+        limit: i64,
+    ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=200).contains(&limit) {
+            return Err("journal limit must be between 1 and 200".into());
+        }
+        let id = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT jsonb_build_object(
+                    'id', id,
+                    'idempotency_key', idempotency_key,
+                    'agent_name', agent_name,
+                    'action', action,
+                    'governor_decision', governor_decision,
+                    'reason', reason,
+                    'execution', execution,
+                    'executed', executed,
+                    'created_at', created_at)
+                 FROM decision_journal
+                 WHERE company_id = $1
+                 ORDER BY id DESC
+                 LIMIT $2",
+                &[&id, &limit],
+            )
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| row.get::<_, serde_json::Value>(0))
+            .collect())
+    }
+}
+
+fn execution_policy() -> ExecutionPolicy {
+    let max_spend = std::env::var("MAX_EXECUTION_SPEND_MINOR")
+        .ok()
+        .and_then(|value| value.parse::<i128>().ok())
+        .filter(|value| *value >= 0)
+        .unwrap_or(1_000);
+    ExecutionPolicy {
+        max_spend_per_cycle_minor: max_spend,
+    }
+}
+
+fn cycle_digest(
+    snapshot: &CompanySnapshot,
+    results: &[AgentRunResult],
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let mut digest = Sha256::new();
+    digest.update(serde_json::to_vec(snapshot)?);
+    digest.update([0]);
+    digest.update(serde_json::to_vec(results)?);
+    Ok(format!("{:x}", digest.finalize()))
+}
+
+async fn update_company_status(
+    tx: &Transaction<'_>,
+    company_id: Uuid,
+    snapshot: &CompanySnapshot,
+) -> Result<(), tokio_postgres::Error> {
+    let status = match snapshot.status {
+        economic_core::CompanyStatus::Active => "ACTIVE",
+        economic_core::CompanyStatus::Growth => "GROWTH",
+        economic_core::CompanyStatus::Warning => "WARNING",
+        economic_core::CompanyStatus::CostControl => "COST_CONTROL",
+        economic_core::CompanyStatus::Distress => "DISTRESS",
+        economic_core::CompanyStatus::Emergency => "EMERGENCY",
+        economic_core::CompanyStatus::Liquidation => "LIQUIDATION",
+        economic_core::CompanyStatus::Bankrupt => "BANKRUPT",
+    };
+    tx.execute(
+        "UPDATE companies SET status = $2 WHERE id = $1",
+        &[&company_id, &status],
+    )
+    .await?;
+    Ok(())
 }
 
 #[cfg(test)]
