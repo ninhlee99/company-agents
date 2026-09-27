@@ -264,6 +264,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let store = Arc::new(CompanyStore::connect(&database_url).await?);
     store.migrate().await?;
+    let recovered = store.recover_stale_cycles(900).await?;
+    if recovered > 0 { eprintln!("recovered {recovered} stale control-plane records"); }
     store.ensure_company(&company_id, &company_name, &currency).await?;
 
     let company = match store.load_snapshot(&company_id).await? {
