@@ -6,57 +6,90 @@ The initial business model is an AI-native media and creator company. The deeper
 
 ## Primary implementation
 
-The production Company OS core is being built in **Rust**.
+The core Company OS is Rust.
 
-There is **no React and no Vue**. The operator dashboard is server-rendered HTML from the Rust service; no SPA or frontend build pipeline is required.
+There is no React and no Vue. The operator dashboard is server-rendered HTML from Rust with no SPA/frontend build pipeline.
 
-Python remains available for analytics/forecasting/ML where justified. FFmpeg remains isolated for media processing. Rust is the default for the core runtime and performance-sensitive workers.
+The architecture is workload-based:
+- Rust: Company OS, Agent Runtime, governance, economic core, scheduler and control plane.
+- Python: analytics, forecasting and ML where justified.
+- FFmpeg: media transformation.
+- Go: optional small infrastructure utilities where its simplicity is a better fit.
+- PostgreSQL: durable source of truth.
 
-## Core thesis
+## Implemented agents
 
-> Build a company that optimizes for sustainable free cash flow, not agent activity or vanity metrics.
+Operating agents:
+- Governor — policy and authorization engine
+- CEO — strategy and capital allocation proposals
+- CFO — solvency, cash and unit economics
+- COO — operations and capacity
+- Growth — profitable demand
+- Content — content economics and experiments
+- Recruiter — capacity and hiring economics
+- Analyst — verified decision support
+- Experiment — bounded opportunity discovery
 
-## First vertical
+Agents are proposal-driven. LLMs can reason, but deterministic Rust governance and economics control authorization and critical state.
 
-AI-native media / creator factory:
+## Run with Docker
 
-Research → ideation → production → distribution → measurement → monetization → reinvestment.
+You only need Git and Docker.
 
-## Current build order
+Clone:
 
-Economic kernel → simulator → Rust agent runtime → governance → executive agents → media factory → monetization → controlled autonomy.
+    git clone https://github.com/ninhlee99/company-agents.git
+    cd company-agents
 
-## Non-negotiable economic rules
+Create local configuration:
 
-1. Agents cannot create money.
-2. Financial state is controlled by an immutable double-entry ledger.
-3. Agents cannot modify their own permissions.
-4. Every material action is auditable.
-5. Capital allocation requires explicit authorization.
-6. Views and followers are not substitutes for profit.
-7. Failed businesses can be shut down.
-8. If the company cannot satisfy mandatory obligations and no recovery plan exists, it enters liquidation/bankruptcy.
+    cp .env.example .env
 
-## Local development
+Start everything:
+
+    docker compose up --build
+
+Open:
+
+    http://localhost:8080
+
+The default configuration uses the built-in Mock Model, so the dashboard and all agent cycles run without an LLM API key.
+
+To use an OpenAI-compatible LLM, set these values in .env:
+
+    LLM_API_KEY=...
+    LLM_BASE_URL=https://your-provider.example/v1
+    LLM_MODEL=...
+
+Then restart:
+
+    docker compose up --build
+
+## Run natively
 
 Requirements:
-- Rust toolchain
-- Docker
-
-Start infrastructure:
-
-    docker compose up -d
+- Rust stable
+- Docker for PostgreSQL/Redis when those services are enabled
 
 Start the Company OS:
 
     cargo run -p company-os
 
-Then open:
-
-    http://localhost:8080
-
-Run the Rust test suite:
+Run the complete Rust test suite:
 
     cargo test --workspace
 
-The dashboard is intentionally minimal while the economic kernel and full agent runtime are being wired in.
+Quality checks:
+
+    cargo fmt --all -- --check
+    cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+## Runtime API
+
+- GET / — operator dashboard
+- GET /healthz — health check
+- GET /api/agents — latest agent proposals and Governor decisions
+- POST /api/run — run one complete decision cycle
+- POST /run — run one cycle and return to dashboard
+
+The current runtime uses a deterministic demo company snapshot. PostgreSQL schema and economic migrations are present, while durable persistence and external platform integrations are wired in later milestones.
