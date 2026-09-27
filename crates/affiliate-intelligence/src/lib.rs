@@ -694,6 +694,8 @@ pub struct AwinProvider {
     publisher_id: String,
     access_token: String,
     commission_map: HashMap<String, u32>,
+    auto_fetch_commissions: bool,
+    max_commission_advertisers: usize,
     cache_ttl: Duration,
     products_cache: RwLock<Option<Cache<Vec<Product>>>>,
     coupons_cache: RwLock<Option<Cache<Vec<Coupon>>>>,
@@ -708,6 +710,15 @@ impl AwinProvider {
             .map_err(|_| AffiliateError::Provider("AWIN_PUBLISHER_ID is required".into()))?;
         let access_token = std::env::var("AWIN_ACCESS_TOKEN")
             .map_err(|_| AffiliateError::Provider("AWIN_ACCESS_TOKEN is required".into()))?;
+        let auto_fetch_commissions = std::env::var("AWIN_AUTO_FETCH_COMMISSIONS")
+            .ok()
+            .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+            .unwrap_or(true);
+        let max_commission_advertisers = std::env::var("AWIN_MAX_COMMISSION_ADVERTISERS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .map(|v| v.clamp(1, 100))
+            .unwrap_or(25);
         let cache_ttl = std::env::var("AFFILIATE_CACHE_TTL_SECONDS")
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
@@ -729,6 +740,8 @@ impl AwinProvider {
             publisher_id,
             access_token,
             commission_map: parse_commission_map(&std::env::var("AWIN_COMMISSION_MAP").unwrap_or_default()),
+            auto_fetch_commissions,
+            max_commission_advertisers,
             cache_ttl,
             products_cache: RwLock::new(None),
             coupons_cache: RwLock::new(None),
@@ -776,7 +789,77 @@ impl AwinProvider {
             body = decompressed;
         }
         let delimiter = detect_delimiter(&body);
-        parse_awin_feed(&body, delimiter, self.minor_units, &self.commission_map)
+        let mut products = parse_awin_feed(&body, delimiter, self.minor_units, &self.commission_map)?;
+        if self.auto_fetch_commissions {
+            self.enrich_commission_rates(&mut products).await?;
+        }
+        Ok(products)
+    }
+
+    async fn enrich_commission_rates(&self, products: &mut [Product]) -> Result<(), AffiliateError> {
+        let mut advertisers = Vec::new();
+        for product in products.iter() {
+            if product.commission_rate_bps.is_none() && !advertisers.iter().any(|v: &String| v == &product.advertiser_id) {
+                advertisers.push(product.advertiser_id.clone());
+                if advertisers.len() >= self.max_commission_advertisers {
+                    break;
+                }
+            }
+        }
+
+        for advertiser_id in advertisers {
+            let url = format!(
+                "https://api.awin.com/publishers/{}/commissiongroups",
+                self.publisher_id
+            );
+            let mut response = None;
+            for attempt in 0..3_u32 {
+                let candidate = self
+                    .client
+                    .get(&url)
+                    .query(&[
+                        ("accessToken", self.access_token.as_str()),
+                        ("advertiserId", advertiser_id.as_str()),
+                    ])
+                    .bearer_auth(&self.access_token)
+                    .send()
+                    .await
+                    .map_err(|e| AffiliateError::Provider(e.to_string()))?;
+                if (candidate.status().as_u16() == 429 || candidate.status().is_server_error()) && attempt < 2 {
+                    tokio::time::sleep(Duration::from_millis(250 * (1_u64 << attempt))).await;
+                    continue;
+                }
+                response = Some(candidate);
+                break;
+            }
+            let response = response.ok_or_else(|| AffiliateError::Provider("Awin commission-group retry loop exhausted".into()))?;
+            if !response.status().is_success() {
+                return Err(AffiliateError::Provider(format!("Awin commission groups HTTP {}", response.status())));
+            }
+
+            let value = response
+                .json::<serde_json::Value>()
+                .await
+                .map_err(|e| AffiliateError::Parse(e.to_string()))?;
+            let groups = parse_awin_commission_groups(&value)?;
+            for product in products.iter_mut().filter(|p| p.advertiser_id == advertiser_id) {
+                if product.commission_rate_bps.is_some() {
+                    continue;
+                }
+                let rate = match product.commission_group.as_deref() {
+                    Some(group_code) => groups.iter().find(|g| g.code.eq_ignore_ascii_case(group_code)),
+                    None => groups.iter().find(|g| g.is_default).or_else(|| {
+                        if groups.len() == 1 { groups.first() } else { None }
+                    }),
+                };
+                if let Some(group) = rate {
+                    if let Some(bps) = group.percentage_bps {
+                        product.commission_rate_bps = Some(bps);
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     async fn refresh_coupons(&self) -> Result<Vec<Coupon>, AffiliateError> {
@@ -1082,6 +1165,44 @@ struct AwinOffer {
 #[derive(Debug, Deserialize)]
 struct AwinAdvertiser {
     id: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+struct ParsedCommissionGroup {
+    code: String,
+    is_default: bool,
+    percentage_bps: Option<u32>,
+}
+
+fn parse_awin_commission_groups(value: &serde_json::Value) -> Result<Vec<ParsedCommissionGroup>, AffiliateError> {
+    let groups_value = match value {
+        serde_json::Value::Array(items) => serde_json::Value::Array(items.clone()),
+        serde_json::Value::Object(map) => map.get("commissionGroups")
+            .cloned()
+            .or_else(|| map.get("data").and_then(|d| d.get("commissionGroups")).cloned())
+            .ok_or_else(|| AffiliateError::Parse("Awin commission-group response missing commissionGroups".into()))?,
+        _ => return Err(AffiliateError::Parse("Awin commission-group response must be an array/object".into())),
+    };
+    let items = groups_value.as_array().ok_or_else(|| AffiliateError::Parse("Awin commissionGroups must be an array".into()))?;
+    let mut out = Vec::new();
+    for item in items {
+        let code = item.get("groupCode").and_then(|v| v.as_str()).unwrap_or_default().trim().to_owned();
+        if code.is_empty() { continue; }
+        let name = item.get("groupName").and_then(|v| v.as_str()).unwrap_or_default();
+        let kind = item.get("type").and_then(|v| v.as_str()).unwrap_or_default();
+        let percentage_bps = if kind.eq_ignore_ascii_case("percentage") {
+            item.get("percentage")
+                .and_then(|v| v.as_f64())
+                .filter(|v| v.is_finite() && *v >= 0.0)
+                .map(|v| (v * 100.0).round().min(SCORE_MAX as f64) as u32)
+        } else {
+            None
+        };
+        let is_default = code.eq_ignore_ascii_case("default")
+            || name.to_ascii_lowercase().contains("default");
+        out.push(ParsedCommissionGroup { code, is_default, percentage_bps });
+    }
+    Ok(out)
 }
 
 #[derive(Debug, Deserialize)]
