@@ -355,3 +355,39 @@ fn proposal_capability_matrix_rejects_cross_role_actions() {
     proposal.action = ActionKind::ProposeHire;
     assert!(proposal.validate().is_ok());
 }
+
+#[test]
+fn proposal_cost_cap_is_hard() {
+    let proposal = Proposal {
+        agent: AgentRole::Experiment,
+        objective: "test".into(),
+        action: ActionKind::CreateExperiment,
+        cost_minor: 501,
+        expected_revenue_minor: 2_000,
+        risk: RiskTier::Medium,
+        confidence_bps: 8_000,
+        evidence: vec!["test".into()],
+        rationale: "overspend".into(),
+        reversible: true,
+        requested_permission: Permission::Propose,
+    };
+    assert!(proposal.validate().is_err());
+}
+
+#[test]
+fn proposal_risk_floor_is_hard() {
+    let proposal = Proposal {
+        agent: AgentRole::Recruiter,
+        objective: "hire".into(),
+        action: ActionKind::ProposeHire,
+        cost_minor: 500,
+        expected_revenue_minor: 1_500,
+        risk: RiskTier::Low,
+        confidence_bps: 8_000,
+        evidence: vec!["need".into()],
+        rationale: "understated risk".into(),
+        reversible: false,
+        requested_permission: Permission::Propose,
+    };
+    assert!(proposal.validate().is_err());
+}
