@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+bash scripts/check_migrations.sh
+
 while IFS= read -r file; do
   if grep -nE '^DO \$$' "$file" >/dev/null 2>&1; then
     echo "MIGRATION LINT FAILED: malformed DO dollar quote in $file" >&2
