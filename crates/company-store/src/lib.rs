@@ -1472,9 +1472,10 @@ impl CompanyStore {
             "INSERT INTO affiliate_conversions
              (company_id, conversion_id, click_id, order_id, product_id,
               advertiser_id, occurred_at, order_value_minor, commission_minor,
-              refunded_minor, cancelled, source, idempotency_key)
+              refunded_minor, cancelled, source, idempotency_key,
+             reconciliation_status, reconciliation_variance_minor)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8::numeric,$9::numeric,$10::numeric,
-                     $11,$12,$13)",
+                     $11,$12,$13,$14,$15::numeric)",
             &[
                 &company_id,
                 &event.conversion_id,
