@@ -384,7 +384,7 @@ mod tests {
 
         c.cancelled = true;
         let result =
-            attribute_conversion(&c, &[click("c1", "a", "t")], AttributionModel::LastClick)
+            attribute_conversion(&c, &[click("c1", "a", "2026-09-27T09:00:00Z")], AttributionModel::LastClick)
                 .unwrap();
         assert_eq!(result.net_commission_minor, 0);
     }
@@ -394,7 +394,7 @@ mod tests {
         let mut c = conversion("4");
         c.click_id = Some("c1".into());
         let result =
-            attribute_conversion(&c, &[click("c1", "a", "t")], AttributionModel::LastClick)
+            attribute_conversion(&c, &[click("c1", "a", "2026-09-27T09:00:00Z")], AttributionModel::LastClick)
                 .unwrap();
         assert_eq!(result.attributed[0].confidence_bps, 10_000);
     }
