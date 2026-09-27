@@ -8,5 +8,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --workspace
-      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - run: bash scripts/verify.sh
