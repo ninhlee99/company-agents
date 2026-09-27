@@ -83,9 +83,9 @@ small{{color:#666}}
 <h1>Company OS</h1>
 <small>Rust control plane • 8 operating agents + Governor policy engine</small>
 <div class="grid">
-<div class="card"><strong>Cash</strong><div>${:.2}</div></div>
-<div class="card"><strong>Revenue</strong><div>${:.2}</div></div>
-<div class="card"><strong>Expenses</strong><div>${:.2}</div></div>
+<div class="card"><strong>Cash</strong><div>${}</div></div>
+<div class="card"><strong>Revenue</strong><div>${}</div></div>
+<div class="card"><strong>Expenses</strong><div>${}</div></div>
 <div class="card"><strong>Runway</strong><div>{}</div></div>
 </div>
 <div class="card"><h2>Run agents</h2>
