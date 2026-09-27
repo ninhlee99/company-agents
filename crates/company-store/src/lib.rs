@@ -704,6 +704,36 @@ impl CompanyStore {
         Ok(transaction_id)
     }
 
+    pub async fn append_audit_log(
+        &self,
+        company_id: &str,
+        actor_type: &str,
+        actor_id: &str,
+        action: &str,
+        resource_type: &str,
+        resource_id: Option<&str>,
+        decision: Option<&str>,
+        metadata: &Value,
+    ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+        if actor_type.trim().is_empty() || actor_id.trim().is_empty() || action.trim().is_empty()
+            || resource_type.trim().is_empty()
+        {
+            return Err("audit actor/action/resource fields are required".into());
+        }
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client.query_one(
+            "INSERT INTO audit_log
+             (company_id,actor_type,actor_id,action,resource_type,resource_id,decision,metadata)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+             RETURNING id",
+            &[
+                &company_uuid,&actor_type,&actor_id,&action,&resource_type,&resource_id,&decision,metadata
+            ],
+        ).await?;
+        Ok(row.get(0))
+    }
+
     pub async fn record_affiliate_click(
         &self,
         company_id: &str,
