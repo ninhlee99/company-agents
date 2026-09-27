@@ -943,9 +943,7 @@ impl AwinProvider {
             .iter()
             .position(|h| h == "url" || h == "feed url")
             .ok_or_else(|| AffiliateError::Parse("Awin feed list missing URL column".into()))?;
-        let feed_id_index = headers
-            .iter()
-            .position(|h| h == "feed id" || h == "id");
+        let feed_id_index = headers.iter().position(|h| h == "feed id" || h == "id");
         let membership_index = headers
             .iter()
             .position(|h| h == "membership status" || h == "status");
@@ -968,15 +966,16 @@ impl AwinProvider {
             let joined = membership_index
                 .and_then(|index| row.get(index))
                 .is_some_and(|status| {
-                    status.eq_ignore_ascii_case("joined")
-                        || status.eq_ignore_ascii_case("active")
+                    status.eq_ignore_ascii_case("joined") || status.eq_ignore_ascii_case("active")
                 });
             if joined {
                 return Ok(candidate.to_owned());
             }
             fallback.get_or_insert_with(|| candidate.to_owned());
         }
-        fallback.ok_or_else(|| AffiliateError::Provider("Awin feed list contains no usable feed".into()))
+        fallback.ok_or_else(|| {
+            AffiliateError::Provider("Awin feed list contains no usable feed".into())
+        })
     }
 
     async fn enrich_commission_rates(
@@ -1537,7 +1536,9 @@ fn parse_awin_commission_groups(
         };
         let is_default =
             code.eq_ignore_ascii_case("default") || name.to_ascii_lowercase().contains("default");
-        let fixed_amount = if kind.eq_ignore_ascii_case("fix") || kind.eq_ignore_ascii_case("fixed") {
+        let fixed_amount = if kind.eq_ignore_ascii_case("fix")
+            || kind.eq_ignore_ascii_case("fixed")
+        {
             item.get("amount")
                 .and_then(|v| v.as_f64())
                 .filter(|v| v.is_finite() && *v >= 0.0)
