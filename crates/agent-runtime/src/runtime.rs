@@ -118,6 +118,14 @@ impl AgentRuntime {
         memory: &HashMap<AgentRole, Vec<AgentMemory>>,
         state: Option<Arc<dyn AgentStateProvider>>,
     ) -> Vec<AgentRunResult> {
+        if let Err(reason) = company.validate() {
+            return roles
+                .into_iter()
+                .filter(|role| *role != AgentRole::Governor)
+                .map(|role| fail_closed(role, &company, &self.governor, &reason))
+                .collect();
+        }
+
         let governor = &self.governor;
         let model = self.model.clone();
         let concurrency = self.concurrency.clone();
