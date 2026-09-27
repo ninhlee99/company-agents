@@ -249,3 +249,114 @@ async fn invalid_company_id_is_rejected() {
         .await
         .is_err());
 }
+
+
+#[tokio::test]
+async fn scheduler_lease_recovery_reuses_same_run_token() {
+    let Some(store) = connect_store().await else {
+        return;
+    };
+
+    let company_id = uuid::Uuid::new_v4().to_string();
+    store
+        .ensure_company(&company_id, "Scheduler Recovery", "USD")
+        .await
+        .unwrap();
+    store
+        .ensure_recurring_job(&company_id, "agent_cycle", 15)
+        .await
+        .unwrap();
+
+    let first = store
+        .claim_due_job(&company_id, "agent_cycle")
+        .await
+        .unwrap()
+        .expect("job should be claimable");
+    store.release_job_after_failure(first.0).await.unwrap();
+
+    let second = store
+        .claim_due_job(&company_id, "agent_cycle")
+        .await
+        .unwrap()
+        .expect("released job should be recoverable");
+
+    assert_eq!(first.0, second.0);
+    assert_eq!(first.1, second.1);
+    store
+        .complete_job(second.0, uuid::Uuid::new_v4())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn durable_agent_memory_round_trips_and_is_bounded() {
+    let Some(store) = connect_store().await else {
+        return;
+    };
+
+    let company_id = uuid::Uuid::new_v4().to_string();
+    store
+        .ensure_company(&company_id, "Memory Test", "USD")
+        .await
+        .unwrap();
+
+    store
+        .upsert_agent_memory(
+            &company_id,
+            AgentRole::Analyst,
+            "unit_economics",
+            &serde_json::json!({"signal":"positive","value":123}),
+            9_500,
+            80,
+        )
+        .await
+        .unwrap();
+
+    let memory = store
+        .load_agent_memory(&company_id, AgentRole::Analyst, 20)
+        .await
+        .unwrap();
+    assert_eq!(memory.len(), 1);
+    assert_eq!(memory[0].key, "unit_economics");
+    assert_eq!(memory[0].confidence_bps, 9_500);
+    assert_eq!(memory[0].importance, 80);
+
+    let oversized = serde_json::json!({"payload":"x".repeat(20_000)});
+    assert!(store
+        .upsert_agent_memory(
+            &company_id,
+            AgentRole::Analyst,
+            "too_large",
+            &oversized,
+            5_000,
+            10,
+        )
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn durable_agent_rate_limit_allows_once_then_blocks_until_window() {
+    let Some(store) = connect_store().await else {
+        return;
+    };
+
+    let company_id = uuid::Uuid::new_v4().to_string();
+    store
+        .ensure_company(&company_id, "Rate Limit Test", "USD")
+        .await
+        .unwrap();
+
+    let roles = [AgentRole::Analyst];
+    let first = store
+        .claim_agent_run_slots(&company_id, &roles, 300, 1)
+        .await
+        .unwrap();
+    let second = store
+        .claim_agent_run_slots(&company_id, &roles, 300, 1)
+        .await
+        .unwrap();
+
+    assert_eq!(first, roles);
+    assert!(second.is_empty());
+}
