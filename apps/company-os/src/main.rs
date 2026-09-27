@@ -177,11 +177,14 @@ async fn run_cycle(
     *state.company.write().await = persisted.snapshot.clone();
     *state.latest.write().await = persisted.results.clone();
     *state.latest_cycle.write().await = Some(persisted.clone());
-    state.metrics.cycles_succeeded_total.fetch_add(1, Ordering::Relaxed);
     state
         .metrics
-        .last_cycle_latency_ms
-        .store(started.elapsed().as_millis().min(u64::MAX as u128) as u64, Ordering::Relaxed);
+        .cycles_succeeded_total
+        .fetch_add(1, Ordering::Relaxed);
+    state.metrics.last_cycle_latency_ms.store(
+        started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+        Ordering::Relaxed,
+    );
 
     Ok(CycleResponse {
         snapshot: persisted.snapshot,
@@ -447,10 +450,19 @@ async fn healthz() -> &'static str {
     "ok"
 }
 
-async fn metrics(State(state): State<AppState>) -> (StatusCode, [(axum::http::HeaderName, &'static str); 1], String) {
+async fn metrics(
+    State(state): State<AppState>,
+) -> (
+    StatusCode,
+    [(axum::http::HeaderName, &'static str); 1],
+    String,
+) {
     (
         StatusCode::OK,
-        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4",
+        )],
         state.metrics.render_prometheus(),
     )
 }
@@ -488,8 +500,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing_subscriber::fmt()
         .json()
         .with_env_filter(
-            std::env::var("RUST_LOG")
-                .unwrap_or_else(|_| "info,company_os=info".into()),
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "info,company_os=info".into()),
         )
         .try_init()
         .ok();
