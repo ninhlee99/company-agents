@@ -841,7 +841,7 @@ impl AwinProvider {
         for attempt in 0..3_u32 {
             let candidate = self
                 .client
-.get(&feed_url)
+                .get(&feed_url)
                 .send()
                 .await
                 .map_err(|e| AffiliateError::Provider(e.to_string()))?;
@@ -985,7 +985,10 @@ impl AwinProvider {
                         );
                         let scale = 10_i128.pow(units);
                         let fixed_minor = (amount * scale as f64).round();
-                        if fixed_minor.is_finite() && fixed_minor >= 0.0 && fixed_minor <= i128::MAX as f64 {
+                        if fixed_minor.is_finite()
+                            && fixed_minor >= 0.0
+                            && fixed_minor <= i128::MAX as f64
+                        {
                             product.commission_fixed_minor = Some(fixed_minor as i128);
                             product.commission_currency = group.currency.clone();
                         }
