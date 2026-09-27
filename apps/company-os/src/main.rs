@@ -425,10 +425,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             eprintln!("agent cycle error: {error}");
                             let _ = background
                                 .store
-                                .record_cycle_failure(
-                                    &background.company_id,
-                                    &error.to_string(),
-                                )
+                                .record_cycle_failure(&background.company_id, &error.to_string())
                                 .await;
                             if let Err(release_error) =
                                 background.store.release_job_after_failure(job_id).await
