@@ -905,6 +905,80 @@ impl AwinProvider {
         Ok(products)
     }
 
+    async fn discover_feed_url(&self) -> Result<String, AffiliateError> {
+        let api_key = self
+            .product_feed_api_key
+            .as_deref()
+            .ok_or_else(|| AffiliateError::Provider("Awin feed API key is missing".into()))?;
+        let url = format!("https://productdata.awin.com/datafeed/list/apikey/{api_key}");
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| AffiliateError::Provider(e.to_string()))?;
+        if !response.status().is_success() {
+            return Err(AffiliateError::Provider(format!(
+                "Awin feed list HTTP {}",
+                response.status()
+            )));
+        }
+        let body = response
+            .bytes()
+            .await
+            .map_err(|e| AffiliateError::Provider(e.to_string()))?;
+        if body.len() > 8 * 1024 * 1024 {
+            return Err(AffiliateError::PayloadTooLarge);
+        }
+        let mut reader = csv::ReaderBuilder::new()
+            .trim(csv::Trim::All)
+            .from_reader(body.as_ref());
+        let headers = reader
+            .headers()
+            .map_err(|e| AffiliateError::Parse(e.to_string()))?
+            .iter()
+            .map(|h| h.to_ascii_lowercase())
+            .collect::<Vec<_>>();
+        let url_index = headers
+            .iter()
+            .position(|h| h == "url" || h == "feed url")
+            .ok_or_else(|| AffiliateError::Parse("Awin feed list missing URL column".into()))?;
+        let feed_id_index = headers
+            .iter()
+            .position(|h| h == "feed id" || h == "id");
+        let membership_index = headers
+            .iter()
+            .position(|h| h == "membership status" || h == "status");
+
+        let mut fallback = None;
+        for row in reader.records() {
+            let row = row.map_err(|e| AffiliateError::Parse(e.to_string()))?;
+            let candidate = row.get(url_index).unwrap_or_default().trim();
+            if candidate.is_empty() {
+                continue;
+            }
+            if let Some(required_id) = self.feed_id.as_deref() {
+                if feed_id_index
+                    .and_then(|index| row.get(index))
+                    .is_some_and(|id| id.trim() == required_id)
+                {
+                    return Ok(candidate.to_owned());
+                }
+            }
+            let joined = membership_index
+                .and_then(|index| row.get(index))
+                .is_some_and(|status| {
+                    status.eq_ignore_ascii_case("joined")
+                        || status.eq_ignore_ascii_case("active")
+                });
+            if joined {
+                return Ok(candidate.to_owned());
+            }
+            fallback.get_or_insert_with(|| candidate.to_owned());
+        }
+        fallback.ok_or_else(|| AffiliateError::Provider("Awin feed list contains no usable feed".into()))
+    }
+
     async fn enrich_commission_rates(
         &self,
         products: &mut [Product],
@@ -1234,6 +1308,8 @@ fn parse_awin_feed(
 
         products.push(Product {
             id,
+            commission_fixed_minor: None,
+            commission_currency: None,
             gtin: first_nonempty(&[
                 get("product_GTIN"),
                 get("product_gtin"),
@@ -1461,10 +1537,25 @@ fn parse_awin_commission_groups(
         };
         let is_default =
             code.eq_ignore_ascii_case("default") || name.to_ascii_lowercase().contains("default");
+        let fixed_amount = if kind.eq_ignore_ascii_case("fix")
+            || kind.eq_ignore_ascii_case("fixed")
+        {
+            item.get("amount")
+                .and_then(|v| v.as_f64())
+                .filter(|v| v.is_finite() && *v >= 0.0)
+        } else {
+            None
+        };
+        let currency = item
+            .get("currency")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned);
         out.push(ParsedCommissionGroup {
             code,
             is_default,
             percentage_bps,
+            fixed_amount,
+            currency,
         });
     }
     Ok(out)
