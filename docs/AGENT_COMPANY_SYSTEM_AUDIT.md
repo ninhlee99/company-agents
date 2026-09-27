@@ -1,7 +1,7 @@
 # Agent Company System Audit
 
 ## Executive assessment
-The repository now has a Rust-based Agent Runtime and deterministic economic/governance boundaries. It is suitable as a controlled development/simulation platform, but it is not yet production-autonomous.
+The repository now has a Rust-based Company OS with deterministic economic/governance boundaries, a durable control plane, a governed execution engine, and an affiliate intelligence subsystem. It is substantially beyond a proposal-only harness, but it remains controlled-runtime software rather than unrestricted production autonomy.
 
 ## Critical findings fixed in this pass
 1. Per-Agent action capability matrix.
@@ -58,23 +58,21 @@ There are currently 40 test functions across the Rust economic core, Agent Runti
 ## Remaining production gates
 
 ### P0
-- PostgreSQL-backed durable state and transaction executor
-- atomic ledger + outbox transaction
-- durable idempotency
-- persistent Agent decision journal
-- real tool executor with capability enforcement at the execution boundary
-- secrets isolation
-- audit ingestion
-- restart/replay recovery
+- production secret-manager integration
+- audit-event ingestion/retention and operator alerting
+- durable outbox worker with retry/lease semantics
+- distributed scheduler/lease semantics
+- per-Agent durable budget/rate-limit accounting
+- automated recovery/replay verification
 
 ### P1
-- deterministic business simulator with revenue, costs, payroll and bankruptcy
-- external adapter contract tests
-- content/media QA pipeline
-- affiliate/sponsorship revenue attribution
-- rate-limit/backoff and provider outage handling
-- load tests against PostgreSQL
-- backup/restore drill
+- richer creator/business-unit simulator with payroll and contract liabilities
+- affiliate click/conversion/order attribution
+- verified payout/revenue ingestion
+- sponsorship CRM and service/invoicing flows
+- media production + QA + publishing pipeline
+- provider contract-test fixtures and real API sandbox tests
+- PostgreSQL load test and backup/restore drill
 
 ### P2
 - model benchmark matrix by Agent
