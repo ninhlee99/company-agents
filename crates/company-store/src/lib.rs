@@ -553,7 +553,7 @@ impl CompanyStore {
             company_organization::EmployeeStatus::Terminated => "TERMINATED",
         };
         let client = self.client.lock().await;
-        client
+        let changed = client
             .execute(
                 "INSERT INTO employees
                  (id, company_id, name, role, monthly_cost_minor, currency, status)
@@ -564,7 +564,8 @@ impl CompanyStore {
                      monthly_cost_minor = EXCLUDED.monthly_cost_minor,
                      currency = EXCLUDED.currency,
                      status = EXCLUDED.status,
-                     updated_at = now()",
+                     updated_at = now()
+                 WHERE employees.company_id = EXCLUDED.company_id",
                 &[
                     &employee_uuid,
                     &company_uuid,
@@ -576,6 +577,9 @@ impl CompanyStore {
                 ],
             )
             .await?;
+        if changed == 0 {
+            return Err("employee id already belongs to another company".into());
+        }
         Ok(())
     }
 
@@ -983,7 +987,7 @@ impl CompanyStore {
             company_organization::BusinessUnitLifecycle::Closed => "CLOSED",
         };
         let client = self.client.lock().await;
-        client
+        let changed = client
             .execute(
                 "INSERT INTO business_units
                  (id, company_id, name, currency, cash_minor, revenue_minor,
@@ -999,7 +1003,8 @@ impl CompanyStore {
                      fixed_cost_minor=EXCLUDED.fixed_cost_minor,
                      budget_minor=EXCLUDED.budget_minor,
                      lifecycle=EXCLUDED.lifecycle,
-                     updated_at=now()",
+                     updated_at=now()
+                 WHERE business_units.company_id = EXCLUDED.company_id",
                 &[
                     &unit_uuid,
                     &company_uuid,
@@ -1014,6 +1019,9 @@ impl CompanyStore {
                 ],
             )
             .await?;
+        if changed == 0 {
+            return Err("business unit id already belongs to another company".into());
+        }
         Ok(())
     }
 
@@ -1246,6 +1254,9 @@ impl CompanyStore {
         }
         if importance > 100 {
             return Err("memory importance must be <= 100".into());
+        }
+        if agent == AgentRole::Governor {
+            return Err("Governor cannot persist operational agent memory".into());
         }
         let encoded = serde_json::to_vec(value)?;
         if encoded.len() > 16 * 1024 {
