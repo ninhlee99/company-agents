@@ -384,7 +384,7 @@ async fn affiliate_performance_api(
 ) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
     state
         .store
-        .content_affiliate_performance(&state.company_id, 50)
+        .content_affiliate_performance(&state.company_id, 100)
         .await
         .map(Json)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
