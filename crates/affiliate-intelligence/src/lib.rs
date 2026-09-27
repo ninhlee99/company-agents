@@ -1098,6 +1098,44 @@ fn nested_json_string(value: &serde_json::Value, path: &[&str]) -> Option<String
     current.as_str().map(ToOwned::to_owned)
 }
 
+pub struct CompositeAffiliateProvider {
+    providers: Vec<Arc<dyn AffiliateProvider>>,
+}
+
+impl CompositeAffiliateProvider {
+    pub fn new(providers: Vec<Arc<dyn AffiliateProvider>>) -> Result<Self, AffiliateError> {
+        if providers.is_empty() {
+            return Err(AffiliateError::Provider(
+                "composite affiliate provider requires at least one provider".into(),
+            ));
+        }
+        Ok(Self { providers })
+    }
+}
+
+#[async_trait]
+impl AffiliateProvider for CompositeAffiliateProvider {
+    fn name(&self) -> &'static str {
+        "composite"
+    }
+
+    async fn products(&self) -> Result<Vec<Product>, AffiliateError> {
+        let mut all = Vec::new();
+        for provider in &self.providers {
+            all.extend(provider.products().await?);
+        }
+        Ok(all)
+    }
+
+    async fn coupons(&self) -> Result<Vec<Coupon>, AffiliateError> {
+        let mut all = Vec::new();
+        for provider in &self.providers {
+            all.extend(provider.coupons().await?);
+        }
+        Ok(all)
+    }
+}
+
 #[async_trait]
 impl AffiliateProvider for MockProvider {
     fn name(&self) -> &'static str {
