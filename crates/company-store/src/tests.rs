@@ -91,3 +91,77 @@ async fn invalid_company_id_is_rejected() {
     let store = CompanyStore::connect(&database_url).await.unwrap();
     assert!(store.ensure_company("not-a-uuid", "bad", "USD").await.is_err());
 }
+
+
+#[tokio::test]
+async fn durable_cycle_is_idempotent_and_emits_outbox() {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(value) => value,
+        Err(_) => return,
+    };
+
+    let store = CompanyStore::connect(&database_url).await.unwrap();
+    store.migrate().await.unwrap();
+
+    let company_id = uuid::Uuid::new_v4().to_string();
+    store.ensure_company(&company_id, "Durability Test Company", "USD").await.unwrap();
+
+    let snapshot = CompanySnapshot {
+        company_id: company_id.clone(),
+        cash_minor: 10_000,
+        revenue_minor: 8_000,
+        expenses_minor: 2_000,
+        liabilities_minor: 0,
+        assets_minor: 10_000,
+        runway_days: 90,
+        status: CompanyStatus::Growth,
+        budget_remaining_minor: 1_000,
+        experiment_budget_minor: 200,
+        content_cost_minor: 20,
+        content_revenue_minor: 50,
+        backlog: 1,
+        capacity: 3,
+        conversion_bps: 250,
+        audience_growth_bps: 100,
+        hiring_need: 0,
+    };
+
+    let result = Proposal {
+        agent: AgentRole::Analyst,
+        objective: "journal".into(),
+        action: ActionKind::ProduceReport,
+        cost_minor: 0,
+        expected_revenue_minor: 0,
+        risk: RiskTier::Low,
+        confidence_bps: 9_000,
+        evidence: vec!["durability".into()],
+        rationale: "record decision".into(),
+        reversible: true,
+        requested_permission: Permission::Propose,
+    };
+    let run = AgentRunResult {
+        agent: AgentRole::Analyst,
+        proposal: result.clone(),
+        governance: Some(agent_runtime::GovernedProposal {
+            proposal: result,
+            decision: GovernorDecision::Approve,
+            reason: "test".into(),
+        }),
+    };
+    let mut runs = vec![run];
+    let mut working = snapshot.clone();
+    let outcomes = agent_runtime::ExecutionEngine::default().execute_batch(&mut working, &mut runs);
+    let cycle_id = uuid::Uuid::new_v4().to_string();
+
+    assert_eq!(
+        store.persist_decision_cycle(&working, &cycle_id, &runs, &outcomes).await.unwrap(),
+        super::PersistCycleResult::Committed
+    );
+    assert_eq!(
+        store.persist_decision_cycle(&working, &cycle_id, &runs, &outcomes).await.unwrap(),
+        super::PersistCycleResult::AlreadyProcessed
+    );
+
+    let pending = store.pending_outbox(10).await.unwrap();
+    assert!(pending.iter().any(|event| event.idempotency_key == format!("cycle:{cycle_id}")));
+}
