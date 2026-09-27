@@ -133,7 +133,12 @@ async fn approved_experiment_changes_persisted_company_state() {
     assert_eq!(persisted.snapshot.cash_minor, 9_900);
     assert_eq!(persisted.snapshot.experiment_budget_minor, 0);
     assert_eq!(
-        store.load_snapshot(&company_id).await.unwrap().unwrap().cash_minor,
+        store
+            .load_snapshot(&company_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .cash_minor,
         9_900
     );
 }
