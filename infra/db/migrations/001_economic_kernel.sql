@@ -129,12 +129,6 @@ BEGIN
       JOIN ledger_accounts a ON a.id = e.account_id
       JOIN ledger_transactions t ON t.id = e.transaction_id
      WHERE e.transaction_id = NEW.transaction_id
-  IF EXISTS (
-    SELECT 1
-      FROM ledger_entries e
-      JOIN ledger_accounts a ON a.id = e.account_id
-      JOIN ledger_transactions t ON t.id = e.transaction_id
-     WHERE e.transaction_id = NEW.transaction_id
        AND a.company_id <> t.company_id
   ) THEN
     RAISE EXCEPTION 'ledger entry/account company mismatch';
