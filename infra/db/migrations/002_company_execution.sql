@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS scheduled_jobs (
   interval_seconds bigint NOT NULL CHECK (interval_seconds >= 15),
   next_run_at timestamptz NOT NULL,
   locked_until timestamptz,
+  run_token uuid NOT NULL DEFAULT gen_random_uuid(),
   status text NOT NULL CHECK (status IN ('ACTIVE','PAUSED')),
   payload jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
