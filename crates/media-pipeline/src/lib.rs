@@ -112,11 +112,13 @@ impl FfmpegExecutor {
             .map_err(|_| {
                 MediaError::InvalidJob("MEDIA_WORKSPACE is required for FFmpeg execution".into())
             })?;
+        let probe_executable = std::env::var("FFPROBE_BIN").unwrap_or_else(|_| "ffprobe".into());
         let timeout_seconds = std::env::var("FFMPEG_TIMEOUT_SECONDS")
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(900);
         Self::new(executable, workspace, Duration::from_secs(timeout_seconds))
+            .map(|executor| executor.with_probe_executable(probe_executable))
     }
 
     fn safe_path(&self, relative: &str) -> Result<PathBuf, MediaError> {
