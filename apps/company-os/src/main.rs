@@ -148,17 +148,6 @@ async fn run_cycle_with_id(
     }
 }
 
-async fn store_cycle(
-    state: &AppState,
-    snapshot: &CompanySnapshot,
-    cycle_id: &str,
-    results: &[AgentRunResult],
-    outcomes: &[ExecutionOutcome],
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    state.store.persist_decision_cycle(snapshot, cycle_id, results, outcomes).await?;
-    Ok(())
-}
-
 async fn index(State(state): State<AppState>) -> Html<String> {
     let company = state.company.read().await.clone();
     let latest = state.latest.read().await;
