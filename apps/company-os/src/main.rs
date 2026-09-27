@@ -358,11 +358,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut ticker = tokio::time::interval(Duration::from_secs(15));
         loop {
             ticker.tick().await;
-            match background
+            let claimed = background
                 .store
                 .claim_due_job(&background.company_id, "agent_cycle")
-                .await
-            {
+                .await;
+
+            match claimed {
                 Ok(Some((job_id, run_token))) => {
                     match run_cycle(&background, &run_token.to_string()).await {
                         Ok(_) => {
@@ -378,7 +379,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             eprintln!("agent cycle error: {error}");
                             let _ = background
                                 .store
-                                .record_cycle_failure(&background.company_id, &error.to_string())
+                                .record_cycle_failure(
+                                    &background.company_id,
+                                    &error.to_string(),
+                                )
                                 .await;
                             if let Err(release_error) =
                                 background.store.release_job_after_failure(job_id).await
@@ -387,7 +391,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                     }
-                }        }
+                }
+                Ok(None) => {}
+                Err(error) => eprintln!("scheduler claim error: {error}"),
+            }
+        }
     });
 
     let app = Router::new()
