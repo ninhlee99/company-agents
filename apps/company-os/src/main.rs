@@ -285,9 +285,19 @@ async fn save_business_unit(
     Json(unit): Json<company_domain::BusinessUnit>,
 ) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
     let company_id = state.company.read().await.company_id.clone();
-    state.store.save_business_unit(&company_id, &unit).await
+    state
+        .store
+        .save_business_unit(&company_id, &unit)
+        .await
         .map(|_| StatusCode::CREATED)
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ValueError { error: e.to_string() })))
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ValueError {
+                    error: e.to_string(),
+                }),
+            )
+        })
 }
 
 async fn save_customer(
@@ -295,9 +305,19 @@ async fn save_customer(
     Json(customer): Json<company_domain::Customer>,
 ) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
     let company_id = state.company.read().await.company_id.clone();
-    state.store.save_customer(&company_id, &customer).await
+    state
+        .store
+        .save_customer(&company_id, &customer)
+        .await
         .map(|_| StatusCode::CREATED)
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ValueError { error: e.to_string() })))
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ValueError {
+                    error: e.to_string(),
+                }),
+            )
+        })
 }
 
 async fn save_product(
@@ -305,9 +325,19 @@ async fn save_product(
     Json(product): Json<company_domain::Product>,
 ) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
     let company_id = state.company.read().await.company_id.clone();
-    state.store.save_product(&company_id, &product).await
+    state
+        .store
+        .save_product(&company_id, &product)
+        .await
         .map(|_| StatusCode::CREATED)
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ValueError { error: e.to_string() })))
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ValueError {
+                    error: e.to_string(),
+                }),
+            )
+        })
 }
 
 async fn save_payroll(
@@ -315,9 +345,19 @@ async fn save_payroll(
     Json(payroll): Json<company_domain::PayrollRun>,
 ) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
     let company_id = state.company.read().await.company_id.clone();
-    state.store.save_payroll_run(&company_id, &payroll).await
+    state
+        .store
+        .save_payroll_run(&company_id, &payroll)
+        .await
         .map(|_| StatusCode::CREATED)
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ValueError { error: e.to_string() })))
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ValueError {
+                    error: e.to_string(),
+                }),
+            )
+        })
 }
 
 async fn save_creator(
