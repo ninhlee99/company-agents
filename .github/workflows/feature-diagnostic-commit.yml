@@ -1,0 +1,40 @@
+name: feature-diagnostic-commit
+on:
+  push:
+    branches:
+      - feature/company-os-completion
+permissions:
+  contents: write
+jobs:
+  diagnostic:
+    if: "!contains(github.event.head_commit.message, 'ci: diagnostic output')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Capture compiler output
+        shell: bash
+        run: |
+          set +e
+          {
+            echo '=== RUST ==='
+            rustc --version
+            cargo --version
+            echo '=== FMT ==='
+            cargo fmt --all -- --check
+            echo "FMT_EXIT=$?"
+            echo '=== CHECK ==='
+            cargo check --workspace --all-targets
+            echo "CHECK_EXIT=$?"
+            echo '=== TEST ==='
+            cargo test --workspace --no-fail-fast
+            echo "TEST_EXIT=$?"
+            echo '=== CLIPPY ==='
+            cargo clippy --workspace --all-targets --all-features -- -D warnings
+            echo "CLIPPY_EXIT=$?"
+          } > ci-diagnostic.log 2>&1
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ci-diagnostic.log
+          git commit -m "ci: diagnostic output"
+          git push
