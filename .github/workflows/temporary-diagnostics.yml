@@ -1,0 +1,35 @@
+name: temporary-diagnostics
+on:
+  push:
+    branches:
+      - feature/company-os-completion-v3
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Capture cargo check
+        run: |
+          set +e
+          cargo check --workspace > /tmp/cargo-check.log 2>&1
+          status=$?
+          {
+            echo "# temporary cargo check diagnostics"
+            echo
+            echo "exit_code=$status"
+            echo
+            sed -n '1,400p' /tmp/cargo-check.log
+          } > diagnostics/latest-cargo-check.txt
+          exit 0
+      - name: Commit diagnostics
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add diagnostics/latest-cargo-check.txt
+          git commit -m "chore: capture temporary cargo diagnostics" || exit 0
+          git push
