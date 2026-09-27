@@ -53,6 +53,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/003_agent_memory_and_rate_limits.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/003_agent_memory_and_rate_limits.sql"
+            ))
             .await
     }
 
@@ -900,3 +905,120 @@ async fn update_company_status(
 
 #[cfg(test)]
 mod tests;
+
+
+#[async_trait::async_trait]
+impl agent_runtime::agent::AgentStateProvider for CompanyStore {
+    async fn load_memory(
+        &self,
+        company_id: &str,
+        agent: agent_runtime::types::AgentRole,
+    ) -> Result<serde_json::Value, String> {
+        let company_uuid = Uuid::parse_str(company_id).map_err(|e| e.to_string())?;
+        let agent_name = agent.as_str();
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT memory_key, value
+                   FROM agent_memory
+                  WHERE company_id = $1
+                    AND agent_name = $2
+                    AND (expires_at IS NULL OR expires_at > now())
+                  ORDER BY importance DESC, updated_at DESC
+                  LIMIT 50",
+                &[&company_uuid, &agent_name],
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let mut object = serde_json::Map::new();
+        for row in rows {
+            let key: String = row.get(0);
+            let value: serde_json::Value = row.get(1);
+            object.insert(key, value);
+        }
+        Ok(serde_json::Value::Object(object))
+    }
+
+    async fn admit_model_call(
+        &self,
+        company_id: &str,
+        agent: agent_runtime::types::AgentRole,
+    ) -> Result<(), String> {
+        let company_uuid = Uuid::parse_str(company_id).map_err(|e| e.to_string())?;
+        let agent_name = agent.as_str();
+        let max_calls = std::env::var("AGENT_MAX_MODEL_CALLS_PER_MINUTE")
+            .ok()
+            .and_then(|v| v.parse::<i32>().ok())
+            .filter(|v| *v > 0)
+            .unwrap_or(60);
+        let mut client = self.client.lock().await;
+        let tx = client
+            .transaction()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let row = tx
+            .query_opt(
+                "SELECT window_started_at, call_count
+                   FROM agent_rate_windows
+                  WHERE company_id = $1 AND agent_name = $2
+                  FOR UPDATE",
+                &[&company_uuid, &agent_name],
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let now = std::time::SystemTime::now();
+        let _ = now;
+
+        match row {
+            Some(row) => {
+                let window_started_at: time::OffsetDateTime = row.get(0);
+                let call_count: i32 = row.get(1);
+                let elapsed = time::OffsetDateTime::now_utc() - window_started_at;
+                if elapsed.whole_seconds() >= 60 {
+                    tx.execute(
+                        "UPDATE agent_rate_windows
+                            SET window_started_at = now(), call_count = 1,
+                                max_calls = $3, updated_at = now()
+                          WHERE company_id = $1 AND agent_name = $2",
+                        &[&company_uuid, &agent_name, &max_calls],
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                } else if call_count >= max_calls {
+                    tx.rollback().await.map_err(|e| e.to_string())?;
+                    return Err(format!(
+                        "durable rate limit exceeded for {}: {}/minute",
+                        agent_name, max_calls
+                    ));
+                } else {
+                    tx.execute(
+                        "UPDATE agent_rate_windows
+                            SET call_count = call_count + 1,
+                                max_calls = $3, updated_at = now()
+                          WHERE company_id = $1 AND agent_name = $2",
+                        &[&company_uuid, &agent_name, &max_calls],
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                }
+            }
+            None => {
+                tx.execute(
+                    "INSERT INTO agent_rate_windows
+                     (company_id, agent_name, window_started_at,
+                      call_count, max_calls)
+                     VALUES ($1, $2, now(), 1, $3)",
+                    &[&company_uuid, &agent_name, &max_calls],
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+            }
+        }
+
+        tx.commit().await.map_err(|e| e.to_string())?;
+        Ok(())
+    }
+}
