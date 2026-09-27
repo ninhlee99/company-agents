@@ -280,6 +280,46 @@ async fn agents_api(State(state): State<AppState>) -> Json<Vec<AgentRunResult>> 
     Json(state.latest.read().await.clone())
 }
 
+async fn save_business_unit(
+    State(state): State<AppState>,
+    Json(unit): Json<company_domain::BusinessUnit>,
+) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
+    let company_id = state.company.read().await.company_id.clone();
+    state.store.save_business_unit(&company_id, &unit).await
+        .map(|_| StatusCode::CREATED)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ValueError { error: e.to_string() })))
+}
+
+async fn save_customer(
+    State(state): State<AppState>,
+    Json(customer): Json<company_domain::Customer>,
+) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
+    let company_id = state.company.read().await.company_id.clone();
+    state.store.save_customer(&company_id, &customer).await
+        .map(|_| StatusCode::CREATED)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ValueError { error: e.to_string() })))
+}
+
+async fn save_product(
+    State(state): State<AppState>,
+    Json(product): Json<company_domain::Product>,
+) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
+    let company_id = state.company.read().await.company_id.clone();
+    state.store.save_product(&company_id, &product).await
+        .map(|_| StatusCode::CREATED)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ValueError { error: e.to_string() })))
+}
+
+async fn save_payroll(
+    State(state): State<AppState>,
+    Json(payroll): Json<company_domain::PayrollRun>,
+) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
+    let company_id = state.company.read().await.company_id.clone();
+    state.store.save_payroll_run(&company_id, &payroll).await
+        .map(|_| StatusCode::CREATED)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ValueError { error: e.to_string() })))
+}
+
 async fn save_creator(
     State(state): State<AppState>,
     Json(creator): Json<CreatorUnit>,
@@ -569,6 +609,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/run", post(run_html))
         .route("/api/run", post(run_api))
         .route("/api/agents", get(agents_api))
+        .route("/api/business-units", post(save_business_unit))
+        .route("/api/customers", post(save_customer))
+        .route("/api/products", post(save_product))
+        .route("/api/payroll", post(save_payroll))
         .route("/api/creators", post(save_creator))
         .route("/api/content", post(save_content_asset))
         .route("/api/experiments", post(save_experiment))
