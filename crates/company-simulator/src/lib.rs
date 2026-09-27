@@ -2,7 +2,7 @@
 
 use agent_runtime::{
     model::MockModel,
-    types::{ActionKind, AgentRunResult, CompanySnapshot, GovernorDecision},
+    types::{ActionKind, CompanySnapshot, GovernorDecision},
     AgentRuntime,
 };
 use economic_core::{CompanyState, CompanyStatus};
