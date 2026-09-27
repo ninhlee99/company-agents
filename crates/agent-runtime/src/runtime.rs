@@ -46,11 +46,19 @@ impl AgentRuntime {
             .filter(|v| (250..=120_000).contains(v))
             .unwrap_or(15_000);
 
-        self.run_all_with_timeout(company, std::time::Duration::from_millis(timeout_ms)).await
+        self.run_all_with_timeout(company, std::time::Duration::from_millis(timeout_ms))
+            .await
     }
 
-    pub async fn run_all_with_timeout(&self, company: CompanySnapshot, model_timeout: std::time::Duration) -> Vec<AgentRunResult> {
-        let ctx = AgentContext { company, model_timeout };
+    pub async fn run_all_with_timeout(
+        &self,
+        company: CompanySnapshot,
+        model_timeout: std::time::Duration,
+    ) -> Vec<AgentRunResult> {
+        let ctx = AgentContext {
+            company,
+            model_timeout,
+        };
         let governor = &self.governor;
         let model = self.model.clone();
         let concurrency = self.concurrency.clone();
@@ -59,7 +67,10 @@ impl AgentRuntime {
             let agent = agent.clone();
             let model = model.clone();
             let concurrency = concurrency.clone();
-            let ctx = AgentContext { company: ctx.company.clone(), model_timeout: ctx.model_timeout };
+            let ctx = AgentContext {
+                company: ctx.company.clone(),
+                model_timeout: ctx.model_timeout,
+            };
 
             async move {
                 let _permit = match concurrency.acquire_owned().await {
@@ -89,7 +100,11 @@ impl AgentRuntime {
                 match agent.propose(&ctx, model).await {
                     Ok(proposal) => {
                         let governance = governor.evaluate(proposal.clone(), &ctx.company);
-                        AgentRunResult { agent: agent.role(), proposal, governance: Some(governance) }
+                        AgentRunResult {
+                            agent: agent.role(),
+                            proposal,
+                            governance: Some(governance),
+                        }
                     }
                     Err(error) => {
                         let proposal = crate::types::Proposal {
@@ -106,7 +121,11 @@ impl AgentRuntime {
                             requested_permission: crate::types::Permission::Propose,
                         };
                         let governance = governor.evaluate(proposal.clone(), &ctx.company);
-                        AgentRunResult { agent: agent.role(), proposal, governance: Some(governance) }
+                        AgentRunResult {
+                            agent: agent.role(),
+                            proposal,
+                            governance: Some(governance),
+                        }
                     }
                 }
             }

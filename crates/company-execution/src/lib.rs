@@ -1,7 +1,10 @@
 #![forbid(unsafe_code)]
 
 use agent_runtime::{
-    types::{ActionKind, AgentRole, AgentRunResult, GovernorDecision, GovernedProposal, Proposal, RiskTier},
+    types::{
+        ActionKind, AgentRole, AgentRunResult, GovernedProposal, GovernorDecision, Proposal,
+        RiskTier,
+    },
     Tool, ToolRegistry,
 };
 use economic_core::CompanyStatus;
@@ -40,7 +43,9 @@ pub struct ExecutionPolicy {
 
 impl Default for ExecutionPolicy {
     fn default() -> Self {
-        Self { max_spend_per_cycle_minor: 1_000 }
+        Self {
+            max_spend_per_cycle_minor: 1_000,
+        }
     }
 }
 
@@ -69,7 +74,9 @@ pub fn execute_approved_results(
     policy: ExecutionPolicy,
 ) -> Result<ExecutionBatch, ExecutionError> {
     if policy.max_spend_per_cycle_minor < 0 {
-        return Err(ExecutionError::InvalidState("negative execution cycle cap".into()));
+        return Err(ExecutionError::InvalidState(
+            "negative execution cycle cap".into(),
+        ));
     }
 
     let mut ordered = results.iter().collect::<Vec<_>>();
@@ -117,13 +124,19 @@ pub fn execute_approved_results(
 
         let (next, receipt) = apply_approved(&snapshot, governed)?;
         if receipt.status == ExecutionStatus::Executed {
-            total_spend = total_spend.checked_add(receipt.cost_minor).ok_or(ExecutionError::Overflow)?;
+            total_spend = total_spend
+                .checked_add(receipt.cost_minor)
+                .ok_or(ExecutionError::Overflow)?;
         }
         snapshot = next;
         receipts.push(receipt);
     }
 
-    Ok(ExecutionBatch { snapshot, receipts, total_spend_minor: total_spend })
+    Ok(ExecutionBatch {
+        snapshot,
+        receipts,
+        total_spend_minor: total_spend,
+    })
 }
 
 pub fn apply_approved(
@@ -131,7 +144,9 @@ pub fn apply_approved(
     governed: &GovernedProposal,
 ) -> Result<(agent_runtime::CompanySnapshot, ExecutionReceipt), ExecutionError> {
     let proposal = &governed.proposal;
-    proposal.validate().map_err(ExecutionError::InvalidProposal)?;
+    proposal
+        .validate()
+        .map_err(ExecutionError::InvalidProposal)?;
     if governed.decision != GovernorDecision::Approve {
         return Ok((
             snapshot.clone(),
@@ -146,66 +161,182 @@ pub fn apply_approved(
         ));
     }
     if !ToolRegistry::allowed(proposal.agent, action_tool(proposal.action)) {
-        return Ok((snapshot.clone(), receipt_for(proposal, ExecutionStatus::Rejected, "tool capability denied at execution boundary")));
+        return Ok((
+            snapshot.clone(),
+            receipt_for(
+                proposal,
+                ExecutionStatus::Rejected,
+                "tool capability denied at execution boundary",
+            ),
+        ));
     }
-    if proposal.cost_minor > 0 && matches!(snapshot.status, CompanyStatus::Distress | CompanyStatus::Emergency | CompanyStatus::Liquidation | CompanyStatus::Bankrupt) {
-        return Ok((snapshot.clone(), receipt_for(proposal, ExecutionStatus::Rejected, "financial distress blocks discretionary spend")));
+    if proposal.cost_minor > 0
+        && matches!(
+            snapshot.status,
+            CompanyStatus::Distress
+                | CompanyStatus::Emergency
+                | CompanyStatus::Liquidation
+                | CompanyStatus::Bankrupt
+        )
+    {
+        return Ok((
+            snapshot.clone(),
+            receipt_for(
+                proposal,
+                ExecutionStatus::Rejected,
+                "financial distress blocks discretionary spend",
+            ),
+        ));
     }
 
     let mut next = snapshot.clone();
     match proposal.action {
         ActionKind::AllocateExperimentBudget => {
             if proposal.cost_minor == 0 {
-                return Ok((next, receipt_for(proposal, ExecutionStatus::Noop, "zero-value allocation is a no-op")));
+                return Ok((
+                    next,
+                    receipt_for(
+                        proposal,
+                        ExecutionStatus::Noop,
+                        "zero-value allocation is a no-op",
+                    ),
+                ));
             }
             if proposal.cost_minor > snapshot.budget_remaining_minor {
-                return Ok((next, receipt_for(proposal, ExecutionStatus::Rejected, "allocation exceeds remaining budget")));
+                return Ok((
+                    next,
+                    receipt_for(
+                        proposal,
+                        ExecutionStatus::Rejected,
+                        "allocation exceeds remaining budget",
+                    ),
+                ));
             }
-            next.budget_remaining_minor = snapshot.budget_remaining_minor.checked_sub(proposal.cost_minor).ok_or(ExecutionError::Overflow)?;
-            next.experiment_budget_minor = snapshot.experiment_budget_minor.checked_add(proposal.cost_minor).ok_or(ExecutionError::Overflow)?;
-            Ok((next, receipt_for(proposal, ExecutionStatus::Executed, "experiment budget allocated within existing company budget")))
+            next.budget_remaining_minor = snapshot
+                .budget_remaining_minor
+                .checked_sub(proposal.cost_minor)
+                .ok_or(ExecutionError::Overflow)?;
+            next.experiment_budget_minor = snapshot
+                .experiment_budget_minor
+                .checked_add(proposal.cost_minor)
+                .ok_or(ExecutionError::Overflow)?;
+            Ok((
+                next,
+                receipt_for(
+                    proposal,
+                    ExecutionStatus::Executed,
+                    "experiment budget allocated within existing company budget",
+                ),
+            ))
         }
         ActionKind::CreateExperiment => {
             if proposal.cost_minor == 0 {
-                return Ok((next, receipt_for(proposal, ExecutionStatus::Noop, "zero-cost experiment is a no-op")));
+                return Ok((
+                    next,
+                    receipt_for(
+                        proposal,
+                        ExecutionStatus::Noop,
+                        "zero-cost experiment is a no-op",
+                    ),
+                ));
             }
             if proposal.cost_minor > snapshot.experiment_budget_minor {
-                return Ok((next, receipt_for(proposal, ExecutionStatus::Rejected, "experiment cost exceeds experiment budget")));
+                return Ok((
+                    next,
+                    receipt_for(
+                        proposal,
+                        ExecutionStatus::Rejected,
+                        "experiment cost exceeds experiment budget",
+                    ),
+                ));
             }
-            next.cash_minor = snapshot.cash_minor.checked_sub(proposal.cost_minor).ok_or(ExecutionError::Overflow)?;
-            next.expenses_minor = snapshot.expenses_minor.checked_add(proposal.cost_minor).ok_or(ExecutionError::Overflow)?;
-            next.assets_minor = snapshot.assets_minor.checked_sub(proposal.cost_minor).ok_or(ExecutionError::Overflow)?;
-            next.experiment_budget_minor = snapshot.experiment_budget_minor.checked_sub(proposal.cost_minor).ok_or(ExecutionError::Overflow)?;
+            next.cash_minor = snapshot
+                .cash_minor
+                .checked_sub(proposal.cost_minor)
+                .ok_or(ExecutionError::Overflow)?;
+            next.expenses_minor = snapshot
+                .expenses_minor
+                .checked_add(proposal.cost_minor)
+                .ok_or(ExecutionError::Overflow)?;
+            next.assets_minor = snapshot
+                .assets_minor
+                .checked_sub(proposal.cost_minor)
+                .ok_or(ExecutionError::Overflow)?;
+            next.experiment_budget_minor = snapshot
+                .experiment_budget_minor
+                .checked_sub(proposal.cost_minor)
+                .ok_or(ExecutionError::Overflow)?;
             if next.cash_minor == 0 {
                 next.status = CompanyStatus::Emergency;
             }
-            Ok((next, receipt_for(proposal, ExecutionStatus::Executed, "bounded experiment spend executed")))
+            Ok((
+                next,
+                receipt_for(
+                    proposal,
+                    ExecutionStatus::Executed,
+                    "bounded experiment spend executed",
+                ),
+            ))
         }
         ActionKind::ReduceBudget => {
             let before = snapshot.experiment_budget_minor;
-            next.experiment_budget_minor = snapshot.experiment_budget_minor.min(snapshot.budget_remaining_minor);
+            next.experiment_budget_minor = snapshot
+                .experiment_budget_minor
+                .min(snapshot.budget_remaining_minor);
             let reason = if next.experiment_budget_minor < before {
                 "experiment budget reduced to remaining company budget"
             } else {
                 "budget already within guard; no state change"
             };
-            let status = if next.experiment_budget_minor < before { ExecutionStatus::Executed } else { ExecutionStatus::Noop };
+            let status = if next.experiment_budget_minor < before {
+                ExecutionStatus::Executed
+            } else {
+                ExecutionStatus::Noop
+            };
             Ok((next, receipt_for(proposal, status, reason)))
         }
         ActionKind::RebalanceOperations => {
             if snapshot.backlog == 0 || snapshot.backlog <= snapshot.capacity {
-                return Ok((next, receipt_for(proposal, ExecutionStatus::Noop, "operations are already within capacity")));
+                return Ok((
+                    next,
+                    receipt_for(
+                        proposal,
+                        ExecutionStatus::Noop,
+                        "operations are already within capacity",
+                    ),
+                ));
             }
             next.backlog = snapshot.backlog.saturating_sub(1);
-            Ok((next, receipt_for(proposal, ExecutionStatus::Executed, "one backlog unit rebalanced without capital spend")))
+            Ok((
+                next,
+                receipt_for(
+                    proposal,
+                    ExecutionStatus::Executed,
+                    "one backlog unit rebalanced without capital spend",
+                ),
+            ))
         }
-        ActionKind::ResearchOpportunity | ActionKind::ProduceReport | ActionKind::EscalateIncident => {
-            Ok((next, receipt_for(proposal, ExecutionStatus::Noop, "informational action recorded; no mutable economic state")))
-        }
-        ActionKind::PublishContent | ActionKind::ProposeHire => {
-            Ok((next, receipt_for(proposal, ExecutionStatus::Deferred, "material side effect requires explicit authorization")))
-        }
-        ActionKind::None => Err(ExecutionError::InvalidProposal("None action cannot execute".into())),
+        ActionKind::ResearchOpportunity
+        | ActionKind::ProduceReport
+        | ActionKind::EscalateIncident => Ok((
+            next,
+            receipt_for(
+                proposal,
+                ExecutionStatus::Noop,
+                "informational action recorded; no mutable economic state",
+            ),
+        )),
+        ActionKind::PublishContent | ActionKind::ProposeHire => Ok((
+            next,
+            receipt_for(
+                proposal,
+                ExecutionStatus::Deferred,
+                "material side effect requires explicit authorization",
+            ),
+        )),
+        ActionKind::None => Err(ExecutionError::InvalidProposal(
+            "None action cannot execute".into(),
+        )),
     }
 }
 
@@ -254,13 +385,19 @@ pub fn proposal_idempotency_key(proposal: &Proposal) -> String {
 }
 
 fn role_order(role: AgentRole) -> usize {
-    AgentRole::ALL.iter().position(|v| *v == role).unwrap_or(usize::MAX)
+    AgentRole::ALL
+        .iter()
+        .position(|v| *v == role)
+        .unwrap_or(usize::MAX)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_runtime::types::{AgentRole, ActionKind, CompanySnapshot, GovernorDecision, Permission, Proposal, RiskTier, GovernedProposal};
+    use agent_runtime::types::{
+        ActionKind, AgentRole, CompanySnapshot, GovernedProposal, GovernorDecision, Permission,
+        Proposal, RiskTier,
+    };
     use economic_core::CompanyStatus;
 
     fn snapshot() -> CompanySnapshot {
@@ -304,12 +441,17 @@ mod tests {
             reversible: true,
             requested_permission: Permission::Propose,
         };
-        GovernedProposal { proposal, decision: GovernorDecision::Approve, reason: "test".into() }
+        GovernedProposal {
+            proposal,
+            decision: GovernorDecision::Approve,
+            reason: "test".into(),
+        }
     }
 
     #[test]
     fn approved_experiment_spend_changes_state() {
-        let (next, receipt) = apply_approved(&snapshot(), &governed(ActionKind::CreateExperiment, 100)).unwrap();
+        let (next, receipt) =
+            apply_approved(&snapshot(), &governed(ActionKind::CreateExperiment, 100)).unwrap();
         assert_eq!(receipt.status, ExecutionStatus::Executed);
         assert_eq!(next.cash_minor, 9_900);
         assert_eq!(next.experiment_budget_minor, 400);
@@ -318,7 +460,11 @@ mod tests {
     #[test]
     fn approved_allocate_moves_budget_without_spending_cash() {
         let before = snapshot();
-        let (next, receipt) = apply_approved(&before, &governed(ActionKind::AllocateExperimentBudget, 100)).unwrap();
+        let (next, receipt) = apply_approved(
+            &before,
+            &governed(ActionKind::AllocateExperimentBudget, 100),
+        )
+        .unwrap();
         assert_eq!(receipt.status, ExecutionStatus::Executed);
         assert_eq!(next.cash_minor, before.cash_minor);
         assert_eq!(next.experiment_budget_minor, 600);
@@ -339,10 +485,20 @@ mod tests {
                 governance: Some(governed(ActionKind::CreateExperiment, 800)),
             },
         ];
-        let batch = execute_approved_results(snapshot(), &results, ExecutionPolicy { max_spend_per_cycle_minor: 1_000 }).unwrap();
+        let batch = execute_approved_results(
+            snapshot(),
+            &results,
+            ExecutionPolicy {
+                max_spend_per_cycle_minor: 1_000,
+            },
+        )
+        .unwrap();
         assert_eq!(batch.total_spend_minor, 800);
         assert_eq!(batch.snapshot.cash_minor, 9_200);
-        assert!(batch.receipts.iter().any(|r| r.status == ExecutionStatus::Deferred));
+        assert!(batch
+            .receipts
+            .iter()
+            .any(|r| r.status == ExecutionStatus::Deferred));
     }
 
     #[test]
@@ -360,7 +516,11 @@ mod tests {
             reversible: true,
             requested_permission: Permission::Propose,
         };
-        let g = GovernedProposal { proposal: p, decision: GovernorDecision::Approve, reason: "synthetic".into() };
+        let g = GovernedProposal {
+            proposal: p,
+            decision: GovernorDecision::Approve,
+            reason: "synthetic".into(),
+        };
         let (_next, receipt) = apply_approved(&snapshot(), &g).unwrap();
         assert_eq!(receipt.status, ExecutionStatus::Deferred);
     }

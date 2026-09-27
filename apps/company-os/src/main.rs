@@ -1,6 +1,8 @@
-use affiliate_intelligence::{search as search_affiliate, AffiliateProvider, AwinProvider, MockProvider, ProductSearchQuery, SearchResponse};
+use affiliate_intelligence::{
+    search as search_affiliate, AffiliateProvider, AwinProvider, MockProvider, ProductSearchQuery,
+    SearchResponse,
+};
 use agent_runtime::{model_from_env, AgentRunResult, AgentRuntime, CompanySnapshot};
-use company_store::{CompanyStore, PersistedCycle};
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -8,6 +10,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use company_store::{CompanyStore, PersistedCycle};
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{Mutex, RwLock};
@@ -79,11 +82,16 @@ fn seed_company(company_id: String) -> CompanySnapshot {
     }
 }
 
-async fn run_cycle(state: &AppState) -> Result<CycleResponse, Box<dyn std::error::Error + Send + Sync>> {
+async fn run_cycle(
+    state: &AppState,
+) -> Result<CycleResponse, Box<dyn std::error::Error + Send + Sync>> {
     let _cycle_guard = state.cycle_lock.lock().await;
     let company = state.company.read().await.clone();
     let results = state.runtime.run_all(company.clone()).await;
-    let persisted = state.store.persist_and_execute_cycle(&company, &results).await?;
+    let persisted = state
+        .store
+        .persist_and_execute_cycle(&company, &results)
+        .await?;
 
     *state.company.write().await = persisted.snapshot.clone();
     *state.latest.write().await = persisted.results.clone();
@@ -108,9 +116,15 @@ fn affiliate_query(params: AffiliateSearchParams) -> ProductSearchQuery {
         .collect::<Vec<_>>();
 
     ProductSearchQuery {
-        category: params.category.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()),
+        category: params
+            .category
+            .map(|v| v.trim().to_owned())
+            .filter(|v| !v.is_empty()),
         keywords,
-        currency: params.currency.map(|v| v.to_ascii_uppercase()).filter(|v| v.len() == 3),
+        currency: params
+            .currency
+            .map(|v| v.to_ascii_uppercase())
+            .filter(|v| v.len() == 3),
         min_price_minor: params.min_price_minor,
         max_price_minor: params.max_price_minor,
         min_commission_bps: params.min_commission_bps,
@@ -119,7 +133,9 @@ fn affiliate_query(params: AffiliateSearchParams) -> ProductSearchQuery {
         min_reviews: params.min_reviews,
         in_stock_only: params.in_stock_only.unwrap_or(true),
         max_results: params.max_results.unwrap_or(20),
-        as_of_date: params.as_of_date.or_else(|| Some(time::OffsetDateTime::now_utc().date().to_string())),
+        as_of_date: params
+            .as_of_date
+            .or_else(|| Some(time::OffsetDateTime::now_utc().date().to_string())),
     }
 }
 
@@ -137,7 +153,11 @@ async fn index(State(state): State<AppState>) -> Html<String> {
             .unwrap_or_else(|| "—".into());
         let execution = latest_cycle
             .as_ref()
-            .and_then(|c| c.receipts.iter().find(|r| r.agent == item.agent && r.action == item.proposal.action))
+            .and_then(|c| {
+                c.receipts
+                    .iter()
+                    .find(|r| r.agent == item.agent && r.action == item.proposal.action)
+            })
             .map(|r| format!("{:?}", r.status))
             .unwrap_or_else(|| "—".into());
 
@@ -156,10 +176,22 @@ async fn index(State(state): State<AppState>) -> Html<String> {
 
     let executed = latest_cycle
         .as_ref()
-        .map(|c| c.receipts.iter().filter(|r| matches!(r.status, company_execution::ExecutionStatus::Executed | company_execution::ExecutionStatus::Noop)).count())
+        .map(|c| {
+            c.receipts
+                .iter()
+                .filter(|r| {
+                    matches!(
+                        r.status,
+                        company_execution::ExecutionStatus::Executed
+                            | company_execution::ExecutionStatus::Noop
+                    )
+                })
+                .count()
+        })
         .unwrap_or(0);
 
-    Html(format!(r#"<!doctype html>
+    Html(format!(
+        r#"<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Company OS</title>
@@ -204,13 +236,22 @@ code{{background:#f2f2f2;padding:2px 5px;border-radius:5px}}
 
 async fn run_html(State(state): State<AppState>) -> (StatusCode, Html<String>) {
     match run_cycle(&state).await {
-        Ok(_) => (StatusCode::SEE_OTHER, Html(r#"<meta http-equiv="refresh" content="0; url=/" />"#.into())),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Html("cycle failed safely; inspect logs".into())),
+        Ok(_) => (
+            StatusCode::SEE_OTHER,
+            Html(r#"<meta http-equiv="refresh" content="0; url=/" />"#.into()),
+        ),
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Html("cycle failed safely; inspect logs".into()),
+        ),
     }
 }
 
 async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, StatusCode> {
-    run_cycle(&state).await.map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    run_cycle(&state)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 async fn agents_api(State(state): State<AppState>) -> Json<Vec<AgentRunResult>> {
@@ -241,7 +282,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let store = Arc::new(CompanyStore::connect(&database_url).await?);
     store.migrate().await?;
-    store.ensure_company(&company_id, &company_name, &currency).await?;
+    store
+        .ensure_company(&company_id, &company_name, &currency)
+        .await?;
 
     let company = match store.load_snapshot(&company_id).await? {
         Some(snapshot) => snapshot,
@@ -276,29 +319,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|v| v.parse::<u64>().ok())
         .filter(|v| *v >= 15)
         .unwrap_or(300);
-    store.ensure_recurring_job(&company_id, "agent_cycle", interval_secs as i64).await?;
+    store
+        .ensure_recurring_job(&company_id, "agent_cycle", interval_secs as i64)
+        .await?;
 
     let background = state.clone();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_secs(15));
         loop {
             ticker.tick().await;
-            match background.store.claim_due_job(&background.company_id, "agent_cycle").await {
-                Ok(Some(job_id)) => {
-                    match run_cycle(&background).await {
-                        Ok(_) => {
-                            if let Err(error) = background.store.complete_job(job_id).await {
-                                eprintln!("scheduler completion error: {error}");
-                            }
-                        }
-                        Err(error) => {
-                            eprintln!("agent cycle error: {error}");
-                            if let Err(release_error) = background.store.release_job_after_failure(job_id).await {
-                                eprintln!("scheduler recovery error: {release_error}");
-                            }
+            match background
+                .store
+                .claim_due_job(&background.company_id, "agent_cycle")
+                .await
+            {
+                Ok(Some(job_id)) => match run_cycle(&background).await {
+                    Ok(_) => {
+                        if let Err(error) = background.store.complete_job(job_id).await {
+                            eprintln!("scheduler completion error: {error}");
                         }
                     }
-                }
+                    Err(error) => {
+                        eprintln!("agent cycle error: {error}");
+                        if let Err(release_error) =
+                            background.store.release_job_after_failure(job_id).await
+                        {
+                            eprintln!("scheduler recovery error: {release_error}");
+                        }
+                    }
+                },
                 Ok(None) => {}
                 Err(error) => eprintln!("scheduler claim error: {error}"),
             }

@@ -1,10 +1,6 @@
 #![forbid(unsafe_code)]
 
-use agent_runtime::{
-    model::MockModel,
-    types::CompanySnapshot,
-    AgentRuntime,
-};
+use agent_runtime::{model::MockModel, types::CompanySnapshot, AgentRuntime};
 use company_execution::{execute_approved_results, ExecutionPolicy, ExecutionStatus};
 use economic_core::{CompanyState, CompanyStatus};
 use serde::{Deserialize, Serialize};
@@ -137,7 +133,9 @@ pub async fn run(config: SimConfig) -> SimulationResult {
         }
         .refresh_status_from_runway(daily_burn);
 
-        let experiment_budget = cash.saturating_mul((10_000_u32 - config.reserve_ratio_bps.min(9_000)) as i128) / 10_000;
+        let experiment_budget = cash
+            .saturating_mul((10_000_u32 - config.reserve_ratio_bps.min(9_000)) as i128)
+            / 10_000;
         let snapshot = CompanySnapshot {
             company_id: "simulation".into(),
             cash_minor: cash,
@@ -164,16 +162,24 @@ pub async fn run(config: SimConfig) -> SimulationResult {
         let execution = execute_approved_results(
             snapshot.clone(),
             &results,
-            ExecutionPolicy { max_spend_per_cycle_minor: 1_000 },
+            ExecutionPolicy {
+                max_spend_per_cycle_minor: 1_000,
+            },
         );
         match execution {
             Ok(batch) => {
                 for receipt in &batch.receipts {
                     if receipt.status == ExecutionStatus::Rejected {
-                        violations.push(format!("day {day}: execution rejected for {:?}: {}", receipt.action, receipt.reason));
+                        violations.push(format!(
+                            "day {day}: execution rejected for {:?}: {}",
+                            receipt.action, receipt.reason
+                        ));
                     }
-                    if receipt.status == ExecutionStatus::Executed && receipt.action == agent_runtime::types::ActionKind::CreateExperiment {
-                        content_efficiency_bps = content_efficiency_bps.saturating_add(50).min(20_000);
+                    if receipt.status == ExecutionStatus::Executed
+                        && receipt.action == agent_runtime::types::ActionKind::CreateExperiment
+                    {
+                        content_efficiency_bps =
+                            content_efficiency_bps.saturating_add(50).min(20_000);
                     }
                 }
                 cash = batch.snapshot.cash_minor;
@@ -191,7 +197,11 @@ pub async fn run(config: SimConfig) -> SimulationResult {
     }
 
     SimulationResult {
-        days_simulated: if bankruptcy_day.is_some() { bankruptcy_day.unwrap_or(0) } else { config.days },
+        days_simulated: if bankruptcy_day.is_some() {
+            bankruptcy_day.unwrap_or(0)
+        } else {
+            config.days
+        },
         ending_cash_minor: cash,
         revenue_minor: revenue,
         expenses_minor: expenses,
@@ -210,22 +220,38 @@ mod tests {
 
     #[tokio::test]
     async fn simulation_is_deterministic_for_same_seed() {
-        let config = SimConfig { days: 60, ..SimConfig::default() };
+        let config = SimConfig {
+            days: 60,
+            ..SimConfig::default()
+        };
         let a = run(config.clone()).await;
         let b = run(config).await;
-        assert_eq!(serde_json::to_string(&a).unwrap(), serde_json::to_string(&b).unwrap());
+        assert_eq!(
+            serde_json::to_string(&a).unwrap(),
+            serde_json::to_string(&b).unwrap()
+        );
     }
 
     #[tokio::test]
     async fn simulation_runs_without_paid_model_api() {
-        let result = run(SimConfig { days: 30, ..SimConfig::default() }).await;
+        let result = run(SimConfig {
+            days: 30,
+            ..SimConfig::default()
+        })
+        .await;
         assert_eq!(result.decision_cycles, 30);
         assert!(result.violations.is_empty(), "{:?}", result.violations);
     }
 
     #[tokio::test]
     async fn severe_cash_shock_does_not_create_negative_spend() {
-        let result = run(SimConfig { initial_cash_minor: 1_000, days: 30, seed: 99, ..SimConfig::default() }).await;
+        let result = run(SimConfig {
+            initial_cash_minor: 1_000,
+            days: 30,
+            seed: 99,
+            ..SimConfig::default()
+        })
+        .await;
         assert!(result.ending_cash_minor >= 0 || result.bankruptcy_day.is_some());
         assert!(result.violations.is_empty(), "{:?}", result.violations);
     }

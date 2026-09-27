@@ -17,13 +17,17 @@ impl CompanyStore {
                 eprintln!("postgres connection error: {error}");
             }
         });
-        Ok(Self { client: Mutex::new(client) })
+        Ok(Self {
+            client: Mutex::new(client),
+        })
     }
 
     pub async fn migrate(&self) -> Result<(), tokio_postgres::Error> {
         let client = self.client.lock().await;
         client
-            .batch_execute(include_str!("../../../infra/db/migrations/001_economic_kernel.sql"))
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/001_economic_kernel.sql"
+            ))
             .await
     }
 
@@ -113,7 +117,6 @@ impl CompanyStore {
         Ok(())
     }
 }
-
 
 #[cfg(test)]
 mod tests;

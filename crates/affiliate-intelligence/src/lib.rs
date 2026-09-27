@@ -299,20 +299,28 @@ fn validate_query(query: &ProductSearchQuery) -> Result<(), AffiliateError> {
     }
     if let Some(min) = query.min_commission_bps {
         if min > SCORE_MAX {
-            return Err(AffiliateError::InvalidQuery("commission must be <= 10000 bps".into()));
+            return Err(AffiliateError::InvalidQuery(
+                "commission must be <= 10000 bps".into(),
+            ));
         }
     }
     if let Some(rating) = query.min_rating_bps {
         if rating > SCORE_MAX {
-            return Err(AffiliateError::InvalidQuery("rating must be <= 10000 bps".into()));
+            return Err(AffiliateError::InvalidQuery(
+                "rating must be <= 10000 bps".into(),
+            ));
         }
     }
     if query.max_results == 0 || query.max_results > 200 {
-        return Err(AffiliateError::InvalidQuery("max_results must be between 1 and 200".into()));
+        return Err(AffiliateError::InvalidQuery(
+            "max_results must be between 1 and 200".into(),
+        ));
     }
     if let Some(date) = query.as_of_date.as_deref() {
         if !is_iso_date(date) {
-            return Err(AffiliateError::InvalidQuery("as_of_date must be YYYY-MM-DD".into()));
+            return Err(AffiliateError::InvalidQuery(
+                "as_of_date must be YYYY-MM-DD".into(),
+            ));
         }
     }
     Ok(())
@@ -338,7 +346,10 @@ fn product_matches(product: &Product, query: &ProductSearchQuery) -> bool {
         return false;
     }
     if let Some(min_commission) = query.min_commission_bps {
-        if product.commission_rate_bps.is_none_or(|v| v < min_commission) {
+        if product
+            .commission_rate_bps
+            .is_none_or(|v| v < min_commission)
+        {
             return false;
         }
     }
@@ -355,7 +366,10 @@ fn product_matches(product: &Product, query: &ProductSearchQuery) -> bool {
 
     let haystack = format!(
         "{} {} {} {}",
-        product.name, product.description, product.category, product.brand.clone().unwrap_or_default()
+        product.name,
+        product.description,
+        product.category,
+        product.brand.clone().unwrap_or_default()
     )
     .to_ascii_lowercase();
 
@@ -388,13 +402,24 @@ fn quality_assessment(product: &Product) -> QualityAssessment {
         reasons.push(format!("review evidence count={reviews}"));
     }
     let stock_score = if product.in_stock {
-        if product.stock_quantity.unwrap_or(1) > 0 { 10_000 } else { 7_000 }
+        if product.stock_quantity.unwrap_or(1) > 0 {
+            10_000
+        } else {
+            7_000
+        }
     } else {
         0
     };
     values.push(stock_score as u64 * 15);
     weights.push(15);
-    reasons.push(if product.in_stock { "in stock" } else { "out of stock" }.into());
+    reasons.push(
+        if product.in_stock {
+            "in stock"
+        } else {
+            "out of stock"
+        }
+        .into(),
+    );
 
     if let Some(seller) = product.seller_reputation_bps {
         values.push(seller as u64 * 10);
@@ -415,8 +440,7 @@ fn quality_assessment(product: &Product) -> QualityAssessment {
     let score = if values.is_empty() || weights.iter().sum::<u64>() == 0 {
         0
     } else {
-        (values.iter().sum::<u64>() / weights.iter().sum::<u64>())
-            .min(SCORE_MAX as u64) as u32
+        (values.iter().sum::<u64>() / weights.iter().sum::<u64>()).min(SCORE_MAX as u64) as u32
     };
 
     let evidence_count = [
@@ -431,7 +455,11 @@ fn quality_assessment(product: &Product) -> QualityAssessment {
     .count();
     let confidence_bps = (evidence_count as u32 * 2_000).min(SCORE_MAX);
 
-    QualityAssessment { score_bps: score, confidence_bps, reasons }
+    QualityAssessment {
+        score_bps: score,
+        confidence_bps,
+        reasons,
+    }
 }
 
 fn economics_assessment(product: &Product, coupons: &[Coupon]) -> EconomicsAssessment {
@@ -505,7 +533,11 @@ fn content_fit(product: &Product, query: &ProductSearchQuery) -> u32 {
             score += 4_000;
         }
     }
-    if checks == 0 { 5_000 } else { (score / checks).min(SCORE_MAX) }
+    if checks == 0 {
+        5_000
+    } else {
+        (score / checks).min(SCORE_MAX)
+    }
 }
 
 fn coupon_score(coupons: &[Coupon]) -> u32 {
@@ -513,12 +545,26 @@ fn coupon_score(coupons: &[Coupon]) -> u32 {
         .iter()
         .filter_map(|c| c.discount_bps)
         .max()
-        .unwrap_or_else(|| if coupons.iter().any(|c| c.code.is_some()) { 3_000 } else { 0 })
+        .unwrap_or_else(|| {
+            if coupons.iter().any(|c| c.code.is_some()) {
+                3_000
+            } else {
+                0
+            }
+        })
         .min(SCORE_MAX)
 }
 
-fn confidence(product: &Product, quality: &QualityAssessment, economics: &EconomicsAssessment) -> u32 {
-    let source_signal = if product.source.trim().is_empty() { 0 } else { 1_000 };
+fn confidence(
+    product: &Product,
+    quality: &QualityAssessment,
+    economics: &EconomicsAssessment,
+) -> u32 {
+    let source_signal = if product.source.trim().is_empty() {
+        0
+    } else {
+        1_000
+    };
     ((quality.confidence_bps as u64 + economics.confidence_bps as u64 + source_signal as u64) / 3)
         .min(SCORE_MAX as u64) as u32
 }
@@ -589,7 +635,10 @@ fn is_iso_date(value: &str) -> bool {
     value.len() == 10
         && bytes.get(4) == Some(&b'-')
         && bytes.get(7) == Some(&b'-')
-        && bytes.iter().enumerate().all(|(i, b)| matches!(i, 4 | 7) || b.is_ascii_digit())
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(i, b)| matches!(i, 4 | 7) || b.is_ascii_digit())
 }
 
 pub struct MockProvider {
@@ -677,9 +726,15 @@ impl Default for MockProvider {
 
 #[async_trait]
 impl AffiliateProvider for MockProvider {
-    fn name(&self) -> &'static str { "mock" }
-    async fn products(&self) -> Result<Vec<Product>, AffiliateError> { Ok(self.products.clone()) }
-    async fn coupons(&self) -> Result<Vec<Coupon>, AffiliateError> { Ok(self.coupons.clone()) }
+    fn name(&self) -> &'static str {
+        "mock"
+    }
+    async fn products(&self) -> Result<Vec<Product>, AffiliateError> {
+        Ok(self.products.clone())
+    }
+    async fn coupons(&self) -> Result<Vec<Coupon>, AffiliateError> {
+        Ok(self.coupons.clone())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -739,7 +794,9 @@ impl AwinProvider {
             product_feed_url,
             publisher_id,
             access_token,
-            commission_map: parse_commission_map(&std::env::var("AWIN_COMMISSION_MAP").unwrap_or_default()),
+            commission_map: parse_commission_map(
+                &std::env::var("AWIN_COMMISSION_MAP").unwrap_or_default(),
+            ),
             auto_fetch_commissions,
             max_commission_advertisers,
             cache_ttl,
@@ -758,23 +815,34 @@ impl AwinProvider {
                 .send()
                 .await
                 .map_err(|e| AffiliateError::Provider(e.to_string()))?;
-            if (candidate.status().as_u16() == 429 || candidate.status().is_server_error()) && attempt < 2 {
+            if (candidate.status().as_u16() == 429 || candidate.status().is_server_error())
+                && attempt < 2
+            {
                 tokio::time::sleep(Duration::from_millis(250 * (1_u64 << attempt))).await;
                 continue;
             }
             response = Some(candidate);
             break;
         }
-        let response = response.ok_or_else(|| AffiliateError::Provider("affiliate feed retry loop exhausted".into()))?;
+        let response = response.ok_or_else(|| {
+            AffiliateError::Provider("affiliate feed retry loop exhausted".into())
+        })?;
         if !response.status().is_success() {
-            return Err(AffiliateError::Provider(format!("Awin product feed HTTP {}", response.status())));
+            return Err(AffiliateError::Provider(format!(
+                "Awin product feed HTTP {}",
+                response.status()
+            )));
         }
         if let Some(length) = response.content_length() {
             if length as usize > MAX_FEED_BYTES {
                 return Err(AffiliateError::PayloadTooLarge);
             }
         }
-        let mut body = response.bytes().await.map_err(|e| AffiliateError::Provider(e.to_string()))?.to_vec();
+        let mut body = response
+            .bytes()
+            .await
+            .map_err(|e| AffiliateError::Provider(e.to_string()))?
+            .to_vec();
         if body.len() > MAX_FEED_BYTES {
             return Err(AffiliateError::PayloadTooLarge);
         }
@@ -789,17 +857,25 @@ impl AwinProvider {
             body = decompressed;
         }
         let delimiter = detect_delimiter(&body);
-        let mut products = parse_awin_feed(&body, delimiter, self.minor_units, &self.commission_map)?;
+        let mut products =
+            parse_awin_feed(&body, delimiter, self.minor_units, &self.commission_map)?;
         if self.auto_fetch_commissions {
             self.enrich_commission_rates(&mut products).await?;
         }
         Ok(products)
     }
 
-    async fn enrich_commission_rates(&self, products: &mut [Product]) -> Result<(), AffiliateError> {
+    async fn enrich_commission_rates(
+        &self,
+        products: &mut [Product],
+    ) -> Result<(), AffiliateError> {
         let mut advertisers = Vec::new();
         for product in products.iter() {
-            if product.commission_rate_bps.is_none() && !advertisers.iter().any(|v: &String| v == &product.advertiser_id) {
+            if product.commission_rate_bps.is_none()
+                && !advertisers
+                    .iter()
+                    .any(|v: &String| v == &product.advertiser_id)
+            {
                 advertisers.push(product.advertiser_id.clone());
                 if advertisers.len() >= self.max_commission_advertisers {
                     break;
@@ -825,16 +901,23 @@ impl AwinProvider {
                     .send()
                     .await
                     .map_err(|e| AffiliateError::Provider(e.to_string()))?;
-                if (candidate.status().as_u16() == 429 || candidate.status().is_server_error()) && attempt < 2 {
+                if (candidate.status().as_u16() == 429 || candidate.status().is_server_error())
+                    && attempt < 2
+                {
                     tokio::time::sleep(Duration::from_millis(250 * (1_u64 << attempt))).await;
                     continue;
                 }
                 response = Some(candidate);
                 break;
             }
-            let response = response.ok_or_else(|| AffiliateError::Provider("Awin commission-group retry loop exhausted".into()))?;
+            let response = response.ok_or_else(|| {
+                AffiliateError::Provider("Awin commission-group retry loop exhausted".into())
+            })?;
             if !response.status().is_success() {
-                return Err(AffiliateError::Provider(format!("Awin commission groups HTTP {}", response.status())));
+                return Err(AffiliateError::Provider(format!(
+                    "Awin commission groups HTTP {}",
+                    response.status()
+                )));
             }
 
             let value = response
@@ -842,14 +925,23 @@ impl AwinProvider {
                 .await
                 .map_err(|e| AffiliateError::Parse(e.to_string()))?;
             let groups = parse_awin_commission_groups(&value)?;
-            for product in products.iter_mut().filter(|p| p.advertiser_id == advertiser_id) {
+            for product in products
+                .iter_mut()
+                .filter(|p| p.advertiser_id == advertiser_id)
+            {
                 if product.commission_rate_bps.is_some() {
                     continue;
                 }
                 let rate = match product.commission_group.as_deref() {
-                    Some(group_code) => groups.iter().find(|g| g.code.eq_ignore_ascii_case(group_code)),
+                    Some(group_code) => groups
+                        .iter()
+                        .find(|g| g.code.eq_ignore_ascii_case(group_code)),
                     None => groups.iter().find(|g| g.is_default).or_else(|| {
-                        if groups.len() == 1 { groups.first() } else { None }
+                        if groups.len() == 1 {
+                            groups.first()
+                        } else {
+                            None
+                        }
                     }),
                 };
                 if let Some(group) = rate {
@@ -891,16 +983,23 @@ impl AwinProvider {
                     .send()
                     .await
                     .map_err(|e| AffiliateError::Provider(e.to_string()))?;
-                if (candidate.status().as_u16() == 429 || candidate.status().is_server_error()) && attempt < 2 {
+                if (candidate.status().as_u16() == 429 || candidate.status().is_server_error())
+                    && attempt < 2
+                {
                     tokio::time::sleep(Duration::from_millis(250 * (1_u64 << attempt))).await;
                     continue;
                 }
                 response = Some(candidate);
                 break;
             }
-            let response = response.ok_or_else(|| AffiliateError::Provider("Awin offer retry loop exhausted".into()))?;
+            let response = response.ok_or_else(|| {
+                AffiliateError::Provider("Awin offer retry loop exhausted".into())
+            })?;
             if !response.status().is_success() {
-                return Err(AffiliateError::Provider(format!("Awin offers HTTP {}", response.status())));
+                return Err(AffiliateError::Provider(format!(
+                    "Awin offers HTTP {}",
+                    response.status()
+                )));
             }
             let value = response
                 .json::<serde_json::Value>()
@@ -914,7 +1013,9 @@ impl AwinProvider {
             }
             page += 1;
             if page > 500 {
-                return Err(AffiliateError::Provider("offer pagination safety limit exceeded".into()));
+                return Err(AffiliateError::Provider(
+                    "offer pagination safety limit exceeded".into(),
+                ));
             }
         }
         Ok(all)
@@ -923,7 +1024,9 @@ impl AwinProvider {
 
 #[async_trait]
 impl AffiliateProvider for AwinProvider {
-    fn name(&self) -> &'static str { "awin" }
+    fn name(&self) -> &'static str {
+        "awin"
+    }
 
     async fn products(&self) -> Result<Vec<Product>, AffiliateError> {
         {
@@ -935,7 +1038,10 @@ impl AffiliateProvider for AwinProvider {
             }
         }
         let fresh = self.refresh_products().await?;
-        *self.products_cache.write().await = Some(Cache { loaded_at: Instant::now(), value: fresh.clone() });
+        *self.products_cache.write().await = Some(Cache {
+            loaded_at: Instant::now(),
+            value: fresh.clone(),
+        });
         Ok(fresh)
     }
 
@@ -949,7 +1055,10 @@ impl AffiliateProvider for AwinProvider {
             }
         }
         let fresh = self.refresh_coupons().await?;
-        *self.coupons_cache.write().await = Some(Cache { loaded_at: Instant::now(), value: fresh.clone() });
+        *self.coupons_cache.write().await = Some(Cache {
+            loaded_at: Instant::now(),
+            value: fresh.clone(),
+        });
         Ok(fresh)
     }
 }
@@ -957,7 +1066,9 @@ impl AffiliateProvider for AwinProvider {
 fn parse_commission_map(value: &str) -> HashMap<String, u32> {
     let mut result = HashMap::new();
     for item in value.split(',').map(str::trim).filter(|v| !v.is_empty()) {
-        let Some((key, raw)) = item.split_once('=') else { continue };
+        let Some((key, raw)) = item.split_once('=') else {
+            continue;
+        };
         if let Ok(bps) = raw.trim().parse::<u32>() {
             result.insert(key.trim().to_owned(), bps.min(SCORE_MAX));
         }
@@ -970,7 +1081,11 @@ fn detect_delimiter(body: &[u8]) -> u8 {
     let line = &body[..first_line_end];
     let comma = line.iter().filter(|b| **b == b',').count();
     let tab = line.iter().filter(|b| **b == b'\t').count();
-    if tab > comma { b'\t' } else { b',' }
+    if tab > comma {
+        b'\t'
+    } else {
+        b','
+    }
 }
 
 fn parse_awin_feed(
@@ -996,19 +1111,29 @@ fn parse_awin_feed(
     for row in reader.records() {
         let row = row.map_err(|e| AffiliateError::Parse(e.to_string()))?;
         let get = |name: &str| field(&headers, &row, name);
-        let id = first_nonempty(&[get("aw_product_id"), get("product_id"), get("merchant_product_id")])
-            .ok_or_else(|| AffiliateError::Parse("product row missing product id".into()))?;
+        let id = first_nonempty(&[
+            get("aw_product_id"),
+            get("product_id"),
+            get("merchant_product_id"),
+        ])
+        .ok_or_else(|| AffiliateError::Parse("product row missing product id".into()))?;
         let advertiser_id = first_nonempty(&[get("merchant_id"), get("advertiser_id")])
             .unwrap_or_else(|| "unknown".into());
         let name = first_nonempty(&[get("product_name"), get("name")])
             .unwrap_or_else(|| "Unnamed product".into());
-        let price_raw = first_nonempty(&[get("search_price"), get("store_price"), get("base_price_amount")]);
+        let price_raw = first_nonempty(&[
+            get("search_price"),
+            get("store_price"),
+            get("base_price_amount"),
+        ]);
         let currency = first_nonempty(&[get("currency")]).unwrap_or_else(|| "USD".into());
 
         let Some(price_raw) = price_raw else { continue };
         let row_minor_units = minor_units_for_currency(&currency, minor_units);
         let price_minor = parse_decimal_minor(&price_raw, row_minor_units)?;
-        if price_minor < 0 { continue; }
+        if price_minor < 0 {
+            continue;
+        }
 
         let category = first_nonempty(&[
             get("category_name"),
@@ -1040,20 +1165,35 @@ fn parse_awin_feed(
         let commission_group = get("commission_group");
         let commission_rate_bps = commission_group
             .as_deref()
-            .and_then(|group| commission_map.get(&format!("{advertiser_id}:{group}")).copied())
+            .and_then(|group| {
+                commission_map
+                    .get(&format!("{advertiser_id}:{group}"))
+                    .copied()
+            })
             .or_else(|| commission_map.get(&advertiser_id).copied());
 
         products.push(Product {
             id,
-            gtin: first_nonempty(&[get("product_GTIN"), get("product_gtin"), get("ean"), get("upc")]),
+            gtin: first_nonempty(&[
+                get("product_GTIN"),
+                get("product_gtin"),
+                get("ean"),
+                get("upc"),
+            ]),
             advertiser_id,
             advertiser_name: get("merchant_name"),
             name,
-            description: first_nonempty(&[get("description"), get("product_short_description")]).unwrap_or_default(),
+            description: first_nonempty(&[get("description"), get("product_short_description")])
+                .unwrap_or_default(),
             category,
             brand: get("brand_name"),
-            url: first_nonempty(&[get("aw_deep_link"), get("merchant_deep_link")]).unwrap_or_default(),
-            image_url: first_nonempty(&[get("aw_image_url"), get("merchant_image_url"), get("large_image")]),
+            url: first_nonempty(&[get("aw_deep_link"), get("merchant_deep_link")])
+                .unwrap_or_default(),
+            image_url: first_nonempty(&[
+                get("aw_image_url"),
+                get("merchant_image_url"),
+                get("large_image"),
+            ]),
             price_minor,
             old_price_minor: first_nonempty(&[get("product_price_old"), get("rrp_price")])
                 .and_then(|v| parse_decimal_minor(&v, row_minor_units).ok()),
@@ -1065,7 +1205,7 @@ fn parse_awin_feed(
             savings_bps,
             seller_reputation_bps: None,
             refund_rate_bps: None,
-        delivery_reliability_bps: None,
+            delivery_reliability_bps: None,
             commission_group,
             commission_rate_bps,
             source: "awin_product_feed".into(),
@@ -1077,11 +1217,16 @@ fn parse_awin_feed(
 
 fn field(headers: &[String], row: &csv::StringRecord, name: &str) -> Option<String> {
     let index = headers.iter().position(|h| h == name)?;
-    row.get(index).map(str::trim).filter(|v| !v.is_empty()).map(ToOwned::to_owned)
+    row.get(index)
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 fn first_nonempty(values: &[Option<String>]) -> Option<String> {
-    values.iter().find_map(|v| v.clone().filter(|s| !s.trim().is_empty()))
+    values
+        .iter()
+        .find_map(|v| v.clone().filter(|s| !s.trim().is_empty()))
 }
 
 fn parse_decimal_minor(value: &str, minor_units: u32) -> Result<i128, AffiliateError> {
@@ -1091,23 +1236,39 @@ fn parse_decimal_minor(value: &str, minor_units: u32) -> Result<i128, AffiliateE
     let mut pieces = unsigned.split('.');
     let whole = pieces.next().unwrap_or("0");
     let fractional = pieces.next().unwrap_or("");
-    if pieces.next().is_some() || !whole.chars().all(|c| c.is_ascii_digit()) || !fractional.chars().all(|c| c.is_ascii_digit()) {
-        return Err(AffiliateError::Parse(format!("invalid decimal price: {value}")));
+    if pieces.next().is_some()
+        || !whole.chars().all(|c| c.is_ascii_digit())
+        || !fractional.chars().all(|c| c.is_ascii_digit())
+    {
+        return Err(AffiliateError::Parse(format!(
+            "invalid decimal price: {value}"
+        )));
     }
     let scale = 10_i128.pow(minor_units);
-    let whole_value = whole.parse::<i128>().map_err(|_| AffiliateError::Parse("price overflow".into()))?;
+    let whole_value = whole
+        .parse::<i128>()
+        .map_err(|_| AffiliateError::Parse("price overflow".into()))?;
     let mut fraction = fractional.to_owned();
     if fraction.len() > minor_units as usize {
-        if fraction.as_bytes()[minor_units as usize..].iter().any(|b| *b != b'0') {
-            return Err(AffiliateError::Parse(format!("price has more precision than currency allows: {value}")));
+        if fraction.as_bytes()[minor_units as usize..]
+            .iter()
+            .any(|b| *b != b'0')
+        {
+            return Err(AffiliateError::Parse(format!(
+                "price has more precision than currency allows: {value}"
+            )));
         }
         fraction.truncate(minor_units as usize);
     }
     while fraction.len() < minor_units as usize {
         fraction.push('0');
     }
-    let fractional_value = if fraction.is_empty() { 0 } else {
-        fraction.parse::<i128>().map_err(|_| AffiliateError::Parse("price overflow".into()))?
+    let fractional_value = if fraction.is_empty() {
+        0
+    } else {
+        fraction
+            .parse::<i128>()
+            .map_err(|_| AffiliateError::Parse("price overflow".into()))?
     };
     let result = whole_value
         .checked_mul(scale)
@@ -1140,8 +1301,16 @@ fn parse_rating_bps(value: &str) -> Option<u32> {
 
 fn parse_percent_bps(value: &str) -> Option<u32> {
     let raw = value.trim().trim_end_matches('%').parse::<f64>().ok()?;
-    if !raw.is_finite() || raw < 0.0 { return None; }
-    let bps = if raw <= 1.0 { raw * SCORE_MAX as f64 } else if raw <= 100.0 { raw * 100.0 } else { raw };
+    if !raw.is_finite() || raw < 0.0 {
+        return None;
+    }
+    let bps = if raw <= 1.0 {
+        raw * SCORE_MAX as f64
+    } else if raw <= 100.0 {
+        raw * 100.0
+    } else {
+        raw
+    };
     Some(bps.round().min(SCORE_MAX as f64) as u32)
 }
 
@@ -1174,22 +1343,52 @@ struct ParsedCommissionGroup {
     percentage_bps: Option<u32>,
 }
 
-fn parse_awin_commission_groups(value: &serde_json::Value) -> Result<Vec<ParsedCommissionGroup>, AffiliateError> {
+fn parse_awin_commission_groups(
+    value: &serde_json::Value,
+) -> Result<Vec<ParsedCommissionGroup>, AffiliateError> {
     let groups_value = match value {
         serde_json::Value::Array(items) => serde_json::Value::Array(items.clone()),
-        serde_json::Value::Object(map) => map.get("commissionGroups")
+        serde_json::Value::Object(map) => map
+            .get("commissionGroups")
             .cloned()
-            .or_else(|| map.get("data").and_then(|d| d.get("commissionGroups")).cloned())
-            .ok_or_else(|| AffiliateError::Parse("Awin commission-group response missing commissionGroups".into()))?,
-        _ => return Err(AffiliateError::Parse("Awin commission-group response must be an array/object".into())),
+            .or_else(|| {
+                map.get("data")
+                    .and_then(|d| d.get("commissionGroups"))
+                    .cloned()
+            })
+            .ok_or_else(|| {
+                AffiliateError::Parse(
+                    "Awin commission-group response missing commissionGroups".into(),
+                )
+            })?,
+        _ => {
+            return Err(AffiliateError::Parse(
+                "Awin commission-group response must be an array/object".into(),
+            ))
+        }
     };
-    let items = groups_value.as_array().ok_or_else(|| AffiliateError::Parse("Awin commissionGroups must be an array".into()))?;
+    let items = groups_value
+        .as_array()
+        .ok_or_else(|| AffiliateError::Parse("Awin commissionGroups must be an array".into()))?;
     let mut out = Vec::new();
     for item in items {
-        let code = item.get("groupCode").and_then(|v| v.as_str()).unwrap_or_default().trim().to_owned();
-        if code.is_empty() { continue; }
-        let name = item.get("groupName").and_then(|v| v.as_str()).unwrap_or_default();
-        let kind = item.get("type").and_then(|v| v.as_str()).unwrap_or_default();
+        let code = item
+            .get("groupCode")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        if code.is_empty() {
+            continue;
+        }
+        let name = item
+            .get("groupName")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let kind = item
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
         let percentage_bps = if kind.eq_ignore_ascii_case("percentage") {
             item.get("percentage")
                 .and_then(|v| v.as_f64())
@@ -1198,9 +1397,13 @@ fn parse_awin_commission_groups(value: &serde_json::Value) -> Result<Vec<ParsedC
         } else {
             None
         };
-        let is_default = code.eq_ignore_ascii_case("default")
-            || name.to_ascii_lowercase().contains("default");
-        out.push(ParsedCommissionGroup { code, is_default, percentage_bps });
+        let is_default =
+            code.eq_ignore_ascii_case("default") || name.to_ascii_lowercase().contains("default");
+        out.push(ParsedCommissionGroup {
+            code,
+            is_default,
+            percentage_bps,
+        });
     }
     Ok(out)
 }
@@ -1221,9 +1424,15 @@ fn parse_awin_offers(value: &serde_json::Value) -> Result<Vec<Coupon>, Affiliate
                     return parse_offer_array(items);
                 }
             }
-            return Err(AffiliateError::Parse("Awin offer response did not contain an array".into()));
+            return Err(AffiliateError::Parse(
+                "Awin offer response did not contain an array".into(),
+            ));
         }
-        _ => return Err(AffiliateError::Parse("Awin offer response must be an array/object".into())),
+        _ => {
+            return Err(AffiliateError::Parse(
+                "Awin offer response must be an array/object".into(),
+            ))
+        }
     };
     parse_offer_array(&items)
 }
@@ -1233,8 +1442,14 @@ fn parse_offer_array(items: &[serde_json::Value]) -> Result<Vec<Coupon>, Affilia
     for item in items {
         let raw: AwinOffer = serde_json::from_value(item.clone())
             .map_err(|e| AffiliateError::Parse(e.to_string()))?;
-        let advertiser_id = raw.advertiser.as_ref().and_then(|v| v.id).map(|v| v.to_string());
-        let Some(advertiser_id) = advertiser_id else { continue };
+        let advertiser_id = raw
+            .advertiser
+            .as_ref()
+            .and_then(|v| v.id)
+            .map(|v| v.to_string());
+        let Some(advertiser_id) = advertiser_id else {
+            continue;
+        };
         let title = raw.title.unwrap_or_else(|| "Awin promotion".into());
         let description = raw.description.unwrap_or_default();
         let id = raw
@@ -1254,8 +1469,16 @@ fn parse_offer_array(items: &[serde_json::Value]) -> Result<Vec<Coupon>, Affilia
             starts_at: raw.start_date,
             ends_at: raw.end_date,
             active: true,
-            exclusive: raw.voucher.as_ref().and_then(|v| v.exclusive).unwrap_or(false),
-            attributable: raw.voucher.as_ref().and_then(|v| v.attributable).unwrap_or(false),
+            exclusive: raw
+                .voucher
+                .as_ref()
+                .and_then(|v| v.exclusive)
+                .unwrap_or(false),
+            attributable: raw
+                .voucher
+                .as_ref()
+                .and_then(|v| v.attributable)
+                .unwrap_or(false),
             url: raw.url_tracking.or(raw.url),
             source: "awin_offers_api".into(),
         });
@@ -1323,7 +1546,13 @@ mod tests {
 
     #[test]
     fn high_commission_does_not_automatically_outvote_quality() {
-        let quality = product("quality", "Quality Phone", Some(1_500), Some(9_600), Some(5_000));
+        let quality = product(
+            "quality",
+            "Quality Phone",
+            Some(1_500),
+            Some(9_600),
+            Some(5_000),
+        );
         let high_commission = Product {
             id: "commission".into(),
             advertiser_id: "commission".into(),
@@ -1404,7 +1633,10 @@ mod tests {
         let result = rank_products(&products, &[], &query);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].product.id, "a");
-        assert_eq!(result[0].score_bps, rank_products(&products, &[], &query)[0].score_bps);
+        assert_eq!(
+            result[0].score_bps,
+            rank_products(&products, &[], &query)[0].score_bps
+        );
     }
 
     #[test]

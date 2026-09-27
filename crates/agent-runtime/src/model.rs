@@ -101,11 +101,14 @@ impl Model for OpenAiCompatibleModel {
             .map_err(|e| ModelError::Transport(e.to_string()))?;
 
         if body.len() > 1_048_576 {
-            return Err(ModelError::InvalidResponse("model response exceeds 1 MiB safety limit".into()));
+            return Err(ModelError::InvalidResponse(
+                "model response exceeds 1 MiB safety limit".into(),
+            ));
         }
 
-        let envelope: Value = serde_json::from_str(&body)
-            .map_err(|e| ModelError::InvalidResponse(format!("provider response is not JSON: {e}")))?;
+        let envelope: Value = serde_json::from_str(&body).map_err(|e| {
+            ModelError::InvalidResponse(format!("provider response is not JSON: {e}"))
+        })?;
 
         let content = envelope
             .get("choices")
@@ -113,7 +116,9 @@ impl Model for OpenAiCompatibleModel {
             .and_then(|v| v.get("message"))
             .and_then(|v| v.get("content"))
             .and_then(Value::as_str)
-            .ok_or_else(|| ModelError::InvalidResponse("missing choices[0].message.content".into()))?;
+            .ok_or_else(|| {
+                ModelError::InvalidResponse("missing choices[0].message.content".into())
+            })?;
 
         let normalized = content
             .trim()
@@ -131,11 +136,14 @@ pub struct OllamaModel(OpenAiCompatibleModel);
 
 impl OllamaModel {
     pub fn from_env() -> Self {
-        let base_url = env::var("OLLAMA_BASE_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:11434/v1".into());
-        let model = env::var("OLLAMA_MODEL")
-            .unwrap_or_else(|_| "qwen3:4b".into());
-        Self(OpenAiCompatibleModel::new(base_url, Some("ollama".into()), model))
+        let base_url =
+            env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:11434/v1".into());
+        let model = env::var("OLLAMA_MODEL").unwrap_or_else(|_| "qwen3:4b".into());
+        Self(OpenAiCompatibleModel::new(
+            base_url,
+            Some("ollama".into()),
+            model,
+        ))
     }
 }
 
@@ -190,7 +198,9 @@ pub fn model_from_env() -> Box<dyn Model> {
             let key = env::var("LLM_API_KEY").ok();
             let model = env::var("LLM_MODEL").ok();
             match (base_url, model) {
-                (Some(base_url), Some(model)) => Box::new(OpenAiCompatibleModel::new(base_url, key, model)),
+                (Some(base_url), Some(model)) => {
+                    Box::new(OpenAiCompatibleModel::new(base_url, key, model))
+                }
                 _ => Box::new(MockModel),
             }
         }
@@ -214,7 +224,9 @@ mod tests {
         #[async_trait]
         impl Model for BadModel {
             async fn propose_json(&self, _: &str, _: &str) -> Result<Value, ModelError> {
-                Err(ModelError::InvalidResponse("content is not valid JSON".into()))
+                Err(ModelError::InvalidResponse(
+                    "content is not valid JSON".into(),
+                ))
             }
         }
 

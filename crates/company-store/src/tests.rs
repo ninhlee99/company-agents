@@ -1,8 +1,9 @@
-use agent_runtime::{
-    types::{AgentRole, ActionKind, GovernorDecision, Permission, Proposal, RiskTier, AgentRunResult, CompanySnapshot},
+use super::CompanyStore;
+use agent_runtime::types::{
+    ActionKind, AgentRole, AgentRunResult, CompanySnapshot, GovernorDecision, Permission, Proposal,
+    RiskTier,
 };
 use economic_core::CompanyStatus;
-use super::CompanyStore;
 
 #[tokio::test]
 async fn postgres_round_trip_persists_snapshot_and_agent_runs() {
@@ -15,7 +16,10 @@ async fn postgres_round_trip_persists_snapshot_and_agent_runs() {
     store.migrate().await.unwrap();
 
     let company_id = uuid::Uuid::new_v4().to_string();
-    store.ensure_company(&company_id, "Integration Test Company", "USD").await.unwrap();
+    store
+        .ensure_company(&company_id, "Integration Test Company", "USD")
+        .await
+        .unwrap();
 
     let snapshot = CompanySnapshot {
         company_id: company_id.clone(),
@@ -89,5 +93,8 @@ async fn invalid_company_id_is_rejected() {
     };
 
     let store = CompanyStore::connect(&database_url).await.unwrap();
-    assert!(store.ensure_company("not-a-uuid", "bad", "USD").await.is_err());
+    assert!(store
+        .ensure_company("not-a-uuid", "bad", "USD")
+        .await
+        .is_err());
 }

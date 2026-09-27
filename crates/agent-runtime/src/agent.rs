@@ -29,7 +29,11 @@ pub trait Agent: Send + Sync {
     fn role(&self) -> AgentRole;
     fn permission(&self) -> Permission;
     fn system_prompt(&self) -> &'static str;
-    async fn propose(&self, ctx: &AgentContext, model: Arc<dyn Model>) -> Result<Proposal, AgentError>;
+    async fn propose(
+        &self,
+        ctx: &AgentContext,
+        model: Arc<dyn Model>,
+    ) -> Result<Proposal, AgentError>;
 }
 
 pub fn proposal_confidence(value: f64) -> u16 {
