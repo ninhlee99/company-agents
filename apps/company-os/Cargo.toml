@@ -7,6 +7,7 @@ edition = "2021"
 agent-runtime = { path = "../../crates/agent-runtime" }
 affiliate-intelligence = { path = "../../crates/affiliate-intelligence" }
 company-store = { path = "../../crates/company-store" }
+company-domain = { path = "../../crates/company-domain" }
 axum = "0.8"
 economic-core = { path = "../../crates/economic-core" }
 serde = { version = "1", features = ["derive"] }
