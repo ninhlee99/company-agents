@@ -35,7 +35,11 @@ impl AgentRuntime {
     }
 
     pub async fn run_all(&self, company: CompanySnapshot) -> Vec<AgentRunResult> {
-        let ctx = AgentContext { company };
+        self.run_all_with_timeout(company, std::time::Duration::from_millis(15_000)).await
+    }
+
+    pub async fn run_all_with_timeout(&self, company: CompanySnapshot, model_timeout: std::time::Duration) -> Vec<AgentRunResult> {
+        let ctx = AgentContext { company, model_timeout };
         let governor = &self.governor;
         let model = self.model.clone();
         let concurrency = self.concurrency.clone();
