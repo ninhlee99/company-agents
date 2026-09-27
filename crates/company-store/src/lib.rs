@@ -68,6 +68,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/006_affiliate_reconciliation_state.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/007_organization_payroll.sql"
+            ))
             .await
     }
 
