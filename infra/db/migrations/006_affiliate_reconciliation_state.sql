@@ -31,6 +31,9 @@ ALTER TABLE affiliate_conversions
   ALTER COLUMN reconciliation_status SET DEFAULT 'PARTIAL';
 
 ALTER TABLE affiliate_conversions
+  ALTER COLUMN reconciliation_status SET NOT NULL;
+
+ALTER TABLE affiliate_conversions
   DROP CONSTRAINT IF EXISTS affiliate_conversions_reconciliation_status_check;
 
 ALTER TABLE affiliate_conversions
