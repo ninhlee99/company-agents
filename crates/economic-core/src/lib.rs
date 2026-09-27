@@ -101,7 +101,25 @@ pub struct CompanyState {
 
 impl CompanyState {
     pub fn free_cash_flow(&self) -> i128 {
-        self.revenue_minor - self.expenses_minor
+        self.revenue_minor.saturating_sub(self.expenses_minor)
+    }
+
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.company_id.trim().is_empty() {
+            return Err("company id is required");
+        }
+        if self.cash_minor < 0
+            || self.revenue_minor < 0
+            || self.expenses_minor < 0
+            || self.liabilities_minor < 0
+            || self.assets_minor < 0
+        {
+            return Err("company economic values cannot be negative");
+        }
+        if self.runway_days < 0 {
+            return Err("runway cannot be negative");
+        }
+        Ok(())
     }
     pub fn can_spend(&self, budget: &Budget, amount_minor: i128) -> bool {
         amount_minor > 0
@@ -168,13 +186,26 @@ pub fn spend_from_budget(
     if !state.can_spend(budget, amount_minor) {
         return Err("spend rejected by company or budget policy");
     }
+    let next_cash = state
+        .cash_minor
+        .checked_sub(amount_minor)
+        .ok_or("cash arithmetic overflow")?;
+    let next_expenses = state
+        .expenses_minor
+        .checked_add(amount_minor)
+        .ok_or("expense arithmetic overflow")?;
+    let next_spent = budget
+        .spent_minor
+        .checked_add(amount_minor)
+        .ok_or("budget arithmetic overflow")?;
+
     let next_state = CompanyState {
-        cash_minor: state.cash_minor - amount_minor,
-        expenses_minor: state.expenses_minor + amount_minor,
+        cash_minor: next_cash,
+        expenses_minor: next_expenses,
         ..state.clone()
     };
     let next_budget = Budget {
-        spent_minor: budget.spent_minor + amount_minor,
+        spent_minor: next_spent,
         ..budget.clone()
     };
     Ok((next_state, next_budget))
@@ -306,6 +337,26 @@ mod tests {
     #[test]
     fn zero_burn_has_infinite_runway() {
         assert_eq!(state().runway_days_from_burn(0), i64::MAX);
+    }
+
+    #[test]
+    fn invalid_company_state_is_rejected() {
+        assert!(CompanyState {
+            cash_minor: -1,
+            ..state()
+        }
+        .validate()
+        .is_err());
+    }
+
+    #[test]
+    fn spend_arithmetic_overflow_is_rejected() {
+        let mut s = state();
+        s.expenses_minor = i128::MAX;
+        assert_eq!(
+            spend_from_budget(&s, &budget(), 1),
+            Err("expense arithmetic overflow")
+        );
     }
 
     #[test]
