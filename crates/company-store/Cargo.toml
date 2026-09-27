@@ -1,0 +1,11 @@
+[package]
+name = "company-store"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+agent-runtime = { path = "../agent-runtime" }
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
