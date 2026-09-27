@@ -140,7 +140,10 @@ impl AgentRuntime {
                     }
                 };
                 let memory = if let Some(state) = &state {
-                    match state.admit_model_call(&ctx_company.company_id, agent.role()).await {
+                    match state
+                        .admit_model_call(&ctx_company.company_id, agent.role())
+                        .await
+                    {
                         Ok(()) => state
                             .load_memory(&ctx_company.company_id, agent.role())
                             .await
@@ -155,7 +158,9 @@ impl AgentRuntime {
                                 risk: crate::types::RiskTier::Critical,
                                 confidence_bps: 10_000,
                                 evidence: vec![reason],
-                                rationale: "durable rate limit or state admission failed; execution halted".into(),
+                                rationale:
+                                    "durable rate limit or state admission failed; execution halted"
+                                        .into(),
                                 reversible: true,
                                 requested_permission: crate::types::Permission::Propose,
                             };

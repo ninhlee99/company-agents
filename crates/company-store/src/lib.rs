@@ -906,7 +906,6 @@ async fn update_company_status(
 #[cfg(test)]
 mod tests;
 
-
 #[async_trait::async_trait]
 impl agent_runtime::agent::AgentStateProvider for CompanyStore {
     async fn load_memory(

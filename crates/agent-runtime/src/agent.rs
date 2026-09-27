@@ -1,8 +1,8 @@
 use crate::{model::Model, types::*};
 use async_trait::async_trait;
+use serde_json::Value;
+use serde_json::Value;
 use std::{fmt, sync::Arc, time::Duration};
-use serde_json::Value;
-use serde_json::Value;
 
 #[derive(Debug)]
 pub enum AgentError {

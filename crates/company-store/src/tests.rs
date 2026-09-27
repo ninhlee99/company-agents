@@ -246,7 +246,10 @@ async fn durable_agent_memory_round_trips_and_rate_limit_is_enforced() {
     };
 
     let company_id = uuid::Uuid::new_v4().to_string();
-    store.ensure_company(&company_id, "Memory Test", "USD").await.unwrap();
+    store
+        .ensure_company(&company_id, "Memory Test", "USD")
+        .await
+        .unwrap();
 
     store
         .upsert_agent_memory(

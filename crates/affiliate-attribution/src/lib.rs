@@ -110,10 +110,17 @@ pub fn attribute_conversion(
         .filter(|click| click.advertiser_id == conversion.advertiser_id)
         .cloned()
         .collect::<Vec<_>>();
-    matching.sort_by(|a, b| a.occurred_at.cmp(&b.occurred_at).then_with(|| a.click_id.cmp(&b.click_id)));
+    matching.sort_by(|a, b| {
+        a.occurred_at
+            .cmp(&b.occurred_at)
+            .then_with(|| a.click_id.cmp(&b.click_id))
+    });
 
     let selected = match (&conversion.click_id, model) {
-        (Some(id), _) => matching.into_iter().filter(|c| &c.click_id == id).collect::<Vec<_>>(),
+        (Some(id), _) => matching
+            .into_iter()
+            .filter(|c| &c.click_id == id)
+            .collect::<Vec<_>>(),
         (None, AttributionModel::LastClick) => matching.into_iter().rev().take(1).collect(),
         (None, AttributionModel::FirstClick) => matching.into_iter().take(1).collect(),
         (None, AttributionModel::Linear) => matching,
@@ -134,7 +141,11 @@ pub fn attribute_conversion(
         .order_value_minor
         .checked_sub(conversion.refunded_minor)
         .ok_or(AttributionError::Overflow)?;
-    let net_commission = if conversion.cancelled { 0 } else { conversion.commission_minor };
+    let net_commission = if conversion.cancelled {
+        0
+    } else {
+        conversion.commission_minor
+    };
 
     let n = selected.len() as i128;
     let mut allocated_value = 0_i128;
@@ -143,17 +154,29 @@ pub fn attribute_conversion(
 
     for (index, click) in selected.iter().enumerate() {
         let value = if index + 1 == selected.len() {
-            net_order_value.checked_sub(allocated_value).ok_or(AttributionError::Overflow)?
+            net_order_value
+                .checked_sub(allocated_value)
+                .ok_or(AttributionError::Overflow)?
         } else {
-            net_order_value.checked_div(n).ok_or(AttributionError::Overflow)?
+            net_order_value
+                .checked_div(n)
+                .ok_or(AttributionError::Overflow)?
         };
         let commission = if index + 1 == selected.len() {
-            net_commission.checked_sub(allocated_commission).ok_or(AttributionError::Overflow)?
+            net_commission
+                .checked_sub(allocated_commission)
+                .ok_or(AttributionError::Overflow)?
         } else {
-            net_commission.checked_div(n).ok_or(AttributionError::Overflow)?
+            net_commission
+                .checked_div(n)
+                .ok_or(AttributionError::Overflow)?
         };
-        allocated_value = allocated_value.checked_add(value).ok_or(AttributionError::Overflow)?;
-        allocated_commission = allocated_commission.checked_add(commission).ok_or(AttributionError::Overflow)?;
+        allocated_value = allocated_value
+            .checked_add(value)
+            .ok_or(AttributionError::Overflow)?;
+        allocated_commission = allocated_commission
+            .checked_add(commission)
+            .ok_or(AttributionError::Overflow)?;
 
         out.push(Attribution {
             click_id: click.click_id.clone(),
@@ -161,7 +184,11 @@ pub fn attribute_conversion(
             content_id: click.content_id.clone(),
             attributed_order_value_minor: value,
             attributed_commission_minor: commission,
-            confidence_bps: if conversion.click_id.is_some() { 10_000 } else { 8_000 },
+            confidence_bps: if conversion.click_id.is_some() {
+                10_000
+            } else {
+                8_000
+            },
         });
     }
 
@@ -194,7 +221,9 @@ pub fn summarize_by_content(records: &[ReconciledConversion]) -> HashMap<String,
     let mut out = HashMap::new();
     for record in records {
         for item in &record.attributed {
-            let entry = out.entry(item.content_id.clone()).or_insert((0_i128, 0_i128));
+            let entry = out
+                .entry(item.content_id.clone())
+                .or_insert((0_i128, 0_i128));
             entry.0 = entry.0.saturating_add(item.attributed_order_value_minor);
             entry.1 = entry.1.saturating_add(item.attributed_commission_minor);
         }
@@ -238,9 +267,13 @@ mod tests {
     fn last_click_attribution_is_deterministic() {
         let result = attribute_conversion(
             &conversion("1"),
-            &[click("c1", "video-a", "2026-09-27T09:00:00Z"), click("c2", "video-b", "2026-09-27T09:30:00Z")],
+            &[
+                click("c1", "video-a", "2026-09-27T09:00:00Z"),
+                click("c2", "video-b", "2026-09-27T09:30:00Z"),
+            ],
             AttributionModel::LastClick,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(result.attributed.len(), 1);
         assert_eq!(result.attributed[0].content_id, "video-b");
         assert_eq!(result.net_commission_minor, 101);
@@ -251,15 +284,27 @@ mod tests {
     fn linear_model_conserves_order_value_and_commission() {
         let result = attribute_conversion(
             &conversion("2"),
-            &[click("c1", "a", "2026-09-27T09:00:00Z"), click("c2", "b", "2026-09-27T09:30:00Z")],
+            &[
+                click("c1", "a", "2026-09-27T09:00:00Z"),
+                click("c2", "b", "2026-09-27T09:30:00Z"),
+            ],
             AttributionModel::Linear,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(
-            result.attributed.iter().map(|v| v.attributed_order_value_minor).sum::<i128>(),
+            result
+                .attributed
+                .iter()
+                .map(|v| v.attributed_order_value_minor)
+                .sum::<i128>(),
             1_001
         );
         assert_eq!(
-            result.attributed.iter().map(|v| v.attributed_commission_minor).sum::<i128>(),
+            result
+                .attributed
+                .iter()
+                .map(|v| v.attributed_commission_minor)
+                .sum::<i128>(),
             101
         );
     }
@@ -270,11 +315,15 @@ mod tests {
         c.order_value_minor = 1_000;
         c.refunded_minor = 400;
         c.commission_minor = 100;
-        let result = attribute_conversion(&c, &[click("c1", "a", "t")], AttributionModel::LastClick).unwrap();
+        let result =
+            attribute_conversion(&c, &[click("c1", "a", "t")], AttributionModel::LastClick)
+                .unwrap();
         assert_eq!(result.attributed[0].attributed_order_value_minor, 600);
 
         c.cancelled = true;
-        let result = attribute_conversion(&c, &[click("c1", "a", "t")], AttributionModel::LastClick).unwrap();
+        let result =
+            attribute_conversion(&c, &[click("c1", "a", "t")], AttributionModel::LastClick)
+                .unwrap();
         assert_eq!(result.net_commission_minor, 0);
     }
 
@@ -282,13 +331,16 @@ mod tests {
     fn explicit_click_has_maximum_confidence() {
         let mut c = conversion("4");
         c.click_id = Some("c1".into());
-        let result = attribute_conversion(&c, &[click("c1", "a", "t")], AttributionModel::LastClick).unwrap();
+        let result =
+            attribute_conversion(&c, &[click("c1", "a", "t")], AttributionModel::LastClick)
+                .unwrap();
         assert_eq!(result.attributed[0].confidence_bps, 10_000);
     }
 
     #[test]
     fn unmatched_conversion_is_partial_not_invented() {
-        let result = attribute_conversion(&conversion("5"), &[], AttributionModel::LastClick).unwrap();
+        let result =
+            attribute_conversion(&conversion("5"), &[], AttributionModel::LastClick).unwrap();
         assert_eq!(result.status, ReconciliationStatus::Partial);
         assert_eq!(result.net_commission_minor, 0);
         assert_eq!(result.reconciliation_variance_minor, 101);
