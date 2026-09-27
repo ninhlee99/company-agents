@@ -199,6 +199,7 @@ impl RiskTier {
     }
 }
 
+
 impl ActionKind {
     pub fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
@@ -215,9 +216,46 @@ impl ActionKind {
             _ => None,
         }
     }
+
+    pub fn max_cost_minor(self) -> i128 {
+        match self {
+            Self::CreateExperiment | Self::AllocateExperimentBudget | Self::ResearchOpportunity => 500,
+            Self::ProposeHire => 1_000,
+            Self::PublishContent | Self::ProduceReport | Self::ReduceBudget | Self::RebalanceOperations
+            | Self::EscalateIncident | Self::None => 0,
+        }
+    }
+
+    pub fn minimum_risk(self) -> RiskTier {
+        match self {
+            Self::ProposeHire => RiskTier::High,
+            Self::AllocateExperimentBudget | Self::CreateExperiment | Self::ResearchOpportunity
+            | Self::PublishContent => RiskTier::Medium,
+            Self::ReduceBudget | Self::RebalanceOperations | Self::ProduceReport
+            | Self::EscalateIncident | Self::None => RiskTier::Low,
+        }
+    }
+
+    pub fn inherently_material(self) -> bool {
+        matches!(self, Self::ProposeHire | Self::PublishContent)
+    }
 }
 
+
 impl RiskTier {
+    pub fn rank(self) -> u8 {
+        match self {
+            Self::Low => 0,
+            Self::Medium => 1,
+            Self::High => 2,
+            Self::Critical => 3,
+        }
+    }
+
+    pub fn max(self, other: Self) -> Self {
+        if self.rank() >= other.rank() { self } else { other }
+    }
+
     pub fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
             "low" => Some(Self::Low),
@@ -228,3 +266,4 @@ impl RiskTier {
         }
     }
 }
+
