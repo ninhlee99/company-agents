@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 use async_trait::async_trait;
+use hmac::{Hmac, Mac};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -14,6 +15,7 @@ use tokio::sync::RwLock;
 const SCORE_MAX: u32 = 10_000;
 const DEFAULT_HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_FEED_BYTES: usize = 64 * 1024 * 1024;
+const MAX_TIKTOK_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Product {
@@ -180,6 +182,261 @@ impl fmt::Display for AffiliateError {
 }
 
 impl std::error::Error for AffiliateError {}
+
+pub struct TikTokShopProvider {
+    client: Client,
+    base_url: String,
+    search_path: String,
+    access_token: String,
+    app_key: String,
+    app_secret: String,
+    shop_cipher: Option<String>,
+    cache_ttl: Duration,
+    products_cache: RwLock<Option<Cache<Vec<Product>>>>,
+}
+
+impl TikTokShopProvider {
+    pub fn from_env() -> Result<Self, AffiliateError> {
+        let base_url = std::env::var("TTS_BASE_URL")
+            .unwrap_or_else(|_| "https://open-api.tiktokglobalshop.com".into());
+        if !base_url.starts_with("https://") {
+            return Err(AffiliateError::Provider(
+                "TTS_BASE_URL must use HTTPS".into(),
+            ));
+        }
+        let search_path = std::env::var("TTS_AFFILIATE_SEARCH_PATH").unwrap_or_else(|_| {
+            "/affiliate_seller/202405/open_collaborations/products/search".into()
+        });
+        if !search_path.starts_with('/') || search_path.len() > 256 {
+            return Err(AffiliateError::Provider(
+                "TTS_AFFILIATE_SEARCH_PATH is invalid".into(),
+            ));
+        }
+
+        let access_token = secret_from_env("TTS_ACCESS_TOKEN")?;
+        let app_key = std::env::var("TTS_APP_KEY")
+            .map_err(|_| AffiliateError::Provider("TTS_APP_KEY is required".into()))?;
+        let app_secret = secret_from_env("TTS_APP_SECRET")?;
+        if app_key.trim().is_empty() || app_key.len() > 128 || app_secret.len() > 512 {
+            return Err(AffiliateError::Provider(
+                "TTS app credentials are invalid".into(),
+            ));
+        }
+
+        let shop_cipher = std::env::var("TTS_SHOP_CIPHER")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .map(|v| v.trim().to_owned());
+
+        let cache_ttl = std::env::var("AFFILIATE_CACHE_TTL_SECONDS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .map(Duration::from_secs)
+            .filter(|v| v.as_secs() > 0)
+            .unwrap_or(Duration::from_secs(300));
+
+        Ok(Self {
+            client: Client::builder()
+                .timeout(DEFAULT_HTTP_TIMEOUT)
+                .user_agent("company-agents-affiliate/0.1")
+                .build()
+                .map_err(|e| AffiliateError::Provider(e.to_string()))?,
+            base_url: base_url.trim_end_matches('/').to_owned(),
+            search_path,
+            access_token,
+            app_key,
+            app_secret,
+            shop_cipher,
+            cache_ttl,
+            products_cache: RwLock::new(None),
+        })
+    }
+
+    async fn fetch_products(&self, query: &ProductSearchQuery) -> Result<Vec<Product>, AffiliateError> {
+        let mut all = Vec::new();
+        let mut page_token: Option<String> = None;
+
+        for _ in 0..10 {
+            let timestamp = time::OffsetDateTime::now_utc().unix_timestamp();
+            let mut query_params = vec![
+                ("app_key".to_owned(), self.app_key.clone()),
+                ("page_size".to_owned(), "20".into()),
+                ("timestamp".to_owned(), timestamp.to_string()),
+            ];
+            if let Some(shop_cipher) = self.shop_cipher.as_deref() {
+                query_params.push(("shop_cipher".into(), shop_cipher.into()));
+            }
+
+            let mut body = serde_json::Map::new();
+            if let Some(category) = query.category.as_deref() {
+                if category.chars().all(|c| c.is_ascii_digit()) {
+                    body.insert(
+                        "category".into(),
+                        serde_json::json!({ "id": category }),
+                    );
+                }
+            }
+            if !query.keywords.is_empty() {
+                body.insert(
+                    "title_keywords".into(),
+                    serde_json::json!(query.keywords.iter().take(12).collect::<Vec<_>>()),
+                );
+            }
+            if query.min_price_minor.is_some() || query.max_price_minor.is_some() {
+                let currency = query.currency.clone().unwrap_or_else(|| "USD".into());
+                let units = minor_units_for_currency(&currency, 2);
+                let scale = 10_f64.powi(units as i32);
+                let mut range = serde_json::Map::new();
+                if let Some(min) = query.min_price_minor {
+                    range.insert(
+                        "amount_ge".into(),
+                        serde_json::Value::String(format!("{:.units$}", min as f64 / scale, units = units as usize)),
+                    );
+                }
+                if let Some(max) = query.max_price_minor {
+                    range.insert(
+                        "amount_lt".into(),
+                        serde_json::Value::String(format!("{:.units$}", max as f64 / scale, units = units as usize)),
+                    );
+                }
+                body.insert("sales_price_range".into(), serde_json::Value::Object(range));
+            }
+            if let Some(min_commission) = query.min_commission_bps {
+                body.insert(
+                    "commission_rate_range".into(),
+                    serde_json::json!({ "rate_ge": min_commission }),
+                );
+            }
+            if let Some(token) = page_token.as_deref() {
+                body.insert("page_token".into(), serde_json::Value::String(token.into()));
+            }
+
+            let body_bytes = serde_json::to_vec(&serde_json::Value::Object(body))
+                .map_err(|error| AffiliateError::Parse(error.to_string()))?;
+            let sign = tiktok_sign(
+                &self.search_path,
+                &query_params,
+                &body_bytes,
+                &self.app_secret,
+            )?;
+            query_params.push(("sign".into(), sign));
+
+            let response = self
+                .send_tiktok_request(&query_params, &body_bytes)
+                .await?;
+            let parsed = parse_tiktok_search_response(&response)?;
+            all.extend(parsed.products);
+            if all.len() >= query.max_results.min(200) || parsed.next_page_token.is_empty() {
+                break;
+            }
+            page_token = Some(parsed.next_page_token);
+        }
+
+        Ok(all)
+    }
+
+    async fn send_tiktok_request(
+        &self,
+        query_params: &[(String, String)],
+        body: &[u8],
+    ) -> Result<serde_json::Value, AffiliateError> {
+        let mut url = format!("{}{}", self.base_url, self.search_path);
+        let query = query_params
+            .iter()
+            .map(|(key, value)| {
+                format!("{}={}", percent_encode(key), percent_encode(value))
+            })
+            .collect::<Vec<_>>()
+            .join("&");
+        url.push('?');
+        url.push_str(&query);
+
+        let mut last_error = None;
+        for attempt in 0..3_u32 {
+            let response = self
+                .client
+                .post(&url)
+                .header("content-type", "application/json")
+                .header("x-tts-access-token", &self.access_token)
+                .body(body.to_vec())
+                .send()
+                .await
+                .map_err(|error| AffiliateError::Provider(error.to_string()))?;
+
+            let status = response.status();
+            let bytes = response
+                .bytes()
+                .await
+                .map_err(|error| AffiliateError::Provider(error.to_string()))?;
+            if bytes.len() > MAX_TIKTOK_RESPONSE_BYTES {
+                return Err(AffiliateError::PayloadTooLarge);
+            }
+
+            if status.as_u16() == 429 || status.is_server_error() {
+                last_error = Some(format!("TikTok HTTP {status}"));
+                if attempt < 2 {
+                    let delay = response_retry_delay(&bytes, attempt);
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
+            } else if !status.is_success() {
+                return Err(AffiliateError::Provider(format!(
+                    "TikTok affiliate API HTTP {status}: {}",
+                    String::from_utf8_lossy(&bytes[..bytes.len().min(4096)])
+                )));
+            }
+
+            let value = serde_json::from_slice::<serde_json::Value>(&bytes)
+                .map_err(|error| AffiliateError::Parse(error.to_string()))?;
+            return Ok(value);
+        }
+
+        Err(AffiliateError::Provider(
+            last_error.unwrap_or_else(|| "TikTok request failed".into()),
+        ))
+    }
+}
+
+#[async_trait]
+impl AffiliateProvider for TikTokShopProvider {
+    fn name(&self) -> &'static str {
+        "tiktok_shop"
+    }
+
+    async fn products(&self) -> Result<Vec<Product>, AffiliateError> {
+        {
+            let cache = self.products_cache.read().await;
+            if let Some(cached) = cache.as_ref() {
+                if cached.loaded_at.elapsed() < self.cache_ttl {
+                    return Ok(cached.value.clone());
+                }
+            }
+        }
+        Err(AffiliateError::Provider(
+            "TikTok provider requires a search query; call search_tiktok_products through the adapter".into(),
+        ))
+    }
+
+    async fn coupons(&self) -> Result<Vec<Coupon>, AffiliateError> {
+        Ok(Vec::new())
+    }
+}
+
+async fn search_tiktok_products(
+    provider: &TikTokShopProvider,
+    query: &ProductSearchQuery,
+) -> Result<SearchResponse, AffiliateError> {
+    validate_query(query)?;
+    let products = provider.fetch_products(query).await?;
+    let ranked = rank_products(&products, &[], query);
+    let total = ranked.len();
+    Ok(SearchResponse {
+        source: provider.name().into(),
+        total_candidates: total,
+        returned: total.min(query.max_results),
+        products: ranked.into_iter().take(query.max_results).collect(),
+    })
+}
 
 #[async_trait]
 pub trait AffiliateProvider: Send + Sync {
