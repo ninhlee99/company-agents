@@ -158,7 +158,7 @@ pub async fn run(config: SimConfig) -> SimulationResult {
             hiring_need: if backlog > capacity * 2 { 1 } else { 0 },
         };
 
-        let results = runtime.run_all(snapshot).await;
+        let results = runtime.run_all(snapshot.clone()).await;
         decision_cycles += 1;
 
         let execution = execute_approved_results(
