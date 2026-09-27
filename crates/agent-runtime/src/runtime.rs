@@ -18,7 +18,12 @@ pub struct AgentRuntime {
 
 impl AgentRuntime {
     pub fn new(model: Box<dyn Model>) -> Self {
-        Self::new_with_concurrency(model, 4)
+        let concurrency = std::env::var("AGENT_CONCURRENCY")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .map(|v| v.clamp(1, 8))
+            .unwrap_or(2);
+        Self::new_with_concurrency(model, concurrency)
     }
 
     pub fn new_with_concurrency(model: Box<dyn Model>, max_concurrent: usize) -> Self {
