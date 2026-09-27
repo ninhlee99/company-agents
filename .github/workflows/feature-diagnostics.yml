@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - feature/company-os-completion
+  pull_request:
 permissions:
   contents: read
   actions: read
