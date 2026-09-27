@@ -63,6 +63,14 @@ impl std::fmt::Display for AttributionError {
     }
 }
 
+fn status_rank(status: OrderStatus) -> u8 {
+    match status {
+        OrderStatus::Pending => 1,
+        OrderStatus::Confirmed => 2,
+        OrderStatus::Refunded => 3,
+    }
+}
+
 pub fn attribute(
     clicks: &[ClickTouch],
     orders: &[OrderEvent],
@@ -95,7 +103,16 @@ pub fn attribute(
         if order.gross_sales_minor < 0 || order.commission_minor < 0 {
             return Err(AttributionError::InvalidInput("order amounts cannot be negative".into()));
         }
-        unique_orders.insert(&order.order_id, order);
+        unique_orders
+            .entry(&order.order_id)
+            .and_modify(|existing| {
+                if (order.occurred_at_epoch, status_rank(order.status))
+                    > (existing.occurred_at_epoch, status_rank(existing.status))
+                {
+                    *existing = order;
+                }
+            })
+            .or_insert(order);
     }
 
     let mut ordered: Vec<&OrderEvent> = unique_orders.into_values().collect();
@@ -211,6 +228,23 @@ mod tests {
         let result = attribute(&[click], &[order], AttributionModel::LastClick, 60).unwrap();
         assert_eq!(result.total_commission_minor, -100);
         assert_eq!(result.total_gross_sales_minor, -1000);
+    }
+
+    #[test]
+    fn refund_state_supersedes_confirmed_state() {
+        let (content, creator) = ids();
+        let click = ClickTouch { click_id:"c".into(), content_id:content, creator_id:creator, product_id:"p".into(), occurred_at_epoch:100 };
+        let confirmed = OrderEvent {
+            order_id:"o1".into(), click_id:Some("c".into()), product_id:"p".into(),
+            gross_sales_minor:1000, commission_minor:100, status:OrderStatus::Confirmed, occurred_at_epoch:120
+        };
+        let refunded = OrderEvent {
+            order_id:"o1".into(), click_id:Some("c".into()), product_id:"p".into(),
+            gross_sales_minor:1000, commission_minor:100, status:OrderStatus::Refunded, occurred_at_epoch:150
+        };
+        let result = attribute(&[click], &[confirmed, refunded], AttributionModel::LastClick, 60).unwrap();
+        assert_eq!(result.orders.len(), 1);
+        assert_eq!(result.total_commission_minor, -100);
     }
 
     #[test]
