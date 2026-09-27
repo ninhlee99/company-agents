@@ -9,6 +9,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - run: bash scripts/lint_infra.sh
+      - run: bash scripts/secret_hygiene.sh
       - run: bash scripts/verify.sh
 
   postgres-integration:
