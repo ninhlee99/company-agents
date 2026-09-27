@@ -107,11 +107,20 @@ pub fn summarize_portfolio(units: &[BusinessUnit]) -> Result<PortfolioMetrics, O
     let mut contribution = 0_i128;
     let mut variable = 0_i128;
     let mut fixed = 0_i128;
+    let portfolio_currency = units.first().map(|unit| unit.currency.clone());
 
     for unit in units {
         if unit.currency.len() != 3 || !unit.currency.bytes().all(|b| b.is_ascii_uppercase()) {
             return Err(OrganizationError::InvalidValue(
                 "business unit currency must be uppercase 3-letter code".into(),
+            ));
+        }
+        if portfolio_currency
+            .as_deref()
+            .is_some_and(|currency| currency != unit.currency)
+        {
+            return Err(OrganizationError::InvalidValue(
+                "portfolio units must share one currency".into(),
             ));
         }
         if unit.cash_minor < 0
@@ -209,6 +218,16 @@ mod tests {
         assert_eq!(metrics.variable_cost_minor, 600);
         assert_eq!(metrics.fixed_cost_minor, 150);
         assert_eq!(metrics.total_cost_minor, 750);
+    }
+
+    #[test]
+    fn mixed_currency_portfolio_is_rejected() {
+        let mut foreign = unit("foreign", 500, 100, 50);
+        foreign.currency = "VND".into();
+        assert!(matches!(
+            summarize_portfolio(&[unit("usd", 1_000, 100, 50), foreign]),
+            Err(OrganizationError::InvalidValue(message)) if message.contains("one currency")
+        ));
     }
 
     #[test]
