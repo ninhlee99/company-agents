@@ -1478,15 +1478,18 @@ impl CompanyStore {
         media_pipeline::validate_job(&job).map_err(|error| error.to_string())?;
 
         let lease_token = Uuid::new_v4();
+        let lease_seconds = i64::from(job.max_duration_seconds)
+            .saturating_add(300)
+            .clamp(900, 86_400);
         tx.execute(
             "UPDATE media_jobs
                 SET status='RUNNING', attempts=attempts+1,
-                    locked_until=now()+interval '15 minutes',
-                    lease_token=$2,
+                    locked_until=now()+make_interval(secs => $2),
+                    lease_token=$3,
                     updated_at=now()
               WHERE id=$1 AND (status='QUEUED' OR (status='RUNNING' AND locked_until <= now()))
             ",
-            &[&id, &lease_token],
+            &[&id, &lease_seconds, &lease_token],
         )
         .await?;
         tx.commit().await?;
