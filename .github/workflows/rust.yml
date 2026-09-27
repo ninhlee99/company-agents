@@ -3,6 +3,9 @@ concurrency:
   group: rust-ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 on:
   push:
   pull_request:
@@ -13,6 +16,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Format Rust workspace
+        run: |
+          cargo fmt --all
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .
+            git commit -m "chore: format Rust workspace"
+            git push
+          fi
       - run: bash scripts/verify.sh
 
   postgres-integration:
