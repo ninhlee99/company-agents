@@ -43,33 +43,11 @@ fn base_proposal(
 }
 
 fn max_safe_cost(action: ActionKind) -> i128 {
-    match action {
-        ActionKind::CreateExperiment
-        | ActionKind::AllocateExperimentBudget
-        | ActionKind::ResearchOpportunity => 500,
-        ActionKind::ProposeHire => 1_000,
-        ActionKind::PublishContent
-        | ActionKind::ProduceReport
-        | ActionKind::ReduceBudget
-        | ActionKind::RebalanceOperations
-        | ActionKind::EscalateIncident
-        | ActionKind::None => 0,
-    }
+    action.max_cost_minor()
 }
 
 fn floor_risk_for_action(action: ActionKind) -> RiskTier {
-    match action {
-        ActionKind::ProposeHire => RiskTier::High,
-        ActionKind::AllocateExperimentBudget
-        | ActionKind::CreateExperiment
-        | ActionKind::ResearchOpportunity
-        | ActionKind::PublishContent => RiskTier::Medium,
-        ActionKind::ReduceBudget
-        | ActionKind::RebalanceOperations
-        | ActionKind::ProduceReport
-        | ActionKind::EscalateIncident
-        | ActionKind::None => RiskTier::Low,
-    }
+    action.minimum_risk()
 }
 
 fn attach_model_reasoning(mut proposal: Proposal, reasoning: &Value, ctx: &AgentContext) -> Proposal {
