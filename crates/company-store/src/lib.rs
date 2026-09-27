@@ -1647,6 +1647,33 @@ fn parse_reconciliation_status(
     }
 }
 
+fn parse_employee_status(
+    value: &str,
+) -> Result<company_organization::EmployeeStatus, Box<dyn std::error::Error + Send + Sync>> {
+    match value {
+        "PROPOSED" => Ok(company_organization::EmployeeStatus::Proposed),
+        "ACTIVE" => Ok(company_organization::EmployeeStatus::Active),
+        "SUSPENDED" => Ok(company_organization::EmployeeStatus::Suspended),
+        "TERMINATED" => Ok(company_organization::EmployeeStatus::Terminated),
+        other => Err(format!("unknown employee status: {other}").into()),
+    }
+}
+
+async fn company_currency(
+    &self,
+    company_id: &Uuid,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let client = self.client.lock().await;
+    let row = client
+        .query_opt(
+            "SELECT TRIM(base_currency)::text FROM companies WHERE id=$1",
+            &[company_id],
+        )
+        .await?
+        .ok_or("company not found")?;
+    Ok(row.get(0))
+}
+
 fn execution_policy() -> ExecutionPolicy {
     let max_spend = std::env::var("MAX_EXECUTION_SPEND_MINOR")
         .ok()
