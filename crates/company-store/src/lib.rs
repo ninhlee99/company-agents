@@ -190,19 +190,15 @@ impl CompanyStore {
         ).await?;
         let currency: String = row.get::<_, String>(0);
 
-        let account = |code: &'static str| async {
-            tx.query_one(
-                "SELECT id FROM ledger_accounts WHERE company_id=$1 AND code=$2",
-                &[&company_uuid, &code],
-            ).await
-        };
-
-        let cash_id: Uuid = account("1000").await?.get(0);
-        let other_id: Uuid = if revenue {
-            account("4000").await?.get(0)
-        } else {
-            account("5000").await?.get(0)
-        };
+        let cash_id: Uuid = tx.query_one(
+            "SELECT id FROM ledger_accounts WHERE company_id=$1 AND code='1000'",
+            &[&company_uuid],
+        ).await?.get(0);
+        let other_code = if revenue { "4000" } else { "5000" };
+        let other_id: Uuid = tx.query_one(
+            "SELECT id FROM ledger_accounts WHERE company_id=$1 AND code=$2",
+            &[&company_uuid, &other_code],
+        ).await?.get(0);
 
         let transaction_id = Uuid::new_v4();
         let transaction = LedgerTransaction {
@@ -462,6 +458,19 @@ impl CompanyStore {
                     Err(format!("unknown idempotency state: {status}").into())
                 }
             };
+        }
+
+        let previous_snapshot = tx
+            .query_opt(
+                "SELECT state FROM company_state_snapshots WHERE company_id=$1 FOR UPDATE",
+                &[&company_id],
+            )
+            .await?
+            .map(|row| row.get::<_, Value>(0));
+
+        if let Some(previous_state) = previous_snapshot {
+            let previous: CompanySnapshot = serde_json::from_value(previous_state)?;
+            Self::post_economic_deltas(&tx, &company_id, &cycle_uuid, &previous, snapshot).await?;
         }
 
         Self::persist_cycle_rows(&tx, &company_id, &cycle_uuid, snapshot, &state, results, outcomes).await?;
