@@ -12,6 +12,14 @@ impl Governor {
             };
         }
 
+        if matches!(proposal.requested_permission, Permission::ExecuteLimited | Permission::ExecuteMaterial) {
+            return GovernedProposal {
+                proposal,
+                decision: GovernorDecision::Reject,
+                reason: "agents cannot self-escalate execution permission".into(),
+            };
+        }
+
         if matches!(company.status, economic_core::CompanyStatus::Bankrupt | economic_core::CompanyStatus::Liquidation)
             && proposal.action != ActionKind::ProduceReport
             && proposal.action != ActionKind::EscalateIncident
@@ -36,6 +44,14 @@ impl Governor {
                 proposal,
                 decision: GovernorDecision::Reject,
                 reason: "proposal exceeds remaining budget".into(),
+            };
+        }
+
+        if proposal.cost_minor > company.cash_minor {
+            return GovernedProposal {
+                proposal,
+                decision: GovernorDecision::Reject,
+                reason: "proposal exceeds available cash".into(),
             };
         }
 
@@ -93,9 +109,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn governor_approves_small_reversible_action() {
-        let p = Proposal {
+    fn proposal() -> Proposal {
+        Proposal {
             agent: AgentRole::Experiment,
             objective: "test".into(),
             action: ActionKind::CreateExperiment,
@@ -107,25 +122,42 @@ mod tests {
             rationale: "small test".into(),
             reversible: true,
             requested_permission: Permission::Propose,
-        };
-        assert_eq!(Governor.evaluate(&Governor, p, &snapshot()).decision, GovernorDecision::Approve);
+        }
+    }
+
+    #[test]
+    fn governor_approves_small_reversible_action() {
+        assert_eq!(Governor.evaluate(&Governor, proposal(), &snapshot()).decision, GovernorDecision::Approve);
     }
 
     #[test]
     fn governor_escalates_irreversible_action() {
-        let p = Proposal {
-            agent: AgentRole::Recruiter,
-            objective: "hire".into(),
-            action: ActionKind::ProposeHire,
-            cost_minor: 500,
-            expected_revenue_minor: 1200,
-            risk: RiskTier::High,
-            confidence_bps: 7000,
-            evidence: vec!["need".into()],
-            rationale: "hire".into(),
-            reversible: false,
-            requested_permission: Permission::Propose,
-        };
+        let mut p = proposal();
+        p.agent = AgentRole::Recruiter;
+        p.action = ActionKind::ProposeHire;
+        p.risk = RiskTier::High;
+        p.reversible = false;
         assert_eq!(Governor.evaluate(&Governor, p, &snapshot()).decision, GovernorDecision::Escalate);
+    }
+
+    #[test]
+    fn governor_rejects_self_permission_escalation() {
+        let mut p = proposal();
+        p.requested_permission = Permission::ExecuteMaterial;
+        assert_eq!(Governor.evaluate(&Governor, p, &snapshot()).decision, GovernorDecision::Reject);
+    }
+
+    #[test]
+    fn governor_rejects_bankrupt_discretionary_action() {
+        let mut p = proposal();
+        let company = CompanySnapshot { status: economic_core::CompanyStatus::Bankrupt, ..snapshot() };
+        assert_eq!(Governor.evaluate(&Governor, p, &company).decision, GovernorDecision::Reject);
+    }
+
+    #[test]
+    fn governor_rejects_cost_above_cash() {
+        let mut p = proposal();
+        p.cost_minor = 20_000;
+        assert_eq!(Governor.evaluate(&Governor, p, &snapshot()).decision, GovernorDecision::Reject);
     }
 }
