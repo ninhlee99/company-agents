@@ -3,7 +3,6 @@
 use agent_runtime::{
     types::{
         ActionKind, AgentRole, AgentRunResult, GovernedProposal, GovernorDecision, Proposal,
-        RiskTier,
     },
     Tool, ToolRegistry,
 };
