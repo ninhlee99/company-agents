@@ -17,6 +17,7 @@ pub struct ClickEvent {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ConversionEvent {
+    pub company_id: String,
     pub conversion_id: String,
     pub click_id: Option<String>,
     pub order_id: String,
@@ -86,7 +87,8 @@ pub fn attribute_conversion(
     clicks: &[ClickEvent],
     model: AttributionModel,
 ) -> Result<ReconciledConversion, AttributionError> {
-    if conversion.conversion_id.trim().is_empty()
+    if conversion.company_id.trim().is_empty()
+        || conversion.conversion_id.trim().is_empty()
         || conversion.order_id.trim().is_empty()
         || conversion.product_id.trim().is_empty()
     {
@@ -249,6 +251,7 @@ mod tests {
 
     fn conversion(id: &str) -> ConversionEvent {
         ConversionEvent {
+            company_id: "c".into(),
             conversion_id: id.into(),
             click_id: None,
             order_id: format!("order-{id}"),
