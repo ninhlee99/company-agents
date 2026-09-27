@@ -27,6 +27,21 @@ pub struct AgentContext {
 }
 
 #[async_trait]
+pub trait AgentStateProvider: Send + Sync {
+    async fn load_memory(
+        &self,
+        company_id: &str,
+        agent: AgentRole,
+    ) -> Result<serde_json::Value, String>;
+
+    async fn admit_model_call(
+        &self,
+        company_id: &str,
+        agent: AgentRole,
+    ) -> Result<(), String>;
+}
+
+#[async_trait]
 pub trait Agent: Send + Sync {
     fn role(&self) -> AgentRole;
     fn permission(&self) -> Permission;
