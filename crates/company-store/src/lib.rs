@@ -286,6 +286,29 @@ impl CompanyStore {
         Ok(())
     }
 
+    pub async fn recover_stale_cycles(&self, stale_after_secs: i64) -> Result<u64, tokio_postgres::Error> {
+        let threshold = stale_after_secs.clamp(60, 86_400);
+        let client = self.client.lock().await;
+        let mut recovered = 0_u64;
+        recovered += client.execute(
+            "UPDATE cycle_runs SET status='FAILED', completed_at=now(),
+                response_json=jsonb_build_object('error','stale cycle recovered')
+             WHERE status='PROCESSING'
+               AND created_at < now() - make_interval(secs => $1)",
+            &[&threshold],
+        ).await?;
+        recovered += client.execute(
+            "UPDATE idempotency_keys SET status='FAILED',
+                response_json=jsonb_build_object('error','stale cycle recovered'),
+                updated_at=now()
+             WHERE command_type='AGENT_CYCLE'
+               AND status='PROCESSING'
+               AND updated_at < now() - make_interval(secs => $1)",
+            &[&threshold],
+        ).await?;
+        Ok(recovered)
+    }
+
     pub async fn pending_outbox(
         &self,
         limit: i64,
