@@ -1673,6 +1673,45 @@ impl CompanyStore {
         Ok(())
     }
 
+    pub async fn readiness_check(
+        &self,
+        company_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let id = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_one(
+                "SELECT state FROM company_state_snapshots WHERE company_id = $1",
+                &[&id],
+            )
+            .await?;
+        let state: CompanySnapshot = serde_json::from_value(row.get(0))?;
+        state
+            .validate()
+            .map_err(|error| format!("authoritative company snapshot invalid: {error}"))?;
+        let status: String = client
+            .query_one("SELECT status FROM companies WHERE id = $1", &[&id])
+            .await?
+            .get(0);
+        let canonical = match state.status {
+            economic_core::CompanyStatus::Active => "ACTIVE",
+            economic_core::CompanyStatus::Growth => "GROWTH",
+            economic_core::CompanyStatus::Warning => "WARNING",
+            economic_core::CompanyStatus::CostControl => "COST_CONTROL",
+            economic_core::CompanyStatus::Distress => "DISTRESS",
+            economic_core::CompanyStatus::Emergency => "EMERGENCY",
+            economic_core::CompanyStatus::Liquidation => "LIQUIDATION",
+            economic_core::CompanyStatus::Bankrupt => "BANKRUPT",
+        };
+        if status != canonical {
+            return Err(format!(
+                "company status mismatch: snapshot={canonical}, companies.status={status}"
+            )
+            .into());
+        }
+        Ok(())
+    }
+
     pub async fn recent_journal(
         &self,
         company_id: &str,
