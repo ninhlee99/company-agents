@@ -5,7 +5,10 @@ use agent_runtime::{
 };
 use affiliate_attribution::{attribute, AttributionModel, AttributionResult, ClickTouch, OrderEvent, OrderStatus};
 use affiliate_intelligence::{AffiliateSearchResult, ProductSearchQuery};
-use company_domain::{ContentAsset, Contract, CreatorUnit, Employee, Experiment, Task};
+use company_domain::{
+    BusinessUnit, ContentAsset, Contract, CreatorUnit, Customer, Employee, Experiment, PayrollRun,
+    Product, Task,
+};
 use economic_core::{validate_balanced_transaction, LedgerEntry, LedgerTransaction};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
@@ -64,6 +67,12 @@ impl CompanyStore {
             .await?;
         client
             .batch_execute(include_str!("../../../infra/db/migrations/006_company_operations.sql"))
+            .await?;
+        client
+            .batch_execute(include_str!("../../../infra/db/migrations/007_affiliate_attribution.sql"))
+            .await?;
+        client
+            .batch_execute(include_str!("../../../infra/db/migrations/008_commercial_and_payroll.sql"))
             .await
     }
 
@@ -154,6 +163,122 @@ impl CompanyStore {
 
         tx.commit().await?;
         Ok(transaction_uuid)
+    }
+
+    pub async fn save_business_unit(
+        &self,
+        company_id: &str,
+        unit: &BusinessUnit,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        unit.validate().map_err(|e| e.to_string())?;
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        client.execute(
+            "INSERT INTO business_units
+             (id,company_id,name,currency,status,cash_minor,revenue_minor,expenses_minor)
+             VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8::numeric)
+             ON CONFLICT (id) DO UPDATE SET
+               name=EXCLUDED.name,currency=EXCLUDED.currency,status=EXCLUDED.status,
+               cash_minor=EXCLUDED.cash_minor,revenue_minor=EXCLUDED.revenue_minor,
+               expenses_minor=EXCLUDED.expenses_minor,updated_at=now()
+             WHERE business_units.company_id=EXCLUDED.company_id",
+            &[
+                &unit.id,&company_uuid,&unit.name,&unit.currency,&format!("{:?}",unit.status),
+                &unit.cash_minor.to_string(),&unit.revenue_minor.to_string(),&unit.expenses_minor.to_string()
+            ],
+        ).await?;
+        Ok(())
+    }
+
+    pub async fn save_customer(
+        &self,
+        company_id: &str,
+        customer: &Customer,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        customer.validate().map_err(|e| e.to_string())?;
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        client.execute(
+            "INSERT INTO customers
+             (id,company_id,name,external_ref,status,lifetime_revenue_minor)
+             VALUES ($1,$2,$3,$4,$5,$6::numeric)
+             ON CONFLICT (id) DO UPDATE SET
+               name=EXCLUDED.name,external_ref=EXCLUDED.external_ref,status=EXCLUDED.status,
+               lifetime_revenue_minor=EXCLUDED.lifetime_revenue_minor,updated_at=now()
+             WHERE customers.company_id=EXCLUDED.company_id",
+            &[
+                &customer.id,&company_uuid,&customer.name,&customer.external_ref,
+                &format!("{:?}",customer.status),&customer.lifetime_revenue_minor.to_string()
+            ],
+        ).await?;
+        Ok(())
+    }
+
+    pub async fn save_product(
+        &self,
+        company_id: &str,
+        product: &Product,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        product.validate().map_err(|e| e.to_string())?;
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        client.execute(
+            "INSERT INTO products
+             (id,company_id,name,category,currency,price_minor,active)
+             VALUES ($1,$2,$3,$4,$5,$6::numeric,$7)
+             ON CONFLICT (id) DO UPDATE SET
+               name=EXCLUDED.name,category=EXCLUDED.category,currency=EXCLUDED.currency,
+               price_minor=EXCLUDED.price_minor,active=EXCLUDED.active,updated_at=now()
+             WHERE products.company_id=EXCLUDED.company_id",
+            &[
+                &product.id,&company_uuid,&product.name,&product.category,&product.currency,
+                &product.price_minor.to_string(),&product.active
+            ],
+        ).await?;
+        Ok(())
+    }
+
+    pub async fn save_payroll_run(
+        &self,
+        company_id: &str,
+        payroll: &PayrollRun,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        payroll.validate().map_err(|e| e.to_string())?;
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        tx.execute(
+            "INSERT INTO payroll_runs
+             (id,company_id,period_start_epoch,period_end_epoch,gross_minor,employer_cost_minor,cash_due_minor)
+             VALUES ($1,$2,$3,$4,$5::numeric,$6::numeric,$7::numeric)
+             ON CONFLICT (id) DO UPDATE SET
+               period_start_epoch=EXCLUDED.period_start_epoch,period_end_epoch=EXCLUDED.period_end_epoch,
+               gross_minor=EXCLUDED.gross_minor,employer_cost_minor=EXCLUDED.employer_cost_minor,
+               cash_due_minor=EXCLUDED.cash_due_minor
+             WHERE payroll_runs.company_id=EXCLUDED.company_id",
+            &[
+                &payroll.id,&company_uuid,&payroll.period_start_epoch,&payroll.period_end_epoch,
+                &payroll.gross_minor().to_string(),&payroll.employer_cost_minor().to_string(),
+                &payroll.cash_due_minor().to_string()
+            ],
+        ).await?;
+
+        tx.execute("DELETE FROM payroll_lines WHERE payroll_run_id=$1", &[&payroll.id]).await?;
+        for line in &payroll.lines {
+            tx.execute(
+                "INSERT INTO payroll_lines
+                 (payroll_run_id,employee_id,gross_minor,employer_cost_minor,withholding_minor)
+                 VALUES ($1,$2,$3::numeric,$4::numeric,$5::numeric)",
+                &[
+                    &payroll.id,&line.employee_id,&line.gross_minor.to_string(),
+                    &line.employer_cost_minor.to_string(),&line.withholding_minor.to_string()
+                ],
+            ).await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
     }
 
     pub async fn save_creator(
