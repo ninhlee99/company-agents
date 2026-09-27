@@ -163,7 +163,7 @@ mod tests {
     fn governor_approves_small_reversible_action() {
         assert_eq!(
             Governor
-                .evaluate(&Governor, proposal(), &snapshot())
+                .evaluate(proposal(), &snapshot())
                 .decision,
             GovernorDecision::Approve
         );
@@ -171,7 +171,7 @@ mod tests {
 
     #[test]
     fn governor_escalates_irreversible_action() {
-        let mut p = proposal();
+        let p = proposal();
         p.agent = AgentRole::Recruiter;
         p.action = ActionKind::ProposeHire;
         p.risk = RiskTier::High;
