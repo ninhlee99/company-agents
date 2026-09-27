@@ -184,6 +184,10 @@ pub async fn run(config: SimConfig) -> SimulationResult {
         }
 
         minimum_cash = minimum_cash.min(cash);
+        if cash <= 0 {
+            bankruptcy_day = Some(day);
+            break;
+        }
     }
 
     SimulationResult {
