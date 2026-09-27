@@ -125,9 +125,7 @@ pub fn attribute_conversion(
         })
         .collect::<Vec<_>>();
     matching.sort_by(|(a_time, a), (b_time, b)| {
-        a_time
-            .cmp(b_time)
-            .then_with(|| a.click_id.cmp(&b.click_id))
+        a_time.cmp(b_time).then_with(|| a.click_id.cmp(&b.click_id))
     });
     let matching = matching
         .into_iter()
