@@ -1,9 +1,0 @@
-{
-  "name":"@company-agents/os",
-  "private":true,
-  "version":"0.1.0",
-  "description":"Autonomous Company OS: an AI-native economic operating system for self-sustaining companies.",
-  "packageManager":"pnpm@10.0.0",
-  "engines":{"node":">=22"},
-  "scripts":{"dev":"pnpm --parallel --filter './apps/*' dev","test":"pnpm -r test","typecheck":"pnpm -r typecheck","lint":"pnpm -r lint"}
-}
