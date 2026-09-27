@@ -5,6 +5,7 @@ use company_execution::{
     execute_approved_results, proposal_idempotency_key, ExecutionPolicy, ExecutionReceipt,
 };
 use economic_core::{validate_balanced_transaction, LedgerEntry, LedgerTransaction};
+use agent_runtime::types::AgentRole;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
@@ -264,6 +265,31 @@ impl CompanyStore {
                         | company_execution::ExecutionStatus::Noop
                 )
             });
+
+            tx.execute(
+                "INSERT INTO agent_memory
+                 (company_id, agent_name, memory_key, value,
+                  confidence_bps, importance)
+                 VALUES ($1, $2, 'last_decision', $3, $4, 60)
+                 ON CONFLICT (company_id, agent_name, memory_key)
+                 DO UPDATE SET value = EXCLUDED.value,
+                               confidence_bps = EXCLUDED.confidence_bps,
+                               importance = EXCLUDED.importance,
+                               expires_at = NULL",
+                &[
+                    &company_id,
+                    &result.agent.as_str(),
+                    &serde_json::json!({
+                        "action": format!("{:?}", proposal.action),
+                        "decision": decision,
+                        "reason": reason,
+                        "cost_minor": proposal.cost_minor,
+                        "expected_revenue_minor": proposal.expected_revenue_minor,
+                    }),
+                    &(proposal.confidence_bps as i32),
+                ],
+            )
+            .await?;
 
             tx.execute(
                 "INSERT INTO decision_journal
@@ -589,6 +615,178 @@ impl CompanyStore {
             )
             .await?;
         Ok(())
+    }
+
+    pub async fn load_agent_memory(
+        &self,
+        company_id: &str,
+        agent: AgentRole,
+        limit: i64,
+    ) -> Result<Vec<agent_runtime::types::AgentMemory>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=100).contains(&limit) {
+            return Err("memory limit must be between 1 and 100".into());
+        }
+        let id = Uuid::parse_str(company_id)?;
+        let name = agent.as_str();
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT memory_key, value, confidence_bps, importance,
+                        updated_at::text, expires_at::text
+                   FROM agent_memory
+                  WHERE company_id = $1
+                    AND agent_name = $2
+                    AND (expires_at IS NULL OR expires_at > now())
+                  ORDER BY importance DESC, updated_at DESC
+                  LIMIT $3",
+                &[&id, &name, &limit],
+            )
+            .await?;
+
+        rows.into_iter()
+            .map(|row| {
+                let confidence: i32 = row.get(2);
+                let importance: i16 = row.get(3);
+                Ok(agent_runtime::types::AgentMemory {
+                    key: row.get(0),
+                    value: row.get(1),
+                    confidence_bps: confidence.clamp(0, 10_000) as u16,
+                    importance: importance.clamp(0, 100) as u8,
+                    updated_at: row.get(4),
+                    expires_at: row.get(5),
+                })
+            })
+            .collect()
+    }
+
+    pub async fn load_all_agent_memory(
+        &self,
+        company_id: &str,
+        limit_per_agent: i64,
+    ) -> Result<
+        std::collections::HashMap<AgentRole, Vec<agent_runtime::types::AgentMemory>>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        let mut result = std::collections::HashMap::new();
+        for agent in AgentRole::ALL {
+            if agent == AgentRole::Governor {
+                continue;
+            }
+            let memory = self.load_agent_memory(company_id, agent, limit_per_agent).await?;
+            result.insert(agent, memory);
+        }
+        Ok(result)
+    }
+
+    pub async fn upsert_agent_memory(
+        &self,
+        company_id: &str,
+        agent: AgentRole,
+        key: &str,
+        value: &serde_json::Value,
+        confidence_bps: u16,
+        importance: u8,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if key.trim().is_empty() || key.len() > 128 {
+            return Err("memory key must be 1..=128 bytes".into());
+        }
+        if confidence_bps > 10_000 {
+            return Err("memory confidence must be <= 10000".into());
+        }
+        if importance > 100 {
+            return Err("memory importance must be <= 100".into());
+        }
+        let encoded = serde_json::to_vec(value)?;
+        if encoded.len() > 16 * 1024 {
+            return Err("memory value exceeds 16 KiB safety limit".into());
+        }
+
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let agent_name = agent.as_str();
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "INSERT INTO agent_memory
+                 (company_id, agent_name, memory_key, value,
+                  confidence_bps, importance)
+                 VALUES ($1, $2, $3, $4, $5, $6)
+                 ON CONFLICT (company_id, agent_name, memory_key)
+                 DO UPDATE SET value = EXCLUDED.value,
+                               confidence_bps = EXCLUDED.confidence_bps,
+                               importance = EXCLUDED.importance,
+                               expires_at = NULL",
+                &[
+                    &company_uuid,
+                    &agent_name,
+                    &key,
+                    &value,
+                    &(confidence_bps as i32),
+                    &(importance as i16),
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn claim_agent_run_slots(
+        &self,
+        company_id: &str,
+        agents: &[AgentRole],
+        window_seconds: i64,
+        max_calls: i32,
+    ) -> Result<Vec<AgentRole>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(15..=86_400).contains(&window_seconds) {
+            return Err("agent rate window must be 15..=86400 seconds".into());
+        }
+        if !(1..=100).contains(&max_calls) {
+            return Err("agent max calls must be 1..=100".into());
+        }
+
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let mut allowed = Vec::new();
+
+        for agent in agents.iter().copied() {
+            if agent == AgentRole::Governor {
+                continue;
+            }
+            let name = agent.as_str();
+            let row = tx
+                .query_opt(
+                    "INSERT INTO agent_rate_windows
+                     (company_id, agent_name, window_started_at, call_count, max_calls)
+                     VALUES ($1, $2, now(), 1, $4)
+                     ON CONFLICT (company_id, agent_name)
+                     DO UPDATE SET
+                       window_started_at = CASE
+                         WHEN agent_rate_windows.window_started_at <=
+                              now() - make_interval(secs => $3)
+                         THEN now()
+                         ELSE agent_rate_windows.window_started_at
+                       END,
+                       call_count = CASE
+                         WHEN agent_rate_windows.window_started_at <=
+                              now() - make_interval(secs => $3)
+                         THEN 1
+                         ELSE agent_rate_windows.call_count + 1
+                       END,
+                       max_calls = EXCLUDED.max_calls,
+                       updated_at = now()
+                     WHERE agent_rate_windows.window_started_at <=
+                               now() - make_interval(secs => $3)
+                        OR agent_rate_windows.call_count < $4
+                     RETURNING agent_name",
+                    &[&company_uuid, &name, &window_seconds, &max_calls],
+                )
+                .await?;
+            if row.is_some() {
+                allowed.push(agent);
+            }
+        }
+
+        tx.commit().await?;
+        Ok(allowed)
     }
 
     pub async fn record_cycle_failure(
