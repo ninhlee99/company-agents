@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: company-runtime
     ports:
       - "127.0.0.1:8080:8080"
     environment:
@@ -16,10 +17,33 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.6-flash}
       AGENT_CYCLE_SECONDS: ${AGENT_CYCLE_SECONDS:-300}
+      AGENT_RATE_WINDOW_SECONDS: ${AGENT_RATE_WINDOW_SECONDS:-60}
+      AGENT_MAX_MODEL_CALLS_PER_WINDOW: ${AGENT_MAX_MODEL_CALLS_PER_WINDOW:-60}
+      MAX_EXECUTION_SPEND_MINOR: ${MAX_EXECUTION_SPEND_MINOR:-1000}
+      AFFILIATE_PROVIDER: ${AFFILIATE_PROVIDER:-mock}
     depends_on:
       postgres:
         condition: service_healthy
-      ollama:
+      media-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: media-runtime
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/company_agents
+      COMPANY_ID: ${COMPANY_ID:-00000000-0000-0000-0000-000000000001}
+      MEDIA_WORKSPACE: /app/media
+      FFMPEG_BIN: ffmpeg
+      FFMPEG_TIMEOUT_SECONDS: ${FFMPEG_TIMEOUT_SECONDS:-900}
+      MEDIA_WORKER_POLL_SECONDS: ${MEDIA_WORKER_POLL_SECONDS:-5}
+    volumes:
+      - company_agents_media:/app/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ollama:
         condition: service_healthy
       ollama-init:
         condition: service_completed_successfully
@@ -76,3 +100,4 @@ services:
 volumes:
   company_agents_pg:
   ollama_models:
+  company_agents_media:
