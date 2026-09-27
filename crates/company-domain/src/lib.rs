@@ -24,6 +24,125 @@ pub enum TaskStatus { Backlog, Ready, Running, Blocked, Done, Cancelled }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ContentStatus { Draft, Qa, Approved, Scheduled, Published, Archived }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EntityStatus { Active, Paused, Closed }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BusinessUnit {
+    pub id: Uuid,
+    pub name: String,
+    pub currency: String,
+    pub status: EntityStatus,
+    pub cash_minor: Minor,
+    pub revenue_minor: Minor,
+    pub expenses_minor: Minor,
+}
+
+impl BusinessUnit {
+    pub fn validate(&self) -> Result<(), DomainError> {
+        validate_text(&self.name, "business unit name")?;
+        validate_currency(&self.currency)?;
+        validate_nonnegative(self.cash_minor, "business unit cash")?;
+        validate_nonnegative(self.revenue_minor, "business unit revenue")?;
+        validate_nonnegative(self.expenses_minor, "business unit expenses")?;
+        Ok(())
+    }
+
+    pub fn contribution_margin_minor(&self) -> Minor {
+        self.revenue_minor.saturating_sub(self.expenses_minor)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Customer {
+    pub id: Uuid,
+    pub name: String,
+    pub external_ref: Option<String>,
+    pub status: EntityStatus,
+    pub lifetime_revenue_minor: Minor,
+}
+
+impl Customer {
+    pub fn validate(&self) -> Result<(), DomainError> {
+        validate_text(&self.name, "customer name")?;
+        validate_nonnegative(self.lifetime_revenue_minor, "customer lifetime revenue")?;
+        if self.external_ref.as_ref().is_some_and(|v| v.trim().is_empty()) {
+            return Err(DomainError::InvalidText("customer external ref"));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Product {
+    pub id: Uuid,
+    pub name: String,
+    pub category: String,
+    pub currency: String,
+    pub price_minor: Minor,
+    pub active: bool,
+}
+
+impl Product {
+    pub fn validate(&self) -> Result<(), DomainError> {
+        validate_text(&self.name, "product name")?;
+        validate_text(&self.category, "product category")?;
+        validate_currency(&self.currency)?;
+        validate_nonnegative(self.price_minor, "product price")?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PayrollLine {
+    pub employee_id: Uuid,
+    pub gross_minor: Minor,
+    pub employer_cost_minor: Minor,
+    pub withholding_minor: Minor,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PayrollRun {
+    pub id: Uuid,
+    pub period_start_epoch: i64,
+    pub period_end_epoch: i64,
+    pub lines: Vec<PayrollLine>,
+}
+
+impl PayrollRun {
+    pub fn validate(&self) -> Result<(), DomainError> {
+        if self.period_end_epoch < self.period_start_epoch {
+            return Err(DomainError::Invariant("payroll period end precedes start"));
+        }
+        if self.lines.is_empty() {
+            return Err(DomainError::Invariant("payroll must contain at least one employee"));
+        }
+        for line in &self.lines {
+            if line.gross_minor < 0 || line.employer_cost_minor < 0 || line.withholding_minor < 0 {
+                return Err(DomainError::Invariant("payroll amounts cannot be negative"));
+            }
+            if line.withholding_minor > line.gross_minor {
+                return Err(DomainError::Invariant("withholding exceeds gross payroll"));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn gross_minor(&self) -> Minor {
+        self.lines.iter().fold(0, |a, l| a.saturating_add(l.gross_minor))
+    }
+
+    pub fn employer_cost_minor(&self) -> Minor {
+        self.lines.iter().fold(0, |a, l| a.saturating_add(l.employer_cost_minor))
+    }
+
+    pub fn cash_due_minor(&self) -> Minor {
+        self.lines.iter().fold(0, |a, l| {
+            a.saturating_add(l.gross_minor.saturating_sub(l.withholding_minor))
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CreatorUnit {
     pub id: Uuid,
