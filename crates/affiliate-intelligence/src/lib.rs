@@ -811,8 +811,8 @@ pub struct TikTokShopCreatorProvider {
     base_url: String,
     api_version: String,
     app_key: String,
-    app_secret: String,
-    access_token: String,
+    app_secret: SecretString,
+    access_token: SecretString,
     origin: String,
     max_products: usize,
 }
@@ -820,8 +820,8 @@ pub struct TikTokShopCreatorProvider {
 impl TikTokShopCreatorProvider {
     pub fn from_env() -> Result<Self, AffiliateError> {
         let app_key = required_env("TTS_APP_KEY")?;
-        let app_secret = required_env("TTS_APP_SECRET")?;
-        let access_token = required_env("TTS_ACCESS_TOKEN")?;
+        let app_secret = SecretString::new(required_env("TTS_APP_SECRET")?);
+        let access_token = SecretString::new(required_env("TTS_ACCESS_TOKEN")?);
         let base_url = std::env::var("TTS_BASE_URL")
             .unwrap_or_else(|_| "https://open-api.tiktokglobalshop.com".into())
             .trim_end_matches('/')
@@ -881,7 +881,7 @@ impl TikTokShopCreatorProvider {
         params.sort_by(|a, b| a.0.cmp(&b.0));
 
         let body = "";
-        let sign = tiktok_sign(&path, &params, body, &self.app_secret);
+        let sign = tiktok_sign(&path, &params, body, self.app_secret.expose());
         let url = format!("{}{}", self.base_url, path);
         let request = self
             .client
@@ -889,7 +889,7 @@ impl TikTokShopCreatorProvider {
             .query(&params)
             .query(&[("sign", sign)])
             .header("content-type", "application/json")
-            .header("x-tts-access-token", &self.access_token);
+            .header("x-tts-access-token", self.access_token.expose());
 
         let mut response = None;
         for attempt in 0..3_u32 {
