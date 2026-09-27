@@ -18,7 +18,7 @@ pub enum Tool {
 }
 
 impl Tool {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::ReadCompany,
         Self::ReadMetrics,
         Self::ResearchOpportunity,
