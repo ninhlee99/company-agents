@@ -150,6 +150,7 @@ pub struct AffiliateSearchResult {
     pub query: ProductSearchQuery,
     pub candidates: Vec<RankedCandidate>,
     pub providers: Vec<String>,
+    pub provider_errors: Vec<String>,
     pub generated_at_epoch: i64,
 }
 
@@ -199,8 +200,25 @@ impl AffiliateIntelligence {
         }
 
         let mut all = Vec::new();
+        let mut provider_errors = Vec::new();
+        let mut successful_providers = 0_u32;
+        let mut last_error = None;
+
         for provider in &self.providers {
-            all.extend(provider.search(&query).await?);
+            match provider.search(&query).await {
+                Ok(offers) => {
+                    successful_providers += 1;
+                    all.extend(offers);
+                }
+                Err(error) => {
+                    provider_errors.push(format!("{}: {}", provider.name(), error));
+                    last_error = Some(error);
+                }
+            }
+        }
+
+        if successful_providers == 0 {
+            return Err(last_error.unwrap_or_else(|| ProviderError::Transport("no affiliate providers succeeded".into())));
         }
 
         let candidates = rank_candidates(all, &query);
@@ -208,6 +226,7 @@ impl AffiliateIntelligence {
             query,
             candidates,
             providers: self.provider_names(),
+            provider_errors,
             generated_at_epoch: now_epoch(),
         })
     }
@@ -376,6 +395,16 @@ fn matches_query(offer: &AffiliateOffer, query: &ProductSearchQuery) -> bool {
             return false;
         }
     }
+    if offer.url.trim().is_empty() {
+        return false;
+    }
+    let parsed = match url::Url::parse(&offer.url) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return false;
+    }
     offer.available && offer.price_minor > 0
 }
 
@@ -513,7 +542,11 @@ impl AwinCsvProvider {
             feed_url,
             bearer_token,
             commission_group_rates_bps,
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(5))
+                .timeout(std::time::Duration::from_secs(60))
+                .build()
+                .map_err(|e| ProviderError::Configuration(format!("Awin HTTP client setup failed: {e}")))?,
             coupon_feed_url: std::env::var("AWIN_COUPON_FEED_URL").ok().filter(|v| !v.trim().is_empty()),
         })
     }
@@ -728,24 +761,41 @@ impl TikTokShopOpenCollaborationProvider {
             api_base: std::env::var("TIKTOK_API_BASE").unwrap_or_else(|_| "https://open-api.tiktokglobalshop.com".into()),
             api_path: std::env::var("TIKTOK_AFFILIATE_SEARCH_PATH")
                 .unwrap_or_else(|_| "/affiliate_seller/202405/open_collaborations/products/search".into()),
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(5))
+                .timeout(std::time::Duration::from_secs(60))
+                .build()
+                .map_err(|e| ProviderError::Configuration(format!("TikTok HTTP client setup failed: {e}")))?,
+
         })
     }
 
-    pub async fn search_with_raw_response(&self, query: &ProductSearchQuery) -> Result<Value, ProviderError> {
-        let body = tiktok_body(query);
+    async fn search_page(
+        &self,
+        query: &ProductSearchQuery,
+        page_token: Option<&str>,
+    ) -> Result<Value, ProviderError> {
+        let body = tiktok_body(query, page_token);
         let timestamp = now_epoch().to_string();
 
         let mut params = BTreeMap::new();
         params.insert("app_key".to_string(), self.app_key.clone());
         params.insert("shop_cipher".to_string(), self.shop_cipher.clone());
         params.insert("timestamp".to_string(), timestamp);
-        params.insert("page_size".to_string(), query.limit.min(100).to_string());
+        params.insert("page_size".to_string(), query.limit.min(100).max(1).to_string());
+        if let Some(token) = page_token {
+            params.insert("page_token".to_string(), token.to_string());
+        }
 
         let sign = sign_tiktok_request(&self.api_path, &params, &body, &self.app_secret)?;
         params.insert("sign".to_string(), sign);
 
-        let url = format!("{}{}?{}", self.api_base.trim_end_matches('/'), self.api_path, encode_query(&params));
+        let url = format!(
+            "{}{}?{}",
+            self.api_base.trim_end_matches('/'),
+            self.api_path,
+            encode_query(&params)
+        );
         let response = self.client
             .post(url)
             .header("content-type", "application/json")
@@ -761,8 +811,19 @@ impl TikTokShopOpenCollaborationProvider {
         if response.status() == StatusCode::TOO_MANY_REQUESTS {
             return Err(ProviderError::RateLimited);
         }
+
         let status = response.status();
-        let value: Value = response.json().await.map_err(|e| ProviderError::InvalidData(e.to_string()))?;
+        if response.content_length().is_some_and(|length| length > 10 * 1024 * 1024) {
+            return Err(ProviderError::InvalidData("TikTok response exceeds 10 MiB safety limit".into()));
+        }
+        let body_bytes = response.bytes().await
+            .map_err(|e| ProviderError::Transport(e.to_string()))?;
+        if body_bytes.len() > 10 * 1024 * 1024 {
+            return Err(ProviderError::InvalidData("TikTok response exceeds 10 MiB safety limit".into()));
+        }
+        let value: Value = serde_json::from_slice(&body_bytes)
+            .map_err(|e| ProviderError::InvalidData(e.to_string()))?;
+
         if !status.is_success() {
             return Err(ProviderError::Transport(format!("http {status}: {value}")));
         }
@@ -773,6 +834,10 @@ impl TikTokShopOpenCollaborationProvider {
         }
         Ok(value)
     }
+
+    pub async fn search_with_raw_response(&self, query: &ProductSearchQuery) -> Result<Value, ProviderError> {
+        self.search_page(query, None).await
+    }
 }
 
 #[async_trait]
@@ -780,11 +845,14 @@ impl AffiliateProvider for TikTokShopOpenCollaborationProvider {
     fn name(&self) -> &'static str { "tiktok-shop" }
 
     async fn search(&self, query: &ProductSearchQuery) -> Result<Vec<AffiliateOffer>, ProviderError> {
-        let response = self.search_with_raw_response(query).await?;
-        let rows = response.pointer("/data/products").and_then(Value::as_array).cloned().unwrap_or_default();
-        let mut output = Vec::with_capacity(rows.len());
+        let mut output = Vec::new();
+        let mut next_page_token = None::<String>;
 
-        for row in rows {
+        for _ in 0..20 {
+            let response = self.search_page(query, next_page_token.as_deref()).await?;
+            let rows = response.pointer("/data/products").and_then(Value::as_array).cloned().unwrap_or_default();
+
+            for row in rows.iter().cloned() {
             let product_id = row.get("id").and_then(Value::as_str).unwrap_or("").to_string();
             let title = row.get("title").and_then(Value::as_str).unwrap_or("").to_string();
             if product_id.is_empty() || title.is_empty() {
@@ -830,14 +898,26 @@ impl AffiliateProvider for TikTokShopOpenCollaborationProvider {
                 available: true,
                 collected_at_epoch: now_epoch(),
             });
+            }
+
+            next_page_token = response.pointer("/data/next_page_token")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+
+            if output.len() >= query.limit || next_page_token.is_none() || rows.is_empty() {
+                break;
+            }
         }
 
         Ok(output)
     }
 }
 
-fn tiktok_body(query: &ProductSearchQuery) -> Value {
+fn tiktok_body(query: &ProductSearchQuery, page_token: Option<&str>) -> Value {
     let mut object = serde_json::Map::new();
+    if let Some(page_token) = page_token {
+        object.insert("page_token".into(), json!(page_token));
+    }
     if let Some(category) = &query.category {
         if category.parse::<u64>().is_ok() {
             object.insert("category".into(), json!({"id": category}));
