@@ -552,6 +552,60 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .ensure_recurring_job(&company_id, "agent_cycle", interval_secs as i64)
         .await?;
 
+    let outbox_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(Duration::from_secs(2));
+        loop {
+            ticker.tick().await;
+            let events = match outbox_state
+                .store
+                .claim_outbox_events(&outbox_state.company_id, 50, 30)
+                .await
+            {
+                Ok(events) => events,
+                Err(error) => {
+                    tracing::warn!(error = %error, "outbox claim failed");
+                    continue;
+                }
+            };
+
+            for event in events {
+                let Some(id) = event.get("id").and_then(|value| value.as_i64()) else {
+                    tracing::error!("outbox event missing numeric id");
+                    continue;
+                };
+                tracing::info!(
+                    outbox_id = id,
+                    event_type = event
+                        .get("event_type")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("unknown"),
+                    idempotency_key = event
+                        .get("idempotency_key")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("unknown"),
+                    "outbox event dispatched to internal event sink"
+                );
+
+                if let Err(error) = outbox_state
+                    .store
+                    .mark_outbox_published(&outbox_state.company_id, id)
+                    .await
+                {
+                    tracing::warn!(outbox_id = id, error = %error, "outbox acknowledgement failed");
+                    let _ = outbox_state
+                        .store
+                        .mark_outbox_failed(
+                            &outbox_state.company_id,
+                            id,
+                            &error.to_string(),
+                        )
+                        .await;
+                }
+            }
+        }
+    });
+
     let background = state.clone();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_secs(15));
