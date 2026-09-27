@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut ticker = tokio::time::interval(Duration::from_secs(poll_seconds));
     loop {
         ticker.tick().await;
-        let Some(job) = store.claim_media_job(&company_id).await? else {
+        let Some((job, lease_token)) = store.claim_media_job(&company_id).await? else {
             continue;
         };
 
@@ -34,30 +34,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         let policy = media_policy(&job);
                         let qa = media_pipeline::qa(&probe, &policy);
                         if qa.passed {
-                            store.finish_media_job(&job.id, "SUCCEEDED", None).await?;
+                            store.finish_media_job(&job.id, lease_token, "SUCCEEDED", None).await?;
                         } else {
                             let reason = qa.failures.join("; ");
                             store
-                                .finish_media_job(&job.id, "QA_FAILED", Some(&reason))
+                                .finish_media_job(&job.id, lease_token, "QA_FAILED", Some(&reason))
                                 .await?;
                         }
                     }
                     Err(error) => {
                         store
-                            .finish_media_job(&job.id, "QA_FAILED", Some(&error.to_string()))
+                            .finish_media_job(
+                                &job.id,
+                                lease_token,
+                                "QA_FAILED",
+                                Some(&error.to_string()),
+                            )
                             .await?;
                     }
                 }
             }
             Ok(Err(error)) => {
                 store
-                    .finish_media_job(&job.id, "FAILED", Some(&error.to_string()))
+                    .finish_media_job(
+                        &job.id,
+                        lease_token,
+                        "FAILED",
+                        Some(&error.to_string()),
+                    )
                     .await?;
             }
             Err(join_error) => {
                 store
                     .finish_media_job(
                         &job.id,
+                        lease_token,
                         "FAILED",
                         Some(&format!("worker task failed: {join_error}")),
                     )
