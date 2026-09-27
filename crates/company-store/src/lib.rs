@@ -534,6 +534,408 @@ impl CompanyStore {
         Ok(())
     }
 
+    pub async fn upsert_employee(
+        &self,
+        company_id: &str,
+        employee: &company_organization::Employee,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        company_organization::validate_employee(employee)
+            .map_err(|error| error.to_string())?;
+        let company_uuid = Uuid::parse_str(company_id)?;
+        if employee.currency != self.company_currency(&company_uuid).await? {
+            return Err("employee currency must match company currency".into());
+        }
+        let employee_uuid = Uuid::parse_str(&employee.id)?;
+        let status = match employee.status {
+            company_organization::EmployeeStatus::Proposed => "PROPOSED",
+            company_organization::EmployeeStatus::Active => "ACTIVE",
+            company_organization::EmployeeStatus::Suspended => "SUSPENDED",
+            company_organization::EmployeeStatus::Terminated => "TERMINATED",
+        };
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "INSERT INTO employees
+                 (id, company_id, name, role, monthly_cost_minor, currency, status)
+                 VALUES ($1,$2,$3,$4,$5::numeric,$6,$7)
+                 ON CONFLICT (id) DO UPDATE
+                 SET name = EXCLUDED.name,
+                     role = EXCLUDED.role,
+                     monthly_cost_minor = EXCLUDED.monthly_cost_minor,
+                     currency = EXCLUDED.currency,
+                     status = EXCLUDED.status,
+                     updated_at = now()",
+                &[
+                    &employee_uuid,
+                    &company_uuid,
+                    &employee.name,
+                    &employee.role,
+                    &employee.monthly_cost_minor.to_string(),
+                    &employee.currency,
+                    &status,
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_employees(
+        &self,
+        company_id: &str,
+    ) -> Result<Vec<company_organization::Employee>, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT id, name, role, monthly_cost_minor::text, currency, status
+                   FROM employees
+                  WHERE company_id = $1
+                  ORDER BY created_at ASC, id ASC",
+                &[&company_uuid],
+            )
+            .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(company_organization::Employee {
+                    id: row.get::<_, Uuid>(0).to_string(),
+                    name: row.get(1),
+                    role: row.get(2),
+                    monthly_cost_minor: parse_i128_numeric(&row.get::<_, String>(3))?,
+                    currency: row.get(4),
+                    status: parse_employee_status(&row.get::<_, String>(5))?,
+                })
+            })
+            .collect()
+    }
+
+    pub async fn accrue_payroll(
+        &self,
+        company_id: &str,
+        period: &str,
+        due_at: &str,
+    ) -> Result<i128, Box<dyn std::error::Error + Send + Sync>> {
+        if period.trim().is_empty() || period.len() > 32 {
+            return Err("payroll period is invalid".into());
+        }
+        let due = time::OffsetDateTime::parse(
+            due_at,
+            &time::format_description::well_known::Rfc3339,
+        )
+        .map_err(|error| format!("invalid payroll due_at: {error}"))?;
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let currency = self.company_currency(&company_uuid).await?;
+        let accrual_key = format!("payroll:accrual:{company_id}:{period}");
+
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        if tx
+            .query_opt(
+                "SELECT status FROM idempotency_keys
+                  WHERE company_id = $1 AND key = $2
+                  FOR UPDATE",
+                &[&company_uuid, &accrual_key],
+            )
+            .await?
+            .is_some()
+        {
+            tx.rollback().await?;
+            return Ok(0);
+        }
+
+        let employees = tx
+            .query(
+                "SELECT id, monthly_cost_minor::text, currency
+                   FROM employees
+                  WHERE company_id = $1 AND status = 'ACTIVE'
+                  ORDER BY id ASC",
+                &[&company_uuid],
+            )
+            .await?;
+        if employees.is_empty() {
+            tx.rollback().await?;
+            return Ok(0);
+        }
+
+        tx.execute(
+            "INSERT INTO idempotency_keys
+             (company_id, key, command_type, status)
+             VALUES ($1,$2,'payroll_accrual','PROCESSING')",
+            &[&company_uuid, &accrual_key],
+        )
+        .await?;
+
+        let mut total = 0_i128;
+        for row in employees {
+            let employee_id: Uuid = row.get(0);
+            let amount = parse_i128_numeric(&row.get::<_, String>(1))?;
+            let employee_currency: String = row.get(2);
+            if employee_currency != currency {
+                return Err("active employee currency differs from company currency".into());
+            }
+            if amount < 0 {
+                return Err("employee monthly cost cannot be negative".into());
+            }
+            let obligation_id = Uuid::new_v4();
+            let due_text = due.format(&time::format_description::well_known::Rfc3339)?;
+            let row = tx
+                .query_opt(
+                    "INSERT INTO payroll_obligations
+                     (id, company_id, employee_id, period, gross_minor, currency, due_at)
+                     VALUES ($1,$2,$3,$4,$5::numeric,$6,$7)
+                     ON CONFLICT (company_id, employee_id, period) DO NOTHING
+                     RETURNING gross_minor::text",
+                    &[
+                        &obligation_id,
+                        &company_uuid,
+                        &employee_id,
+                        &period,
+                        &amount.to_string(),
+                        &currency,
+                        &due_text,
+                    ],
+                )
+                .await?;
+            if let Some(inserted) = row {
+                total = total
+                    .checked_add(parse_i128_numeric(&inserted.get::<_, String>(0))?)
+                    .ok_or("payroll accrual overflow")?;
+            }
+        }
+
+        if total > 0 {
+            let (expense_account, liability_account) =
+                ensure_payroll_accounts(&tx, company_uuid, &currency).await?;
+            let transaction_id = Uuid::new_v4();
+            let debit = total.to_string();
+            let credit = total.to_string();
+            tx.execute(
+                "INSERT INTO ledger_transactions
+                 (id, company_id, description, idempotency_key)
+                 VALUES ($1,$2,'monthly payroll accrual',$3)",
+                &[&transaction_id, &company_uuid, &accrual_key],
+            )
+            .await?;
+            insert_ledger_entry(
+                &tx,
+                transaction_id,
+                expense_account,
+                &debit,
+                "0",
+                &currency,
+            )
+            .await?;
+            insert_ledger_entry(
+                &tx,
+                transaction_id,
+                liability_account,
+                "0",
+                &credit,
+                &currency,
+            )
+            .await?;
+
+            update_snapshot_financials(&tx, company_uuid, |snapshot| {
+                snapshot.expenses_minor = snapshot
+                    .expenses_minor
+                    .checked_add(total)
+                    .ok_or("payroll expense overflow".to_string())?;
+                snapshot.liabilities_minor = snapshot
+                    .liabilities_minor
+                    .checked_add(total)
+                    .ok_or("payroll liability overflow".to_string())?;
+                Ok(())
+            })
+            .await?;
+        }
+
+        tx.execute(
+            "UPDATE idempotency_keys
+                SET status='SUCCEEDED',
+                    response_json=jsonb_build_object('accrued_minor',$3::numeric)
+              WHERE company_id=$1 AND key=$2",
+            &[&company_uuid, &accrual_key, &total.to_string()],
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(total)
+    }
+
+    pub async fn pay_payroll(
+        &self,
+        company_id: &str,
+        obligation_id: &str,
+        amount_minor: i128,
+    ) -> Result<i128, Box<dyn std::error::Error + Send + Sync>> {
+        if amount_minor <= 0 {
+            return Err("payroll payment must be positive".into());
+        }
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let obligation_uuid = Uuid::parse_str(obligation_id)?;
+        let payment_key = format!("payroll:payment:{obligation_id}:{amount_minor}");
+
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        if tx
+            .query_opt(
+                "SELECT status FROM idempotency_keys
+                  WHERE company_id=$1 AND key=$2
+                  FOR UPDATE",
+                &[&company_uuid, &payment_key],
+            )
+            .await?
+            .is_some()
+        {
+            tx.rollback().await?;
+            return Ok(0);
+        }
+
+        let row = tx
+            .query_opt(
+                "SELECT gross_minor::text, paid_minor::text, currency
+                   FROM payroll_obligations
+                  WHERE company_id=$1 AND id=$2
+                  FOR UPDATE",
+                &[&company_uuid, &obligation_uuid],
+            )
+            .await?
+            .ok_or("payroll obligation not found")?;
+        let gross = parse_i128_numeric(&row.get::<_, String>(0))?;
+        let paid = parse_i128_numeric(&row.get::<_, String>(1))?;
+        let currency: String = row.get(2);
+        let remaining = gross.checked_sub(paid).ok_or("payroll remaining overflow")?;
+        if amount_minor > remaining {
+            return Err("payroll payment exceeds remaining obligation".into());
+        }
+
+        let snapshot = authoritative_snapshot(&tx, company_uuid).await?;
+        if snapshot.status == CompanyStatus::Bankrupt {
+            return Err("bankrupt company cannot initiate payroll payment".into());
+        }
+        if amount_minor > snapshot.cash_minor {
+            return Err("insufficient cash for payroll payment".into());
+        }
+
+        tx.execute(
+            "INSERT INTO idempotency_keys
+             (company_id,key,command_type,status)
+             VALUES ($1,$2,'payroll_payment','PROCESSING')",
+            &[&company_uuid, &payment_key],
+        )
+        .await?;
+
+        let (cash_account, liability_account) =
+            ensure_payroll_accounts(&tx, company_uuid, &currency).await?;
+        let transaction_id = Uuid::new_v4();
+        let amount = amount_minor.to_string();
+        tx.execute(
+            "INSERT INTO ledger_transactions
+             (id, company_id, description, idempotency_key)
+             VALUES ($1,$2,'payroll payment',$3)",
+            &[&transaction_id, &company_uuid, &payment_key],
+        )
+        .await?;
+        insert_ledger_entry(
+            &tx,
+            transaction_id,
+            liability_account,
+            &amount,
+            "0",
+            &currency,
+        )
+        .await?;
+        insert_ledger_entry(
+            &tx,
+            transaction_id,
+            cash_account,
+            "0",
+            &amount,
+            &currency,
+        )
+        .await?;
+
+        let next_paid = paid
+            .checked_add(amount_minor)
+            .ok_or("payroll paid amount overflow")?;
+        tx.execute(
+            "UPDATE payroll_obligations
+                SET paid_minor=$3::numeric, updated_at=now()
+              WHERE company_id=$1 AND id=$2",
+            &[&company_uuid, &obligation_uuid, &next_paid.to_string()],
+        )
+        .await?;
+
+        update_snapshot_financials(&tx, company_uuid, |snapshot| {
+            snapshot.cash_minor = snapshot
+                .cash_minor
+                .checked_sub(amount_minor)
+                .ok_or("cash underflow".to_string())?;
+            snapshot.assets_minor = snapshot
+                .assets_minor
+                .checked_sub(amount_minor)
+                .ok_or("asset underflow".to_string())?;
+            snapshot.liabilities_minor = snapshot
+                .liabilities_minor
+                .checked_sub(amount_minor)
+                .ok_or("liability underflow".to_string())?;
+            if snapshot.cash_minor == 0 {
+                snapshot.status = CompanyStatus::Emergency;
+            }
+            Ok(())
+        })
+        .await?;
+
+        tx.execute(
+            "UPDATE idempotency_keys
+                SET status='SUCCEEDED',
+                    response_json=jsonb_build_object('paid_minor',$3::numeric)
+              WHERE company_id=$1 AND key=$2",
+            &[&company_uuid, &payment_key, &amount_minor.to_string()],
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(amount_minor)
+    }
+
+    pub async fn payroll_due(
+        &self,
+        company_id: &str,
+        limit: i64,
+    ) -> Result<Vec<company_organization::PayrollObligation>, Box<dyn std::error::Error + Send + Sync>>
+    {
+        if !(1..=500).contains(&limit) {
+            return Err("payroll limit must be between 1 and 500".into());
+        }
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT id, employee_id, period, gross_minor::text, currency,
+                        due_at::text, paid_minor::text
+                   FROM payroll_obligations
+                  WHERE company_id=$1 AND paid_minor < gross_minor
+                  ORDER BY due_at ASC, id ASC
+                  LIMIT $2",
+                &[&company_uuid, &limit],
+            )
+            .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(company_organization::PayrollObligation {
+                    id: row.get::<_, Uuid>(0).to_string(),
+                    employee_id: row.get::<_, Uuid>(1).to_string(),
+                    period: row.get(2),
+                    gross_minor: parse_i128_numeric(&row.get::<_, String>(3))?,
+                    currency: row.get(4),
+                    due_at: row.get(5),
+                    paid_minor: parse_i128_numeric(&row.get::<_, String>(6))?,
+                })
+            })
+            .collect()
+    }
+
     pub async fn ensure_recurring_job(
         &self,
         company_id: &str,
