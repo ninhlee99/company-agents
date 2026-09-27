@@ -24,6 +24,7 @@ pub struct ConversionEvent {
     pub product_id: String,
     pub advertiser_id: String,
     pub occurred_at: String,
+    pub currency: String,
     pub order_value_minor: i128,
     pub commission_minor: i128,
     pub refunded_minor: i128,
@@ -109,6 +110,8 @@ pub fn validate_conversion_event(event: &ConversionEvent) -> Result<(), Attribut
         || event.product_id.trim().is_empty()
         || event.advertiser_id.trim().is_empty()
         || event.source.trim().is_empty()
+        || event.currency.trim().len() != 3
+        || !event.currency.trim().bytes().all(|value| value.is_ascii_alphabetic())
     {
         return Err(AttributionError::InvalidInput(
             "conversion identifiers and source are required".into(),
@@ -117,6 +120,11 @@ pub fn validate_conversion_event(event: &ConversionEvent) -> Result<(), Attribut
     if parse_rfc3339(&event.occurred_at).is_none() {
         return Err(AttributionError::InvalidInput(
             "conversion occurred_at must be RFC3339".into(),
+        ));
+    }
+    if event.currency != event.currency.to_ascii_uppercase() {
+        return Err(AttributionError::InvalidInput(
+            "conversion currency must be uppercase ISO-like 3-letter code".into(),
         ));
     }
     if event.order_value_minor < 0
