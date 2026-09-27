@@ -789,9 +789,9 @@ impl AwinProvider {
             .ok()
             .filter(|v| !v.trim().is_empty())
             .map(|v| v.trim().to_owned());
-        if product_feed_url.is_none() && product_feed_api_key.is_none() {
+        if product_feed_url.is_none() {
             return Err(AffiliateError::Provider(
-                "set AWIN_PRODUCT_FEED_URL or AWIN_PRODUCT_FEED_API_KEY".into(),
+                "AWIN_PRODUCT_FEED_URL is required; feed discovery is intentionally fail-closed".into(),
             ));
         }
         let feed_id = std::env::var("AWIN_FEED_ID")
@@ -809,8 +809,8 @@ impl AwinProvider {
         let max_commission_advertisers = std::env::var("AWIN_MAX_COMMISSION_ADVERTISERS")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
-            .map(|v| v.clamp(1, 100))
-            .unwrap_or(25);
+            .map(|v| v.clamp(1, 15))
+            .unwrap_or(8);
         let cache_ttl = std::env::var("AFFILIATE_CACHE_TTL_SECONDS")
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
@@ -843,6 +843,19 @@ impl AwinProvider {
             coupons_cache: RwLock::new(None),
             minor_units,
         })
+    }
+
+    async fn discover_feed_url(&self) -> Result<String, AffiliateError> {
+        if let Some(url) = self.product_feed_url.clone() {
+            return Ok(url);
+        }
+        if let Some(feed_id) = self.feed_id.as_deref().filter(|v| v.starts_with("https://")) {
+            return Ok(feed_id.to_owned());
+        }
+        let _ = &self.product_feed_api_key;
+        Err(AffiliateError::Provider(
+            "no safe feed URL is configured".into(),
+        ))
     }
 
     async fn refresh_products(&self) -> Result<Vec<Product>, AffiliateError> {
