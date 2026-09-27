@@ -325,6 +325,70 @@ async fn affiliate_partial_reconciliation_replays_exact_status_and_variance() {
 }
 
 #[tokio::test]
+async fn payroll_accrual_and_payment_are_ledger_consistent() {
+    let Some(store) = connect_store().await else {
+        return;
+    };
+
+    let company_id = uuid::Uuid::new_v4().to_string();
+    store
+        .ensure_company(&company_id, "Payroll Test", "USD")
+        .await
+        .unwrap();
+
+    let initial = snapshot(&company_id);
+    store.save_snapshot(&initial).await.unwrap();
+
+    let employee = company_organization::Employee {
+        id: uuid::Uuid::new_v4().to_string(),
+        name: "Operator".into(),
+        role: "content".into(),
+        monthly_cost_minor: 1_000,
+        currency: "USD".into(),
+        status: company_organization::EmployeeStatus::Active,
+    };
+    store.upsert_employee(&company_id, &employee).await.unwrap();
+
+    let accrued = store
+        .accrue_payroll(&company_id, "2026-09", "2026-09-30T00:00:00Z")
+        .await
+        .unwrap();
+    assert_eq!(accrued, 1_000);
+
+    let after_accrual = store.load_snapshot(&company_id).await.unwrap().unwrap();
+    assert_eq!(after_accrual.expenses_minor, 3_000);
+    assert_eq!(after_accrual.liabilities_minor, 1_500);
+
+    let due = store.payroll_due(&company_id, 10).await.unwrap();
+    assert_eq!(due.len(), 1);
+    assert_eq!(due[0].gross_minor, 1_000);
+
+    let paid = store
+        .pay_payroll(&company_id, &due[0].id, 600)
+        .await
+        .unwrap();
+    assert_eq!(paid, 600);
+    let after_partial = store.load_snapshot(&company_id).await.unwrap().unwrap();
+    assert_eq!(after_partial.cash_minor, 9_400);
+    assert_eq!(after_partial.liabilities_minor, 900);
+
+    let paid_remainder = store
+        .pay_payroll(&company_id, &due[0].id, 400)
+        .await
+        .unwrap();
+    assert_eq!(paid_remainder, 400);
+    let after_full = store.load_snapshot(&company_id).await.unwrap().unwrap();
+    assert_eq!(after_full.cash_minor, 9_000);
+    assert_eq!(after_full.liabilities_minor, 500);
+
+    let paid_again = store
+        .pay_payroll(&company_id, &due[0].id, 400)
+        .await
+        .unwrap();
+    assert_eq!(paid_again, 0);
+}
+
+#[tokio::test]
 async fn invalid_company_id_is_rejected() {
     let Some(store) = connect_store().await else {
         return;
