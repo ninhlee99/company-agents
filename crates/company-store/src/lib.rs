@@ -953,6 +953,115 @@ impl CompanyStore {
         Ok(row.get(0))
     }
 
+    pub async fn upsert_business_unit(
+        &self,
+        company_id: &str,
+        unit: &company_organization::BusinessUnit,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if unit.id.trim().is_empty() || unit.name.trim().is_empty() {
+            return Err("business unit id and name are required".into());
+        }
+        let company_uuid = Uuid::parse_str(company_id)?;
+        if unit.currency != self.company_currency(&company_uuid).await? {
+            return Err("business unit currency must match company currency".into());
+        }
+        if unit.cash_minor < 0
+            || unit.revenue_minor < 0
+            || unit.variable_cost_minor < 0
+            || unit.fixed_cost_minor < 0
+            || unit.budget_minor < 0
+        {
+            return Err("business unit economics cannot be negative".into());
+        }
+        let unit_uuid = Uuid::parse_str(&unit.id)?;
+        let lifecycle = match unit.lifecycle {
+            company_organization::BusinessUnitLifecycle::Testing => "TESTING",
+            company_organization::BusinessUnitLifecycle::Growing => "GROWING",
+            company_organization::BusinessUnitLifecycle::Stable => "STABLE",
+            company_organization::BusinessUnitLifecycle::Distress => "DISTRESS",
+            company_organization::BusinessUnitLifecycle::Paused => "PAUSED",
+            company_organization::BusinessUnitLifecycle::Closed => "CLOSED",
+        };
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "INSERT INTO business_units
+                 (id, company_id, name, currency, cash_minor, revenue_minor,
+                  variable_cost_minor, fixed_cost_minor, budget_minor, lifecycle)
+                 VALUES ($1,$2,$3,$4,$5::numeric,$6::numeric,$7::numeric,
+                         $8::numeric,$9::numeric,$10)
+                 ON CONFLICT (id) DO UPDATE
+                 SET name=EXCLUDED.name,
+                     currency=EXCLUDED.currency,
+                     cash_minor=EXCLUDED.cash_minor,
+                     revenue_minor=EXCLUDED.revenue_minor,
+                     variable_cost_minor=EXCLUDED.variable_cost_minor,
+                     fixed_cost_minor=EXCLUDED.fixed_cost_minor,
+                     budget_minor=EXCLUDED.budget_minor,
+                     lifecycle=EXCLUDED.lifecycle,
+                     updated_at=now()",
+                &[
+                    &unit_uuid,
+                    &company_uuid,
+                    &unit.name,
+                    &unit.currency,
+                    &unit.cash_minor.to_string(),
+                    &unit.revenue_minor.to_string(),
+                    &unit.variable_cost_minor.to_string(),
+                    &unit.fixed_cost_minor.to_string(),
+                    &unit.budget_minor.to_string(),
+                    &lifecycle,
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_business_units(
+        &self,
+        company_id: &str,
+    ) -> Result<Vec<company_organization::BusinessUnit>, Box<dyn std::error::Error + Send + Sync>>
+    {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT id, name, currency, cash_minor::text, revenue_minor::text,
+                        variable_cost_minor::text, fixed_cost_minor::text,
+                        budget_minor::text, lifecycle
+                   FROM business_units
+                  WHERE company_id=$1
+                  ORDER BY name ASC, id ASC",
+                &[&company_uuid],
+            )
+            .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(company_organization::BusinessUnit {
+                    id: row.get::<_, Uuid>(0).to_string(),
+                    name: row.get(1),
+                    currency: row.get(2),
+                    cash_minor: parse_i128_numeric(&row.get::<_, String>(3))?,
+                    revenue_minor: parse_i128_numeric(&row.get::<_, String>(4))?,
+                    variable_cost_minor: parse_i128_numeric(&row.get::<_, String>(5))?,
+                    fixed_cost_minor: parse_i128_numeric(&row.get::<_, String>(6))?,
+                    budget_minor: parse_i128_numeric(&row.get::<_, String>(7))?,
+                    lifecycle: parse_business_unit_lifecycle(&row.get::<_, String>(8))?,
+                })
+            })
+            .collect()
+    }
+
+    pub async fn portfolio_metrics(
+        &self,
+        company_id: &str,
+    ) -> Result<company_organization::PortfolioMetrics, Box<dyn std::error::Error + Send + Sync>>
+    {
+        let units = self.list_business_units(company_id).await?;
+        company_organization::summarize_portfolio(&units)
+            .map_err(|error| error.to_string().into())
+    }
+
     pub async fn ensure_recurring_job(
         &self,
         company_id: &str,
@@ -1661,6 +1770,20 @@ fn parse_reconciliation_status(
         "PARTIAL" => Ok(affiliate_attribution::ReconciliationStatus::Partial),
         "REJECTED" => Ok(affiliate_attribution::ReconciliationStatus::Rejected),
         other => Err(format!("unknown affiliate reconciliation status: {other}").into()),
+    }
+}
+
+fn parse_business_unit_lifecycle(
+    value: &str,
+) -> Result<company_organization::BusinessUnitLifecycle, Box<dyn std::error::Error + Send + Sync>> {
+    match value {
+        "TESTING" => Ok(company_organization::BusinessUnitLifecycle::Testing),
+        "GROWING" => Ok(company_organization::BusinessUnitLifecycle::Growing),
+        "STABLE" => Ok(company_organization::BusinessUnitLifecycle::Stable),
+        "DISTRESS" => Ok(company_organization::BusinessUnitLifecycle::Distress),
+        "PAUSED" => Ok(company_organization::BusinessUnitLifecycle::Paused),
+        "CLOSED" => Ok(company_organization::BusinessUnitLifecycle::Closed),
+        other => Err(format!("unknown business unit lifecycle: {other}").into()),
     }
 }
 
