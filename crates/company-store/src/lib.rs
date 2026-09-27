@@ -1144,7 +1144,10 @@ impl CompanyStore {
         client
             .execute(
                 "UPDATE media_jobs
-                    SET status = $2,
+                    SET status = CASE
+                          WHEN $2 = 'FAILED' AND attempts < 3 THEN 'QUEUED'
+                          ELSE $2
+                        END,
                         locked_until = NULL,
                         last_error = $3,
                         updated_at = now()
