@@ -56,6 +56,9 @@ impl CompanyStore {
             .await?;
         client
             .batch_execute(include_str!("../../../infra/db/migrations/004_affiliate_searches.sql"))
+            .await?;
+        client
+            .batch_execute(include_str!("../../../infra/db/migrations/005_durable_scheduler.sql"))
             .await
     }
 
@@ -694,6 +697,68 @@ impl CompanyStore {
         ).await?;
 
         Ok(())
+    }
+
+    pub async fn ensure_cycle_schedule(
+        &self,
+        company_id: &str,
+        interval_seconds: i64,
+    ) -> Result<Uuid, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let interval_seconds = interval_seconds.clamp(15, 86_400);
+        let schedule_id = Uuid::new_v4();
+        let client = self.client.lock().await;
+        let row = client.query_one(
+            "INSERT INTO company_schedules (id, company_id, job_type, interval_seconds, next_run_at)
+             VALUES ($1,$2,'AGENT_CYCLE',$3,now())
+             ON CONFLICT (company_id, job_type) DO UPDATE
+             SET interval_seconds=EXCLUDED.interval_seconds,
+                 enabled=true,
+                 updated_at=now()
+             RETURNING id",
+            &[&schedule_id, &company_uuid, &interval_seconds],
+        ).await?;
+        Ok(row.get(0))
+    }
+
+    pub async fn claim_due_cycle(&self) -> Result<Option<Uuid>, tokio_postgres::Error> {
+        let client = self.client.lock().await;
+        let row = client.query_opt(
+            "WITH due AS (
+                SELECT id
+                FROM company_schedules
+                WHERE enabled=true
+                  AND job_type='AGENT_CYCLE'
+                  AND next_run_at <= now()
+                ORDER BY next_run_at
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+             )
+             UPDATE company_schedules s
+                SET next_run_at = now() + (s.interval_seconds * interval '1 second'),
+                    updated_at = now()
+              FROM due
+              WHERE s.id = due.id
+              RETURNING s.company_id",
+            &[],
+        ).await?;
+        Ok(row.map(|r| r.get(0)))
+    }
+
+    pub async fn set_schedule_enabled(
+        &self,
+        company_id: &str,
+        enabled: bool,
+    ) -> Result<bool, tokio_postgres::Error> {
+        let company_uuid = Uuid::parse_str(company_id).map_err(|_| tokio_postgres::Error::from(
+            tokio_postgres::error::DbError::closed()
+        ))?;
+        let client = self.client.lock().await;
+        Ok(client.execute(
+            "UPDATE company_schedules SET enabled=$2, updated_at=now()
+             WHERE company_id=$1 AND job_type='AGENT_CYCLE'",
+            &[&company_uuid, &enabled],
+        ).await? == 1)
     }
 
     pub async fn load_cycle_results(
