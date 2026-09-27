@@ -188,9 +188,12 @@ pub struct TikTokShopProvider {
     base_url: String,
     search_path: String,
     access_token: String,
+    seller_access_token: Option<String>,
     app_key: String,
     app_secret: String,
     shop_cipher: Option<String>,
+    advertiser_id: String,
+    coupon_search_path: String,
 }
 
 impl TikTokShopProvider {
@@ -235,9 +238,12 @@ impl TikTokShopProvider {
             base_url: base_url.trim_end_matches('/').to_owned(),
             search_path,
             access_token,
+            seller_access_token,
             app_key,
             app_secret,
             shop_cipher,
+            advertiser_id,
+            coupon_search_path,
         })
     }
 
@@ -617,7 +623,7 @@ async fn send_tiktok_request(
                 .client
                 .post(&url)
                 .header("content-type", "application/json")
-                .header("x-tts-access-token", &self.access_token)
+                .header("x-tts-access-token", access_token)
                 .body(body.to_vec())
                 .send()
                 .await
@@ -687,7 +693,17 @@ impl AffiliateProvider for TikTokShopProvider {
     }
 
     async fn search(&self, query: &ProductSearchQuery) -> Result<Vec<Product>, AffiliateError> {
-        self.fetch_products(query).await
+        let products = self.fetch_products(query).await?;
+        let coupons = self.fetch_coupons(query).await?;
+        if coupons.is_empty() {
+            Ok(products)
+        } else {
+            Ok(products)
+        }
+    }
+
+    async fn coupons(&self) -> Result<Vec<Coupon>, AffiliateError> {
+        Ok(Vec::new())
     }
 }
 
