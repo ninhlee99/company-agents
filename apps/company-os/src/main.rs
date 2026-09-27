@@ -254,7 +254,10 @@ async fn run_html(State(state): State<AppState>) -> (StatusCode, Html<String>) {
         ),
         Err(error) => {
             let message = error.to_string();
-            let _ = state.store.record_cycle_failure(&state.company_id, &message).await;
+            let _ = state
+                .store
+                .record_cycle_failure(&state.company_id, &message)
+                .await;
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Html("cycle failed safely; inspect logs".into()),
@@ -270,7 +273,10 @@ async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, S
         .map_err(|error| {
             let state = state.clone();
             tokio::spawn(async move {
-                let _ = state.store.record_cycle_failure(&state.company_id, &error.to_string()).await;
+                let _ = state
+                    .store
+                    .record_cycle_failure(&state.company_id, &error.to_string())
+                    .await;
             });
             StatusCode::INTERNAL_SERVER_ERROR
         })
@@ -354,40 +360,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match background
                 .store
                 .claim_due_job(&background.company_id, "agent_cycle")
-                .await?
-            {
-                Ok(Some((job_id, run_token))) => match run_cycle(
-                    &background,
-                    &run_token.to_string(),
-                )
                 .await
-                {
-                    Ok(_) => {
-                        if let Err(error) = background
-                            .store
-                            .complete_job(job_id, uuid::Uuid::new_v4())
-                            .await
-                        {
-                            eprintln!("scheduler completion error: {error}");
+            {
+                Ok(Some((job_id, run_token))) => {
+                    match run_cycle(&background, &run_token.to_string()).await {
+                        Ok(_) => {
+                            if let Err(error) = background
+                                .store
+                                .complete_job(job_id, uuid::Uuid::new_v4())
+                                .await
+                            {
+                                eprintln!("scheduler completion error: {error}");
+                            }
+                        }
+                        Err(error) => {
+                            eprintln!("agent cycle error: {error}");
+                            let _ = background
+                                .store
+                                .record_cycle_failure(&background.company_id, &error.to_string())
+                                .await;
+                            if let Err(release_error) =
+                                background.store.release_job_after_failure(job_id).await
+                            {
+                                eprintln!("scheduler recovery error: {release_error}");
+                            }
                         }
                     }
-                    Err(error) => {
-                        eprintln!("agent cycle error: {error}");
-                        let _ = background
-                            .store
-                            .record_cycle_failure(&background.company_id, &error.to_string())
-                            .await;
-                        if let Err(release_error) =
-                            background.store.release_job_after_failure(job_id).await
-                        {
-                            eprintln!("scheduler recovery error: {release_error}");
-                        }
-                    }
-                },
-                Ok(None) => {}
-                Err(error) => eprintln!("scheduler claim error: {error}"),
-            }
-        }
+                }        }
     });
 
     let app = Router::new()
