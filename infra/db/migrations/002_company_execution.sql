@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 ALTER TABLE agent_runs
   ADD COLUMN IF NOT EXISTS idempotency_key text;
 
