@@ -194,9 +194,21 @@ impl AffiliateIntelligence {
         self.providers.iter().map(|p| p.name().to_string()).collect()
     }
 
-    pub async fn search(&self, query: ProductSearchQuery) -> Result<AffiliateSearchResult, ProviderError> {
+    pub async fn search(&self, mut query: ProductSearchQuery) -> Result<AffiliateSearchResult, ProviderError> {
         if query.limit == 0 || query.limit > 100 {
             return Err(ProviderError::Configuration("limit must be in 1..=100".into()));
+        }
+        if query.min_commission_bps.map(|v| v > 10_000).unwrap_or(false) {
+            return Err(ProviderError::Configuration("min_commission_bps must be <= 10000".into()));
+        }
+        if query.min_rating_bps.map(|v| v > 5_000).unwrap_or(false) {
+            return Err(ProviderError::Configuration("min_rating_bps must be <= 5000".into()));
+        }
+        if query.max_price_minor.map(|v| v < 0).unwrap_or(false) {
+            return Err(ProviderError::Configuration("max_price_minor cannot be negative".into()));
+        }
+        if query.max_content_cost_minor < 0 {
+            query.max_content_cost_minor = 0;
         }
 
         let mut all = Vec::new();
@@ -919,7 +931,7 @@ impl AffiliateProvider for TikTokShopOpenCollaborationProvider {
                     updated_at_epoch: None,
                     evidence: vec!["TikTok Shop Affiliate Open Collaboration API".into()],
                 },
-                available: true,
+                available: stock.map(|v| v > 0).unwrap_or(true),
                 collected_at_epoch: now_epoch(),
             });
             }
