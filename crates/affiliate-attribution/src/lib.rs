@@ -33,6 +33,50 @@ pub struct ConversionEvent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AffiliatePayoutEvent {
+    pub company_id: String,
+    pub payout_id: String,
+    pub occurred_at: String,
+    pub amount_minor: i128,
+    pub currency: String,
+    pub source: String,
+}
+
+pub fn validate_payout_event(event: &AffiliatePayoutEvent) -> Result<(), AttributionError> {
+    if event.company_id.trim().is_empty()
+        || event.payout_id.trim().is_empty()
+        || event.source.trim().is_empty()
+        || event.currency.trim().len() != 3
+        || !event.currency.trim().bytes().all(|value| value.is_ascii_alphabetic())
+    {
+        return Err(AttributionError::InvalidInput(
+            "payout identifiers, source and currency are required".into(),
+        ));
+    }
+    if event.currency != event.currency.to_ascii_uppercase() {
+        return Err(AttributionError::InvalidInput(
+            "payout currency must be uppercase ISO-like 3-letter code".into(),
+        ));
+    }
+    if event.amount_minor < 0 {
+        return Err(AttributionError::InvalidInput(
+            "payout amount cannot be negative".into(),
+        ));
+    }
+    if parse_rfc3339(&event.occurred_at).is_none() {
+        return Err(AttributionError::InvalidInput(
+            "payout occurred_at must be RFC3339".into(),
+        ));
+    }
+    Ok(())
+}
+
+pub fn payout_idempotency_key(event: &AffiliatePayoutEvent) -> String {
+    let canonical = serde_json::to_vec(event).unwrap_or_default();
+    format!("payout:{:x}", Sha256::digest(canonical))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AttributionModel {
     LastClick,
     FirstClick,
