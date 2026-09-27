@@ -354,7 +354,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match background
                 .store
                 .claim_due_job(&background.company_id, "agent_cycle")
-                .await
+                .await?
+            {
                 Ok(Some((job_id, run_token))) => match run_cycle(
                     &background,
                     &run_token.to_string(),
