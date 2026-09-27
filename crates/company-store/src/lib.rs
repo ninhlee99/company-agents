@@ -3,7 +3,8 @@
 use agent_runtime::{
     ExecutionEngine, ExecutionOutcome, AgentRunResult, CompanySnapshot,
 };
-use economic_core::{validate_balanced_transaction, LedgerTransaction};
+use affiliate_intelligence::{AffiliateSearchResult, ProductSearchQuery};
+use economic_core::{validate_balanced_transaction, LedgerEntry, LedgerTransaction};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use tokio_postgres::{Client, NoTls};
@@ -52,6 +53,9 @@ impl CompanyStore {
             .await?;
         client
             .batch_execute(include_str!("../../../infra/db/migrations/003_ledger_completeness.sql"))
+            .await?;
+        client
+            .batch_execute(include_str!("../../../infra/db/migrations/004_affiliate_searches.sql"))
             .await
     }
 
@@ -139,6 +143,190 @@ impl CompanyStore {
 
         tx.commit().await?;
         Ok(transaction_uuid)
+    }
+
+    pub async fn record_cash_revenue(
+        &self,
+        company_id: &str,
+        amount_minor: i128,
+        source: &str,
+        idempotency_key: &str,
+    ) -> Result<Uuid, Box<dyn std::error::Error + Send + Sync>> {
+        self.record_cash_flow(company_id, amount_minor, source, idempotency_key, true).await
+    }
+
+    pub async fn record_cash_expense(
+        &self,
+        company_id: &str,
+        amount_minor: i128,
+        source: &str,
+        idempotency_key: &str,
+    ) -> Result<Uuid, Box<dyn std::error::Error + Send + Sync>> {
+        self.record_cash_flow(company_id, amount_minor, source, idempotency_key, false).await
+    }
+
+    async fn record_cash_flow(
+        &self,
+        company_id: &str,
+        amount_minor: i128,
+        source: &str,
+        idempotency_key: &str,
+        revenue: bool,
+    ) -> Result<Uuid, Box<dyn std::error::Error + Send + Sync>> {
+        if amount_minor <= 0 {
+            return Err("cash flow amount must be positive".into());
+        }
+        if source.trim().is_empty() || idempotency_key.trim().is_empty() {
+            return Err("cash flow source and idempotency key are required".into());
+        }
+
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        let row = tx.query_one(
+            "SELECT base_currency FROM companies WHERE id=$1 FOR UPDATE",
+            &[&company_uuid],
+        ).await?;
+        let currency: String = row.get::<_, String>(0);
+
+        let account = |code: &'static str| async {
+            tx.query_one(
+                "SELECT id FROM ledger_accounts WHERE company_id=$1 AND code=$2",
+                &[&company_uuid, &code],
+            ).await
+        };
+
+        let cash_id: Uuid = account("1000").await?.get(0);
+        let other_id: Uuid = if revenue {
+            account("4000").await?.get(0)
+        } else {
+            account("5000").await?.get(0)
+        };
+
+        let transaction_id = Uuid::new_v4();
+        let transaction = LedgerTransaction {
+            id: transaction_id.to_string(),
+            description: source.to_owned(),
+            entries: if revenue {
+                vec![
+                    LedgerEntry {
+                        account_id: cash_id.to_string(),
+                        debit_minor: amount_minor,
+                        credit_minor: 0,
+                        currency: currency.clone(),
+                    },
+                    LedgerEntry {
+                        account_id: other_id.to_string(),
+                        debit_minor: 0,
+                        credit_minor: amount_minor,
+                        currency: currency.clone(),
+                    },
+                ]
+            } else {
+                vec![
+                    LedgerEntry {
+                        account_id: other_id.to_string(),
+                        debit_minor: amount_minor,
+                        credit_minor: 0,
+                        currency: currency.clone(),
+                    },
+                    LedgerEntry {
+                        account_id: cash_id.to_string(),
+                        debit_minor: 0,
+                        credit_minor: amount_minor,
+                        currency: currency.clone(),
+                    },
+                ]
+            },
+        };
+        validate_balanced_transaction(&transaction).map_err(|e| format!("cash-flow ledger validation failed: {e}"))?;
+
+        let ledger_key = if revenue {
+            format!("REVENUE:{idempotency_key}")
+        } else {
+            format!("EXPENSE:{idempotency_key}")
+        };
+
+        let inserted = tx.execute(
+            "INSERT INTO ledger_transactions (id, company_id, description, idempotency_key)
+             VALUES ($1,$2,$3,$4)
+             ON CONFLICT (company_id,idempotency_key) DO NOTHING",
+            &[&transaction_id, &company_uuid, &source, &ledger_key],
+        ).await?;
+
+        if inserted == 0 {
+            let row = tx.query_one(
+                "SELECT id FROM ledger_transactions WHERE company_id=$1 AND idempotency_key=$2",
+                &[&company_uuid, &ledger_key],
+            ).await?;
+            tx.rollback().await?;
+            return Ok(row.get(0));
+        }
+
+        for entry in &transaction.entries {
+            let account_id = Uuid::parse_str(&entry.account_id)?;
+            tx.execute(
+                "INSERT INTO ledger_entries (transaction_id, account_id, debit_minor, credit_minor, currency)
+                 VALUES ($1,$2,$3::numeric,$4::numeric,$5)",
+                &[
+                    &transaction_id,
+                    &account_id,
+                    &entry.debit_minor.to_string(),
+                    &entry.credit_minor.to_string(),
+                    &entry.currency,
+                ],
+            ).await?;
+        }
+
+        let row = tx.query_one(
+            "SELECT state FROM company_state_snapshots WHERE company_id=$1 FOR UPDATE",
+            &[&company_uuid],
+        ).await?;
+        let state: Value = row.get(0);
+        let mut snapshot: CompanySnapshot = serde_json::from_value(state)?;
+        ExecutionEngine::validate_snapshot(&snapshot)
+            .map_err(|e| format!("snapshot validation failed: {e}"))?;
+
+        if revenue {
+            snapshot.cash_minor = snapshot.cash_minor.checked_add(amount_minor).ok_or("cash overflow")?;
+            snapshot.revenue_minor = snapshot.revenue_minor.checked_add(amount_minor).ok_or("revenue overflow")?;
+            snapshot.assets_minor = snapshot.assets_minor.checked_add(amount_minor).ok_or("assets overflow")?;
+        } else {
+            snapshot.cash_minor = snapshot.cash_minor.checked_sub(amount_minor).ok_or("cash underflow")?;
+            snapshot.expenses_minor = snapshot.expenses_minor.checked_add(amount_minor).ok_or("expense overflow")?;
+            snapshot.assets_minor = snapshot.assets_minor.checked_sub(amount_minor).ok_or("assets underflow")?;
+        }
+
+        let next_state = serde_json::to_value(&snapshot)?;
+        tx.execute(
+            "UPDATE company_state_snapshots
+             SET state=$2, updated_at=now(), revision=revision+1
+             WHERE company_id=$1",
+            &[&company_uuid, &next_state],
+        ).await?;
+
+        tx.commit().await?;
+        Ok(transaction_id)
+    }
+
+    pub async fn record_affiliate_search(
+        &self,
+        company_id: &str,
+        query: &ProductSearchQuery,
+        result: &AffiliateSearchResult,
+    ) -> Result<Uuid, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let search_id = Uuid::new_v4();
+        let query_json = serde_json::to_value(query)?;
+        let result_json = serde_json::to_value(result)?;
+        let client = self.client.lock().await;
+        client.execute(
+            "INSERT INTO affiliate_searches (id, company_id, query_json, result_json)
+             VALUES ($1,$2,$3,$4)",
+            &[&search_id, &company_uuid, &query_json, &result_json],
+        ).await?;
+        Ok(search_id)
     }
 
     pub async fn account_id_by_code(
