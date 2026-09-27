@@ -203,6 +203,36 @@ pub struct AgentRunResult {
     pub governance: Option<GovernedProposal>,
 }
 
+impl CompanySnapshot {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.company_id.trim().is_empty() {
+            return Err("company id is required".into());
+        }
+        if self.cash_minor < 0
+            || self.revenue_minor < 0
+            || self.expenses_minor < 0
+            || self.liabilities_minor < 0
+            || self.assets_minor < 0
+            || self.budget_remaining_minor < 0
+            || self.experiment_budget_minor < 0
+            || self.content_cost_minor < 0
+            || self.content_revenue_minor < 0
+        {
+            return Err("company snapshot economic values cannot be negative".into());
+        }
+        if self.runway_days < 0 {
+            return Err("company snapshot runway cannot be negative".into());
+        }
+        if self.conversion_bps > 10_000 {
+            return Err("conversion cannot exceed 10000 bps".into());
+        }
+        if self.audience_growth_bps < -10_000 || self.audience_growth_bps > 10_000 {
+            return Err("audience growth must remain within sane basis-point bounds".into());
+        }
+        Ok(())
+    }
+}
+
 impl ActionKind {
     pub fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
