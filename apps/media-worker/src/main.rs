@@ -66,7 +66,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-
 fn media_policy(job: &MediaJob) -> MediaQaPolicy {
     let max_file_size_bytes = std::env::var("MEDIA_MAX_FILE_SIZE_BYTES")
         .ok()

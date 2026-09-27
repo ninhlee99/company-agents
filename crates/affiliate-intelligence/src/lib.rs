@@ -1685,8 +1685,20 @@ mod tests {
 
     #[test]
     fn quality_test_really_compares_two_eligible_products() {
-        let quality = product("quality", "Quality Phone", Some(1_500), Some(9_600), Some(5_000));
-        let mut high = product("high", "High Commission Phone", Some(6_000), Some(6_200), Some(8));
+        let quality = product(
+            "quality",
+            "Quality Phone",
+            Some(1_500),
+            Some(9_600),
+            Some(5_000),
+        );
+        let mut high = product(
+            "high",
+            "High Commission Phone",
+            Some(6_000),
+            Some(6_200),
+            Some(8),
+        );
         high.seller_reputation_bps = Some(5_500);
         high.refund_rate_bps = Some(2_500);
         let coupons = vec![
@@ -1719,7 +1731,7 @@ mod tests {
                 attributable: true,
                 url: None,
                 source: "test".into(),
-            }
+            },
         ];
         let query = ProductSearchQuery {
             category: Some("electronics".into()),

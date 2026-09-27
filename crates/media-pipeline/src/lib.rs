@@ -147,9 +147,12 @@ impl FfmpegExecutor {
                 output.status
             )));
         }
-        parse_probe(&output.stdout, std::fs::metadata(path).map_err(|e| {
-            MediaError::InvalidJob(format!("cannot stat output media: {e}"))
-        })?.len())
+        parse_probe(
+            &output.stdout,
+            std::fs::metadata(path)
+                .map_err(|e| MediaError::InvalidJob(format!("cannot stat output media: {e}")))?
+                .len(),
+        )
     }
 }
 
