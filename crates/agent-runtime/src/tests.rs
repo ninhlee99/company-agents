@@ -7,7 +7,8 @@ use crate::{
     },
     runtime::AgentRuntime,
     types::{
-        ActionKind, AgentMemory, AgentRole, CompanySnapshot, GovernorDecision, Permission, Proposal, RiskTier,
+        ActionKind, AgentMemory, AgentRole, CompanySnapshot, GovernorDecision, Permission,
+        Proposal, RiskTier,
     },
 };
 use async_trait::async_trait;
