@@ -59,9 +59,8 @@ impl OpenAiCompatibleModel {
         json!({
             "model": self.model,
             "temperature": 0,
-            "response_format": {"type": "json_object"},
             "messages": [
-                {"role": "system", "content": system},
+                {"role": "system", "content": format!("{system}\n\nReturn only a JSON object with keys summary and confidence. Do not execute tools.")},
                 {"role": "user", "content": user}
             ]
         })
