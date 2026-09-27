@@ -79,16 +79,41 @@ impl CompanyStore {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let id = Uuid::parse_str(company_id)?;
         economic_core::Money::new(0, currency).map_err(|error| error.to_string())?;
-        let client = self.client.lock().await;
-        client
-            .execute(
-                "INSERT INTO companies (id, name, status, base_currency)
-                 VALUES ($1, $2, 'ACTIVE', $3)
-                 ON CONFLICT (id) DO UPDATE
-                 SET name = EXCLUDED.name",
-                &[&id, &name, &currency],
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let existing = tx
+            .query_opt(
+                "SELECT base_currency FROM companies WHERE id = $1 FOR UPDATE",
+                &[&id],
             )
             .await?;
+
+        match existing {
+            Some(row) => {
+                let existing_currency: String = row.get(0);
+                if !existing_currency.eq_ignore_ascii_case(currency) {
+                    return Err(format!(
+                        "company currency mismatch: database={existing_currency}, requested={currency}"
+                    )
+                    .into());
+                }
+                tx.execute(
+                    "UPDATE companies SET name = $2 WHERE id = $1",
+                    &[&id, &name],
+                )
+                .await?;
+            }
+            None => {
+                tx.execute(
+                    "INSERT INTO companies (id, name, status, base_currency)
+                     VALUES ($1, $2, 'ACTIVE', $3)",
+                    &[&id, &name, &currency],
+                )
+                .await?;
+            }
+        }
+
+        tx.commit().await?;
         Ok(())
     }
 
@@ -236,6 +261,10 @@ impl CompanyStore {
             Some(row) => serde_json::from_value::<CompanySnapshot>(row.get(0))?,
             None => proposed_snapshot.clone(),
         };
+
+        current_snapshot
+            .validate()
+            .map_err(|error| format!("authoritative snapshot is invalid: {error}"))?;
 
         if current_snapshot.company_id != proposed_snapshot.company_id {
             return Err("authoritative snapshot belongs to another company".into());
