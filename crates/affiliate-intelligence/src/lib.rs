@@ -1419,7 +1419,7 @@ impl AwinProvider {
     async fn discover_feed_url(&self) -> Result<String, AffiliateError> {
         let api_key = self
             .product_feed_api_key
-            .as_deref()
+            .as_ref()
             .ok_or_else(|| AffiliateError::Provider("Awin feed API key is missing".into()))?;
         let url = format!(
             "https://productdata.awin.com/datafeed/list/apikey/{}",
