@@ -149,6 +149,32 @@ fn attach_model_reasoning(mut proposal: Proposal, reasoning: &Value, ctx: &Agent
     }
 
     proposal.evidence.push("llm_reasoning_is_untrusted_metadata".into());
+    enforce_context(proposal, ctx)
+}
+
+fn enforce_context(mut proposal: Proposal, ctx: &AgentContext) -> Proposal {
+    if action_allowed_in_context(proposal.agent, proposal.action, ctx) {
+        return proposal;
+    }
+
+    let fallback = match proposal.agent {
+        AgentRole::CEO | AgentRole::CFO | AgentRole::Recruiter => ActionKind::ReduceBudget,
+        AgentRole::COO => {
+            if ctx.company.backlog > ctx.company.capacity { ActionKind::RebalanceOperations } else { ActionKind::ProduceReport }
+        }
+        AgentRole::Growth | AgentRole::Content | AgentRole::Experiment => ActionKind::ResearchOpportunity,
+        AgentRole::Analyst => ActionKind::ProduceReport,
+        AgentRole::Governor => ActionKind::EscalateIncident,
+    };
+
+    proposal.action = fallback;
+    proposal.cost_minor = 0;
+    proposal.expected_revenue_minor = 0;
+    proposal.risk = floor_risk_for_action(fallback);
+    proposal.reversible = true;
+    proposal.objective = "remain inside current operating envelope".into();
+    proposal.rationale = "baseline or model action was blocked by deterministic company context policy".into();
+    proposal.evidence.push("context_policy_fallback".into());
     proposal
 }
 macro_rules! define_agent {
