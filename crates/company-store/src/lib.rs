@@ -1581,12 +1581,13 @@ impl CompanyStore {
                 )
                 UPDATE outbox_events event
                    SET locked_until = now() + make_interval(secs => $3),
+                       lease_token = gen_random_uuid(),
                        attempt_count = event.attempt_count + 1
                   FROM candidates
                  WHERE event.id = candidates.id
              RETURNING event.id, event.event_type, event.aggregate_id,
                        event.idempotency_key, event.schema_version,
-                       event.payload, event.attempt_count",
+                       event.payload, event.attempt_count, event.lease_token",
                 &[&id, &limit, &lease_seconds],
             )
             .await?;
@@ -1613,15 +1614,21 @@ impl CompanyStore {
         &self,
         company_id: &str,
         event_id: i64,
+        lease_token: Uuid,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let id = Uuid::parse_str(company_id)?;
         let client = self.client.lock().await;
         let updated = client
             .execute(
                 "UPDATE outbox_events
-                    SET published_at = now(), locked_until = NULL, last_error = NULL
-                  WHERE company_id = $1 AND id = $2 AND published_at IS NULL",
-                &[&id, &event_id],
+                    SET published_at = now(), locked_until = NULL,
+                        lease_token = NULL, last_error = NULL
+                  WHERE company_id = $1
+                    AND id = $2
+                    AND published_at IS NULL
+                    AND lease_token = $3
+                    AND locked_until > now()",
+                &[&id, &event_id, &lease_token],
             )
             .await?;
         if updated != 1 {
@@ -1634,6 +1641,7 @@ impl CompanyStore {
         &self,
         company_id: &str,
         event_id: i64,
+        lease_token: Uuid,
         error: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let id = Uuid::parse_str(company_id)?;
@@ -1648,8 +1656,11 @@ impl CompanyStore {
                             ELSE make_interval(secs => LEAST(900, GREATEST(5, attempt_count * 15)))
                           END,
                         last_error = $3
-                  WHERE company_id = $1 AND id = $2 AND published_at IS NULL",
-                &[&id, &event_id, &bounded],
+                  WHERE company_id = $1
+                    AND id = $2
+                    AND published_at IS NULL
+                    AND lease_token = $3",
+                &[&id, &event_id, &lease_token, &bounded],
             )
             .await?;
         Ok(())
