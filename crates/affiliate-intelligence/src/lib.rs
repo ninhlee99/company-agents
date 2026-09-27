@@ -642,7 +642,12 @@ async fn send_tiktok_request(
                     tokio::time::sleep(response_retry_delay(retry_after, attempt)).await;
                     continue;
                 }
-            } else if !status.is_success() {
+                return Err(AffiliateError::Provider(format!(
+                    "TikTok affiliate API HTTP {status}: {}",
+                    String::from_utf8_lossy(&bytes[..bytes.len().min(4096)])
+                )));
+            }
+            if !status.is_success() {
                 return Err(AffiliateError::Provider(format!(
                     "TikTok affiliate API HTTP {status}: {}",
                     String::from_utf8_lossy(&bytes[..bytes.len().min(4096)])
@@ -696,7 +701,7 @@ pub trait AffiliateProvider: Send + Sync {
 
     async fn search(
         &self,
-        query: &ProductSearchQuery,
+        _query: &ProductSearchQuery,
     ) -> Result<Vec<Product>, AffiliateError> {
         self.products().await
     }
@@ -2585,6 +2590,92 @@ mod tests {
             ..Default::default()
         };
         assert!(rank_products(&[p], &[coupon], &query).is_empty());
+    }
+
+    #[test]
+    fn tiktok_signature_is_stable_and_order_independent() {
+        let query_a = vec![
+            ("timestamp".to_owned(), "1623812664".to_owned()),
+            ("app_key".to_owned(), "38abcd".to_owned()),
+            ("page_size".to_owned(), "10".to_owned()),
+        ];
+        let query_b = vec![
+            ("page_size".to_owned(), "10".to_owned()),
+            ("app_key".to_owned(), "38abcd".to_owned()),
+            ("timestamp".to_owned(), "1623812664".to_owned()),
+        ];
+        let one = tiktok_sign("/affiliate_creator/test", &query_a, br#"{"x":1}"#, "secret").unwrap();
+        let two = tiktok_sign("/affiliate_creator/test", &query_b, br#"{"x":1}"#, "secret").unwrap();
+        let three = tiktok_sign("/affiliate_creator/test", &query_a, br#"{"x":2}"#, "secret").unwrap();
+        assert_eq!(one, two);
+        assert_ne!(one, three);
+        assert_eq!(percent_encode("a b+c"), "a%20b%2Bc");
+    }
+
+    #[test]
+    fn parses_tiktok_open_collaboration_payload() {
+        let payload = serde_json::json!({
+            "code": 0,
+            "message": "Success",
+            "request_id": "req-1",
+            "data": {
+                "next_page_token": "",
+                "total_count": 1,
+                "products": [{
+                    "category_chains": [
+                        {"id":"601755","local_name":"Computers & Office Equipment"},
+                        {"id":"855560","local_name":"Cards"}
+                    ],
+                    "commission": {
+                        "amount":"0.4319",
+                        "currency":"USD",
+                        "rate":1234
+                    },
+                    "detail_link":"https://shop.tiktok.com/view/product/1729570313535393936?region=US",
+                    "has_inventory":true,
+                    "id":"1729570313535393936",
+                    "main_image_url":"https://cdn.example.com/p.webp",
+                    "original_price":{
+                        "currency":"USD",
+                        "maximum_amount":"4.19",
+                        "minimum_amount":"4.19"
+                    },
+                    "sale_region":"US",
+                    "sales_price":{
+                        "currency":"USD",
+                        "maximum_amount":"3.5",
+                        "minimum_amount":"3.5"
+                    },
+                    "shop":{"name":"Demo Shop"},
+                    "title":"Creator Card",
+                    "units_sold":5
+                }]
+            }
+        });
+        let page = parse_tiktok_search_response(&payload).unwrap();
+        assert_eq!(page.products.len(), 1);
+        let p = &page.products[0];
+        assert_eq!(p.id, "1729570313535393936");
+        assert_eq!(p.price_minor, 350);
+        assert_eq!(p.commission_rate_bps, Some(1234));
+        assert_eq!(p.commission_fixed_minor, Some(43));
+        assert_eq!(p.currency, "USD");
+        assert_eq!(p.advertiser_name.as_deref(), Some("Demo Shop"));
+        assert!(p.category.contains("Cards"));
+        assert!(p.in_stock);
+    }
+
+    #[test]
+    fn tiktok_nonzero_api_code_fails_closed() {
+        let payload = serde_json::json!({
+            "code": 105005,
+            "message": "Access denied",
+            "request_id": "req-2",
+            "data": {}
+        });
+        let error = parse_tiktok_search_response(&payload).unwrap_err();
+        assert!(error.to_string().contains("105005"));
+        assert!(error.to_string().contains("Access denied"));
     }
 
     #[test]
