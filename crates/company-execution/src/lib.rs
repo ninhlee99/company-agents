@@ -103,7 +103,9 @@ pub fn execute_approved_results(
                 action: governed.proposal.action,
                 status: ExecutionStatus::Rejected,
                 cost_minor: governed.proposal.cost_minor,
-                reason: "agent/result identity mismatch; execution boundary rejects ambiguous authority".into(),
+                reason:
+                    "agent/result identity mismatch; execution boundary rejects ambiguous authority"
+                        .into(),
             });
             continue;
         }
@@ -521,8 +523,12 @@ mod tests {
             governance: Some(governed(ActionKind::CreateExperiment, 100)),
         };
         result.proposal.agent = AgentRole::Experiment;
-        let batch = execute_approved_results(snapshot(), &[result], ExecutionPolicy::default()).unwrap();
-        assert!(batch.receipts.iter().any(|r| r.status == ExecutionStatus::Rejected));
+        let batch =
+            execute_approved_results(snapshot(), &[result], ExecutionPolicy::default()).unwrap();
+        assert!(batch
+            .receipts
+            .iter()
+            .any(|r| r.status == ExecutionStatus::Rejected));
         assert_eq!(batch.snapshot.cash_minor, 10_000);
     }
 
