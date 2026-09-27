@@ -264,7 +264,7 @@ async fn run_html(State(state): State<AppState>) -> (StatusCode, Html<String>) {
 }
 
 async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, StatusCode> {
-    run_cycle(&state)
+    run_cycle(&state, &uuid::Uuid::new_v4().to_string())
         .await
         .map(Json)
         .map_err(|error| {
@@ -355,15 +355,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .store
                 .claim_due_job(&background.company_id, "agent_cycle")
                 .await
-            {
-                Ok(Some(job_id)) => match run_cycle(&background).await {
+                Ok(Some((job_id, run_token))) => match run_cycle(
+                    &background,
+                    &run_token.to_string(),
+                )
+                .await
+                {
                     Ok(_) => {
-                        if let Err(error) = background.store.complete_job(job_id).await {
+                        if let Err(error) = background
+                            .store
+                            .complete_job(job_id, uuid::Uuid::new_v4())
+                            .await
+                        {
                             eprintln!("scheduler completion error: {error}");
                         }
                     }
                     Err(error) => {
                         eprintln!("agent cycle error: {error}");
+                        let _ = background
+                            .store
+                            .record_cycle_failure(&background.company_id, &error.to_string())
+                            .await;
                         if let Err(release_error) =
                             background.store.release_job_after_failure(job_id).await
                         {
