@@ -131,7 +131,7 @@ pub enum GovernorDecision {
     Escalate,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CompanySnapshot {
     pub company_id: String,
     pub cash_minor: i128,
