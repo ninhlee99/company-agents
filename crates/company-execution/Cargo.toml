@@ -1,0 +1,11 @@
+[package]
+name = "company-execution"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+agent-runtime = { path = "../agent-runtime" }
+economic-core = { path = "../economic-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
