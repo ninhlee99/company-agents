@@ -294,7 +294,7 @@ impl CompanyStore {
             "UPDATE cycle_runs SET status='FAILED', completed_at=now(),
                 response_json=jsonb_build_object('error','stale cycle recovered')
              WHERE status='PROCESSING'
-               AND created_at < now() - make_interval(secs => $1)",
+               AND created_at < now() - ($1 * interval '1 second')",
             &[&threshold],
         ).await?;
         recovered += client.execute(
