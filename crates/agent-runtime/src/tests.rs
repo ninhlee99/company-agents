@@ -169,7 +169,7 @@ async fn permission_escalation_is_rejected() {
     };
 
     let decision =
-        crate::governor::Governor.evaluate(&crate::governor::Governor, p, &healthy_company());
+        crate::governor::Governor.evaluate(p, &healthy_company());
     assert_eq!(decision.decision, GovernorDecision::Reject);
 }
 
