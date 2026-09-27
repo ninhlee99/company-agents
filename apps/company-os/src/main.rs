@@ -10,6 +10,14 @@ struct AppState {
     latest: Arc<RwLock<Vec<AgentRunResult>>>,
 }
 
+fn format_minor(value: i128) -> String {
+    let negative = value < 0;
+    let absolute = value.unsigned_abs();
+    let whole = absolute / 100;
+    let cents = absolute % 100;
+    let rendered = format!("{}.{:02}", whole, cents);
+    if negative { format!("-${}", rendered) } else { format!("${}", rendered) }
+}
 fn seed_company() -> CompanySnapshot {
     CompanySnapshot {
         company_id: std::env::var("COMPANY_ID").unwrap_or_else(|_| "demo-company".into()),
@@ -57,7 +65,7 @@ async fn index(State(state): State<AppState>) -> Html<String> {
     }
 
     if rows.is_empty() {
-        rows.push_str("<tr><td colspan="4">No cycle has run yet.</td></tr>");
+        rows.push_str(r#"<tr><td colspan="4">No cycle has run yet.</td></tr>"#);
     }
 
     Html(format!(r#"<!doctype html>
@@ -87,9 +95,9 @@ small{{color:#666}}
 <table><tr><th>Agent</th><th>Status</th><th>Governor</th><th>Action</th></tr>{}</table>
 </div>
 </body></html>"#,
-        state.company.cash_minor as f64 / 100.0,
-        state.company.revenue_minor as f64 / 100.0,
-        state.company.expenses_minor as f64 / 100.0,
+        format_minor(state.company.cash_minor),
+        format_minor(state.company.revenue_minor),
+        format_minor(state.company.expenses_minor),
         state.company.runway_days,
         rows,
     ))
