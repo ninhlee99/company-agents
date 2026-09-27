@@ -177,7 +177,7 @@ mod tests {
         p.risk = RiskTier::High;
         p.reversible = false;
         assert_eq!(
-            Governor.evaluate(&Governor, p, &snapshot()).decision,
+            Governor.evaluate(p, &snapshot()).decision,
             GovernorDecision::Escalate
         );
     }
@@ -187,7 +187,7 @@ mod tests {
         let mut p = proposal();
         p.requested_permission = Permission::ExecuteMaterial;
         assert_eq!(
-            Governor.evaluate(&Governor, p, &snapshot()).decision,
+            Governor.evaluate(p, &snapshot()).decision,
             GovernorDecision::Reject
         );
     }
@@ -200,7 +200,7 @@ mod tests {
             ..snapshot()
         };
         assert_eq!(
-            Governor.evaluate(&Governor, p, &company).decision,
+            Governor.evaluate(p, &company).decision,
             GovernorDecision::Reject
         );
     }
@@ -221,7 +221,7 @@ mod tests {
             requested_permission: Permission::Propose,
         };
         assert_eq!(
-            Governor.evaluate(&Governor, p, &snapshot()).decision,
+            Governor.evaluate(p, &snapshot()).decision,
             GovernorDecision::Escalate
         );
     }
@@ -231,7 +231,7 @@ mod tests {
         let mut p = proposal();
         p.cost_minor = 20_000;
         assert_eq!(
-            Governor.evaluate(&Governor, p, &snapshot()).decision,
+            Governor.evaluate(p, &snapshot()).decision,
             GovernorDecision::Reject
         );
     }
