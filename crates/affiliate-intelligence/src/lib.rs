@@ -1271,6 +1271,7 @@ pub struct AwinProvider {
     commission_map: HashMap<String, u32>,
     auto_fetch_commissions: bool,
     max_commission_advertisers: usize,
+    commission_delay_ms: u64,
     cache_ttl: Duration,
     products_cache: RwLock<Option<Cache<Vec<Product>>>>,
     coupons_cache: RwLock<Option<Cache<Vec<Coupon>>>>,
@@ -1309,8 +1310,13 @@ impl AwinProvider {
         let max_commission_advertisers = std::env::var("AWIN_MAX_COMMISSION_ADVERTISERS")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
-            .map(|v| v.clamp(1, 100))
-            .unwrap_or(25);
+            .map(|v| v.clamp(1, 8))
+            .unwrap_or(6);
+        let commission_delay_ms = std::env::var("AWIN_COMMISSION_DELAY_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .map(|v| v.clamp(0, 60_000))
+            .unwrap_or(3_200);
         let cache_ttl = std::env::var("AFFILIATE_CACHE_TTL_SECONDS")
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
@@ -1338,6 +1344,7 @@ impl AwinProvider {
             ),
             auto_fetch_commissions,
             max_commission_advertisers,
+            commission_delay_ms,
             cache_ttl,
             products_cache: RwLock::new(None),
             coupons_cache: RwLock::new(None),
@@ -1504,7 +1511,10 @@ impl AwinProvider {
             }
         }
 
-        for advertiser_id in advertisers {
+        for (index, advertiser_id) in advertisers.into_iter().enumerate() {
+            if index > 0 && self.commission_delay_ms > 0 {
+                tokio::time::sleep(Duration::from_millis(self.commission_delay_ms)).await;
+            }
             let url = format!(
                 "https://api.awin.com/publishers/{}/commissiongroups",
                 self.publisher_id
