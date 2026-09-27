@@ -785,10 +785,7 @@ impl AwinProvider {
             .ok()
             .filter(|v| !v.trim().is_empty())
             .map(|v| v.trim().to_owned());
-        let product_feed_api_key = std::env::var("AWIN_PRODUCT_FEED_API_KEY")
-            .ok()
-            .filter(|v| !v.trim().is_empty())
-            .map(|v| v.trim().to_owned());
+        let product_feed_api_key = secret_from_env_optional("AWIN_PRODUCT_FEED_API_KEY")?;
         if product_feed_url.is_none() {
             return Err(AffiliateError::Provider(
                 "AWIN_PRODUCT_FEED_URL is required; feed discovery is intentionally fail-closed".into(),
@@ -800,7 +797,7 @@ impl AwinProvider {
             .map(|v| v.trim().to_owned());
         let publisher_id = std::env::var("AWIN_PUBLISHER_ID")
             .map_err(|_| AffiliateError::Provider("AWIN_PUBLISHER_ID is required".into()))?;
-        let access_token = std::env::var("AWIN_ACCESS_TOKEN")
+        let access_token = secret_from_env("AWIN_ACCESS_TOKEN")
             .map_err(|_| AffiliateError::Provider("AWIN_ACCESS_TOKEN is required".into()))?;
         let auto_fetch_commissions = std::env::var("AWIN_AUTO_FETCH_COMMISSIONS")
             .ok()
@@ -1138,6 +1135,53 @@ impl AffiliateProvider for AwinProvider {
         });
         Ok(fresh)
     }
+}
+
+fn secret_from_env(name: &str) -> Result<String, AffiliateError> {
+    let file_key = format!("{name}_FILE");
+    let direct = std::env::var(name).ok();
+    let file = std::env::var(&file_key).ok();
+
+    if direct.is_some() && file.is_some() {
+        return Err(AffiliateError::Provider(format!(
+            "{name} and {file_key} must not both be set"
+        )));
+    }
+
+    let value = match (direct, file) {
+        (Some(value), None) => value,
+        (None, Some(path)) => {
+            if path.trim().is_empty() || std::path::Path::new(&path).is_dir() {
+                return Err(AffiliateError::Provider(format!("{file_key} is invalid")));
+            }
+            let metadata = std::fs::metadata(&path)
+                .map_err(|_| AffiliateError::Provider(format!("{file_key} cannot be read")))?;
+            if metadata.len() > 16 * 1024 {
+                return Err(AffiliateError::Provider(format!("{file_key} is too large")));
+            }
+            std::fs::read_to_string(&path)
+                .map_err(|_| AffiliateError::Provider(format!("{file_key} cannot be read")))?
+        }
+        (None, None) => {
+            return Err(AffiliateError::Provider(format!("{name} is required")));
+        }
+        _ => unreachable!(),
+    };
+
+    let value = value.trim().to_owned();
+    if value.is_empty() {
+        return Err(AffiliateError::Provider(format!("{name} is empty")));
+    }
+    Ok(value)
+}
+
+fn secret_from_env_optional(name: &str) -> Result<Option<String>, AffiliateError> {
+    let direct = std::env::var(name).ok();
+    let file = std::env::var(format!("{name}_FILE")).ok();
+    if direct.is_none() && file.is_none() {
+        return Ok(None);
+    }
+    secret_from_env(name).map(Some)
 }
 
 fn parse_commission_map(value: &str) -> HashMap<String, u32> {
