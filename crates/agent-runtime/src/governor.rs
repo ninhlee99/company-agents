@@ -169,7 +169,7 @@ mod tests {
 
     #[test]
     fn governor_escalates_irreversible_action() {
-        let p = proposal();
+        let mut p = proposal();
         p.agent = AgentRole::Recruiter;
         p.action = ActionKind::ProposeHire;
         p.risk = RiskTier::High;
@@ -182,7 +182,7 @@ mod tests {
 
     #[test]
     fn governor_rejects_self_permission_escalation() {
-        let mut p = proposal();
+        let p = proposal();
         p.requested_permission = Permission::ExecuteMaterial;
         assert_eq!(
             Governor.evaluate(p, &snapshot()).decision,
