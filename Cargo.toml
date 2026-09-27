@@ -8,5 +8,6 @@ members = [
   "crates/company-store",
   "crates/company-execution",
   "crates/affiliate-intelligence",
-  "crates/affiliate-attribution"
+  "crates/affiliate-attribution",
+  "crates/media-pipeline"
 ]
