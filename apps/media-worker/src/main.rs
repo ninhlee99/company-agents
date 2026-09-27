@@ -24,7 +24,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         };
 
         let worker = executor.clone();
-        let result = tokio::task::spawn_blocking(move || worker.execute(&job)).await;
+        let job_for_render = job.clone();
+        let result =
+            tokio::task::spawn_blocking(move || worker.execute(&job_for_render)).await;
         match result {
             Ok(Ok(())) => {
                 let probe = executor.probe(&job.output_path);
