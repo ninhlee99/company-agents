@@ -576,19 +576,19 @@ async fn outbox_worker(
                         if let Some(token) = bearer.as_deref() {
                             request = request.bearer_auth(token);
                         }
-                        let result = request.send().await.and_then(|response| {
-                            if response.status().is_success() {
-                                Ok(())
-                            } else {
-                                Err(reqwest::Error::from(
-                                    reqwest::StatusCode::INTERNAL_SERVER_ERROR
-                                ))
-                            }
-                        });
 
-                        match result {
-                            Ok(()) => {
+                        match request.send().await {
+                            Ok(response) if response.status().is_success() => {
                                 let _ = store.mark_outbox_published(event.id).await;
+                            }
+                            Ok(response) => {
+                                let error = format!("webhook http {}", response.status());
+                                let _ = store.fail_outbox_event(
+                                    event.id,
+                                    &owner,
+                                    &error,
+                                    30,
+                                ).await;
                             }
                             Err(error) => {
                                 let _ = store.fail_outbox_event(
@@ -608,6 +608,7 @@ async fn outbox_worker(
         tokio::time::sleep(Duration::from_secs(5)).await;
     }
 }
+
 
 async fn healthz() -> &'static str {
     "ok"
