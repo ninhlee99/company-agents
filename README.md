@@ -4,6 +4,30 @@ Autonomous Company OS — an AI-native operating system for building and operati
 
 The initial business model is an AI-native media and creator company. The deeper goal is a reusable economic operating system in which AI agents can research opportunities, create businesses, allocate capital, hire, execute, learn from outcomes, scale winners, shut down losers, and eventually enter distress or bankruptcy.
 
+## AI model strategy
+
+The default AI provider is **local Ollama**, so the project can run without a paid API key.
+
+The Docker setup starts Ollama and pulls a configurable local model automatically. Default:
+
+    qwen3:4b
+
+Ollama exposes an OpenAI-compatible API on port 11434, which the Rust Agent Runtime uses without requiring a real API token.
+
+A smaller machine can choose:
+
+    OLLAMA_MODEL=qwen3:1.7b
+
+The Qwen3 family currently includes compact local variants; Ollama lists qwen3:1.7b at about 1.4GB and qwen3:4b at about 2.5GB. Choose based on available RAM/compute.
+
+Optional remote provider:
+
+    LLM_PROVIDER=gemini
+    GEMINI_API_KEY=...
+    GEMINI_MODEL=gemini-3.6-flash
+
+Google currently provides a Free Tier for selected Gemini API models. Free-tier limits apply, and Google states that free-tier content may be used to improve its products, so local Ollama is preferred for private company data.
+
 ## Primary implementation
 
 The core Company OS is Rust.
@@ -32,16 +56,18 @@ Operating agents:
 
 Agents are proposal-driven. LLMs can reason, but deterministic Rust governance and economics control authorization and critical state.
 
-## Run with Docker
+## Run locally
 
-You only need Git and Docker.
+Requirements:
+- Git
+- Docker
 
 Clone:
 
     git clone https://github.com/ninhlee99/company-agents.git
     cd company-agents
 
-Create local configuration:
+Create configuration:
 
     cp .env.example .env
 
@@ -49,39 +75,41 @@ Start everything:
 
     docker compose up --build
 
+The first start downloads the configured local Ollama model. This is a one-time local model download stored in the Docker volume.
+
 Open:
 
     http://localhost:8080
 
-The default configuration uses the built-in Mock Model, so the dashboard and all agent cycles run without an LLM API key.
+No paid API key is required.
 
-To use an OpenAI-compatible LLM, set these values in .env:
+## Run with an already-installed Ollama
 
-    LLM_API_KEY=...
-    LLM_BASE_URL=https://your-provider.example/v1
-    LLM_MODEL=...
+Install Ollama on your host, then pull a model:
 
-Then restart:
+    ollama run qwen3:4b
 
-    docker compose up --build
+Set in .env:
 
-## Run natively
+    LLM_PROVIDER=ollama
+    OLLAMA_BASE_URL=http://host.docker.internal:11434/v1
+    OLLAMA_MODEL=qwen3:4b
+
+Then start the Company OS. This avoids running a second Ollama server in Docker.
+
+## Native Rust
 
 Requirements:
 - Rust stable
-- Docker for PostgreSQL/Redis when those services are enabled
-
-Start the Company OS:
 
     cargo run -p company-os
 
-Run the complete Rust test suite:
+Tests:
 
     cargo test --workspace
 
-Quality checks:
+Quality:
 
-    cargo fmt --all -- --check
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 ## Runtime API
@@ -92,4 +120,4 @@ Quality checks:
 - POST /api/run — run one complete decision cycle
 - POST /run — run one cycle and return to dashboard
 
-The current runtime uses a deterministic demo company snapshot. PostgreSQL schema and economic migrations are present, while durable persistence and external platform integrations are wired in later milestones.
+The current runtime is a safe agent/governance bootstrap. Real money, platform publishing and external account control remain behind later integration and acceptance gates.
