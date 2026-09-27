@@ -1,7 +1,7 @@
 # Implementation Plan
 
 ## Phase 1 — Economic Kernel
-**Status: foundation implemented; durable execution still pending**
+**Status: implemented baseline + durable execution layer**
 - Rust deterministic economic core
 - immutable double-entry ledger validation
 - company state, runway and budget guards
@@ -11,14 +11,19 @@
 - bankruptcy/liquidation spending guards
 - invariant tests
 
-Remaining before Phase 1 acceptance:
+Implemented in this baseline:
 - transactional repository/service layer
-- atomic ledger + outbox commit
+- atomic Company cycle + execution + journal/outbox persistence
 - persisted state transitions
-- recovery/restore test
+- idempotent cycle and ledger commands
+- lease-based scheduler recovery
+
+Still required for full production acceptance:
+- automated backup/restore drill
+- disaster recovery rehearsal
 
 ## Phase 2 — Simulator
-**Status: initial deterministic simulator implemented**
+**Status: deterministic simulator with shared production execution path implemented**
 - seeded/replayable company world
 - daily revenue/cost/cash model
 - content, affiliate and sponsor signals
@@ -30,11 +35,10 @@ Remaining before Phase 2 acceptance:
 - richer creator/business-unit economics
 - payroll/contract liabilities
 - traffic/campaign distributions calibrated from real observations
-- multi-run statistical evaluation
-- replayable decision journal
+- multi-run statistical evaluation with confidence intervals
 
 ## Phase 3 — Agent Harness
-**Status: safety-focused runtime implemented; durable tooling pending**
+**Status: safety-focused runtime + execution-bound tooling + durable scheduler/journal implemented**
 - typed Agent contract
 - local Ollama + Gemini/OpenAI-compatible model adapters
 - bounded concurrent Agent Runtime
@@ -47,12 +51,9 @@ Remaining before Phase 2 acceptance:
 - stress/adversarial/randomized tests
 
 Remaining before Phase 3 acceptance:
-- execution-bound tool registry
 - durable Agent memory
-- persisted event scheduler
 - per-agent durable budget/rate-limit accounting
-- replayable decision journal
-- observability/tracing
+- distributed tracing/metrics
 
 ## Phase 4 — Agents
 **Status: operating Agents implemented and safety-tested**
@@ -76,20 +77,20 @@ Every operating Agent has:
 - scenario and adversarial tests
 
 ## Phase 5 — Media Factory
-**Status: planned**
-Research → planning → scripting → production → QA → publishing → analytics → attribution.
+**Status: contract/runtime foundation planned next**
+Research → planning → scripting → production → QA → publishing → analytics → attribution remains the next major build after economic/execution hardening.
 
 ## Phase 6 — Monetization
-**Status: planned**
-Affiliate adapters, sponsorship CRM, service proposals, invoicing and verified revenue ingestion.
+**Status: affiliate discovery implemented; monetization expansion next**
+Affiliate provider contracts, deterministic product ranking, coupon validation and Awin adapters are implemented. Sponsorship CRM, service proposals, invoicing and verified revenue ingestion remain next.
 
 ## Phase 7 — Human Organization
-**Status: planned**
-Employees, payroll abstractions, hiring workflow, contractors and performance review.
+**Status: governance primitives implemented; HR economics next**
+Hiring proposals and governance exist; payroll, contractor liabilities and performance economics remain next.
 
 ## Phase 8 — Controlled Autonomy
-**Status: planned**
-Shadow → approved actions → bounded autonomy → broader autonomy.
+**Status: controlled runtime implemented; autonomy expansion gated**
+The system currently supports proposal → Governor → bounded execution for safe actions. External/material side effects remain explicitly gated.
 
 ## Phase 9 — Portfolio Company
 **Status: planned**
