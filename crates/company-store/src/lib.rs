@@ -1132,21 +1132,24 @@ impl CompanyStore {
     pub async fn finish_media_job(
         &self,
         job_id: &str,
-        success: bool,
+        status: &str,
         error: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if !matches!(status, "SUCCEEDED" | "FAILED" | "QA_FAILED") {
+            return Err("invalid media completion status".into());
+        }
         let id = Uuid::parse_str(job_id)?;
         let bounded_error = error.map(|value| value.chars().take(4096).collect::<String>());
         let client = self.client.lock().await;
         client
             .execute(
                 "UPDATE media_jobs
-                    SET status = CASE WHEN $2 THEN 'SUCCEEDED' ELSE 'FAILED' END,
+                    SET status = $2,
                         locked_until = NULL,
                         last_error = $3,
                         updated_at = now()
                   WHERE id = $1",
-                &[&id, &success, &bounded_error],
+                &[&id, &status, &bounded_error],
             )
             .await?;
         Ok(())
