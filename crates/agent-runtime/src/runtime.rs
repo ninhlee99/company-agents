@@ -3,10 +3,10 @@ use crate::{
     governor::Governor,
     model::Model,
     roles::executive_agents,
-    types::{AgentRole, AgentRunResult, CompanySnapshot},
+    types::{AgentMemory, AgentRole, AgentRunResult, CompanySnapshot},
 };
 use futures::future::join_all;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Semaphore;
 
 pub struct AgentRuntime {
@@ -46,8 +46,12 @@ impl AgentRuntime {
             .filter(|v| (250..=120_000).contains(v))
             .unwrap_or(15_000);
 
-        self.run_all_with_timeout(company, std::time::Duration::from_millis(timeout_ms))
-            .await
+        self.run_all_with_memory_timeout(
+            company,
+            std::time::Duration::from_millis(timeout_ms),
+            &HashMap::new(),
+        )
+        .await
     }
 
     pub async fn run_all_with_timeout(
@@ -55,21 +59,56 @@ impl AgentRuntime {
         company: CompanySnapshot,
         model_timeout: std::time::Duration,
     ) -> Vec<AgentRunResult> {
+        self.run_all_with_memory_timeout(company, model_timeout, &HashMap::new())
+            .await
+    }
+
+    pub async fn run_all_with_memory_timeout(
+        &self,
+        company: CompanySnapshot,
+        model_timeout: std::time::Duration,
+        memory: &HashMap<AgentRole, Vec<AgentMemory>>,
+    ) -> Vec<AgentRunResult> {
+        self.run_roles_with_memory(
+            company,
+            model_timeout,
+            self.agent_roles(),
+            memory,
+        )
+        .await
+    }
+
+    pub async fn run_roles_with_memory(
+        &self,
+        company: CompanySnapshot,
+        model_timeout: std::time::Duration,
+        roles: Vec<AgentRole>,
+        memory: &HashMap<AgentRole, Vec<AgentMemory>>,
+    ) -> Vec<AgentRunResult> {
         let ctx = AgentContext {
             company,
             model_timeout,
+            memory: Vec::new(),
         };
         let governor = &self.governor;
         let model = self.model.clone();
         let concurrency = self.concurrency.clone();
 
-        let futures = self.agents.iter().map(|agent| {
+        let mut selected = self
+            .agents
+            .iter()
+            .filter(|agent| roles.contains(&agent.role()))
+            .collect::<Vec<_>>();
+        selected.sort_by_key(|agent| AgentRole::ALL.iter().position(|role| *role == agent.role()));
+
+        let futures = selected.into_iter().map(|agent| {
             let agent = agent.clone();
             let model = model.clone();
             let concurrency = concurrency.clone();
             let ctx = AgentContext {
                 company: ctx.company.clone(),
                 model_timeout: ctx.model_timeout,
+                memory: memory.get(&agent.role()).cloned().unwrap_or_default(),
             };
 
             async move {
