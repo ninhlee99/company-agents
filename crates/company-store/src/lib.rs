@@ -368,6 +368,15 @@ impl CompanyStore {
             .await?;
         }
 
+        persist_execution_ledgers(
+            &tx,
+            company_id,
+            &cycle_key,
+            &persisted_cycle_currency(&tx, company_id).await?,
+            &batch.receipts,
+        )
+        .await?;
+
         let persisted = PersistedCycle {
             snapshot: batch.snapshot.clone(),
             results: authoritative_results,
@@ -1287,6 +1296,171 @@ fn parse_agent_role(value: &str) -> Option<AgentRole> {
     AgentRole::ALL
         .into_iter()
         .find(|role| role.as_str().eq_ignore_ascii_case(value))
+}
+
+async fn persisted_cycle_currency(
+    tx: &Transaction<'_>,
+    company_id: Uuid,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let row = tx
+        .query_one(
+            "SELECT base_currency FROM companies WHERE id = $1",
+            &[&company_id],
+        )
+        .await?;
+    let currency: String = row.get(0);
+    if currency.len() != 3 || !currency.bytes().all(|b| b.is_ascii_uppercase()) {
+        return Err("company base currency is invalid".into());
+    }
+    Ok(currency)
+}
+
+async fn persist_execution_ledgers(
+    tx: &Transaction<'_>,
+    company_id: Uuid,
+    cycle_key: &str,
+    currency: &str,
+    receipts: &[ExecutionReceipt],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let spend = receipts
+        .iter()
+        .filter(|receipt| matches!(receipt.status, company_execution::ExecutionStatus::Executed))
+        .try_fold(0_i128, |total, receipt| {
+            total.checked_add(receipt.cost_minor).ok_or("execution spend overflow")
+        })?;
+
+    if spend == 0 {
+        return Ok(());
+    }
+
+    let cash_account = ensure_system_account(
+        tx,
+        company_id,
+        "CASH",
+        "Cash",
+        "ASSET",
+        currency,
+    )
+    .await?;
+    let expense_account = ensure_system_account(
+        tx,
+        company_id,
+        "EXPERIMENT_EXPENSE",
+        "Experiment Expense",
+        "EXPENSE",
+        currency,
+    )
+    .await?;
+
+    for receipt in receipts
+        .iter()
+        .filter(|item| matches!(item.status, company_execution::ExecutionStatus::Executed))
+        .filter(|item| item.cost_minor > 0)
+    {
+        let proposal_key = &receipt.idempotency_key;
+        let ledger_key = format!("ledger:{cycle_key}:{proposal_key}");
+        let transaction_id = Uuid::new_v4();
+        let amount = receipt.cost_minor;
+        let transaction = LedgerTransaction {
+            id: transaction_id.to_string(),
+            description: format!("Agent {:?} execution spend", receipt.action),
+            entries: vec![
+                LedgerEntry {
+                    account_id: expense_account.to_string(),
+                    debit_minor: amount,
+                    credit_minor: 0,
+                    currency: currency.to_owned(),
+                },
+                LedgerEntry {
+                    account_id: cash_account.to_string(),
+                    debit_minor: 0,
+                    credit_minor: amount,
+                    currency: currency.to_owned(),
+                },
+            ],
+        };
+        validate_balanced_transaction(&transaction).map_err(|error| error.to_string())?;
+
+        tx.execute(
+            "INSERT INTO ledger_transactions
+             (id, company_id, description, idempotency_key)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (company_id, idempotency_key) DO NOTHING",
+            &[
+                &transaction_id,
+                &company_id,
+                &transaction.description,
+                &ledger_key,
+            ],
+        )
+        .await?;
+
+        tx.execute(
+            "INSERT INTO ledger_entries
+             (transaction_id, account_id, debit_minor, credit_minor, currency)
+             VALUES ($1,$2,$3::numeric,0,$4),($1,$5,0,$3::numeric,$4)",
+            &[
+                &transaction_id,
+                &expense_account,
+                &amount.to_string(),
+                &currency,
+                &cash_account,
+            ],
+        )
+        .await?;
+
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id, event_type, aggregate_id, idempotency_key, payload)
+             VALUES ($1,'LEDGER_TRANSACTION_COMMITTED',$2,$3,$4)
+             ON CONFLICT (company_id, idempotency_key) DO NOTHING",
+            &[
+                &company_id,
+                &transaction_id.to_string(),
+                &format!("outbox:{ledger_key}"),
+                &serde_json::json!({
+                    "transaction_id": transaction_id,
+                    "agent": receipt.agent.as_str(),
+                    "action": format!("{:?}", receipt.action),
+                    "amount_minor": amount,
+                    "currency": currency,
+                }),
+            ],
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+async fn ensure_system_account(
+    tx: &Transaction<'_>,
+    company_id: Uuid,
+    code: &str,
+    name: &str,
+    account_type: &str,
+    currency: &str,
+) -> Result<Uuid, Box<dyn std::error::Error + Send + Sync>> {
+    let id = Uuid::new_v4();
+    tx.execute(
+        "INSERT INTO ledger_accounts
+         (id, company_id, code, name, account_type, currency)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (company_id, code) DO NOTHING",
+        &[&id, &company_id, &code, &name, &account_type, &currency],
+    )
+    .await?;
+    let row = tx
+        .query_one(
+            "SELECT id, currency FROM ledger_accounts WHERE company_id = $1 AND code = $2",
+            &[&company_id, &code],
+        )
+        .await?;
+    let account_id: Uuid = row.get(0);
+    let account_currency: String = row.get(1);
+    if !account_currency.eq_ignore_ascii_case(currency) {
+        return Err(format!("system ledger account {code} uses wrong currency").into());
+    }
+    Ok(account_id)
 }
 
 fn execution_policy() -> ExecutionPolicy {
