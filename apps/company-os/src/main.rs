@@ -35,6 +35,12 @@ struct CycleResponse {
     receipts: Vec<company_execution::ExecutionReceipt>,
 }
 
+#[derive(Debug, Deserialize)]
+struct AffiliateConversionRequest {
+    event: affiliate_attribution::ConversionEvent,
+    model: affiliate_attribution::AttributionModel,
+}
+
 #[derive(Debug, Deserialize, Default)]
 struct AffiliateSearchParams {
     category: Option<String>,
@@ -343,6 +349,47 @@ async fn affiliate_search_api(
         .map_err(|_| StatusCode::BAD_REQUEST)
 }
 
+async fn affiliate_click_api(
+    State(state): State<AppState>,
+    Json(event): Json<affiliate_attribution::ClickEvent>,
+) -> Result<StatusCode, StatusCode> {
+    if event.company_id != state.company_id {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    state
+        .store
+        .record_affiliate_click(&event)
+        .await
+        .map(|_| StatusCode::ACCEPTED)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn affiliate_conversion_api(
+    State(state): State<AppState>,
+    Json(request): Json<AffiliateConversionRequest>,
+) -> Result<Json<affiliate_attribution::ReconciledConversion>, StatusCode> {
+    if request.event.company_id != state.company_id {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    state
+        .store
+        .record_affiliate_conversion(&request.event, request.model)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn affiliate_performance_api(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    state
+        .store
+        .content_affiliate_performance(&state.company_id, 50)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 async fn healthz() -> &'static str {
     "ok"
 }
@@ -447,6 +494,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/run", post(run_api))
         .route("/api/agents", get(agents_api))
         .route("/api/affiliate/search", get(affiliate_search_api))
+        .route("/api/affiliate/click", post(affiliate_click_api))
+        .route("/api/affiliate/conversion", post(affiliate_conversion_api))
+        .route("/api/affiliate/performance", get(affiliate_performance_api))
         .route("/healthz", get(healthz))
         .with_state(state);
 
