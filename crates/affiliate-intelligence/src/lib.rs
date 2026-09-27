@@ -1272,6 +1272,8 @@ fn parse_awin_feed(
             delivery_reliability_bps: None,
             commission_group,
             commission_rate_bps,
+            commission_fixed_minor: None,
+            commission_currency: None,
             source: "awin_product_feed".into(),
             source_updated_at: first_nonempty(&[get("last_updated"), get("valid_from")]),
         });
@@ -1463,12 +1465,26 @@ fn parse_awin_commission_groups(
         } else {
             None
         };
+        let fixed_amount = if kind.eq_ignore_ascii_case("fixed") {
+            item.get("amount")
+                .or_else(|| item.get("fixedAmount"))
+                .and_then(|v| v.as_f64())
+                .filter(|v| v.is_finite() && *v >= 0.0)
+        } else {
+            None
+        };
+        let currency = item
+            .get("currency")
+            .and_then(|v| v.as_str())
+            .map(|v| v.to_ascii_uppercase());
         let is_default =
             code.eq_ignore_ascii_case("default") || name.to_ascii_lowercase().contains("default");
         out.push(ParsedCommissionGroup {
             code,
             is_default,
             percentage_bps,
+            fixed_amount,
+            currency,
         });
     }
     Ok(out)
