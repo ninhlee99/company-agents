@@ -1,5 +1,5 @@
 use crate::{
-    agent::{Agent, AgentContext},
+    agent::{Agent, AgentContext, AgentStateProvider},
     governor::Governor,
     model::Model,
     roles::executive_agents,
@@ -40,6 +40,14 @@ impl AgentRuntime {
     }
 
     pub async fn run_all(&self, company: CompanySnapshot) -> Vec<AgentRunResult> {
+        self.run_all_with_state(company, None).await
+    }
+
+    pub async fn run_all_with_state(
+        &self,
+        company: CompanySnapshot,
+        state: Option<Arc<dyn AgentStateProvider>>,
+    ) -> Vec<AgentRunResult> {
         let timeout_ms = std::env::var("MODEL_TIMEOUT_MS")
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
@@ -131,6 +139,43 @@ impl AgentRuntime {
                         };
                     }
                 };
+                let memory = if let Some(state) = &state {
+                    match state.admit_model_call(&ctx_company.company_id, agent.role()).await {
+                        Ok(()) => state
+                            .load_memory(&ctx_company.company_id, agent.role())
+                            .await
+                            .unwrap_or_else(|_| serde_json::json!({})),
+                        Err(reason) => {
+                            let proposal = crate::types::Proposal {
+                                agent: agent.role(),
+                                objective: "agent call admission denied".into(),
+                                action: crate::types::ActionKind::EscalateIncident,
+                                cost_minor: 0,
+                                expected_revenue_minor: 0,
+                                risk: crate::types::RiskTier::Critical,
+                                confidence_bps: 10_000,
+                                evidence: vec![reason],
+                                rationale: "durable rate limit or state admission failed; execution halted".into(),
+                                reversible: true,
+                                requested_permission: crate::types::Permission::Propose,
+                            };
+                            let governance = governor.evaluate(proposal.clone(), &ctx_company);
+                            return AgentRunResult {
+                                agent: agent.role(),
+                                proposal,
+                                governance: Some(governance),
+                            };
+                        }
+                    }
+                } else {
+                    serde_json::json!({})
+                };
+                let ctx = AgentContext {
+                    company: ctx_company,
+                    model_timeout: timeout,
+                    memory,
+                };
+
                 match agent.propose(&ctx, model).await {
                     Ok(proposal) => {
                         let governance = governor.evaluate(proposal.clone(), &ctx.company);
