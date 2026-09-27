@@ -76,12 +76,12 @@ Every operating Agent has:
 - scenario and adversarial tests
 
 ## Phase 5 — Media Factory
-**Status: contract/runtime foundation planned next**
-Research → planning → scripting → production → QA → publishing → analytics → attribution remains the next major build after economic/execution hardening.
+**Status: production pipeline foundation implemented**
+Research → planning → scripting → production → QA → publishing → analytics → attribution remains the operating flow. Durable media jobs, sandboxed FFmpeg execution, FFprobe inspection and post-render QA are now implemented; bounded publishing adapters remain gated.
 
 ## Phase 6 — Monetization
-**Status: affiliate discovery implemented; monetization expansion next**
-Affiliate provider contracts, deterministic product ranking, coupon validation and Awin adapters are implemented. Sponsorship CRM, service proposals, invoicing and verified revenue ingestion remain next.
+**Status: affiliate discovery + attribution implemented; monetization expansion next**
+Affiliate product discovery, deterministic ranking, coupon validation, Awin feed/commission adapters, click/conversion attribution and content-level performance are implemented. Sponsorship CRM, service proposals, invoicing and verified revenue ingestion remain next.
 
 ## Phase 7 — Human Organization
 **Status: governance primitives implemented; HR economics next**
