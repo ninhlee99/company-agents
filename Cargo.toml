@@ -5,5 +5,7 @@ members = [
   "crates/economic-core",
   "crates/agent-runtime",
   "crates/company-simulator",
-  "crates/company-store"
+  "crates/company-store",
+  "crates/company-execution",
+  "crates/affiliate-intelligence"
 ]
