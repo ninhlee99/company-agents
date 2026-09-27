@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 pub mod agent;
 pub mod governor;
 pub mod model;
