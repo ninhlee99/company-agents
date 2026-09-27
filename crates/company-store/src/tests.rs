@@ -283,6 +283,110 @@ async fn durable_agent_memory_round_trips_and_rate_limit_is_enforced() {
 }
 
 #[tokio::test]
+async fn affiliate_revenue_and_payout_update_snapshot_without_double_counting_assets() {
+    let Some(store) = connect_store().await else {
+        return;
+    };
+
+    let company_id = uuid::Uuid::new_v4().to_string();
+    store
+        .ensure_company(&company_id, "Affiliate Accounting", "USD")
+        .await
+        .unwrap();
+
+    let initial = snapshot(&company_id);
+    store.save_snapshot(&initial).await.unwrap();
+
+    let click = affiliate_attribution::ClickEvent {
+        click_id: "click-accounting".into(),
+        company_id: company_id.clone(),
+        product_id: "product-1".into(),
+        advertiser_id: "advertiser-1".into(),
+        content_id: "content-1".into(),
+        occurred_at: "2026-09-27T09:00:00Z".into(),
+        source: "test".into(),
+    };
+    store.record_affiliate_click(&click).await.unwrap();
+
+    let conversion = affiliate_attribution::ConversionEvent {
+        company_id: company_id.clone(),
+        conversion_id: "conversion-accounting".into(),
+        click_id: Some(click.click_id.clone()),
+        order_id: "order-accounting".into(),
+        product_id: click.product_id.clone(),
+        advertiser_id: click.advertiser_id.clone(),
+        occurred_at: "2026-09-27T10:00:00Z".into(),
+        currency: "USD".into(),
+        order_value_minor: 10_000,
+        commission_minor: 500,
+        refunded_minor: 0,
+        cancelled: false,
+        source: "test".into(),
+    };
+    let reconciled = store
+        .record_affiliate_conversion(&conversion, affiliate_attribution::AttributionModel::LastClick)
+        .await
+        .unwrap();
+    assert_eq!(reconciled.status, affiliate_attribution::ReconciliationStatus::Verified);
+
+    let after_earned = store.load_snapshot(&company_id).await.unwrap().unwrap();
+    assert_eq!(after_earned.revenue_minor, initial.revenue_minor + 500);
+    assert_eq!(after_earned.cash_minor, initial.cash_minor);
+    assert_eq!(after_earned.assets_minor, initial.assets_minor + 500);
+
+    let payout = affiliate_attribution::AffiliatePayoutEvent {
+        company_id: company_id.clone(),
+        payout_id: "payout-accounting".into(),
+        occurred_at: "2026-09-28T10:00:00Z".into(),
+        amount_minor: 500,
+        currency: "USD".into(),
+        source: "test".into(),
+    };
+    store.record_affiliate_payout(&payout).await.unwrap();
+    store.record_affiliate_payout(&payout).await.unwrap();
+
+    let after_payout = store.load_snapshot(&company_id).await.unwrap().unwrap();
+    assert_eq!(after_payout.revenue_minor, initial.revenue_minor + 500);
+    assert_eq!(after_payout.cash_minor, initial.cash_minor + 500);
+    assert_eq!(after_payout.assets_minor, initial.assets_minor + 500);
+}
+
+#[tokio::test]
+async fn cross_currency_affiliate_conversion_is_rejected_without_fx() {
+    let Some(store) = connect_store().await else {
+        return;
+    };
+
+    let company_id = uuid::Uuid::new_v4().to_string();
+    store
+        .ensure_company(&company_id, "FX Guard", "USD")
+        .await
+        .unwrap();
+    let initial = snapshot(&company_id);
+    store.save_snapshot(&initial).await.unwrap();
+
+    let event = affiliate_attribution::ConversionEvent {
+        company_id,
+        conversion_id: "fx-guard".into(),
+        click_id: None,
+        order_id: "fx-order".into(),
+        product_id: "p".into(),
+        advertiser_id: "a".into(),
+        occurred_at: "2026-09-27T10:00:00Z".into(),
+        currency: "VND".into(),
+        order_value_minor: 1_000,
+        commission_minor: 100,
+        refunded_minor: 0,
+        cancelled: false,
+        source: "test".into(),
+    };
+    assert!(store
+        .record_affiliate_conversion(&event, affiliate_attribution::AttributionModel::LastClick)
+        .await
+        .is_err());
+}
+
+#[tokio::test]
 async fn invalid_company_id_is_rejected() {
     let Some(store) = connect_store().await else {
         return;
