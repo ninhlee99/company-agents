@@ -1445,6 +1445,20 @@ mod tests {
     }
 
     #[test]
+    fn parses_awin_percentage_commission_groups() {
+        let value = serde_json::json!({
+            "commissionGroups": [
+                {"groupCode":"DEFAULT","groupName":"Default","type":"percentage","percentage":5.5},
+                {"groupCode":"PREMIUM","groupName":"Premium","type":"percentage","percentage":12}
+            ]
+        });
+        let groups = parse_awin_commission_groups(&value).unwrap();
+        assert_eq!(groups[0].percentage_bps, Some(550));
+        assert!(groups[0].is_default);
+        assert_eq!(groups[1].percentage_bps, Some(1200));
+    }
+
+    #[test]
     fn parse_decimal_handles_vnd_without_fraction() {
         assert_eq!(parse_decimal_minor("2990000", 0).unwrap(), 2_990_000);
     }
