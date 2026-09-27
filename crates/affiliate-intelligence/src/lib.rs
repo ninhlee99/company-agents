@@ -1114,6 +1114,38 @@ mod tests {
     }
 
     #[test]
+    fn invalid_or_non_http_links_are_not_eligible() {
+        let q = ProductSearchQuery::default();
+        let bad = AffiliateOffer { url: "javascript:alert(1)".into(), ..offer("bad-link", 2_000, 4_500, 100, None) };
+        let malformed = AffiliateOffer { url: "not-a-url".into(), ..offer("malformed", 2_000, 4_500, 100, None) };
+        let good = offer("good-link", 2_000, 4_500, 100, None);
+        let ranked = rank_candidates(vec![bad, malformed, good], &q);
+        assert_eq!(ranked.len(), 1);
+        assert_eq!(ranked[0].offer.product_id, "good-link");
+    }
+
+    #[tokio::test]
+    async fn one_provider_failure_does_not_hide_healthy_provider_results() {
+        struct FailingProvider;
+
+        #[async_trait]
+        impl AffiliateProvider for FailingProvider {
+            fn name(&self) -> &'static str { "failing" }
+
+            async fn search(&self, _: &ProductSearchQuery) -> Result<Vec<AffiliateOffer>, ProviderError> {
+                Err(ProviderError::Transport("simulated outage".into()))
+            }
+        }
+
+        let healthy = MockAffiliateProvider::new(vec![offer("healthy", 3_000, 4_700, 500, None)]);
+        let intelligence = AffiliateIntelligence::new(vec![Box::new(FailingProvider), Box::new(healthy)]);
+        let result = intelligence.search(ProductSearchQuery::default()).await.unwrap();
+        assert_eq!(result.candidates.len(), 1);
+        assert_eq!(result.candidates[0].offer.product_id, "healthy");
+        assert_eq!(result.provider_errors.len(), 1);
+    }
+
+    #[test]
     fn malicious_coupon_does_not_create_negative_price() {
         let mut item = offer("x", 2_000, 4_500, 100, None);
         item.coupon = Some(Coupon {
