@@ -351,7 +351,7 @@ impl TikTokShopProvider {
                     &self.access_token,
                 )
                 .await?;
-            let parsed = parse_tiktok_search_response(&response)?;
+            let parsed = parse_tiktok_search_response(&response, &self.advertiser_id)?;
             all.extend(parsed.products);
 
             if all.len() >= query.max_results.min(200) || parsed.next_page_token.is_empty() {
@@ -653,6 +653,7 @@ struct TikTokSearchPage {
 
 fn parse_tiktok_search_response(
     value: &serde_json::Value,
+    advertiser_id: &str,
 ) -> Result<TikTokSearchPage, AffiliateError> {
     let code = value.get("code").and_then(|value| value.as_i64()).unwrap_or(-1);
     if code != 0 {
@@ -804,7 +805,7 @@ fn parse_tiktok_search_response(
         products.push(Product {
             id,
             gtin: None,
-            advertiser_id: "tiktok-shop".into(),
+            advertiser_id: advertiser_id.to_owned(),
             advertiser_name,
             name: title,
             description: String::new(),
@@ -2971,7 +2972,7 @@ mod tests {
                 }]
             }
         });
-        let page = parse_tiktok_search_response(&payload).unwrap();
+        let page = parse_tiktok_search_response(&payload, "shop-123").unwrap();
         assert_eq!(page.products.len(), 1);
         let p = &page.products[0];
         assert_eq!(p.id, "1729570313535393936");
