@@ -31,6 +31,9 @@ The repository now has a Rust-based Agent Runtime and deterministic economic/gov
 25. Simulator now reuses the production execution engine.
 26. Affiliate Intelligence ranking, coupon checks, evidence confidence, dedupe and Awin adapters.
 27. Awin commission-group API enrichment for live commission filtering.
+28. Durable Agent memory with bounded retention and untrusted-context semantics.
+29. Persistent per-Agent rate windows enforced before model calls.
+30. Scheduler run tokens that preserve idempotent replay after failure.
 
 ## Test volume
 
@@ -65,8 +68,7 @@ The repository now contains a broad Rust test suite across the Rust economic cor
 ## Remaining production gates
 
 ### P0
-- durable Agent memory
-- per-agent durable budget/rate-limit accounting
+- distributed tracing/metrics
 - secrets isolation and secret-rotation workflow
 - distributed observability/tracing
 - restart/replay recovery drill under production-like deployment
@@ -90,4 +92,4 @@ The repository now contains a broad Rust test suite across the Rust economic cor
 ## Release rule
 An Agent is considered production-ready only when unit -> contract -> scenario -> adversarial -> economic -> security -> load -> recovery -> chaos passes without unauthorized material actions and with deterministic replay evidence.
 
-The repository should still be treated as controlled-runtime / pre-autonomy until durable memory, per-agent rate limits, secrets operations, observability and recovery drills are complete.
+The repository should still be treated as controlled-runtime / pre-autonomy until observability, secrets operations and production recovery drills are complete.
