@@ -3,33 +3,18 @@ use agent_runtime::types::{
     ActionKind, AgentRole, AgentRunResult, CompanySnapshot, GovernorDecision, Permission, Proposal,
     RiskTier,
 };
-use economic_core::CompanyStatus;
+use economic_core::{CompanyStatus, LedgerEntry, LedgerTransaction};
 
-#[tokio::test]
-async fn postgres_round_trip_persists_snapshot_and_agent_runs() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(value) => value,
-        Err(_) => return,
-    };
-
-    let store = CompanyStore::connect(&database_url).await.unwrap();
-    store.migrate().await.unwrap();
-
-    let company_id = uuid::Uuid::new_v4().to_string();
-    store
-        .ensure_company(&company_id, "Integration Test Company", "USD")
-        .await
-        .unwrap();
-
-    let snapshot = CompanySnapshot {
-        company_id: company_id.clone(),
+fn snapshot(company_id: &str) -> CompanySnapshot {
+    CompanySnapshot {
+        company_id: company_id.into(),
         cash_minor: 10_000,
         revenue_minor: 5_000,
         expenses_minor: 2_000,
         liabilities_minor: 500,
         assets_minor: 10_000,
         runway_days: 40,
-        status: CompanyStatus::Warning,
+        status: CompanyStatus::Growth,
         budget_remaining_minor: 1_000,
         experiment_budget_minor: 100,
         content_cost_minor: 20,
@@ -39,8 +24,10 @@ async fn postgres_round_trip_persists_snapshot_and_agent_runs() {
         conversion_bps: 200,
         audience_growth_bps: 50,
         hiring_need: 0,
-    };
+    }
+}
 
+fn report_result() -> AgentRunResult {
     let proposal = Proposal {
         agent: AgentRole::Analyst,
         objective: "verify".into(),
@@ -48,51 +35,210 @@ async fn postgres_round_trip_persists_snapshot_and_agent_runs() {
         cost_minor: 0,
         expected_revenue_minor: 0,
         risk: RiskTier::Low,
-        confidence_bps: 9000,
+        confidence_bps: 9_000,
         evidence: vec!["integration-test".into()],
         rationale: "persist".into(),
         reversible: true,
         requested_permission: Permission::Propose,
     };
-
-    let result = AgentRunResult {
+    AgentRunResult {
         agent: AgentRole::Analyst,
-        proposal,
+        proposal: proposal.clone(),
         governance: Some(agent_runtime::types::GovernedProposal {
-            proposal: Proposal {
-                agent: AgentRole::Analyst,
-                objective: "verify".into(),
-                action: ActionKind::ProduceReport,
-                cost_minor: 0,
-                expected_revenue_minor: 0,
-                risk: RiskTier::Low,
-                confidence_bps: 9000,
-                evidence: vec!["integration-test".into()],
-                rationale: "persist".into(),
-                reversible: true,
-                requested_permission: Permission::Propose,
-            },
+            proposal,
+            decision: GovernorDecision::Approve,
+            reason: "test".into(),
+        }),
+    }
+}
+
+async fn connect_store() -> Option<CompanyStore> {
+    let database_url = std::env::var("DATABASE_URL").ok()?;
+    let store = CompanyStore::connect(&database_url).await.ok()?;
+    store.migrate().await.ok()?;
+    Some(store)
+}
+
+#[tokio::test]
+async fn postgres_round_trip_is_idempotent_and_persists_authoritative_cycle() {
+    let Some(store) = connect_store().await else {
+        return;
+    };
+
+    let company_id = uuid::Uuid::new_v4().to_string();
+    store
+        .ensure_company(&company_id, "Integration Test Company", "USD")
+        .await
+        .unwrap();
+
+    let initial = snapshot(&company_id);
+    let result = report_result();
+    let first = store
+        .persist_and_execute_cycle_with_id(&initial, std::slice::from_ref(&result), "stable-cycle")
+        .await
+        .unwrap();
+    let second = store
+        .persist_and_execute_cycle_with_id(&initial, &[result], "stable-cycle")
+        .await
+        .unwrap();
+
+    assert_eq!(first, second);
+    let loaded = store.load_snapshot(&company_id).await.unwrap().unwrap();
+    assert_eq!(loaded, first.snapshot);
+}
+
+#[tokio::test]
+async fn approved_experiment_changes_persisted_company_state() {
+    let Some(store) = connect_store().await else {
+        return;
+    };
+
+    let company_id = uuid::Uuid::new_v4().to_string();
+    store
+        .ensure_company(&company_id, "Execution Test", "USD")
+        .await
+        .unwrap();
+
+    let mut initial = snapshot(&company_id);
+    initial.status = CompanyStatus::Growth;
+
+    let proposal = Proposal {
+        agent: AgentRole::Experiment,
+        objective: "bounded test".into(),
+        action: ActionKind::CreateExperiment,
+        cost_minor: 100,
+        expected_revenue_minor: 200,
+        risk: RiskTier::Medium,
+        confidence_bps: 8_000,
+        evidence: vec!["bounded".into()],
+        rationale: "small experiment".into(),
+        reversible: true,
+        requested_permission: Permission::Propose,
+    };
+    let result = AgentRunResult {
+        agent: AgentRole::Experiment,
+        proposal: proposal.clone(),
+        governance: Some(agent_runtime::types::GovernedProposal {
+            proposal,
             decision: GovernorDecision::Approve,
             reason: "test".into(),
         }),
     };
 
-    store.persist_cycle(&snapshot, &[result]).await.unwrap();
-    let loaded = store.load_snapshot(&company_id).await.unwrap().unwrap();
+    let persisted = store
+        .persist_and_execute_cycle_with_id(&initial, &[result], "experiment-cycle")
+        .await
+        .unwrap();
 
-    assert_eq!(loaded.company_id, company_id);
-    assert_eq!(loaded.cash_minor, 10_000);
-    assert_eq!(loaded.revenue_minor, 5_000);
+    assert_eq!(persisted.snapshot.cash_minor, 9_900);
+    assert_eq!(persisted.snapshot.experiment_budget_minor, 0);
+    assert_eq!(
+        store.load_snapshot(&company_id).await.unwrap().unwrap().cash_minor,
+        9_900
+    );
+}
+
+#[tokio::test]
+async fn cost_control_status_uses_canonical_database_value() {
+    let Some(store) = connect_store().await else {
+        return;
+    };
+
+    let company_id = uuid::Uuid::new_v4().to_string();
+    store
+        .ensure_company(&company_id, "Status Test", "USD")
+        .await
+        .unwrap();
+
+    let mut value = snapshot(&company_id);
+    value.status = CompanyStatus::CostControl;
+    store.save_snapshot(&value).await.unwrap();
+
+    let client = store.client.lock().await;
+    let row = client
+        .query_one(
+            "SELECT status FROM companies WHERE id = $1",
+            &[&uuid::Uuid::parse_str(&company_id).unwrap()],
+        )
+        .await
+        .unwrap();
+    let status: String = row.get(0);
+    assert_eq!(status, "COST_CONTROL");
+}
+
+#[tokio::test]
+async fn ledger_transaction_is_idempotent_and_balanced() {
+    let Some(store) = connect_store().await else {
+        return;
+    };
+
+    let company_id = uuid::Uuid::new_v4();
+    store
+        .ensure_company(&company_id.to_string(), "Ledger Test", "USD")
+        .await
+        .unwrap();
+
+    let cash_account = uuid::Uuid::new_v4();
+    let revenue_account = uuid::Uuid::new_v4();
+    {
+        let client = store.client.lock().await;
+        client
+            .execute(
+                "INSERT INTO ledger_accounts
+                 (id, company_id, code, name, account_type, currency)
+                 VALUES ($1,$2,'CASH','Cash','ASSET','USD'),
+                        ($3,$2,'REV','Revenue','REVENUE','USD')",
+                &[&cash_account, &company_id, &revenue_account],
+            )
+            .await
+            .unwrap();
+    }
+
+    let transaction = LedgerTransaction {
+        id: uuid::Uuid::new_v4().to_string(),
+        description: "affiliate revenue".into(),
+        entries: vec![
+            LedgerEntry {
+                account_id: cash_account.to_string(),
+                debit_minor: 500,
+                credit_minor: 0,
+                currency: "USD".into(),
+            },
+            LedgerEntry {
+                account_id: revenue_account.to_string(),
+                debit_minor: 0,
+                credit_minor: 500,
+                currency: "USD".into(),
+            },
+        ],
+    };
+
+    store
+        .append_ledger_transaction(&company_id.to_string(), &transaction)
+        .await
+        .unwrap();
+    store
+        .append_ledger_transaction(&company_id.to_string(), &transaction)
+        .await
+        .unwrap();
+
+    let client = store.client.lock().await;
+    let count: i64 = client
+        .query_one(
+            "SELECT count(*) FROM ledger_transactions WHERE company_id = $1",
+            &[&company_id],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(count, 1);
 }
 
 #[tokio::test]
 async fn invalid_company_id_is_rejected() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(value) => value,
-        Err(_) => return,
+    let Some(store) = connect_store().await else {
+        return;
     };
-
-    let store = CompanyStore::connect(&database_url).await.unwrap();
     assert!(store
         .ensure_company("not-a-uuid", "bad", "USD")
         .await
