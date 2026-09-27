@@ -825,10 +825,26 @@ impl TikTokShopCreatorProvider {
             .header("content-type", "application/json")
             .header("x-tts-access-token", &self.access_token);
 
-        let response = request
-            .send()
-            .await
-            .map_err(|error| AffiliateError::Provider(error.to_string()))?;
+        let mut response = None;
+        for attempt in 0..3_u32 {
+            let candidate = request
+                .try_clone()
+                .ok_or_else(|| AffiliateError::Provider("TikTok request could not be cloned for retry".into()))?
+                .send()
+                .await
+                .map_err(|error| AffiliateError::Provider(error.to_string()))?;
+            if (candidate.status().as_u16() == 429 || candidate.status().is_server_error())
+                && attempt < 2
+            {
+                tokio::time::sleep(Duration::from_millis(250 * (1_u64 << attempt))).await;
+                continue;
+            }
+            response = Some(candidate);
+            break;
+        }
+        let response = response.ok_or_else(|| {
+            AffiliateError::Provider("TikTok request retry loop exhausted".into())
+        })?;
         let status = response.status();
         let value = response
             .json::<serde_json::Value>()
@@ -938,7 +954,9 @@ fn tiktok_sign(
 
     use hmac::{Hmac, Mac};
     type HmacSha256 = Hmac<sha2::Sha256>;
-    let mut mac = HmacSha256::new_from_slice(app_secret.as_bytes()).expect("HMAC key length is unrestricted");
+    let Ok(mut mac) = HmacSha256::new_from_slice(app_secret.as_bytes()) else {
+        return String::new();
+    };
     mac.update(payload.as_bytes());
     hex::encode(mac.finalize().into_bytes())
 }
@@ -1027,22 +1045,30 @@ fn parse_tiktok_product(value: &serde_json::Value) -> Result<Option<Product>, Af
     }))
 }
 
-fn first_json_string(value: &serde_json::Value, paths: &[&str]) -> Option<String> {
-    paths.iter().find_map(|path| {
-        let mut current = value;
-        for segment in path.split('.') {
-            current = current.get(segment)?;
+fn json_path<'a>(value: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+    let mut current = value;
+    for segment in path.split('.') {
+        if let Some(object) = current.as_object() {
+            current = object.get(segment)?;
+        } else if let Some(array) = current.as_array() {
+            let index = segment.parse::<usize>().ok()?;
+            current = array.get(index)?;
+        } else {
+            return None;
         }
-        current.as_str().map(ToOwned::to_owned)
-    })
+    }
+    Some(current)
+}
+
+fn first_json_string(value: &serde_json::Value, paths: &[&str]) -> Option<String> {
+    paths
+        .iter()
+        .find_map(|path| json_path(value, path)?.as_str().map(ToOwned::to_owned))
 }
 
 fn first_json_f64(value: &serde_json::Value, paths: &[&str]) -> Option<f64> {
     paths.iter().find_map(|path| {
-        let mut current = value;
-        for segment in path.split('.') {
-            current = current.get(segment)?;
-        }
+        let current = json_path(value, path)?;
         current
             .as_f64()
             .or_else(|| current.as_str().and_then(|raw| raw.parse().ok()))
@@ -1051,10 +1077,7 @@ fn first_json_f64(value: &serde_json::Value, paths: &[&str]) -> Option<f64> {
 
 fn first_json_u64(value: &serde_json::Value, paths: &[&str]) -> Option<u64> {
     paths.iter().find_map(|path| {
-        let mut current = value;
-        for segment in path.split('.') {
-            current = current.get(segment)?;
-        }
+        let current = json_path(value, path)?;
         current
             .as_u64()
             .or_else(|| current.as_str().and_then(|raw| raw.parse().ok()))
@@ -1064,7 +1087,13 @@ fn first_json_u64(value: &serde_json::Value, paths: &[&str]) -> Option<u64> {
 fn nested_json_string(value: &serde_json::Value, path: &[&str]) -> Option<String> {
     let mut current = value;
     for segment in path {
-        current = current.get(*segment)?;
+        current = if let Some(object) = current.as_object() {
+            object.get(*segment)?
+        } else if let Some(array) = current.as_array() {
+            array.get(segment.parse::<usize>().ok()?)?
+        } else {
+            return None;
+        };
     }
     current.as_str().map(ToOwned::to_owned)
 }
@@ -1986,6 +2015,39 @@ fn parse_percent_from_text(value: &str) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
+#[test]
+fn tiktok_sign_is_deterministic_and_changes_with_input() {
+    let params = vec![
+        ("app_key".into(), "key".into()),
+        ("timestamp".into(), "123".into()),
+    ];
+    let a = tiktok_sign("/affiliate_creator/202405/showcases/products", &params, "", "secret");
+    let b = tiktok_sign("/affiliate_creator/202405/showcases/products", &params, "", "secret");
+    let c = tiktok_sign("/affiliate_creator/202405/showcases/products", &params, "", "other");
+    assert_eq!(a, b);
+    assert_ne!(a, c);
+}
+
+#[test]
+fn tiktok_product_parser_handles_nested_price_and_images() {
+    let value = serde_json::json!({
+        "id": "123",
+        "shop": {"name":"Demo Shop"},
+        "price": {
+            "currency":"VND",
+            "original_price": {"minimum_amount":"129000", "maximum_amount":"149000"}
+        },
+        "addition": {
+            "customized_main_images": [{"url":"https://cdn.example/image.webp"}]
+        }
+    });
+    let product = parse_tiktok_product(&value).unwrap().unwrap();
+    assert_eq!(product.price_minor, 129000);
+    assert_eq!(product.currency, "VND");
+    assert!(product.image_url.is_some());
+}
+
+
     use super::*;
 
     fn product(
