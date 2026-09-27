@@ -34,6 +34,11 @@ pub struct SimulationResult {
     pub expenses_minor: i128,
     pub free_cash_flow_minor: i128,
     pub minimum_cash_minor: i128,
+    pub minimum_runway_days: i64,
+    pub peak_liabilities_minor: i128,
+    pub payroll_accrued_minor: i128,
+    pub payroll_paid_minor: i128,
+    pub business_unit_count: usize,
     pub bankruptcy_day: Option<u32>,
     pub decision_cycles: u64,
     pub violations: Vec<String>,
@@ -72,6 +77,42 @@ pub async fn run(config: SimConfig) -> SimulationResult {
     let mut bankruptcy_day = None;
     let mut violations = Vec::new();
     let mut decision_cycles = 0_u64;
+    let employees = vec![
+        company_organization::Employee {
+            id: "sim-ceo".into(),
+            name: "CEO".into(),
+            role: "executive".into(),
+            monthly_cost_minor: 300,
+            currency: config.currency.clone(),
+            status: company_organization::EmployeeStatus::Active,
+        },
+        company_organization::Employee {
+            id: "sim-operator".into(),
+            name: "Operator".into(),
+            role: "operations".into(),
+            monthly_cost_minor: 240,
+            currency: config.currency.clone(),
+            status: company_organization::EmployeeStatus::Active,
+        },
+        company_organization::Employee {
+            id: "sim-editor".into(),
+            name: "Editor".into(),
+            role: "content".into(),
+            monthly_cost_minor: 210,
+            currency: config.currency.clone(),
+            status: company_organization::EmployeeStatus::Active,
+        },
+    ];
+    let business_units = vec![
+        ("owned-media", 4_000_u32, 2_500_u32, 2_000_u32),
+        ("affiliate", 2_500_u32, 1_400_u32, 1_000_u32),
+        ("services", 1_500_u32, 900_u32, 700_u32),
+    ];
+    let mut liabilities = 0_i128;
+    let mut peak_liabilities = 0_i128;
+    let mut payroll_accrued = 0_i128;
+    let mut payroll_paid = 0_i128;
+    let mut minimum_runway_days = i64::MAX;
 
     let mut audience = 10_000_u64;
     let mut conversion_bps = 220_u32;
@@ -96,8 +137,72 @@ pub async fn run(config: SimConfig) -> SimulationResult {
 
         let sponsor_revenue = if rng.pct(150) { 250_i128 } else { 0 };
         let affiliate_revenue = content_revenue / 2;
-        let day_revenue = content_revenue + affiliate_revenue + sponsor_revenue;
-        let day_expense = daily_fixed + content_cost;
+
+        let units = vec![
+            company_organization::BusinessUnit {
+                id: business_units[0].0.into(),
+                name: "Owned Media".into(),
+                currency: config.currency.clone(),
+                cash_minor: cash.max(0),
+                revenue_minor: content_revenue.max(0),
+                variable_cost_minor: content_cost * 4 / 10,
+                fixed_cost_minor: daily_fixed / 2,
+                budget_minor: 0,
+                lifecycle: company_organization::BusinessUnitLifecycle::Growing,
+            },
+            company_organization::BusinessUnit {
+                id: business_units[1].0.into(),
+                name: "Affiliate Commerce".into(),
+                currency: config.currency.clone(),
+                cash_minor: cash.max(0),
+                revenue_minor: affiliate_revenue.max(0),
+                variable_cost_minor: affiliate_revenue.max(0) / 8,
+                fixed_cost_minor: daily_fixed / 4,
+                budget_minor: 0,
+                lifecycle: company_organization::BusinessUnitLifecycle::Growing,
+            },
+            company_organization::BusinessUnit {
+                id: business_units[2].0.into(),
+                name: "Services".into(),
+                currency: config.currency.clone(),
+                cash_minor: cash.max(0),
+                revenue_minor: sponsor_revenue.max(0),
+                variable_cost_minor: sponsor_revenue.max(0) * 3 / 10,
+                fixed_cost_minor: daily_fixed / 4,
+                budget_minor: 0,
+                lifecycle: if sponsor_revenue > 0 {
+                    company_organization::BusinessUnitLifecycle::Growing
+                } else {
+                    company_organization::BusinessUnitLifecycle::Testing
+                },
+            },
+        ];
+        let portfolio = company_organization::summarize_portfolio(&units);
+        let (day_revenue, day_business_cost) = match portfolio {
+            Ok(metrics) => (metrics.revenue_minor, metrics.operating_cost_minor),
+            Err(error) => {
+                violations.push(format!("day {day}: business-unit economics error: {error}"));
+                (0, 0)
+            }
+        };
+        let day_expense = day_business_cost + content_cost * 6 / 10;
+
+        let daily_payroll = employees
+            .iter()
+            .map(|employee| employee.monthly_cost_minor / 30)
+            .sum::<i128>();
+        liabilities = liabilities.saturating_add(daily_payroll.max(0));
+        payroll_accrued = payroll_accrued.saturating_add(daily_payroll.max(0));
+        peak_liabilities = peak_liabilities.max(liabilities);
+
+        let payroll_pay_threshold =
+            cash.saturating_sub(config.initial_cash_minor.saturating_mul(config.reserve_ratio_bps.min(9_000) as i128) / 10_000);
+        if payroll_pay_threshold >= liabilities && liabilities > 0 && day % 7 == 0 {
+            let payment = liabilities.min(payroll_pay_threshold);
+            liabilities = liabilities.saturating_sub(payment);
+            payroll_paid = payroll_paid.saturating_add(payment);
+            cash = cash.saturating_sub(payment);
+        }
 
         revenue = revenue.saturating_add(day_revenue.max(0));
         expenses = expenses.saturating_add(day_expense.max(0));
@@ -126,7 +231,7 @@ pub async fn run(config: SimConfig) -> SimulationResult {
             cash_minor: cash,
             revenue_minor: revenue,
             expenses_minor: expenses,
-            liabilities_minor: 0,
+            liabilities_minor: liabilities.max(0),
             assets_minor: cash,
             runway_days: 0,
             status: CompanyStatus::Active,
@@ -190,6 +295,7 @@ pub async fn run(config: SimConfig) -> SimulationResult {
         }
 
         minimum_cash = minimum_cash.min(cash);
+        minimum_runway_days = minimum_runway_days.min(economic.runway_days);
         if cash <= 0 {
             bankruptcy_day = Some(day);
             break;
@@ -207,6 +313,11 @@ pub async fn run(config: SimConfig) -> SimulationResult {
         expenses_minor: expenses,
         free_cash_flow_minor: revenue.saturating_sub(expenses),
         minimum_cash_minor: minimum_cash,
+        minimum_runway_days: if minimum_runway_days == i64::MAX { 0 } else { minimum_runway_days },
+        peak_liabilities_minor: peak_liabilities,
+        payroll_accrued_minor: payroll_accrued,
+        payroll_paid_minor: payroll_paid,
+        business_unit_count: business_units.len(),
         bankruptcy_day,
         decision_cycles,
         violations,
