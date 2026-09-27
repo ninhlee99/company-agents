@@ -181,3 +181,21 @@ DROP TRIGGER IF EXISTS audit_log_no_update ON audit_log;
 DROP TRIGGER IF EXISTS audit_log_no_delete ON audit_log;
 CREATE TRIGGER audit_log_no_update BEFORE UPDATE ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_audit_mutation();
 CREATE TRIGGER audit_log_no_delete BEFORE DELETE ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_audit_mutation();
+
+
+CREATE TABLE IF NOT EXISTS company_state_snapshots (
+  company_id uuid PRIMARY KEY REFERENCES companies(id),
+  state jsonb NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS agent_runs (
+  id bigserial PRIMARY KEY,
+  company_id uuid NOT NULL REFERENCES companies(id),
+  agent_name text NOT NULL,
+  payload jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_runs_company_time
+  ON agent_runs(company_id, created_at DESC);
