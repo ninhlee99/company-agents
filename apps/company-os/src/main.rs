@@ -429,6 +429,21 @@ async fn affiliate_performance_api(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
+async fn affiliate_payout_api(
+    State(state): State<AppState>,
+    Json(event): Json<affiliate_attribution::AffiliatePayoutEvent>,
+) -> Result<StatusCode, StatusCode> {
+    if event.company_id != state.company_id {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    state
+        .store
+        .record_affiliate_payout(&event)
+        .await
+        .map(|_| StatusCode::ACCEPTED)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
 async fn journal_api(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
@@ -588,6 +603,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/affiliate/search", get(affiliate_search_api))
         .route("/api/affiliate/click", post(affiliate_click_api))
         .route("/api/affiliate/conversion", post(affiliate_conversion_api))
+        .route("/api/affiliate/payout", post(affiliate_payout_api))
         .route("/api/affiliate/performance", get(affiliate_performance_api))
         .route("/api/journal", get(journal_api))
         .route("/healthz", get(healthz))
