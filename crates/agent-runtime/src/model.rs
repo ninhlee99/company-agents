@@ -196,6 +196,20 @@ mod tests {
         assert_eq!(result["confidence"], 0.5);
     }
 
+    #[tokio::test]
+    async fn invalid_json_is_rejected() {
+        struct BadModel;
+        #[async_trait]
+        impl Model for BadModel {
+            async fn propose_json(&self, _: &str, _: &str) -> Result<Value, ModelError> {
+                Err(ModelError::InvalidResponse("content is not valid JSON".into()))
+            }
+        }
+
+        let result = BadModel.propose_json("x", "y").await;
+        assert!(matches!(result, Err(ModelError::InvalidResponse(_))));
+    }
+
     #[test]
     fn defaults_to_local_ollama_configuration_shape() {
         let model = OllamaModel::from_env();
