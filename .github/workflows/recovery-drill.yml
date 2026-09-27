@@ -26,11 +26,13 @@ jobs:
           --health-retries 12
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/company_agents
-      DRILL_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/company_agents
+      DRILL_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/company_agents_drill
     steps:
       - uses: actions/checkout@v4
       - name: Install PostgreSQL client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Create isolated drill database
+        run: createdb "$DRILL_DATABASE_URL" || true
       - name: Apply migrations
         run: |
           for f in infra/db/migrations/*.sql; do
