@@ -1,12 +1,11 @@
 use affiliate_intelligence::{
-    now_epoch, AffiliateIntelligence, AffiliateSearchResult, AwinCsvProvider,
-    ProductSearchQuery, ProviderError, TikTokShopOpenCollaborationProvider,
+    now_epoch, AffiliateIntelligence, AffiliateSearchResult, AwinCsvProvider, ProductSearchQuery,
+    ProviderError, TikTokShopOpenCollaborationProvider,
 };
 use agent_runtime::{
-    model_from_env, AgentRunResult, AgentRuntime, CompanySnapshot, ExecutionEngine, ExecutionOutcome,
+    model_from_env, AgentRunResult, AgentRuntime, CompanySnapshot, ExecutionEngine,
+    ExecutionOutcome,
 };
-use company_domain::{ContentAsset, Contract, CreatorUnit, Employee, Experiment, Task};
-use company_store::CompanyStore;
 use axum::{
     extract::{Query, State},
     http::HeaderMap,
@@ -15,6 +14,8 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use company_domain::{ContentAsset, Contract, CreatorUnit, Employee, Experiment, Task};
+use company_store::CompanyStore;
 use serde::Deserialize;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{Mutex, RwLock};
@@ -57,7 +58,11 @@ fn format_minor(value: i128) -> String {
     let whole = absolute / 100;
     let cents = absolute % 100;
     let rendered = format!("{}.{:02}", whole, cents);
-    if negative { format!("-{}", rendered) } else { rendered }
+    if negative {
+        format!("-{}", rendered)
+    } else {
+        rendered
+    }
 }
 
 fn seed_company(company_id: String) -> CompanySnapshot {
@@ -85,7 +90,11 @@ fn seed_company(company_id: String) -> CompanySnapshot {
 fn build_affiliate_intelligence() -> Option<Arc<AffiliateIntelligence>> {
     let mut providers: Vec<Box<dyn affiliate_intelligence::AffiliateProvider>> = Vec::new();
 
-    if std::env::var("AWIN_FEED_URL").ok().filter(|v| !v.trim().is_empty()).is_some() {
+    if std::env::var("AWIN_FEED_URL")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .is_some()
+    {
         match AwinCsvProvider::from_env() {
             Ok(provider) => providers.push(Box::new(provider)),
             Err(error) => eprintln!("Awin disabled: {error}"),
@@ -99,7 +108,11 @@ fn build_affiliate_intelligence() -> Option<Arc<AffiliateIntelligence>> {
         }
     }
 
-    if providers.is_empty() { None } else { Some(Arc::new(AffiliateIntelligence::new(providers))) }
+    if providers.is_empty() {
+        None
+    } else {
+        Some(Arc::new(AffiliateIntelligence::new(providers)))
+    }
 }
 
 async fn run_cycle_with_id(
@@ -122,7 +135,8 @@ async fn run_cycle_with_id(
     let mut next_company = company;
     let outcomes = ExecutionEngine::default().execute_batch(&mut next_company, &mut results);
 
-    let persisted = state.store
+    let persisted = state
+        .store
         .persist_decision_cycle(&next_company, &cycle_id, &results, &outcomes)
         .await?;
 
@@ -156,7 +170,8 @@ async fn index(State(state): State<AppState>) -> Html<String> {
     let mut rows = String::new();
 
     for (index, item) in latest.iter().enumerate() {
-        let decision = item.governance
+        let decision = item
+            .governance
             .as_ref()
             .map(|g| format!("{:?}", g.decision))
             .unwrap_or_else(|| "—".into());
@@ -175,7 +190,8 @@ async fn index(State(state): State<AppState>) -> Html<String> {
         rows.push_str(r#"<tr><td colspan="4">No cycle has run yet.</td></tr>"#);
     }
 
-    Html(format!(r#"<!doctype html>
+    Html(format!(
+        r#"<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Company OS</title>
@@ -212,10 +228,16 @@ small{{color:#666}}
 
 async fn run_html(State(state): State<AppState>) -> (StatusCode, Html<String>) {
     match run_cycle(&state).await {
-        Ok(_) => (StatusCode::SEE_OTHER, Html(r#"<meta http-equiv="refresh" content="0; url=/" />"#.into())),
+        Ok(_) => (
+            StatusCode::SEE_OTHER,
+            Html(r#"<meta http-equiv="refresh" content="0; url=/" />"#.into()),
+        ),
         Err(error) => {
             eprintln!("cycle error: {error}");
-            (StatusCode::INTERNAL_SERVER_ERROR, Html("cycle failed safely; inspect logs".into()))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Html("cycle failed safely; inspect logs".into()),
+            )
         }
     }
 }
@@ -224,7 +246,8 @@ async fn run_api(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<AgentRunResult>>, (StatusCode, Json<ValueError>)> {
-    let cycle_id = headers.get("idempotency-key")
+    let cycle_id = headers
+        .get("idempotency-key")
         .and_then(|v| v.to_str().ok())
         .filter(|v| !v.trim().is_empty())
         .map(str::to_owned)
@@ -233,17 +256,24 @@ async fn run_api(
     if cycle_id.len() > 200 {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ValueError { error: "Idempotency-Key must be <= 200 characters".into() }),
+            Json(ValueError {
+                error: "Idempotency-Key must be <= 200 characters".into(),
+            }),
         ));
     }
 
-    run_cycle_with_id(&state, cycle_id).await.map(Json).map_err(|error| {
-        eprintln!("api cycle error: {error}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ValueError { error: "agent cycle failed safely".into() }),
-        )
-    })
+    run_cycle_with_id(&state, cycle_id)
+        .await
+        .map(Json)
+        .map_err(|error| {
+            eprintln!("api cycle error: {error}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ValueError {
+                    error: "agent cycle failed safely".into(),
+                }),
+            )
+        })
 }
 
 async fn agents_api(State(state): State<AppState>) -> Json<Vec<AgentRunResult>> {
@@ -255,9 +285,19 @@ async fn save_creator(
     Json(creator): Json<CreatorUnit>,
 ) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
     let company_id = state.company.read().await.company_id.clone();
-    state.store.save_creator(&company_id, &creator).await
+    state
+        .store
+        .save_creator(&company_id, &creator)
+        .await
         .map(|_| StatusCode::CREATED)
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ValueError { error: e.to_string() })))
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ValueError {
+                    error: e.to_string(),
+                }),
+            )
+        })
 }
 
 async fn save_content_asset(
@@ -265,9 +305,19 @@ async fn save_content_asset(
     Json(content): Json<ContentAsset>,
 ) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
     let company_id = state.company.read().await.company_id.clone();
-    state.store.save_content_asset(&company_id, &content).await
+    state
+        .store
+        .save_content_asset(&company_id, &content)
+        .await
         .map(|_| StatusCode::CREATED)
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ValueError { error: e.to_string() })))
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ValueError {
+                    error: e.to_string(),
+                }),
+            )
+        })
 }
 
 async fn save_experiment(
@@ -275,9 +325,19 @@ async fn save_experiment(
     Json(experiment): Json<Experiment>,
 ) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
     let company_id = state.company.read().await.company_id.clone();
-    state.store.save_experiment(&company_id, &experiment).await
+    state
+        .store
+        .save_experiment(&company_id, &experiment)
+        .await
         .map(|_| StatusCode::CREATED)
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ValueError { error: e.to_string() })))
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ValueError {
+                    error: e.to_string(),
+                }),
+            )
+        })
 }
 
 async fn save_employee(
@@ -285,9 +345,19 @@ async fn save_employee(
     Json(employee): Json<Employee>,
 ) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
     let company_id = state.company.read().await.company_id.clone();
-    state.store.save_employee(&company_id, &employee).await
+    state
+        .store
+        .save_employee(&company_id, &employee)
+        .await
         .map(|_| StatusCode::CREATED)
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ValueError { error: e.to_string() })))
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ValueError {
+                    error: e.to_string(),
+                }),
+            )
+        })
 }
 
 async fn save_contract(
@@ -295,9 +365,19 @@ async fn save_contract(
     Json(contract): Json<Contract>,
 ) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
     let company_id = state.company.read().await.company_id.clone();
-    state.store.save_contract(&company_id, &contract).await
+    state
+        .store
+        .save_contract(&company_id, &contract)
+        .await
         .map(|_| StatusCode::CREATED)
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ValueError { error: e.to_string() })))
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ValueError {
+                    error: e.to_string(),
+                }),
+            )
+        })
 }
 
 async fn save_task(
@@ -305,23 +385,42 @@ async fn save_task(
     Json(task): Json<Task>,
 ) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
     let company_id = state.company.read().await.company_id.clone();
-    state.store.save_task(&company_id, &task).await
+    state
+        .store
+        .save_task(&company_id, &task)
+        .await
         .map(|_| StatusCode::CREATED)
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ValueError { error: e.to_string() })))
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ValueError {
+                    error: e.to_string(),
+                }),
+            )
+        })
 }
 
 async fn affiliate_search(
     State(state): State<AppState>,
     Query(params): Query<AffiliateQueryParams>,
 ) -> Result<Json<AffiliateSearchResult>, (StatusCode, Json<ValueError>)> {
-    let intelligence = state.affiliate.as_ref().ok_or_else(|| (
-        StatusCode::SERVICE_UNAVAILABLE,
-        Json(ValueError { error: "no affiliate provider is configured".into() }),
-    ))?;
+    let intelligence = state.affiliate.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ValueError {
+                error: "no affiliate provider is configured".into(),
+            }),
+        )
+    })?;
 
     let query = ProductSearchQuery {
         category: params.category,
-        keywords: params.keywords.unwrap_or_default().split_whitespace().map(str::to_string).collect(),
+        keywords: params
+            .keywords
+            .unwrap_or_default()
+            .split_whitespace()
+            .map(str::to_string)
+            .collect(),
         currency: params.currency.map(|v| v.to_ascii_uppercase()),
         min_commission_bps: params.min_commission_bps,
         require_coupon: params.require_coupon.unwrap_or(false),
@@ -337,11 +436,17 @@ async fn affiliate_search(
     match intelligence.search(query.clone()).await {
         Ok(result) => {
             let company_id = state.company.read().await.company_id.clone();
-            if let Err(error) = state.store.record_affiliate_search(&company_id, &query, &result).await {
+            if let Err(error) = state
+                .store
+                .record_affiliate_search(&company_id, &query, &result)
+                .await
+            {
                 eprintln!("affiliate search persistence error: {error}");
                 return Err((
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ValueError { error: "affiliate research could not be persisted".into() }),
+                    Json(ValueError {
+                        error: "affiliate research could not be persisted".into(),
+                    }),
                 ));
             }
             Ok(Json(result))
@@ -351,15 +456,28 @@ async fn affiliate_search(
                 ProviderError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
                 ProviderError::RateLimited => StatusCode::TOO_MANY_REQUESTS,
                 ProviderError::Configuration(_) => StatusCode::BAD_REQUEST,
-                ProviderError::InvalidData(_) | ProviderError::Transport(_) => StatusCode::BAD_GATEWAY,
+                ProviderError::InvalidData(_) | ProviderError::Transport(_) => {
+                    StatusCode::BAD_GATEWAY
+                }
             };
-            Err((status, Json(ValueError { error: error.to_string() })))
+            Err((
+                status,
+                Json(ValueError {
+                    error: error.to_string(),
+                }),
+            ))
         }
     }
 }
 
 async fn affiliate_providers(State(state): State<AppState>) -> Json<Vec<String>> {
-    Json(state.affiliate.as_ref().map(|a| a.provider_names()).unwrap_or_default())
+    Json(
+        state
+            .affiliate
+            .as_ref()
+            .map(|a| a.provider_names())
+            .unwrap_or_default(),
+    )
 }
 
 async fn healthz() -> &'static str {
@@ -377,8 +495,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store = Arc::new(CompanyStore::connect(&database_url).await?);
     store.migrate().await?;
     let recovered = store.recover_stale_cycles(900).await?;
-    if recovered > 0 { eprintln!("recovered {recovered} stale control-plane records"); }
-    store.ensure_company(&company_id, &company_name, &currency).await?;
+    if recovered > 0 {
+        eprintln!("recovered {recovered} stale control-plane records");
+    }
+    store
+        .ensure_company(&company_id, &company_name, &currency)
+        .await?;
 
     let company = match store.load_snapshot(&company_id).await? {
         Some(snapshot) => snapshot,
@@ -405,7 +527,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|v| v.parse::<u64>().ok())
         .filter(|v| *v >= 15)
         .unwrap_or(300);
-    state.store.ensure_cycle_schedule(&company_id, interval_secs as i64).await?;
+    state
+        .store
+        .ensure_cycle_schedule(&company_id, interval_secs as i64)
+        .await?;
 
     let background = state.clone();
     let scheduled_company_id = company_id.clone();
@@ -415,11 +540,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("scheduler recovery error: {error}");
             }
 
-            match background.store.claim_due_cycle_for(&scheduled_company_id).await {
+            match background
+                .store
+                .claim_due_cycle_for(&scheduled_company_id)
+                .await
+            {
                 Ok(true) => {
                     if let Err(error) = run_cycle(&background).await {
                         eprintln!("scheduled agent cycle error: {error}");
-                        if let Err(retry_error) = background.store
+                        if let Err(retry_error) = background
+                            .store
                             .retry_cycle_schedule(&scheduled_company_id, 30)
                             .await
                         {

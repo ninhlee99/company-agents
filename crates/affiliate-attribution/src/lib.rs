@@ -5,10 +5,17 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum OrderStatus { Pending, Confirmed, Refunded }
+pub enum OrderStatus {
+    Pending,
+    Confirmed,
+    Refunded,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum AttributionModel { LastClick, FirstClick }
+pub enum AttributionModel {
+    LastClick,
+    FirstClick,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClickTouch {
@@ -78,7 +85,9 @@ pub fn attribute(
     window_secs: i64,
 ) -> Result<AttributionResult, AttributionError> {
     if window_secs <= 0 || window_secs > 30 * 86_400 {
-        return Err(AttributionError::InvalidInput("attribution window must be 1..=30 days".into()));
+        return Err(AttributionError::InvalidInput(
+            "attribution window must be 1..=30 days".into(),
+        ));
     }
 
     let mut unique_clicks: HashMap<&str, &ClickTouch> = HashMap::new();
@@ -86,7 +95,8 @@ pub fn attribute(
         if click.click_id.trim().is_empty() || click.product_id.trim().is_empty() {
             continue;
         }
-        unique_clicks.entry(&click.click_id)
+        unique_clicks
+            .entry(&click.click_id)
             .and_modify(|existing| {
                 if click.occurred_at_epoch < existing.occurred_at_epoch {
                     *existing = click;
@@ -101,7 +111,9 @@ pub fn attribute(
             continue;
         }
         if order.gross_sales_minor < 0 || order.commission_minor < 0 {
-            return Err(AttributionError::InvalidInput("order amounts cannot be negative".into()));
+            return Err(AttributionError::InvalidInput(
+                "order amounts cannot be negative".into(),
+            ));
         }
         unique_orders
             .entry(&order.order_id)
@@ -116,24 +128,34 @@ pub fn attribute(
     }
 
     let mut ordered: Vec<&OrderEvent> = unique_orders.into_values().collect();
-    ordered.sort_by(|a,b| a.order_id.cmp(&b.order_id));
+    ordered.sort_by(|a, b| a.order_id.cmp(&b.order_id));
 
     let mut out = Vec::with_capacity(ordered.len());
     for order in ordered {
-        let mut match_click = order.click_id.as_deref()
+        let mut match_click = order
+            .click_id
+            .as_deref()
             .and_then(|id| unique_clicks.get(id).copied())
             .filter(|click| click.product_id == order.product_id);
 
         if match_click.is_none() {
-            let mut eligible: Vec<&ClickTouch> = unique_clicks.values()
+            let mut eligible: Vec<&ClickTouch> = unique_clicks
+                .values()
                 .copied()
                 .filter(|click| {
                     click.product_id == order.product_id
                         && click.occurred_at_epoch <= order.occurred_at_epoch
-                        && order.occurred_at_epoch.saturating_sub(click.occurred_at_epoch) <= window_secs
+                        && order
+                            .occurred_at_epoch
+                            .saturating_sub(click.occurred_at_epoch)
+                            <= window_secs
                 })
                 .collect();
-            eligible.sort_by(|a,b| a.occurred_at_epoch.cmp(&b.occurred_at_epoch).then_with(|| a.click_id.cmp(&b.click_id)));
+            eligible.sort_by(|a, b| {
+                a.occurred_at_epoch
+                    .cmp(&b.occurred_at_epoch)
+                    .then_with(|| a.click_id.cmp(&b.click_id))
+            });
             match_click = match model {
                 AttributionModel::LastClick => eligible.last().copied(),
                 AttributionModel::FirstClick => eligible.first().copied(),
@@ -141,12 +163,18 @@ pub fn attribute(
         }
 
         let (content_id, creator_id, confidence, reason) = match match_click {
-            Some(click) if order.click_id.as_deref() == Some(click.click_id.as_str()) => {
-                (Some(click.content_id), Some(click.creator_id), 10_000, "direct-click-id")
-            }
-            Some(click) => {
-                (Some(click.content_id), Some(click.creator_id), 7_500, "deterministic-window-match")
-            }
+            Some(click) if order.click_id.as_deref() == Some(click.click_id.as_str()) => (
+                Some(click.content_id),
+                Some(click.creator_id),
+                10_000,
+                "direct-click-id",
+            ),
+            Some(click) => (
+                Some(click.content_id),
+                Some(click.creator_id),
+                7_500,
+                "deterministic-window-match",
+            ),
             None => (None, None, 0, "unattributed"),
         };
 
@@ -172,29 +200,56 @@ pub fn attribute(
         });
     }
 
-    let total_commission_minor = out.iter().fold(0_i128, |acc, order| acc.saturating_add(order.commission_minor));
-    let total_gross_sales_minor = out.iter().fold(0_i128, |acc, order| acc.saturating_add(order.gross_sales_minor));
+    let total_commission_minor = out.iter().fold(0_i128, |acc, order| {
+        acc.saturating_add(order.commission_minor)
+    });
+    let total_gross_sales_minor = out.iter().fold(0_i128, |acc, order| {
+        acc.saturating_add(order.gross_sales_minor)
+    });
 
-    Ok(AttributionResult { orders: out, total_commission_minor, total_gross_sales_minor })
+    Ok(AttributionResult {
+        orders: out,
+        total_commission_minor,
+        total_gross_sales_minor,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn ids() -> (Uuid, Uuid) { (Uuid::new_v4(), Uuid::new_v4()) }
+    fn ids() -> (Uuid, Uuid) {
+        (Uuid::new_v4(), Uuid::new_v4())
+    }
 
     #[test]
     fn last_click_is_deterministic() {
         let (content_a, creator) = ids();
         let (content_b, _) = ids();
         let clicks = vec![
-            ClickTouch { click_id:"a".into(), content_id:content_a, creator_id:creator, product_id:"p".into(), occurred_at_epoch:100 },
-            ClickTouch { click_id:"b".into(), content_id:content_b, creator_id:creator, product_id:"p".into(), occurred_at_epoch:110 },
+            ClickTouch {
+                click_id: "a".into(),
+                content_id: content_a,
+                creator_id: creator,
+                product_id: "p".into(),
+                occurred_at_epoch: 100,
+            },
+            ClickTouch {
+                click_id: "b".into(),
+                content_id: content_b,
+                creator_id: creator,
+                product_id: "p".into(),
+                occurred_at_epoch: 110,
+            },
         ];
         let order = OrderEvent {
-            order_id:"o1".into(), click_id:None, product_id:"p".into(),
-            gross_sales_minor:1000, commission_minor:100, status:OrderStatus::Confirmed, occurred_at_epoch:120
+            order_id: "o1".into(),
+            click_id: None,
+            product_id: "p".into(),
+            gross_sales_minor: 1000,
+            commission_minor: 100,
+            status: OrderStatus::Confirmed,
+            occurred_at_epoch: 120,
         };
         let result = attribute(&clicks, &[order], AttributionModel::LastClick, 60).unwrap();
         assert_eq!(result.orders[0].content_id, Some(content_b));
@@ -205,25 +260,56 @@ mod tests {
     fn first_click_and_window_are_respected() {
         let (content, creator) = ids();
         let clicks = vec![
-            ClickTouch { click_id:"a".into(), content_id:content, creator_id:creator, product_id:"p".into(), occurred_at_epoch:10 },
-            ClickTouch { click_id:"b".into(), content_id:content, creator_id:creator, product_id:"p".into(), occurred_at_epoch:20 },
+            ClickTouch {
+                click_id: "a".into(),
+                content_id: content,
+                creator_id: creator,
+                product_id: "p".into(),
+                occurred_at_epoch: 10,
+            },
+            ClickTouch {
+                click_id: "b".into(),
+                content_id: content,
+                creator_id: creator,
+                product_id: "p".into(),
+                occurred_at_epoch: 20,
+            },
         ];
         let order = OrderEvent {
-            order_id:"o1".into(), click_id:None, product_id:"p".into(),
-            gross_sales_minor:100, commission_minor:10, status:OrderStatus::Confirmed, occurred_at_epoch:30
+            order_id: "o1".into(),
+            click_id: None,
+            product_id: "p".into(),
+            gross_sales_minor: 100,
+            commission_minor: 10,
+            status: OrderStatus::Confirmed,
+            occurred_at_epoch: 30,
         };
         let result = attribute(&clicks, &[order], AttributionModel::FirstClick, 60).unwrap();
-        assert_eq!(result.orders[0].attribution_reason, "deterministic-window-match");
+        assert_eq!(
+            result.orders[0].attribution_reason,
+            "deterministic-window-match"
+        );
         assert_eq!(result.orders[0].content_id, Some(content));
     }
 
     #[test]
     fn refund_reverses_economic_value() {
         let (content, creator) = ids();
-        let click = ClickTouch { click_id:"c".into(), content_id:content, creator_id:creator, product_id:"p".into(), occurred_at_epoch:100 };
+        let click = ClickTouch {
+            click_id: "c".into(),
+            content_id: content,
+            creator_id: creator,
+            product_id: "p".into(),
+            occurred_at_epoch: 100,
+        };
         let order = OrderEvent {
-            order_id:"o1".into(), click_id:Some("c".into()), product_id:"p".into(),
-            gross_sales_minor:1000, commission_minor:100, status:OrderStatus::Refunded, occurred_at_epoch:120
+            order_id: "o1".into(),
+            click_id: Some("c".into()),
+            product_id: "p".into(),
+            gross_sales_minor: 1000,
+            commission_minor: 100,
+            status: OrderStatus::Refunded,
+            occurred_at_epoch: 120,
         };
         let result = attribute(&[click], &[order], AttributionModel::LastClick, 60).unwrap();
         assert_eq!(result.total_commission_minor, -100);
@@ -233,16 +319,38 @@ mod tests {
     #[test]
     fn refund_state_supersedes_confirmed_state() {
         let (content, creator) = ids();
-        let click = ClickTouch { click_id:"c".into(), content_id:content, creator_id:creator, product_id:"p".into(), occurred_at_epoch:100 };
+        let click = ClickTouch {
+            click_id: "c".into(),
+            content_id: content,
+            creator_id: creator,
+            product_id: "p".into(),
+            occurred_at_epoch: 100,
+        };
         let confirmed = OrderEvent {
-            order_id:"o1".into(), click_id:Some("c".into()), product_id:"p".into(),
-            gross_sales_minor:1000, commission_minor:100, status:OrderStatus::Confirmed, occurred_at_epoch:120
+            order_id: "o1".into(),
+            click_id: Some("c".into()),
+            product_id: "p".into(),
+            gross_sales_minor: 1000,
+            commission_minor: 100,
+            status: OrderStatus::Confirmed,
+            occurred_at_epoch: 120,
         };
         let refunded = OrderEvent {
-            order_id:"o1".into(), click_id:Some("c".into()), product_id:"p".into(),
-            gross_sales_minor:1000, commission_minor:100, status:OrderStatus::Refunded, occurred_at_epoch:150
+            order_id: "o1".into(),
+            click_id: Some("c".into()),
+            product_id: "p".into(),
+            gross_sales_minor: 1000,
+            commission_minor: 100,
+            status: OrderStatus::Refunded,
+            occurred_at_epoch: 150,
         };
-        let result = attribute(&[click], &[confirmed, refunded], AttributionModel::LastClick, 60).unwrap();
+        let result = attribute(
+            &[click],
+            &[confirmed, refunded],
+            AttributionModel::LastClick,
+            60,
+        )
+        .unwrap();
         assert_eq!(result.orders.len(), 1);
         assert_eq!(result.total_commission_minor, -100);
     }
@@ -250,12 +358,29 @@ mod tests {
     #[test]
     fn duplicate_order_is_idempotent() {
         let (content, creator) = ids();
-        let click = ClickTouch { click_id:"c".into(), content_id:content, creator_id:creator, product_id:"p".into(), occurred_at_epoch:100 };
-        let order = OrderEvent {
-            order_id:"o1".into(), click_id:Some("c".into()), product_id:"p".into(),
-            gross_sales_minor:1000, commission_minor:100, status:OrderStatus::Confirmed, occurred_at_epoch:120
+        let click = ClickTouch {
+            click_id: "c".into(),
+            content_id: content,
+            creator_id: creator,
+            product_id: "p".into(),
+            occurred_at_epoch: 100,
         };
-        let result = attribute(&[click], &[order.clone(), order], AttributionModel::LastClick, 60).unwrap();
+        let order = OrderEvent {
+            order_id: "o1".into(),
+            click_id: Some("c".into()),
+            product_id: "p".into(),
+            gross_sales_minor: 1000,
+            commission_minor: 100,
+            status: OrderStatus::Confirmed,
+            occurred_at_epoch: 120,
+        };
+        let result = attribute(
+            &[click],
+            &[order.clone(), order],
+            AttributionModel::LastClick,
+            60,
+        )
+        .unwrap();
         assert_eq!(result.orders.len(), 1);
         assert_eq!(result.total_commission_minor, 100);
     }

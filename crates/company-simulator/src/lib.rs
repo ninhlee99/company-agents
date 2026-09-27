@@ -1,10 +1,6 @@
 #![forbid(unsafe_code)]
 
-use agent_runtime::{
-    model::MockModel,
-    types::{CompanySnapshot},
-    AgentRuntime, ExecutionEngine,
-};
+use agent_runtime::{model::MockModel, types::CompanySnapshot, AgentRuntime, ExecutionEngine};
 use economic_core::{CompanyState, CompanyStatus};
 use serde::{Deserialize, Serialize};
 
@@ -170,7 +166,11 @@ pub async fn run(config: SimConfig) -> SimulationResult {
             capacity,
             conversion_bps,
             audience_growth_bps: 80,
-            hiring_need: if backlog > capacity.saturating_mul(2) { 1 } else { 0 },
+            hiring_need: if backlog > capacity.saturating_mul(2) {
+                1
+            } else {
+                0
+            },
         };
 
         let mut results = runtime.run_all(snapshot.clone()).await;
@@ -179,7 +179,9 @@ pub async fn run(config: SimConfig) -> SimulationResult {
         executed_actions += outcomes.iter().filter(|o| o.executed).count() as u64;
 
         for outcome in &outcomes {
-            if outcome.executed && outcome.cost_minor > snapshot.cash_minor.saturating_add(outcome.cost_minor) {
+            if outcome.executed
+                && outcome.cost_minor > snapshot.cash_minor.saturating_add(outcome.cost_minor)
+            {
                 violations.push(format!("day {day}: impossible execution cost"));
             }
         }
@@ -190,7 +192,11 @@ pub async fn run(config: SimConfig) -> SimulationResult {
         minimum_cash = minimum_cash.min(cash);
     }
 
-    let days_simulated = if let Some(day) = bankruptcy_day { day } else { config.days };
+    let days_simulated = if let Some(day) = bankruptcy_day {
+        day
+    } else {
+        config.days
+    };
     SimulationResult {
         days_simulated,
         ending_cash_minor: cash,
@@ -215,7 +221,11 @@ pub async fn run_many(config: SimConfig, trials: u32) -> MonteCarloSummary {
     let mut total_violations = 0_u64;
 
     for index in 0..trials {
-        let trial = run(SimConfig { seed: config.seed.wrapping_add(index as u64), ..config.clone() }).await;
+        let trial = run(SimConfig {
+            seed: config.seed.wrapping_add(index as u64),
+            ..config.clone()
+        })
+        .await;
         survival += u32::from(trial.survived);
         ending_sum = ending_sum.saturating_add(trial.ending_cash_minor);
         worst = worst.min(trial.ending_cash_minor);
@@ -240,15 +250,25 @@ mod tests {
 
     #[tokio::test]
     async fn simulation_is_deterministic_for_same_seed() {
-        let config = SimConfig { days: 60, ..SimConfig::default() };
+        let config = SimConfig {
+            days: 60,
+            ..SimConfig::default()
+        };
         let a = run(config.clone()).await;
         let b = run(config).await;
-        assert_eq!(serde_json::to_string(&a).unwrap(), serde_json::to_string(&b).unwrap());
+        assert_eq!(
+            serde_json::to_string(&a).unwrap(),
+            serde_json::to_string(&b).unwrap()
+        );
     }
 
     #[tokio::test]
     async fn simulation_runs_without_paid_model_api() {
-        let result = run(SimConfig { days: 30, ..SimConfig::default() }).await;
+        let result = run(SimConfig {
+            days: 30,
+            ..SimConfig::default()
+        })
+        .await;
         assert_eq!(result.decision_cycles, 30);
         assert!(result.violations.is_empty(), "{:?}", result.violations);
         assert!(result.executed_actions > 0);
@@ -256,17 +276,29 @@ mod tests {
 
     #[tokio::test]
     async fn severe_cash_shock_does_not_create_negative_spend() {
-        let result = run(SimConfig { initial_cash_minor: 1_000, days: 30, seed: 99, ..SimConfig::default() }).await;
+        let result = run(SimConfig {
+            initial_cash_minor: 1_000,
+            days: 30,
+            seed: 99,
+            ..SimConfig::default()
+        })
+        .await;
         assert!(result.ending_cash_minor >= 0 || result.bankruptcy_day.is_some());
         assert!(result.violations.is_empty(), "{:?}", result.violations);
     }
 
     #[tokio::test]
     async fn monte_carlo_summary_is_bounded_and_deterministic() {
-        let config = SimConfig { days: 90, ..SimConfig::default() };
+        let config = SimConfig {
+            days: 90,
+            ..SimConfig::default()
+        };
         let a = run_many(config.clone(), 25).await;
         let b = run_many(config, 25).await;
-        assert_eq!(serde_json::to_string(&a).unwrap(), serde_json::to_string(&b).unwrap());
+        assert_eq!(
+            serde_json::to_string(&a).unwrap(),
+            serde_json::to_string(&b).unwrap()
+        );
         assert_eq!(a.trials, 25);
         assert!(a.survival_rate_bps <= 10_000);
         assert!(a.bankruptcy_rate_bps <= 10_000);

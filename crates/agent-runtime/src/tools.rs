@@ -19,10 +19,19 @@ pub enum Tool {
 
 impl Tool {
     pub const ALL: [Self; 12] = [
-        Self::ReadCompany, Self::ReadMetrics, Self::ResearchOpportunity,
-        Self::CreateExperiment, Self::AllocateExperimentBudget, Self::ReduceBudget,
-        Self::RebalanceOperations, Self::ProposeHire, Self::ProduceReport,
-        Self::PublishContent, Self::EscalateIncident, Self::SendExternalMessage, Self::InitiatePayment,
+        Self::ReadCompany,
+        Self::ReadMetrics,
+        Self::ResearchOpportunity,
+        Self::CreateExperiment,
+        Self::AllocateExperimentBudget,
+        Self::ReduceBudget,
+        Self::RebalanceOperations,
+        Self::ProposeHire,
+        Self::ProduceReport,
+        Self::PublishContent,
+        Self::EscalateIncident,
+        Self::SendExternalMessage,
+        Self::InitiatePayment,
     ];
 }
 
@@ -47,15 +56,79 @@ impl ToolRegistry {
 
     pub fn allowed(role: AgentRole, tool: Tool) -> bool {
         match role {
-            AgentRole::Governor => matches!(tool, Tool::ReadCompany | Tool::ReadMetrics | Tool::EscalateIncident),
-            AgentRole::CEO => matches!(tool, Tool::ReadCompany | Tool::ReadMetrics | Tool::ResearchOpportunity | Tool::AllocateExperimentBudget | Tool::ReduceBudget | Tool::ProduceReport | Tool::EscalateIncident),
-            AgentRole::CFO => matches!(tool, Tool::ReadCompany | Tool::ReadMetrics | Tool::ReduceBudget | Tool::ProduceReport | Tool::EscalateIncident),
-            AgentRole::COO => matches!(tool, Tool::ReadCompany | Tool::ReadMetrics | Tool::RebalanceOperations | Tool::ProduceReport | Tool::EscalateIncident),
-            AgentRole::Growth => matches!(tool, Tool::ReadCompany | Tool::ReadMetrics | Tool::ResearchOpportunity | Tool::CreateExperiment | Tool::ProduceReport | Tool::EscalateIncident),
-            AgentRole::Content => matches!(tool, Tool::ReadCompany | Tool::ReadMetrics | Tool::ResearchOpportunity | Tool::CreateExperiment | Tool::PublishContent | Tool::ProduceReport | Tool::EscalateIncident),
-            AgentRole::Recruiter => matches!(tool, Tool::ReadCompany | Tool::ReadMetrics | Tool::ProposeHire | Tool::ProduceReport | Tool::EscalateIncident),
-            AgentRole::Analyst => matches!(tool, Tool::ReadCompany | Tool::ReadMetrics | Tool::ProduceReport | Tool::EscalateIncident),
-            AgentRole::Experiment => matches!(tool, Tool::ReadCompany | Tool::ReadMetrics | Tool::ResearchOpportunity | Tool::CreateExperiment | Tool::ProduceReport | Tool::EscalateIncident),
+            AgentRole::Governor => matches!(
+                tool,
+                Tool::ReadCompany | Tool::ReadMetrics | Tool::EscalateIncident
+            ),
+            AgentRole::CEO => matches!(
+                tool,
+                Tool::ReadCompany
+                    | Tool::ReadMetrics
+                    | Tool::ResearchOpportunity
+                    | Tool::AllocateExperimentBudget
+                    | Tool::ReduceBudget
+                    | Tool::ProduceReport
+                    | Tool::EscalateIncident
+            ),
+            AgentRole::CFO => matches!(
+                tool,
+                Tool::ReadCompany
+                    | Tool::ReadMetrics
+                    | Tool::ReduceBudget
+                    | Tool::ProduceReport
+                    | Tool::EscalateIncident
+            ),
+            AgentRole::COO => matches!(
+                tool,
+                Tool::ReadCompany
+                    | Tool::ReadMetrics
+                    | Tool::RebalanceOperations
+                    | Tool::ProduceReport
+                    | Tool::EscalateIncident
+            ),
+            AgentRole::Growth => matches!(
+                tool,
+                Tool::ReadCompany
+                    | Tool::ReadMetrics
+                    | Tool::ResearchOpportunity
+                    | Tool::CreateExperiment
+                    | Tool::ProduceReport
+                    | Tool::EscalateIncident
+            ),
+            AgentRole::Content => matches!(
+                tool,
+                Tool::ReadCompany
+                    | Tool::ReadMetrics
+                    | Tool::ResearchOpportunity
+                    | Tool::CreateExperiment
+                    | Tool::PublishContent
+                    | Tool::ProduceReport
+                    | Tool::EscalateIncident
+            ),
+            AgentRole::Recruiter => matches!(
+                tool,
+                Tool::ReadCompany
+                    | Tool::ReadMetrics
+                    | Tool::ProposeHire
+                    | Tool::ProduceReport
+                    | Tool::EscalateIncident
+            ),
+            AgentRole::Analyst => matches!(
+                tool,
+                Tool::ReadCompany
+                    | Tool::ReadMetrics
+                    | Tool::ProduceReport
+                    | Tool::EscalateIncident
+            ),
+            AgentRole::Experiment => matches!(
+                tool,
+                Tool::ReadCompany
+                    | Tool::ReadMetrics
+                    | Tool::ResearchOpportunity
+                    | Tool::CreateExperiment
+                    | Tool::ProduceReport
+                    | Tool::EscalateIncident
+            ),
         }
     }
 }
@@ -93,11 +166,29 @@ mod tests {
     #[test]
     fn capabilities_follow_role_boundaries() {
         assert!(ToolRegistry::allowed(AgentRole::Analyst, Tool::ReadMetrics));
-        assert!(ToolRegistry::allowed(AgentRole::Analyst, Tool::ProduceReport));
-        assert!(!ToolRegistry::allowed(AgentRole::Analyst, Tool::ProposeHire));
-        assert!(ToolRegistry::allowed(AgentRole::Recruiter, Tool::ProposeHire));
-        assert!(!ToolRegistry::allowed(AgentRole::Recruiter, Tool::PublishContent));
-        assert!(ToolRegistry::allowed(AgentRole::Content, Tool::PublishContent));
-        assert!(!ToolRegistry::allowed(AgentRole::CFO, Tool::CreateExperiment));
+        assert!(ToolRegistry::allowed(
+            AgentRole::Analyst,
+            Tool::ProduceReport
+        ));
+        assert!(!ToolRegistry::allowed(
+            AgentRole::Analyst,
+            Tool::ProposeHire
+        ));
+        assert!(ToolRegistry::allowed(
+            AgentRole::Recruiter,
+            Tool::ProposeHire
+        ));
+        assert!(!ToolRegistry::allowed(
+            AgentRole::Recruiter,
+            Tool::PublishContent
+        ));
+        assert!(ToolRegistry::allowed(
+            AgentRole::Content,
+            Tool::PublishContent
+        ));
+        assert!(!ToolRegistry::allowed(
+            AgentRole::CFO,
+            Tool::CreateExperiment
+        ));
     }
 }

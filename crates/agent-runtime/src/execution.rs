@@ -43,7 +43,9 @@ impl Default for ExecutionEngine {
 impl ExecutionEngine {
     pub fn validate_snapshot(snapshot: &CompanySnapshot) -> Result<(), ExecutionError> {
         if snapshot.company_id.trim().is_empty() {
-            return Err(ExecutionError::InvalidSnapshot("company id is required".into()));
+            return Err(ExecutionError::InvalidSnapshot(
+                "company id is required".into(),
+            ));
         }
         for (name, value) in [
             ("cash_minor", snapshot.cash_minor),
@@ -57,14 +59,20 @@ impl ExecutionEngine {
             ("content_revenue_minor", snapshot.content_revenue_minor),
         ] {
             if value < 0 {
-                return Err(ExecutionError::InvalidSnapshot(format!("{name} cannot be negative")));
+                return Err(ExecutionError::InvalidSnapshot(format!(
+                    "{name} cannot be negative"
+                )));
             }
         }
         if snapshot.runway_days < 0 {
-            return Err(ExecutionError::InvalidSnapshot("runway_days cannot be negative".into()));
+            return Err(ExecutionError::InvalidSnapshot(
+                "runway_days cannot be negative".into(),
+            ));
         }
         if snapshot.conversion_bps > 10_000 {
-            return Err(ExecutionError::InvalidSnapshot("conversion_bps must be <= 10000".into()));
+            return Err(ExecutionError::InvalidSnapshot(
+                "conversion_bps must be <= 10000".into(),
+            ));
         }
         Ok(())
     }
@@ -177,10 +185,11 @@ impl ExecutionEngine {
                     Err("experiment exceeds available cash")
                 } else {
                     snapshot.cash_minor -= proposal.cost_minor;
-                    snapshot.expenses_minor = match snapshot.expenses_minor.checked_add(proposal.cost_minor) {
-                        Some(value) => value,
-                        None => return arithmetic_failure(proposal, "expense overflow"),
-                    };
+                    snapshot.expenses_minor =
+                        match snapshot.expenses_minor.checked_add(proposal.cost_minor) {
+                            Some(value) => value,
+                            None => return arithmetic_failure(proposal, "expense overflow"),
+                        };
                     snapshot.experiment_budget_minor -= proposal.cost_minor;
                     snapshot.budget_remaining_minor -= proposal.cost_minor;
                     state_changed = true;
@@ -194,15 +203,11 @@ impl ExecutionEngine {
                 state_changed = snapshot.backlog != before;
                 Ok("operations rebalanced")
             }
-            ActionKind::ReduceBudget => {
-                Ok("budget reduction recorded; no hidden spend")
-            }
+            ActionKind::ReduceBudget => Ok("budget reduction recorded; no hidden spend"),
             ActionKind::ResearchOpportunity => {
                 Ok("research decision recorded; no external side effect")
             }
-            ActionKind::ProduceReport => {
-                Ok("report decision recorded; no external side effect")
-            }
+            ActionKind::ProduceReport => Ok("report decision recorded; no external side effect"),
             ActionKind::EscalateIncident => {
                 Ok("incident escalation recorded; no external side effect")
             }
@@ -238,10 +243,7 @@ impl ExecutionEngine {
     }
 }
 
-fn arithmetic_failure(
-    proposal: &crate::types::Proposal,
-    reason: &str,
-) -> ExecutionOutcome {
+fn arithmetic_failure(proposal: &crate::types::Proposal, reason: &str) -> ExecutionOutcome {
     ExecutionOutcome {
         agent: proposal.agent,
         action: proposal.action,
@@ -256,7 +258,9 @@ fn arithmetic_failure(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ActionKind, AgentRole, CompanySnapshot, GovernorDecision, Permission, Proposal, RiskTier};
+    use crate::types::{
+        ActionKind, AgentRole, CompanySnapshot, GovernorDecision, Permission, Proposal, RiskTier,
+    };
 
     fn snapshot() -> CompanySnapshot {
         CompanySnapshot {
@@ -303,7 +307,11 @@ mod tests {
     #[test]
     fn allocation_moves_budget_without_creating_revenue() {
         let mut s = snapshot();
-        let mut results = vec![result(AgentRole::CEO, ActionKind::AllocateExperimentBudget, 100)];
+        let mut results = vec![result(
+            AgentRole::CEO,
+            ActionKind::AllocateExperimentBudget,
+            100,
+        )];
         let outcomes = ExecutionEngine::default().execute_batch(&mut s, &mut results);
         assert_eq!(outcomes[0].decision, GovernorDecision::Approve);
         assert!(outcomes[0].executed);
@@ -344,7 +352,11 @@ mod tests {
     fn invalid_snapshot_fails_closed() {
         let mut s = snapshot();
         s.cash_minor = -1;
-        let mut results = vec![result(AgentRole::Experiment, ActionKind::CreateExperiment, 10)];
+        let mut results = vec![result(
+            AgentRole::Experiment,
+            ActionKind::CreateExperiment,
+            10,
+        )];
         let outcomes = ExecutionEngine::default().execute_batch(&mut s, &mut results);
         assert_eq!(outcomes[0].decision, GovernorDecision::Reject);
         assert!(!outcomes[0].executed);

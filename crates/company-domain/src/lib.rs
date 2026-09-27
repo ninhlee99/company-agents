@@ -7,25 +7,67 @@ use uuid::Uuid;
 pub type Minor = i128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CreatorStatus { Testing, Growing, Stable, Distress, Paused, Closed }
+pub enum CreatorStatus {
+    Testing,
+    Growing,
+    Stable,
+    Distress,
+    Paused,
+    Closed,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum LifecycleStatus { Draft, Active, Completed, Paused, Cancelled, Closed }
+pub enum LifecycleStatus {
+    Draft,
+    Active,
+    Completed,
+    Paused,
+    Cancelled,
+    Closed,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum EmploymentStatus { Proposed, Active, Leave, Terminated }
+pub enum EmploymentStatus {
+    Proposed,
+    Active,
+    Leave,
+    Terminated,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ContractStatus { Draft, Active, Expired, Terminated }
+pub enum ContractStatus {
+    Draft,
+    Active,
+    Expired,
+    Terminated,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TaskStatus { Backlog, Ready, Running, Blocked, Done, Cancelled }
+pub enum TaskStatus {
+    Backlog,
+    Ready,
+    Running,
+    Blocked,
+    Done,
+    Cancelled,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ContentStatus { Draft, Qa, Approved, Scheduled, Published, Archived }
+pub enum ContentStatus {
+    Draft,
+    Qa,
+    Approved,
+    Scheduled,
+    Published,
+    Archived,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum EntityStatus { Active, Paused, Closed }
+pub enum EntityStatus {
+    Active,
+    Paused,
+    Closed,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BusinessUnit {
@@ -66,7 +108,11 @@ impl Customer {
     pub fn validate(&self) -> Result<(), DomainError> {
         validate_text(&self.name, "customer name")?;
         validate_nonnegative(self.lifetime_revenue_minor, "customer lifetime revenue")?;
-        if self.external_ref.as_ref().is_some_and(|v| v.trim().is_empty()) {
+        if self
+            .external_ref
+            .as_ref()
+            .is_some_and(|v| v.trim().is_empty())
+        {
             return Err(DomainError::InvalidText("customer external ref"));
         }
         Ok(())
@@ -115,7 +161,9 @@ impl PayrollRun {
             return Err(DomainError::Invariant("payroll period end precedes start"));
         }
         if self.lines.is_empty() {
-            return Err(DomainError::Invariant("payroll must contain at least one employee"));
+            return Err(DomainError::Invariant(
+                "payroll must contain at least one employee",
+            ));
         }
         for line in &self.lines {
             if line.gross_minor < 0 || line.employer_cost_minor < 0 || line.withholding_minor < 0 {
@@ -129,11 +177,15 @@ impl PayrollRun {
     }
 
     pub fn gross_minor(&self) -> Minor {
-        self.lines.iter().fold(0, |a, l| a.saturating_add(l.gross_minor))
+        self.lines
+            .iter()
+            .fold(0, |a, l| a.saturating_add(l.gross_minor))
     }
 
     pub fn employer_cost_minor(&self) -> Minor {
-        self.lines.iter().fold(0, |a, l| a.saturating_add(l.employer_cost_minor))
+        self.lines
+            .iter()
+            .fold(0, |a, l| a.saturating_add(l.employer_cost_minor))
     }
 
     pub fn cash_due_minor(&self) -> Minor {
@@ -202,7 +254,8 @@ impl ContentAsset {
     }
 
     pub fn contribution_margin_minor(&self) -> Minor {
-        self.attributed_revenue_minor.saturating_add(self.affiliate_commission_minor)
+        self.attributed_revenue_minor
+            .saturating_add(self.affiliate_commission_minor)
             .saturating_sub(self.production_cost_minor)
     }
 }
@@ -273,7 +326,9 @@ impl Contract {
         validate_nonnegative(self.value_minor, "contract value")?;
         if let Some(end) = self.end_epoch {
             if end < self.start_epoch {
-                return Err(DomainError::Invariant("contract end precedes contract start"));
+                return Err(DomainError::Invariant(
+                    "contract end precedes contract start",
+                ));
             }
         }
         Ok(())
@@ -323,11 +378,19 @@ impl fmt::Display for DomainError {
 }
 
 fn validate_text(value: &str, field: &'static str) -> Result<(), DomainError> {
-    if value.trim().is_empty() { Err(DomainError::InvalidText(field)) } else { Ok(()) }
+    if value.trim().is_empty() {
+        Err(DomainError::InvalidText(field))
+    } else {
+        Ok(())
+    }
 }
 
 fn validate_nonnegative(value: Minor, field: &'static str) -> Result<(), DomainError> {
-    if value < 0 { Err(DomainError::Negative(field)) } else { Ok(()) }
+    if value < 0 {
+        Err(DomainError::Negative(field))
+    } else {
+        Ok(())
+    }
 }
 
 fn validate_currency(currency: &str) -> Result<(), DomainError> {

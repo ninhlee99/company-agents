@@ -5,7 +5,11 @@ pub struct Governor;
 impl Governor {
     pub fn evaluate(&self, proposal: Proposal, company: &CompanySnapshot) -> GovernedProposal {
         if let Err(error) = proposal.validate() {
-            return GovernedProposal { proposal, decision: GovernorDecision::Reject, reason: error };
+            return GovernedProposal {
+                proposal,
+                decision: GovernorDecision::Reject,
+                reason: error,
+            };
         }
 
         if proposal.agent == AgentRole::Governor {
@@ -16,7 +20,10 @@ impl Governor {
             };
         }
 
-        if matches!(proposal.requested_permission, Permission::ExecuteLimited | Permission::ExecuteMaterial) {
+        if matches!(
+            proposal.requested_permission,
+            Permission::ExecuteLimited | Permission::ExecuteMaterial
+        ) {
             return GovernedProposal {
                 proposal,
                 decision: GovernorDecision::Reject,
@@ -30,7 +37,8 @@ impl Governor {
                 | economic_core::CompanyStatus::Emergency
                 | economic_core::CompanyStatus::Liquidation
                 | economic_core::CompanyStatus::Bankrupt
-        ) && proposal.cost_minor > 0 {
+        ) && proposal.cost_minor > 0
+        {
             return GovernedProposal {
                 proposal,
                 decision: GovernorDecision::Reject,
@@ -38,8 +46,10 @@ impl Governor {
             };
         }
 
-        if matches!(company.status, economic_core::CompanyStatus::Bankrupt | economic_core::CompanyStatus::Liquidation)
-            && proposal.action != ActionKind::ProduceReport
+        if matches!(
+            company.status,
+            economic_core::CompanyStatus::Bankrupt | economic_core::CompanyStatus::Liquidation
+        ) && proposal.action != ActionKind::ProduceReport
             && proposal.action != ActionKind::EscalateIncident
             && proposal.action != ActionKind::ReduceBudget
         {
@@ -99,7 +109,11 @@ impl Governor {
             "proposal satisfies bounded autonomy policy".into()
         };
 
-        GovernedProposal { proposal, decision, reason }
+        GovernedProposal {
+            proposal,
+            decision,
+            reason,
+        }
     }
 }
 
@@ -147,7 +161,12 @@ mod tests {
 
     #[test]
     fn governor_approves_small_reversible_action() {
-        assert_eq!(Governor.evaluate(&Governor, proposal(), &snapshot()).decision, GovernorDecision::Approve);
+        assert_eq!(
+            Governor
+                .evaluate(&Governor, proposal(), &snapshot())
+                .decision,
+            GovernorDecision::Approve
+        );
     }
 
     #[test]
@@ -157,21 +176,33 @@ mod tests {
         p.action = ActionKind::ProposeHire;
         p.risk = RiskTier::High;
         p.reversible = false;
-        assert_eq!(Governor.evaluate(&Governor, p, &snapshot()).decision, GovernorDecision::Escalate);
+        assert_eq!(
+            Governor.evaluate(&Governor, p, &snapshot()).decision,
+            GovernorDecision::Escalate
+        );
     }
 
     #[test]
     fn governor_rejects_self_permission_escalation() {
         let mut p = proposal();
         p.requested_permission = Permission::ExecuteMaterial;
-        assert_eq!(Governor.evaluate(&Governor, p, &snapshot()).decision, GovernorDecision::Reject);
+        assert_eq!(
+            Governor.evaluate(&Governor, p, &snapshot()).decision,
+            GovernorDecision::Reject
+        );
     }
 
     #[test]
     fn governor_rejects_bankrupt_discretionary_action() {
         let mut p = proposal();
-        let company = CompanySnapshot { status: economic_core::CompanyStatus::Bankrupt, ..snapshot() };
-        assert_eq!(Governor.evaluate(&Governor, p, &company).decision, GovernorDecision::Reject);
+        let company = CompanySnapshot {
+            status: economic_core::CompanyStatus::Bankrupt,
+            ..snapshot()
+        };
+        assert_eq!(
+            Governor.evaluate(&Governor, p, &company).decision,
+            GovernorDecision::Reject
+        );
     }
 
     #[test]
@@ -189,13 +220,19 @@ mod tests {
             reversible: true,
             requested_permission: Permission::Propose,
         };
-        assert_eq!(Governor.evaluate(&Governor, p, &snapshot()).decision, GovernorDecision::Escalate);
+        assert_eq!(
+            Governor.evaluate(&Governor, p, &snapshot()).decision,
+            GovernorDecision::Escalate
+        );
     }
 
     #[test]
     fn governor_rejects_cost_above_cash() {
         let mut p = proposal();
         p.cost_minor = 20_000;
-        assert_eq!(Governor.evaluate(&Governor, p, &snapshot()).decision, GovernorDecision::Reject);
+        assert_eq!(
+            Governor.evaluate(&Governor, p, &snapshot()).decision,
+            GovernorDecision::Reject
+        );
     }
 }

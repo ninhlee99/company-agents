@@ -1,10 +1,10 @@
 #![forbid(unsafe_code)]
 
-use agent_runtime::{
-    ExecutionEngine, ExecutionOutcome, AgentRunResult, CompanySnapshot,
+use affiliate_attribution::{
+    attribute, AttributionModel, AttributionResult, ClickTouch, OrderEvent, OrderStatus,
 };
-use affiliate_attribution::{attribute, AttributionModel, AttributionResult, ClickTouch, OrderEvent, OrderStatus};
 use affiliate_intelligence::{AffiliateSearchResult, ProductSearchQuery};
+use agent_runtime::{AgentRunResult, CompanySnapshot, ExecutionEngine, ExecutionOutcome};
 use company_domain::{
     BusinessUnit, ContentAsset, Contract, CreatorUnit, Customer, Employee, Experiment, PayrollRun,
     Product, Task,
@@ -45,34 +45,52 @@ impl CompanyStore {
                 eprintln!("postgres connection error: {error}");
             }
         });
-        Ok(Self { client: Mutex::new(client) })
+        Ok(Self {
+            client: Mutex::new(client),
+        })
     }
 
     pub async fn migrate(&self) -> Result<(), tokio_postgres::Error> {
         let client = self.client.lock().await;
         client
-            .batch_execute(include_str!("../../../infra/db/migrations/001_economic_kernel.sql"))
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/001_economic_kernel.sql"
+            ))
             .await?;
         client
-            .batch_execute(include_str!("../../../infra/db/migrations/002_company_control.sql"))
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/002_company_control.sql"
+            ))
             .await?;
         client
-            .batch_execute(include_str!("../../../infra/db/migrations/003_ledger_completeness.sql"))
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/003_ledger_completeness.sql"
+            ))
             .await?;
         client
-            .batch_execute(include_str!("../../../infra/db/migrations/004_affiliate_searches.sql"))
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/004_affiliate_searches.sql"
+            ))
             .await?;
         client
-            .batch_execute(include_str!("../../../infra/db/migrations/005_durable_scheduler.sql"))
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/005_durable_scheduler.sql"
+            ))
             .await?;
         client
-            .batch_execute(include_str!("../../../infra/db/migrations/006_company_operations.sql"))
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/006_company_operations.sql"
+            ))
             .await?;
         client
-            .batch_execute(include_str!("../../../infra/db/migrations/007_affiliate_attribution.sql"))
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/007_affiliate_attribution.sql"
+            ))
             .await?;
         client
-            .batch_execute(include_str!("../../../infra/db/migrations/008_commercial_and_payroll.sql"))
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/008_commercial_and_payroll.sql"
+            ))
             .await
     }
 
@@ -129,18 +147,27 @@ impl CompanyStore {
 
         let client = self.client.lock().await;
         let tx = client.transaction().await?;
-        let inserted = tx.execute(
-            "INSERT INTO ledger_transactions (id, company_id, description, idempotency_key)
+        let inserted = tx
+            .execute(
+                "INSERT INTO ledger_transactions (id, company_id, description, idempotency_key)
              VALUES ($1,$2,$3,$4)
              ON CONFLICT (company_id,idempotency_key) DO NOTHING",
-            &[&transaction_uuid, &company_uuid, &transaction.description, &idempotency_key],
-        ).await?;
+                &[
+                    &transaction_uuid,
+                    &company_uuid,
+                    &transaction.description,
+                    &idempotency_key,
+                ],
+            )
+            .await?;
 
         if inserted == 0 {
-            let row = tx.query_one(
-                "SELECT id FROM ledger_transactions WHERE company_id=$1 AND idempotency_key=$2",
-                &[&company_uuid, &idempotency_key],
-            ).await?;
+            let row = tx
+                .query_one(
+                    "SELECT id FROM ledger_transactions WHERE company_id=$1 AND idempotency_key=$2",
+                    &[&company_uuid, &idempotency_key],
+                )
+                .await?;
             tx.rollback().await?;
             return Ok(row.get(0));
         }
@@ -173,8 +200,9 @@ impl CompanyStore {
         unit.validate().map_err(|e| e.to_string())?;
         let company_uuid = Uuid::parse_str(company_id)?;
         let client = self.client.lock().await;
-        client.execute(
-            "INSERT INTO business_units
+        client
+            .execute(
+                "INSERT INTO business_units
              (id,company_id,name,currency,status,cash_minor,revenue_minor,expenses_minor)
              VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8::numeric)
              ON CONFLICT (id) DO UPDATE SET
@@ -182,11 +210,18 @@ impl CompanyStore {
                cash_minor=EXCLUDED.cash_minor,revenue_minor=EXCLUDED.revenue_minor,
                expenses_minor=EXCLUDED.expenses_minor,updated_at=now()
              WHERE business_units.company_id=EXCLUDED.company_id",
-            &[
-                &unit.id,&company_uuid,&unit.name,&unit.currency,&format!("{:?}",unit.status),
-                &unit.cash_minor.to_string(),&unit.revenue_minor.to_string(),&unit.expenses_minor.to_string()
-            ],
-        ).await?;
+                &[
+                    &unit.id,
+                    &company_uuid,
+                    &unit.name,
+                    &unit.currency,
+                    &format!("{:?}", unit.status),
+                    &unit.cash_minor.to_string(),
+                    &unit.revenue_minor.to_string(),
+                    &unit.expenses_minor.to_string(),
+                ],
+            )
+            .await?;
         Ok(())
     }
 
@@ -198,19 +233,25 @@ impl CompanyStore {
         customer.validate().map_err(|e| e.to_string())?;
         let company_uuid = Uuid::parse_str(company_id)?;
         let client = self.client.lock().await;
-        client.execute(
-            "INSERT INTO customers
+        client
+            .execute(
+                "INSERT INTO customers
              (id,company_id,name,external_ref,status,lifetime_revenue_minor)
              VALUES ($1,$2,$3,$4,$5,$6::numeric)
              ON CONFLICT (id) DO UPDATE SET
                name=EXCLUDED.name,external_ref=EXCLUDED.external_ref,status=EXCLUDED.status,
                lifetime_revenue_minor=EXCLUDED.lifetime_revenue_minor,updated_at=now()
              WHERE customers.company_id=EXCLUDED.company_id",
-            &[
-                &customer.id,&company_uuid,&customer.name,&customer.external_ref,
-                &format!("{:?}",customer.status),&customer.lifetime_revenue_minor.to_string()
-            ],
-        ).await?;
+                &[
+                    &customer.id,
+                    &company_uuid,
+                    &customer.name,
+                    &customer.external_ref,
+                    &format!("{:?}", customer.status),
+                    &customer.lifetime_revenue_minor.to_string(),
+                ],
+            )
+            .await?;
         Ok(())
     }
 
@@ -222,19 +263,26 @@ impl CompanyStore {
         product.validate().map_err(|e| e.to_string())?;
         let company_uuid = Uuid::parse_str(company_id)?;
         let client = self.client.lock().await;
-        client.execute(
-            "INSERT INTO products
+        client
+            .execute(
+                "INSERT INTO products
              (id,company_id,name,category,currency,price_minor,active)
              VALUES ($1,$2,$3,$4,$5,$6::numeric,$7)
              ON CONFLICT (id) DO UPDATE SET
                name=EXCLUDED.name,category=EXCLUDED.category,currency=EXCLUDED.currency,
                price_minor=EXCLUDED.price_minor,active=EXCLUDED.active,updated_at=now()
              WHERE products.company_id=EXCLUDED.company_id",
-            &[
-                &product.id,&company_uuid,&product.name,&product.category,&product.currency,
-                &product.price_minor.to_string(),&product.active
-            ],
-        ).await?;
+                &[
+                    &product.id,
+                    &company_uuid,
+                    &product.name,
+                    &product.category,
+                    &product.currency,
+                    &product.price_minor.to_string(),
+                    &product.active,
+                ],
+            )
+            .await?;
         Ok(())
     }
 
@@ -264,17 +312,25 @@ impl CompanyStore {
             ],
         ).await?;
 
-        tx.execute("DELETE FROM payroll_lines WHERE payroll_run_id=$1", &[&payroll.id]).await?;
+        tx.execute(
+            "DELETE FROM payroll_lines WHERE payroll_run_id=$1",
+            &[&payroll.id],
+        )
+        .await?;
         for line in &payroll.lines {
             tx.execute(
                 "INSERT INTO payroll_lines
                  (payroll_run_id,employee_id,gross_minor,employer_cost_minor,withholding_minor)
                  VALUES ($1,$2,$3::numeric,$4::numeric,$5::numeric)",
                 &[
-                    &payroll.id,&line.employee_id,&line.gross_minor.to_string(),
-                    &line.employer_cost_minor.to_string(),&line.withholding_minor.to_string()
+                    &payroll.id,
+                    &line.employee_id,
+                    &line.gross_minor.to_string(),
+                    &line.employer_cost_minor.to_string(),
+                    &line.withholding_minor.to_string(),
                 ],
-            ).await?;
+            )
+            .await?;
         }
 
         tx.commit().await?;
@@ -348,8 +404,9 @@ impl CompanyStore {
         experiment.validate().map_err(|e| e.to_string())?;
         let company_uuid = Uuid::parse_str(company_id)?;
         let client = self.client.lock().await;
-        client.execute(
-            "INSERT INTO experiments
+        client
+            .execute(
+                "INSERT INTO experiments
              (id,company_id,name,hypothesis,status,budget_minor,spent_minor,expected_revenue_minor)
              VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8::numeric)
              ON CONFLICT (id) DO UPDATE SET
@@ -357,12 +414,18 @@ impl CompanyStore {
                budget_minor=EXCLUDED.budget_minor,spent_minor=EXCLUDED.spent_minor,
                expected_revenue_minor=EXCLUDED.expected_revenue_minor,updated_at=now()
              WHERE experiments.company_id=EXCLUDED.company_id",
-            &[
-                &experiment.id,&company_uuid,&experiment.name,&experiment.hypothesis,
-                &format!("{:?}",experiment.status),&experiment.budget_minor.to_string(),
-                &experiment.spent_minor.to_string(),&experiment.expected_revenue_minor.to_string()
-            ],
-        ).await?;
+                &[
+                    &experiment.id,
+                    &company_uuid,
+                    &experiment.name,
+                    &experiment.hypothesis,
+                    &format!("{:?}", experiment.status),
+                    &experiment.budget_minor.to_string(),
+                    &experiment.spent_minor.to_string(),
+                    &experiment.expected_revenue_minor.to_string(),
+                ],
+            )
+            .await?;
         Ok(())
     }
 
@@ -422,18 +485,25 @@ impl CompanyStore {
         task.validate().map_err(|e| e.to_string())?;
         let company_uuid = Uuid::parse_str(company_id)?;
         let client = self.client.lock().await;
-        client.execute(
-            "INSERT INTO tasks (id,company_id,title,status,priority,owner_agent,creator_id)
+        client
+            .execute(
+                "INSERT INTO tasks (id,company_id,title,status,priority,owner_agent,creator_id)
              VALUES ($1,$2,$3,$4,$5,$6,$7)
              ON CONFLICT (id) DO UPDATE SET
                title=EXCLUDED.title,status=EXCLUDED.status,priority=EXCLUDED.priority,
                owner_agent=EXCLUDED.owner_agent,creator_id=EXCLUDED.creator_id,updated_at=now()
              WHERE tasks.company_id=EXCLUDED.company_id",
-            &[
-                &task.id,&company_uuid,&task.title,&format!("{:?}",task.status),
-                &(task.priority as i16),&task.owner_agent,&task.creator_id
-            ],
-        ).await?;
+                &[
+                    &task.id,
+                    &company_uuid,
+                    &task.title,
+                    &format!("{:?}", task.status),
+                    &(task.priority as i16),
+                    &task.owner_agent,
+                    &task.creator_id,
+                ],
+            )
+            .await?;
         Ok(())
     }
 
@@ -444,7 +514,8 @@ impl CompanyStore {
         source: &str,
         idempotency_key: &str,
     ) -> Result<Uuid, Box<dyn std::error::Error + Send + Sync>> {
-        self.record_cash_flow(company_id, amount_minor, source, idempotency_key, true).await
+        self.record_cash_flow(company_id, amount_minor, source, idempotency_key, true)
+            .await
     }
 
     pub async fn record_cash_expense(
@@ -454,7 +525,8 @@ impl CompanyStore {
         source: &str,
         idempotency_key: &str,
     ) -> Result<Uuid, Box<dyn std::error::Error + Send + Sync>> {
-        self.record_cash_flow(company_id, amount_minor, source, idempotency_key, false).await
+        self.record_cash_flow(company_id, amount_minor, source, idempotency_key, false)
+            .await
     }
 
     async fn record_cash_flow(
@@ -476,21 +548,29 @@ impl CompanyStore {
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
 
-        let row = tx.query_one(
-            "SELECT base_currency FROM companies WHERE id=$1 FOR UPDATE",
-            &[&company_uuid],
-        ).await?;
+        let row = tx
+            .query_one(
+                "SELECT base_currency FROM companies WHERE id=$1 FOR UPDATE",
+                &[&company_uuid],
+            )
+            .await?;
         let currency: String = row.get::<_, String>(0);
 
-        let cash_id: Uuid = tx.query_one(
-            "SELECT id FROM ledger_accounts WHERE company_id=$1 AND code='1000'",
-            &[&company_uuid],
-        ).await?.get(0);
+        let cash_id: Uuid = tx
+            .query_one(
+                "SELECT id FROM ledger_accounts WHERE company_id=$1 AND code='1000'",
+                &[&company_uuid],
+            )
+            .await?
+            .get(0);
         let other_code = if revenue { "4000" } else { "5000" };
-        let other_id: Uuid = tx.query_one(
-            "SELECT id FROM ledger_accounts WHERE company_id=$1 AND code=$2",
-            &[&company_uuid, &other_code],
-        ).await?.get(0);
+        let other_id: Uuid = tx
+            .query_one(
+                "SELECT id FROM ledger_accounts WHERE company_id=$1 AND code=$2",
+                &[&company_uuid, &other_code],
+            )
+            .await?
+            .get(0);
 
         let transaction_id = Uuid::new_v4();
         let transaction = LedgerTransaction {
@@ -528,7 +608,8 @@ impl CompanyStore {
                 ]
             },
         };
-        validate_balanced_transaction(&transaction).map_err(|e| format!("cash-flow ledger validation failed: {e}"))?;
+        validate_balanced_transaction(&transaction)
+            .map_err(|e| format!("cash-flow ledger validation failed: {e}"))?;
 
         let ledger_key = if revenue {
             format!("REVENUE:{idempotency_key}")
@@ -536,18 +617,22 @@ impl CompanyStore {
             format!("EXPENSE:{idempotency_key}")
         };
 
-        let inserted = tx.execute(
-            "INSERT INTO ledger_transactions (id, company_id, description, idempotency_key)
+        let inserted = tx
+            .execute(
+                "INSERT INTO ledger_transactions (id, company_id, description, idempotency_key)
              VALUES ($1,$2,$3,$4)
              ON CONFLICT (company_id,idempotency_key) DO NOTHING",
-            &[&transaction_id, &company_uuid, &source, &ledger_key],
-        ).await?;
+                &[&transaction_id, &company_uuid, &source, &ledger_key],
+            )
+            .await?;
 
         if inserted == 0 {
-            let row = tx.query_one(
-                "SELECT id FROM ledger_transactions WHERE company_id=$1 AND idempotency_key=$2",
-                &[&company_uuid, &ledger_key],
-            ).await?;
+            let row = tx
+                .query_one(
+                    "SELECT id FROM ledger_transactions WHERE company_id=$1 AND idempotency_key=$2",
+                    &[&company_uuid, &ledger_key],
+                )
+                .await?;
             tx.rollback().await?;
             return Ok(row.get(0));
         }
@@ -567,23 +652,43 @@ impl CompanyStore {
             ).await?;
         }
 
-        let row = tx.query_one(
-            "SELECT state FROM company_state_snapshots WHERE company_id=$1 FOR UPDATE",
-            &[&company_uuid],
-        ).await?;
+        let row = tx
+            .query_one(
+                "SELECT state FROM company_state_snapshots WHERE company_id=$1 FOR UPDATE",
+                &[&company_uuid],
+            )
+            .await?;
         let state: Value = row.get(0);
         let mut snapshot: CompanySnapshot = serde_json::from_value(state)?;
         ExecutionEngine::validate_snapshot(&snapshot)
             .map_err(|e| format!("snapshot validation failed: {e}"))?;
 
         if revenue {
-            snapshot.cash_minor = snapshot.cash_minor.checked_add(amount_minor).ok_or("cash overflow")?;
-            snapshot.revenue_minor = snapshot.revenue_minor.checked_add(amount_minor).ok_or("revenue overflow")?;
-            snapshot.assets_minor = snapshot.assets_minor.checked_add(amount_minor).ok_or("assets overflow")?;
+            snapshot.cash_minor = snapshot
+                .cash_minor
+                .checked_add(amount_minor)
+                .ok_or("cash overflow")?;
+            snapshot.revenue_minor = snapshot
+                .revenue_minor
+                .checked_add(amount_minor)
+                .ok_or("revenue overflow")?;
+            snapshot.assets_minor = snapshot
+                .assets_minor
+                .checked_add(amount_minor)
+                .ok_or("assets overflow")?;
         } else {
-            snapshot.cash_minor = snapshot.cash_minor.checked_sub(amount_minor).ok_or("cash underflow")?;
-            snapshot.expenses_minor = snapshot.expenses_minor.checked_add(amount_minor).ok_or("expense overflow")?;
-            snapshot.assets_minor = snapshot.assets_minor.checked_sub(amount_minor).ok_or("assets underflow")?;
+            snapshot.cash_minor = snapshot
+                .cash_minor
+                .checked_sub(amount_minor)
+                .ok_or("cash underflow")?;
+            snapshot.expenses_minor = snapshot
+                .expenses_minor
+                .checked_add(amount_minor)
+                .ok_or("expense overflow")?;
+            snapshot.assets_minor = snapshot
+                .assets_minor
+                .checked_sub(amount_minor)
+                .ok_or("assets underflow")?;
         }
 
         let next_state = serde_json::to_value(&snapshot)?;
@@ -592,7 +697,8 @@ impl CompanyStore {
              SET state=$2, updated_at=now(), revision=revision+1
              WHERE company_id=$1",
             &[&company_uuid, &next_state],
-        ).await?;
+        )
+        .await?;
 
         tx.commit().await?;
         Ok(transaction_id)
@@ -608,13 +714,22 @@ impl CompanyStore {
             return Err("affiliate click id and product id are required".into());
         }
         let client = self.client.lock().await;
-        client.execute(
-            "INSERT INTO affiliate_clicks
+        client
+            .execute(
+                "INSERT INTO affiliate_clicks
              (company_id,click_id,content_id,creator_id,product_id,occurred_at_epoch)
              VALUES ($1,$2,$3,$4,$5,$6)
              ON CONFLICT (company_id,click_id) DO NOTHING",
-            &[&company_uuid,&click.click_id,&click.content_id,&click.creator_id,&click.product_id,&click.occurred_at_epoch],
-        ).await?;
+                &[
+                    &company_uuid,
+                    &click.click_id,
+                    &click.content_id,
+                    &click.creator_id,
+                    &click.product_id,
+                    &click.occurred_at_epoch,
+                ],
+            )
+            .await?;
         Ok(())
     }
 
@@ -660,13 +775,15 @@ impl CompanyStore {
         let company_uuid = Uuid::parse_str(company_id)?;
         let since = since_epoch.saturating_sub(window_secs.max(1));
         let mut client = self.client.lock().await;
-        let click_rows = client.query(
-            "SELECT click_id,content_id,creator_id,product_id,occurred_at_epoch
+        let click_rows = client
+            .query(
+                "SELECT click_id,content_id,creator_id,product_id,occurred_at_epoch
              FROM affiliate_clicks
              WHERE company_id=$1 AND occurred_at_epoch >= $2
              ORDER BY occurred_at_epoch, click_id",
-            &[&company_uuid,&since],
-        ).await?;
+                &[&company_uuid, &since],
+            )
+            .await?;
         let order_rows = client.query(
             "SELECT order_id,click_id,product_id,gross_sales_minor::text,commission_minor::text,status,occurred_at_epoch
              FROM affiliate_order_events
@@ -699,8 +816,7 @@ impl CompanyStore {
             });
         }
 
-        let result = attribute(&clicks, &orders, model, window_secs)
-            .map_err(|e| e.to_string())?;
+        let result = attribute(&clicks, &orders, model, window_secs).map_err(|e| e.to_string())?;
 
         let mut tx = client.transaction().await?;
         for order in &result.orders {
@@ -743,11 +859,13 @@ impl CompanyStore {
         let query_json = serde_json::to_value(query)?;
         let result_json = serde_json::to_value(result)?;
         let client = self.client.lock().await;
-        client.execute(
-            "INSERT INTO affiliate_searches (id, company_id, query_json, result_json)
+        client
+            .execute(
+                "INSERT INTO affiliate_searches (id, company_id, query_json, result_json)
              VALUES ($1,$2,$3,$4)",
-            &[&search_id, &company_uuid, &query_json, &result_json],
-        ).await?;
+                &[&search_id, &company_uuid, &query_json, &result_json],
+            )
+            .await?;
         Ok(search_id)
     }
 
@@ -758,10 +876,12 @@ impl CompanyStore {
     ) -> Result<Option<Uuid>, Box<dyn std::error::Error + Send + Sync>> {
         let company_uuid = Uuid::parse_str(company_id)?;
         let client = self.client.lock().await;
-        let row = client.query_opt(
-            "SELECT id FROM ledger_accounts WHERE company_id=$1 AND code=$2",
-            &[&company_uuid, &code],
-        ).await?;
+        let row = client
+            .query_opt(
+                "SELECT id FROM ledger_accounts WHERE company_id=$1 AND code=$2",
+                &[&company_uuid, &code],
+            )
+            .await?;
         Ok(row.map(|r| r.get(0)))
     }
 
@@ -870,12 +990,28 @@ impl CompanyStore {
             .await?
             .map(|row| row.get::<_, Value>(0));
 
-        if let Some(previous_state) = previous_snapshot {
-            let previous: CompanySnapshot = serde_json::from_value(previous_state)?;
-            Self::post_economic_deltas(&tx, &company_id, &cycle_uuid, &previous, snapshot).await?;
-        }
+                    if let Some(previous_state) = previous_snapshot {
+                        let previous: CompanySnapshot = serde_json::from_value(previous_state)?;
+                        Self::post_economic_deltas(
+                            &tx,
+                            &company_id,
+                            &cycle_uuid,
+                            &previous,
+                            snapshot,
+                        )
+                        .await?;
+                    }
 
-        Self::persist_cycle_rows(&tx, &company_id, &cycle_uuid, snapshot, &state, results, outcomes).await?;
+                    Self::persist_cycle_rows(
+                        &tx,
+                        &company_id,
+                        &cycle_uuid,
+                        snapshot,
+                        &state,
+                        results,
+                        outcomes,
+                    )
+                    .await?;
                     tx.commit().await?;
                     Ok(PersistCycleResult::Committed)
                 }
@@ -899,7 +1035,16 @@ impl CompanyStore {
             Self::post_economic_deltas(&tx, &company_id, &cycle_uuid, &previous, snapshot).await?;
         }
 
-        Self::persist_cycle_rows(&tx, &company_id, &cycle_uuid, snapshot, &state, results, outcomes).await?;
+        Self::persist_cycle_rows(
+            &tx,
+            &company_id,
+            &cycle_uuid,
+            snapshot,
+            &state,
+            results,
+            outcomes,
+        )
+        .await?;
         let response = json!({
             "cycle_id": cycle_id,
             "agents": results.len(),
@@ -912,12 +1057,14 @@ impl CompanyStore {
              SET status='SUCCEEDED', response_json=$3, updated_at=now()
              WHERE company_id=$1 AND key=$2",
             &[&company_id, &cycle_id, &response],
-        ).await?;
+        )
+        .await?;
         tx.execute(
             "UPDATE cycle_runs SET status='SUCCEEDED', response_json=$2, completed_at=now()
              WHERE id=$1",
             &[&cycle_uuid, &response],
-        ).await?;
+        )
+        .await?;
         tx.commit().await?;
         Ok(PersistCycleResult::Committed)
     }
@@ -929,13 +1076,16 @@ impl CompanyStore {
         previous: &CompanySnapshot,
         next: &CompanySnapshot,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let revenue_delta = next.revenue_minor
+        let revenue_delta = next
+            .revenue_minor
             .checked_sub(previous.revenue_minor)
             .ok_or("revenue delta overflow")?;
-        let expense_delta = next.expenses_minor
+        let expense_delta = next
+            .expenses_minor
             .checked_sub(previous.expenses_minor)
             .ok_or("expense delta overflow")?;
-        let cash_delta = next.cash_minor
+        let cash_delta = next
+            .cash_minor
             .checked_sub(previous.cash_minor)
             .ok_or("cash delta overflow")?;
 
@@ -955,7 +1105,8 @@ impl CompanyStore {
                 revenue_delta,
                 true,
                 "agent-cycle revenue delta",
-            ).await?;
+            )
+            .await?;
         }
         if expense_delta > 0 {
             Self::post_ledger_tx(
@@ -966,7 +1117,8 @@ impl CompanyStore {
                 expense_delta,
                 false,
                 "agent-cycle expense delta",
-            ).await?;
+            )
+            .await?;
         }
         Ok(())
     }
@@ -984,24 +1136,37 @@ impl CompanyStore {
             return Ok(());
         }
 
-        let currency: String = tx.query_one(
-            "SELECT base_currency FROM companies WHERE id=$1",
-            &[company_id],
-        ).await?.get(0);
+        let currency: String = tx
+            .query_one(
+                "SELECT base_currency FROM companies WHERE id=$1",
+                &[company_id],
+            )
+            .await?
+            .get(0);
 
-        let cash_id: Uuid = tx.query_one(
-            "SELECT id FROM ledger_accounts WHERE company_id=$1 AND code='1000'",
-            &[company_id],
-        ).await?.get(0);
+        let cash_id: Uuid = tx
+            .query_one(
+                "SELECT id FROM ledger_accounts WHERE company_id=$1 AND code='1000'",
+                &[company_id],
+            )
+            .await?
+            .get(0);
         let other_code = if revenue { "4000" } else { "5000" };
-        let other_id: Uuid = tx.query_one(
-            "SELECT id FROM ledger_accounts WHERE company_id=$1 AND code=$2",
-            &[company_id, &other_code],
-        ).await?.get(0);
+        let other_id: Uuid = tx
+            .query_one(
+                "SELECT id FROM ledger_accounts WHERE company_id=$1 AND code=$2",
+                &[company_id, &other_code],
+            )
+            .await?
+            .get(0);
 
         let transaction_id = Uuid::new_v4();
         let ledger_key = format!("AGENT_CYCLE:{cycle_id}:{suffix}");
-        let (debit_account, credit_account) = if revenue { (cash_id, other_id) } else { (other_id, cash_id) };
+        let (debit_account, credit_account) = if revenue {
+            (cash_id, other_id)
+        } else {
+            (other_id, cash_id)
+        };
 
         let transaction = LedgerTransaction {
             id: transaction_id.to_string(),
@@ -1021,14 +1186,21 @@ impl CompanyStore {
                 },
             ],
         };
-        validate_balanced_transaction(&transaction).map_err(|e| format!("cycle ledger validation failed: {e}"))?;
+        validate_balanced_transaction(&transaction)
+            .map_err(|e| format!("cycle ledger validation failed: {e}"))?;
 
         tx.execute(
             "INSERT INTO ledger_transactions (id, company_id, description, idempotency_key)
              VALUES ($1,$2,$3,$4)
              ON CONFLICT (company_id,idempotency_key) DO NOTHING",
-            &[&transaction_id, company_id, &transaction.description, &ledger_key],
-        ).await?;
+            &[
+                &transaction_id,
+                company_id,
+                &transaction.description,
+                &ledger_key,
+            ],
+        )
+        .await?;
 
         for entry in &transaction.entries {
             let account_id = Uuid::parse_str(&entry.account_id)?;
@@ -1068,9 +1240,12 @@ impl CompanyStore {
             tx.execute(
                 "INSERT INTO agent_runs (company_id, agent_name, payload) VALUES ($1, $2, $3)",
                 &[company_id, &result.agent.as_str(), &payload],
-            ).await?;
+            )
+            .await?;
             let action = format!("{:?}", result.proposal.action);
-            let decision = result.governance.as_ref()
+            let decision = result
+                .governance
+                .as_ref()
                 .map(|g| format!("{:?}", g.decision))
                 .unwrap_or_else(|| "UNKNOWN".into());
             let execution_status = if outcome.executed {
@@ -1099,7 +1274,8 @@ impl CompanyStore {
                 &format!("cycle:{cycle_id}"),
                 &json!({"cycle_id": cycle_id, "results": results, "outcomes": outcomes}),
             ],
-        ).await?;
+        )
+        .await?;
 
         tx.execute(
             "INSERT INTO company_state_snapshots (company_id, state)
@@ -1109,12 +1285,14 @@ impl CompanyStore {
                  updated_at = now(),
                  revision = company_state_snapshots.revision + 1",
             &[company_id, state],
-        ).await?;
+        )
+        .await?;
 
         tx.execute(
             "UPDATE companies SET status=$2 WHERE id=$1",
             &[company_id, &status_string(snapshot.status)],
-        ).await?;
+        )
+        .await?;
 
         Ok(())
     }
@@ -1143,8 +1321,9 @@ impl CompanyStore {
 
     pub async fn claim_due_cycle(&self) -> Result<Option<Uuid>, tokio_postgres::Error> {
         let client = self.client.lock().await;
-        let row = client.query_opt(
-            "WITH due AS (
+        let row = client
+            .query_opt(
+                "WITH due AS (
                 SELECT id
                 FROM company_schedules
                 WHERE enabled=true
@@ -1160,8 +1339,9 @@ impl CompanyStore {
               FROM due
               WHERE s.id = due.id
               RETURNING s.company_id",
-            &[],
-        ).await?;
+                &[],
+            )
+            .await?;
         Ok(row.map(|r| r.get(0)))
     }
 
@@ -1173,12 +1353,15 @@ impl CompanyStore {
         let company_uuid = Uuid::parse_str(company_id)?;
         let delay = delay_seconds.clamp(5, 3_600);
         let client = self.client.lock().await;
-        Ok(client.execute(
-            "UPDATE company_schedules
+        Ok(client
+            .execute(
+                "UPDATE company_schedules
              SET next_run_at=now() + ($2 * interval '1 second'), updated_at=now()
              WHERE company_id=$1 AND job_type='AGENT_CYCLE' AND enabled=true",
-            &[&company_uuid, &delay],
-        ).await? == 1)
+                &[&company_uuid, &delay],
+            )
+            .await?
+            == 1)
     }
 
     pub async fn set_schedule_enabled(
@@ -1188,11 +1371,14 @@ impl CompanyStore {
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         let company_uuid = Uuid::parse_str(company_id)?;
         let client = self.client.lock().await;
-        Ok(client.execute(
-            "UPDATE company_schedules SET enabled=$2, updated_at=now()
+        Ok(client
+            .execute(
+                "UPDATE company_schedules SET enabled=$2, updated_at=now()
              WHERE company_id=$1 AND job_type='AGENT_CYCLE'",
-            &[&company_uuid, &enabled],
-        ).await? == 1)
+                &[&company_uuid, &enabled],
+            )
+            .await?
+            == 1)
     }
 
     pub async fn load_cycle_results(
@@ -1201,13 +1387,15 @@ impl CompanyStore {
     ) -> Result<Option<Vec<AgentRunResult>>, Box<dyn std::error::Error + Send + Sync>> {
         let cycle_uuid = Uuid::parse_str(cycle_id)?;
         let client = self.client.lock().await;
-        let rows = client.query(
-            "SELECT proposal_json
+        let rows = client
+            .query(
+                "SELECT proposal_json
              FROM decision_journal
              WHERE cycle_id=$1
              ORDER BY id",
-            &[&cycle_uuid],
-        ).await?;
+                &[&cycle_uuid],
+            )
+            .await?;
         if rows.is_empty() {
             return Ok(None);
         }
@@ -1230,30 +1418,39 @@ impl CompanyStore {
         let mut working = snapshot.clone();
         let outcomes = ExecutionEngine::default().execute_batch(&mut working, &mut clone_results);
         let cycle_id = Uuid::new_v4().to_string();
-        let _ = self.persist_decision_cycle(&working, &cycle_id, &clone_results, &outcomes).await?;
+        let _ = self
+            .persist_decision_cycle(&working, &cycle_id, &clone_results, &outcomes)
+            .await?;
         Ok(())
     }
 
-    pub async fn recover_stale_cycles(&self, stale_after_secs: i64) -> Result<u64, tokio_postgres::Error> {
+    pub async fn recover_stale_cycles(
+        &self,
+        stale_after_secs: i64,
+    ) -> Result<u64, tokio_postgres::Error> {
         let threshold = stale_after_secs.clamp(60, 86_400);
         let client = self.client.lock().await;
         let mut recovered = 0_u64;
-        recovered += client.execute(
-            "UPDATE cycle_runs SET status='FAILED', completed_at=now(),
+        recovered += client
+            .execute(
+                "UPDATE cycle_runs SET status='FAILED', completed_at=now(),
                 response_json=jsonb_build_object('error','stale cycle recovered')
              WHERE status='PROCESSING'
                AND created_at < now() - ($1 * interval '1 second')",
-            &[&threshold],
-        ).await?;
-        recovered += client.execute(
-            "UPDATE idempotency_keys SET status='FAILED',
+                &[&threshold],
+            )
+            .await?;
+        recovered += client
+            .execute(
+                "UPDATE idempotency_keys SET status='FAILED',
                 response_json=jsonb_build_object('error','stale cycle recovered'),
                 updated_at=now()
              WHERE command_type='AGENT_CYCLE'
                AND status='PROCESSING'
                AND updated_at < now() - ($1 * interval '1 second')",
-            &[&threshold],
-        ).await?;
+                &[&threshold],
+            )
+            .await?;
         Ok(recovered)
     }
 
@@ -1271,29 +1468,39 @@ impl CompanyStore {
              LIMIT $1",
             &[&limit],
         ).await?;
-        rows.into_iter().map(|row| {
-            Ok(OutboxEvent {
-                id: row.get(0),
-                company_id: row.get::<_, Uuid>(1).to_string(),
-                event_type: row.get(2),
-                aggregate_id: row.get(3),
-                idempotency_key: row.get(4),
-                schema_version: row.get(5),
-                payload: row.get(6),
+        rows.into_iter()
+            .map(|row| {
+                Ok(OutboxEvent {
+                    id: row.get(0),
+                    company_id: row.get::<_, Uuid>(1).to_string(),
+                    event_type: row.get(2),
+                    aggregate_id: row.get(3),
+                    idempotency_key: row.get(4),
+                    schema_version: row.get(5),
+                    payload: row.get(6),
+                })
             })
-        }).collect()
+            .collect()
     }
 
-    pub async fn mark_outbox_published(&self, event_id: i64) -> Result<bool, tokio_postgres::Error> {
+    pub async fn mark_outbox_published(
+        &self,
+        event_id: i64,
+    ) -> Result<bool, tokio_postgres::Error> {
         let client = self.client.lock().await;
-        Ok(client.execute(
-            "UPDATE outbox_events SET published_at=now() WHERE id=$1 AND published_at IS NULL",
-            &[&event_id],
-        ).await? == 1)
+        Ok(client
+            .execute(
+                "UPDATE outbox_events SET published_at=now() WHERE id=$1 AND published_at IS NULL",
+                &[&event_id],
+            )
+            .await?
+            == 1)
     }
 }
 
-fn parse_order_status(value: &str) -> Result<OrderStatus, Box<dyn std::error::Error + Send + Sync>> {
+fn parse_order_status(
+    value: &str,
+) -> Result<OrderStatus, Box<dyn std::error::Error + Send + Sync>> {
     match value {
         "Pending" => Ok(OrderStatus::Pending),
         "Confirmed" => Ok(OrderStatus::Confirmed),
@@ -1312,9 +1519,9 @@ fn status_string(status: economic_core::CompanyStatus) -> String {
         economic_core::CompanyStatus::Emergency => "EMERGENCY",
         economic_core::CompanyStatus::Liquidation => "LIQUIDATION",
         economic_core::CompanyStatus::Bankrupt => "BANKRUPT",
-    }.into()
+    }
+    .into()
 }
-
 
 #[cfg(test)]
 mod tests;
