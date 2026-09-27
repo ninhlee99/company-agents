@@ -740,6 +740,335 @@ impl Default for MockProvider {
     }
 }
 
+pub struct TikTokShopCreatorProvider {
+    client: Client,
+    base_url: String,
+    api_version: String,
+    app_key: String,
+    app_secret: String,
+    access_token: String,
+    origin: String,
+    max_products: usize,
+}
+
+impl TikTokShopCreatorProvider {
+    pub fn from_env() -> Result<Self, AffiliateError> {
+        let app_key = required_env("TTS_APP_KEY")?;
+        let app_secret = required_env("TTS_APP_SECRET")?;
+        let access_token = required_env("TTS_ACCESS_TOKEN")?;
+        let base_url = std::env::var("TTS_BASE_URL")
+            .unwrap_or_else(|_| "https://open-api.tiktokglobalshop.com".into())
+            .trim_end_matches('/')
+            .to_owned();
+        let api_version = std::env::var("TTS_SHOWCASE_API_VERSION")
+            .unwrap_or_else(|_| "202405".into());
+        let origin = std::env::var("TTS_SHOWCASE_ORIGIN")
+            .unwrap_or_else(|_| "SHOWCASE".into())
+            .to_ascii_uppercase();
+        if origin != "SHOWCASE" && origin != "LIVE" {
+            return Err(AffiliateError::Provider(
+                "TTS_SHOWCASE_ORIGIN must be SHOWCASE or LIVE".into(),
+            ));
+        }
+        let max_products = std::env::var("TTS_MAX_PRODUCTS")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .map(|value| value.clamp(1, 2_000))
+            .unwrap_or(2_000);
+
+        let client = Client::builder()
+            .timeout(DEFAULT_HTTP_TIMEOUT)
+            .user_agent("company-agents-tiktok-affiliate/0.1")
+            .build()
+            .map_err(|error| AffiliateError::Provider(error.to_string()))?;
+
+        Ok(Self {
+            client,
+            base_url,
+            api_version,
+            app_key,
+            app_secret,
+            access_token,
+            origin,
+            max_products,
+        })
+    }
+
+    async fn fetch_showcase_page(
+        &self,
+        page_token: Option<&str>,
+    ) -> Result<(Vec<Product>, Option<String>), AffiliateError> {
+        let path = format!(
+            "/affiliate_creator/{}/showcases/products",
+            self.api_version
+        );
+        let timestamp = time::OffsetDateTime::now_utc().unix_timestamp();
+        let mut params = vec![
+            ("app_key", self.app_key.clone()),
+            ("page_size", "20".into()),
+            ("origin", self.origin.clone()),
+            ("timestamp", timestamp.to_string()),
+        ];
+        if let Some(token) = page_token.filter(|value| !value.is_empty()) {
+            params.push(("page_token", token.to_owned()));
+        }
+        params.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let body = "";
+        let sign = tiktok_sign(&path, &params, body, &self.app_secret);
+        let url = format!("{}{}", self.base_url, path);
+        let request = self
+            .client
+            .get(url)
+            .query(&params)
+            .query(&[("sign", sign)])
+            .header("content-type", "application/json")
+            .header("x-tts-access-token", &self.access_token);
+
+        let response = request
+            .send()
+            .await
+            .map_err(|error| AffiliateError::Provider(error.to_string()))?;
+        let status = response.status();
+        let value = response
+            .json::<serde_json::Value>()
+            .await
+            .map_err(|error| AffiliateError::Parse(error.to_string()))?;
+        if !status.is_success() {
+            return Err(AffiliateError::Provider(format!(
+                "TikTok Shop HTTP {}: {}",
+                status,
+                bounded_json_message(&value)
+            )));
+        }
+        let code = value.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
+        if code != 0 {
+            return Err(AffiliateError::Provider(format!(
+                "TikTok Shop code {}: {}",
+                code,
+                bounded_json_message(&value)
+            )));
+        }
+
+        let data = value
+            .get("data")
+            .ok_or_else(|| AffiliateError::Parse("TikTok response missing data".into()))?;
+        let next_page_token = data
+            .get("next_page_token")
+            .or_else(|| data.get("nextPageToken"))
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+
+        let raw_products = data
+            .get("products")
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let products = raw_products
+            .iter()
+            .filter_map(|value| parse_tiktok_product(value).transpose())
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((products, next_page_token))
+    }
+}
+
+#[async_trait]
+impl AffiliateProvider for TikTokShopCreatorProvider {
+    fn name(&self) -> &'static str {
+        "tiktok_shop_creator"
+    }
+
+    async fn products(&self) -> Result<Vec<Product>, AffiliateError> {
+        let mut page_token = None;
+        let mut all = Vec::new();
+        let max_pages = (self.max_products + 19) / 20;
+
+        for _ in 0..max_pages {
+            let (mut page, next_token) =
+                self.fetch_showcase_page(page_token.as_deref()).await?;
+            all.append(&mut page);
+            if all.len() >= self.max_products {
+                all.truncate(self.max_products);
+                break;
+            }
+            page_token = next_token;
+            if page_token.is_none() {
+                break;
+            }
+        }
+
+        Ok(all)
+    }
+
+    async fn coupons(&self) -> Result<Vec<Coupon>, AffiliateError> {
+        Ok(Vec::new())
+    }
+}
+
+fn required_env(name: &str) -> Result<String, AffiliateError> {
+    std::env::var(name)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.trim().to_owned())
+        .ok_or_else(|| AffiliateError::Provider(format!("{name} is required")))
+}
+
+fn tiktok_sign(
+    path: &str,
+    params: &[(String, String)],
+    body: &str,
+    app_secret: &str,
+) -> String {
+    let mut payload = String::with_capacity(
+        app_secret.len()
+            + path.len()
+            + body.len()
+            + params.iter().map(|(key, value)| key.len() + value.len()).sum::<usize>()
+            + app_secret.len(),
+    );
+    payload.push_str(path);
+    for (key, value) in params.iter().filter(|(key, _)| *key != "sign" && *key != "access_token") {
+        payload.push_str(key);
+        payload.push_str(value);
+    }
+    payload.push_str(body);
+    payload.insert_str(0, app_secret);
+    payload.push_str(app_secret);
+
+    use hmac::{Hmac, Mac};
+    type HmacSha256 = Hmac<sha2::Sha256>;
+    let mut mac = HmacSha256::new_from_slice(app_secret.as_bytes()).expect("HMAC key length is unrestricted");
+    mac.update(payload.as_bytes());
+    hex::encode(mac.finalize().into_bytes())
+}
+
+fn bounded_json_message(value: &serde_json::Value) -> String {
+    let raw = value
+        .get("message")
+        .and_then(|item| item.as_str())
+        .unwrap_or("unknown TikTok Shop error");
+    raw.chars().take(1_024).collect()
+}
+
+fn parse_tiktok_product(value: &serde_json::Value) -> Result<Option<Product>, AffiliateError> {
+    let id = first_json_string(value, &["id", "product_id"]).unwrap_or_default();
+    if id.is_empty() {
+        return Ok(None);
+    }
+    let name = first_json_string(value, &["title", "product_name", "name"])
+        .unwrap_or_else(|| format!("TikTok product {id}"));
+    let category = first_json_string(value, &["category_name", "category"])
+        .unwrap_or_else(|| "tiktok_showcase".into());
+    let url = first_json_string(value, &["detail_url", "product_url"]).unwrap_or_default();
+    let currency = first_json_string(value, &["currency"])
+        .or_else(|| nested_json_string(value, &["price", "currency"]))
+        .unwrap_or_else(|| "USD".into())
+        .to_ascii_uppercase();
+
+    let price = first_json_string(value, &[
+        "price",
+        "price.minimum_amount",
+        "original_price",
+        "original_price.minimum_amount",
+    ])
+    .or_else(|| nested_json_string(value, &["price", "original_price", "minimum_amount"]));
+
+    let Some(price_raw) = price else {
+        return Ok(None);
+    };
+    let minor_units = minor_units_for_currency(&currency, 2);
+    let price_minor = parse_decimal_minor(&price_raw, minor_units)?;
+
+    let rating_bps = first_json_f64(value, &["rating", "average_rating"])
+        .and_then(|raw| parse_rating_bps(&raw.to_string()));
+    let review_count = first_json_u64(value, &["review_count", "reviews", "review_num"]);
+    let stock_quantity = first_json_u64(value, &["stock", "stock_quantity", "available_quantity"]);
+    let image_url = nested_json_string(value, &["addition", "customized_main_images", "0", "url"]);
+    let advertiser_name = nested_json_string(value, &["shop", "name"]);
+
+    let commission_rate_bps = nested_json_f64(value, &["commission", "rate"])
+        .and_then(|raw| parse_percent_bps(&raw.to_string()));
+
+    Ok(Some(Product {
+        id: format!("tiktok:{id}"),
+        gtin: first_json_string(value, &["gtin", "ean", "upc"]),
+        advertiser_id: first_json_string(value, &["shop_id", "shop.id"])
+            .unwrap_or_else(|| "tiktok_creator_shop".into()),
+        advertiser_name,
+        name,
+        description: first_json_string(value, &["description", "short_description"])
+            .unwrap_or_default(),
+        category,
+        brand: first_json_string(value, &["brand_name", "brand"]),
+        url,
+        image_url,
+        price_minor,
+        old_price_minor: nested_json_string(
+            value,
+            &["price", "original_price", "maximum_amount"],
+        )
+        .and_then(|raw| parse_decimal_minor(&raw, minor_units).ok()),
+        currency,
+        rating_bps,
+        review_count,
+        stock_quantity,
+        in_stock: stock_quantity.unwrap_or(1) > 0,
+        savings_bps: None,
+        seller_reputation_bps: None,
+        refund_rate_bps: None,
+        delivery_reliability_bps: None,
+        commission_group: nested_json_string(value, &["commission", "group"]),
+        commission_rate_bps,
+        commission_fixed_minor: None,
+        commission_currency: None,
+        source: "tiktok_shop_showcase".into(),
+        source_updated_at: None,
+    }))
+}
+
+fn first_json_string(value: &serde_json::Value, paths: &[&str]) -> Option<String> {
+    paths.iter().find_map(|path| {
+        let mut current = value;
+        for segment in path.split('.') {
+            current = current.get(segment)?;
+        }
+        current.as_str().map(ToOwned::to_owned)
+    })
+}
+
+fn first_json_f64(value: &serde_json::Value, paths: &[&str]) -> Option<f64> {
+    paths.iter().find_map(|path| {
+        let mut current = value;
+        for segment in path.split('.') {
+            current = current.get(segment)?;
+        }
+        current
+            .as_f64()
+            .or_else(|| current.as_str().and_then(|raw| raw.parse().ok()))
+    })
+}
+
+fn first_json_u64(value: &serde_json::Value, paths: &[&str]) -> Option<u64> {
+    paths.iter().find_map(|path| {
+        let mut current = value;
+        for segment in path.split('.') {
+            current = current.get(segment)?;
+        }
+        current
+            .as_u64()
+            .or_else(|| current.as_str().and_then(|raw| raw.parse().ok()))
+    })
+}
+
+fn nested_json_string(value: &serde_json::Value, path: &[&str]) -> Option<String> {
+    let mut current = value;
+    for segment in path {
+        current = current.get(*segment)?;
+    }
+    current.as_str().map(ToOwned::to_owned)
+}
+
 #[async_trait]
 impl AffiliateProvider for MockProvider {
     fn name(&self) -> &'static str {
