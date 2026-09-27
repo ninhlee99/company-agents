@@ -936,7 +936,22 @@ impl CompanyStore {
             .collect()
     }
 
-    pub async fn ensure_recurring_job(
+    async fn company_currency(
+        &self,
+        company_id: &Uuid,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "SELECT TRIM(base_currency)::text FROM companies WHERE id=$1",
+                &[company_id],
+            )
+            .await?
+            .ok_or("company not found")?;
+        Ok(row.get(0))
+    }
+
+    
         &self,
         company_id: &str,
         job_type: &str,
@@ -1659,19 +1674,94 @@ fn parse_employee_status(
     }
 }
 
-async fn company_currency(
-    &self,
-    company_id: &Uuid,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    let client = self.client.lock().await;
-    let row = client
-        .query_opt(
-            "SELECT TRIM(base_currency)::text FROM companies WHERE id=$1",
-            &[company_id],
+async fn ensure_payroll_accounts(
+    tx: &Transaction<'_>,
+    company_id: Uuid,
+    currency: &str,
+) -> Result<(Uuid, Uuid), Box<dyn std::error::Error + Send + Sync>> {
+    let cash = ensure_ledger_account(tx, company_id, "CASH", "Cash", "ASSET", currency).await?;
+    let payroll_liability =
+        ensure_ledger_account(tx, company_id, "PAYROLL_LIABILITY", "Payroll Liability", "LIABILITY", currency).await?;
+    let payroll_expense =
+        ensure_ledger_account(tx, company_id, "PAYROLL_EXPENSE", "Payroll Expense", "EXPENSE", currency).await?;
+    let _ = payroll_expense;
+    Ok((cash, payroll_liability))
+}
+
+async fn ensure_ledger_account(
+    tx: &Transaction<'_>,
+    company_id: Uuid,
+    code: &str,
+    name: &str,
+    account_type: &str,
+    currency: &str,
+) -> Result<Uuid, Box<dyn std::error::Error + Send + Sync>> {
+    let id = Uuid::new_v4();
+    let row = tx
+        .query_one(
+            "INSERT INTO ledger_accounts
+             (id, company_id, code, name, account_type, currency)
+             VALUES ($1,$2,$3,$4,$5,$6)
+             ON CONFLICT (company_id, code)
+             DO UPDATE SET name=EXCLUDED.name
+             RETURNING id",
+            &[&id, &company_id, &code, &name, &account_type, &currency],
         )
-        .await?
-        .ok_or("company not found")?;
+        .await?;
     Ok(row.get(0))
+}
+
+async fn insert_ledger_entry(
+    tx: &Transaction<'_>,
+    transaction_id: Uuid,
+    account_id: Uuid,
+    debit: &str,
+    credit: &str,
+    currency: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    tx.execute(
+        "INSERT INTO ledger_entries
+         (transaction_id, account_id, debit_minor, credit_minor, currency)
+         VALUES ($1,$2,$3::numeric,$4::numeric,$5)",
+        &[&transaction_id, &account_id, &debit, &credit, &currency],
+    )
+    .await?;
+    Ok(())
+}
+
+async fn authoritative_snapshot(
+    tx: &Transaction<'_>,
+    company_id: Uuid,
+) -> Result<CompanySnapshot, Box<dyn std::error::Error + Send + Sync>> {
+    let row = tx
+        .query_one(
+            "SELECT state FROM company_state_snapshots WHERE company_id=$1 FOR UPDATE",
+            &[&company_id],
+        )
+        .await?;
+    Ok(serde_json::from_value(row.get(0))?)
+}
+
+async fn update_snapshot_financials<F>(
+    tx: &Transaction<'_>,
+    company_id: Uuid,
+    update: F,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+where
+    F: FnOnce(&mut CompanySnapshot) -> Result<(), String>,
+{
+    let mut snapshot = authoritative_snapshot(tx, company_id).await?;
+    update(&mut snapshot).map_err(|error| error.into())?;
+    let state = serde_json::to_value(&snapshot)?;
+    tx.execute(
+        "UPDATE company_state_snapshots
+            SET state=$2, updated_at=now()
+          WHERE company_id=$1",
+        &[&company_id, &state],
+    )
+    .await?;
+    update_company_status(tx, company_id, &snapshot).await?;
+    Ok(())
 }
 
 fn execution_policy() -> ExecutionPolicy {
