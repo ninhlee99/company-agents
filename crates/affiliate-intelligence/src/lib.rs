@@ -2240,6 +2240,8 @@ fn tiktok_product_parser_handles_nested_price_and_images() {
             delivery_reliability_bps: None,
             commission_group: None,
             commission_rate_bps: commission,
+            commission_fixed_minor: None,
+            commission_currency: None,
             source: "test".into(),
             source_updated_at: None,
         }
@@ -2278,6 +2280,8 @@ fn tiktok_product_parser_handles_nested_price_and_images() {
             delivery_reliability_bps: Some(5_000),
             commission_group: None,
             commission_rate_bps: Some(6_000),
+            commission_fixed_minor: None,
+            commission_currency: None,
             source: "test".into(),
             source_updated_at: Some("2026-09-27T00:00:00Z".into()),
         };
