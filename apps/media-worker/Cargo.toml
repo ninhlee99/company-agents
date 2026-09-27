@@ -1,0 +1,9 @@
+[package]
+name = "media-worker"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+company-store = { path = "../../crates/company-store" }
+media-pipeline = { path = "../../crates/media-pipeline" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
