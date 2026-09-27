@@ -50,13 +50,58 @@ fn floor_risk_for_action(action: ActionKind) -> RiskTier {
     action.minimum_risk()
 }
 
+fn action_allowed_in_context(agent: AgentRole, action: ActionKind, ctx: &AgentContext) -> bool {
+    use economic_core::CompanyStatus::*;
+
+    if matches!(ctx.company.status, Distress | Emergency | Liquidation | Bankrupt) {
+        return matches!(
+            action,
+            ActionKind::ReduceBudget
+                | ActionKind::ProduceReport
+                | ActionKind::ResearchOpportunity
+                | ActionKind::RebalanceOperations
+                | ActionKind::EscalateIncident
+        );
+    }
+
+    match (agent, action) {
+        (AgentRole::CEO, ActionKind::AllocateExperimentBudget) => {
+            matches!(ctx.company.status, Active | Growth)
+                && ctx.company.revenue_minor > ctx.company.expenses_minor
+                && ctx.company.experiment_budget_minor > 0
+        }
+        (AgentRole::Recruiter, ActionKind::ProposeHire) => {
+            ctx.company.hiring_need > 0
+                && ctx.company.revenue_minor > ctx.company.expenses_minor
+                && ctx.company.runway_days > 60
+        }
+        (AgentRole::Growth, ActionKind::CreateExperiment) => {
+            !matches!(ctx.company.status, Warning | CostControl)
+                && ctx.company.conversion_bps >= 150
+                && ctx.company.audience_growth_bps >= 0
+                && ctx.company.experiment_budget_minor > 0
+        }
+        (AgentRole::Content, ActionKind::CreateExperiment) => {
+            !matches!(ctx.company.status, Warning | CostControl)
+                && ctx.company.content_revenue_minor >= ctx.company.content_cost_minor
+                && ctx.company.experiment_budget_minor > 0
+        }
+        (AgentRole::Experiment, ActionKind::CreateExperiment) => {
+            matches!(ctx.company.status, Active | Growth)
+                && ctx.company.experiment_budget_minor > 0
+                && ctx.company.revenue_minor >= ctx.company.expenses_minor
+        }
+        _ => true,
+    }
+}
+
 fn attach_model_reasoning(mut proposal: Proposal, reasoning: &Value, ctx: &AgentContext) -> Proposal {
     let suggestion = serde_json::from_value::<ModelSuggestion>(reasoning.clone()).ok();
 
     if let Some(s) = suggestion {
         if let Some(action_name) = s.action.as_deref() {
             if let Some(action) = ActionKind::parse(action_name) {
-                if proposal.agent.may_propose(action) {
+                if proposal.agent.may_propose(action) && action_allowed_in_context(proposal.agent, action, ctx) {
                     proposal.action = action;
                 }
             }
