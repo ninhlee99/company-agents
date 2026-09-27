@@ -190,7 +190,7 @@ impl FfmpegExecutor {
 
 impl MediaExecutor for FfmpegExecutor {
     fn execute(&self, job: &MediaJob) -> Result<(), MediaError> {
-        let args = ffmpeg_args(job)?;
+        let mut args = ffmpeg_args(job)?;
         let input = self.safe_path(&job.input_path)?;
         let output = self.safe_path(&job.output_path)?;
 
@@ -202,6 +202,10 @@ impl MediaExecutor for FfmpegExecutor {
                 MediaError::InvalidJob(format!("cannot create output directory: {e}"))
             })?;
         }
+
+        args[4] = input.to_string_lossy().into_owned();
+        let last = args.len().saturating_sub(1);
+        args[last] = output.to_string_lossy().into_owned();
 
         let mut child = Command::new(&self.executable)
             .current_dir(&self.workspace)
