@@ -77,6 +77,7 @@ pub struct ProductSearchQuery {
     pub in_stock_only: bool,
     pub max_results: usize,
     pub as_of_date: Option<String>,
+    pub max_source_age_seconds: Option<u64>,
 }
 
 impl Default for ProductSearchQuery {
@@ -94,6 +95,7 @@ impl Default for ProductSearchQuery {
             in_stock_only: true,
             max_results: 20,
             as_of_date: None,
+            max_source_age_seconds: None,
         }
     }
 }
@@ -478,14 +480,8 @@ fn economics_assessment(product: &Product, coupons: &[Coupon]) -> EconomicsAsses
         .chain(product.savings_bps)
         .max();
 
-    let commission_score = product.commission_rate_bps.unwrap_or(0).min(SCORE_MAX);
-    let fixed_commission_score = product
-        .commission_fixed_minor
-        .map(|value| {
-            let base = product.price_minor.max(1);
-            ((value.max(0).saturating_mul(SCORE_MAX as i128) / base).min(SCORE_MAX as i128)) as u32
-        })
-        .unwrap_or(0);
+    let commission_score = effective_commission_bps(product).unwrap_or(0).min(SCORE_MAX);
+
     let coupon_bonus = effective_discount_bps.unwrap_or(0).min(SCORE_MAX);
     let score_bps = ((commission_score.max(fixed_commission_score) as u64 * 7
         + coupon_bonus as u64 * 3)
@@ -636,6 +632,57 @@ fn coupon_is_active_on(coupon: &Coupon, as_of_date: Option<&str>) -> bool {
         }
     }
     true
+}
+
+fn effective_commission_bps(product: &Product) -> Option<u32> {
+    if let Some(rate) = product.commission_rate_bps {
+        return Some(rate.min(SCORE_MAX));
+    }
+    let fixed = product.commission_fixed_minor?;
+    if fixed < 0 || product.price_minor <= 0 {
+        return None;
+    }
+    if let Some(currency) = product.commission_currency.as_deref() {
+        if !currency.eq_ignore_ascii_case(&product.currency) {
+            return None;
+        }
+    }
+    Some(
+        fixed
+            .saturating_mul(SCORE_MAX as i128)
+            .checked_div(product.price_minor)?
+            .clamp(0, SCORE_MAX as i128) as u32,
+    )
+}
+
+fn wilson_lower_bound_bps(rating_bps: u32, review_count: u64) -> u32 {
+    if review_count == 0 {
+        return rating_bps.min(SCORE_MAX);
+    }
+    let n = review_count.min(1_000_000) as f64;
+    let p = (rating_bps.min(SCORE_MAX) as f64) / SCORE_MAX as f64;
+    let z = 1.959_963_984_540_054_f64;
+    let denom = 1.0 + z * z / n;
+    let centre = p + z * z / (2.0 * n);
+    let spread = z * ((p * (1.0 - p) / n) + (z * z / (4.0 * n * n))).sqrt();
+    ((centre - spread) / denom).clamp(0.0, 1.0) * SCORE_MAX as f64
+}
+
+fn parse_timestamp(value: &str) -> Option<time::OffsetDateTime> {
+    time::OffsetDateTime::parse(
+        value.trim(),
+        &time::format_description::well_known::Rfc3339,
+    )
+    .ok()
+    .or_else(|| {
+        time::Date::parse(
+            value.trim(),
+            &time::format_description::well_known::Iso8601,
+        )
+        .ok()
+        .and_then(|date| date.with_hms(0, 0, 0).ok())
+        .map(|datetime| datetime.assume_utc())
+    })
 }
 
 fn date_prefix(value: &str) -> String {
