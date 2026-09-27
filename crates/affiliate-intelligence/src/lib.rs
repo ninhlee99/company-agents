@@ -324,7 +324,269 @@ impl TikTokShopProvider {
         Ok(all)
     }
 
-    async fn send_tiktok_request(
+    #[derive(Debug)]
+struct TikTokSearchPage {
+    next_page_token: String,
+    products: Vec<Product>,
+}
+
+fn parse_tiktok_search_response(
+    value: &serde_json::Value,
+) -> Result<TikTokSearchPage, AffiliateError> {
+    let code = value.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
+    if code != 0 {
+        let message = value
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown TikTok API error");
+        let request_id = value
+            .get("request_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        return Err(AffiliateError::Provider(format!(
+            "TikTok affiliate API code={code}, request_id={request_id}: {message}"
+        )));
+    }
+
+    let data = value
+        .get("data")
+        .ok_or_else(|| AffiliateError::Parse("TikTok response missing data".into()))?;
+    let next_page_token = data
+        .get("next_page_token")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_owned();
+
+    let items = data
+        .get("products")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| AffiliateError::Parse("TikTok response missing products array".into()))?;
+
+    let mut products = Vec::with_capacity(items.len().min(20));
+    for item in items.iter().take(20) {
+        let id = match item.get("id").and_then(|v| v.as_str()).map(str::trim) {
+            Some(id) if !id.is_empty() => id.to_owned(),
+            _ => continue,
+        };
+        let title = item
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        if title.is_empty() {
+            continue;
+        }
+
+        let sale = item
+            .get("sales_price")
+            .or_else(|| item.get("sale_price"));
+        let original = item.get("original_price");
+        let currency = sale
+            .and_then(|v| v.get("currency"))
+            .and_then(|v| v.as_str())
+            .or_else(|| {
+                original
+                    .and_then(|v| v.get("currency"))
+                    .and_then(|v| v.as_str())
+            })
+            .unwrap_or("USD")
+            .to_ascii_uppercase();
+
+        let sale_amount = sale
+            .and_then(|v| v.get("minimum_amount"))
+            .and_then(|v| v.as_str())
+            .or_else(|| {
+                sale
+                    .and_then(|v| v.get("maximum_amount"))
+                    .and_then(|v| v.as_str())
+            });
+        let Some(sale_amount) = sale_amount else {
+            continue;
+        };
+        let units = minor_units_for_currency(&currency, 2);
+        let price_minor = parse_decimal_minor(sale_amount, units)?;
+        if price_minor < 0 {
+            continue;
+        }
+
+        let old_price_minor = original
+            .and_then(|v| {
+                v.get("maximum_amount")
+                    .and_then(|x| x.as_str())
+                    .or_else(|| v.get("minimum_amount").and_then(|x| x.as_str()))
+            })
+            .and_then(|value| parse_decimal_minor(value, units).ok());
+
+        let commission = item.get("commission");
+        let commission_rate_bps = commission
+            .and_then(|v| v.get("rate"))
+            .and_then(|v| v.as_u64())
+            .map(|v| (v.min(SCORE_MAX as u64)) as u32);
+
+        let commission_fixed_minor = commission
+            .and_then(|v| {
+                let amount = v.get("amount")?.as_str()?;
+                parse_decimal_minor(amount, units).ok()
+            })
+            .and_then(|value| if value >= 0 { Some(value) } else { None });
+
+        let commission_currency = commission
+            .and_then(|v| v.get("currency"))
+            .and_then(|v| v.as_str())
+            .map(|v| v.to_ascii_uppercase());
+
+        let category = item
+            .get("category_chains")
+            .and_then(|v| v.as_array())
+            .map(|chains| {
+                chains
+                    .iter()
+                    .filter_map(|chain| chain.get("local_name").and_then(|x| x.as_str()))
+                    .collect::<Vec<_>>()
+                    .join(" > ")
+            })
+            .unwrap_or_default();
+
+        let advertiser_name = item
+            .get("shop")
+            .and_then(|v| v.get("name"))
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned);
+
+        let detail_url = item
+            .get("detail_link")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_owned();
+        if !detail_url.starts_with("https://") {
+            continue;
+        }
+
+        let image_url = item
+            .get("main_image_url")
+            .and_then(|v| v.as_str())
+            .filter(|v| v.starts_with("https://"))
+            .map(ToOwned::to_owned);
+
+        let savings_bps = old_price_minor
+            .filter(|old| *old > price_minor && *old > 0)
+            .and_then(|old| {
+                old.checked_sub(price_minor)
+                    .and_then(|diff| diff.checked_mul(SCORE_MAX as i128))
+                    .map(|v| ((v / old).min(SCORE_MAX as i128)) as u32)
+            });
+
+        let advertiser_id = advertiser_name
+            .clone()
+            .unwrap_or_else(|| "tiktok-shop".into());
+
+        products.push(Product {
+            id,
+            gtin: None,
+            advertiser_id,
+            advertiser_name,
+            name: title,
+            description: String::new(),
+            category,
+            brand: None,
+            url: detail_url,
+            image_url,
+            price_minor,
+            old_price_minor,
+            currency,
+            rating_bps: None,
+            review_count: None,
+            stock_quantity: None,
+            in_stock: item
+                .get("has_inventory")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true),
+            savings_bps,
+            seller_reputation_bps: None,
+            refund_rate_bps: None,
+            delivery_reliability_bps: None,
+            commission_group: None,
+            commission_rate_bps,
+            commission_fixed_minor,
+            commission_currency,
+            source: "tiktok_shop_open_collaboration".into(),
+            source_updated_at: None,
+        });
+    }
+
+    Ok(TikTokSearchPage {
+        next_page_token,
+        products,
+    })
+}
+
+fn percent_encode(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~') {
+            out.push(byte as char);
+        } else {
+            out.push('%');
+            out.push(hex_digit(byte >> 4));
+            out.push(hex_digit(byte & 0x0f));
+        }
+    }
+    out
+}
+
+fn hex_digit(value: u8) -> char {
+    match value {
+        0..=9 => (b'0' + value) as char,
+        10..=15 => (b'A' + value - 10) as char,
+        _ => '0',
+    }
+}
+
+fn tiktok_sign(
+    path: &str,
+    query: &[(String, String)],
+    body: &[u8],
+    app_secret: &str,
+) -> Result<String, AffiliateError> {
+    if path.is_empty() || !path.starts_with('/') {
+        return Err(AffiliateError::Provider("TikTok sign path is invalid".into()));
+    }
+    let mut params = query
+        .iter()
+        .filter(|(key, _)| key != "sign" && key != "access_token")
+        .cloned()
+        .collect::<Vec<_>>();
+    params.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+
+    let mut input = String::with_capacity(
+        path.len() + params.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>() + body.len() + app_secret.len() * 2,
+    );
+    input.push_str(path);
+    for (key, value) in params {
+        input.push_str(&key);
+        input.push_str(&value);
+    }
+    input.push_str(&String::from_utf8_lossy(body));
+    let signing_payload = format!("{app_secret}{input}{app_secret}");
+
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(app_secret.as_bytes())
+        .map_err(|_| AffiliateError::Provider("invalid TikTok app secret".into()))?;
+    mac.update(signing_payload.as_bytes());
+    Ok(hex::encode(mac.finalize().into_bytes()))
+}
+
+fn response_retry_delay(retry_after: Option<&str>, attempt: u32) -> Duration {
+    if let Some(value) = retry_after
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|v| *v <= 60)
+    {
+        return Duration::from_secs(value);
+    }
+    Duration::from_millis(250 * (1_u64 << attempt.min(4)))
+}
+
+async fn send_tiktok_request(
         &self,
         query_params: &[(String, String)],
         body: &[u8],
