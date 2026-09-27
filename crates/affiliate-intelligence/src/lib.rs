@@ -1201,6 +1201,74 @@ mod tests {
     }
 
     #[test]
+    fn high_commission_does_not_automatically_outvote_quality() {
+        let quality = product("quality", "Quality Phone", Some(1_500), Some(9_600), Some(5_000));
+        let high_commission = Product {
+            id: "commission".into(),
+            advertiser_id: "commission".into(),
+            gtin: None,
+            advertiser_name: None,
+            name: "Commission Phone".into(),
+            description: "creator electronics".into(),
+            category: "electronics".into(),
+            brand: None,
+            url: "https://example.com".into(),
+            image_url: None,
+            price_minor: 1_000,
+            old_price_minor: None,
+            currency: "USD".into(),
+            rating_bps: Some(6_200),
+            review_count: Some(8),
+            stock_quantity: Some(20),
+            in_stock: true,
+            savings_bps: None,
+            seller_reputation_bps: Some(5_500),
+            refund_rate_bps: Some(2_500),
+            delivery_reliability_bps: Some(5_000),
+            commission_group: None,
+            commission_rate_bps: Some(6_000),
+            source: "test".into(),
+            source_updated_at: Some("2026-09-27T00:00:00Z".into()),
+        };
+        let coupon = Coupon {
+            id: "quality-coupon".into(),
+            advertiser_id: "quality".into(),
+            title: "10% off".into(),
+            description: "verified active".into(),
+            code: Some("SAVE10".into()),
+            discount_bps: Some(1_000),
+            starts_at: Some("2026-09-01".into()),
+            ends_at: Some("2026-12-31".into()),
+            active: true,
+            exclusive: false,
+            attributable: true,
+            url: None,
+            source: "test".into(),
+        };
+        let query = ProductSearchQuery {
+            category: Some("electronics".into()),
+            currency: Some("USD".into()),
+            require_coupon: true,
+            as_of_date: Some("2026-09-27".into()),
+            ..Default::default()
+        };
+        let ranked = rank_products(&[quality, high_commission], &[coupon], &query);
+        assert_eq!(ranked.len(), 1);
+        assert_eq!(ranked[0].product.id, "quality");
+    }
+
+    #[test]
+    fn missing_quality_evidence_reduces_confidence() {
+        let mut p = product("a", "A", Some(1_500), None, None);
+        p.stock_quantity = None;
+        p.seller_reputation_bps = None;
+        p.delivery_reliability_bps = None;
+        let ranked = rank_products(&[p], &[], &ProductSearchQuery::default());
+        assert_eq!(ranked.len(), 1);
+        assert!(ranked[0].data_confidence_bps < 5_000);
+    }
+
+    #[test]
     fn ranking_is_deterministic_and_deduplicated() {
         let products = vec![
             product("a", "A", Some(1_000), Some(9_500), Some(1_000)),
