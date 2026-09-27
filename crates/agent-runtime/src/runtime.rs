@@ -211,7 +211,7 @@ fn memory_from_provider_value(value: serde_json::Value) -> Vec<AgentMemory> {
     value
         .get("items")
         .and_then(|items| items.as_array())
-        .and_then(|items| serde_json::from_value(items.clone()).ok())
+        .and_then(|items| serde_json::from_value(serde_json::Value::Array(items.clone())).ok())
         .unwrap_or_default()
 }
 
