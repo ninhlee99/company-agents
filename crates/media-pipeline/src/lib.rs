@@ -114,7 +114,39 @@ impl FfmpegExecutor {
 
     fn safe_path(&self, relative: &str) -> Result<PathBuf, MediaError> {
         validate_safe_path(relative)?;
-        Ok(self.workspace.join(relative))
+        let workspace = self.workspace.canonicalize().map_err(|error| {
+            MediaError::InvalidJob(format!("media workspace is unavailable: {error}"))
+        })?;
+        let candidate = self.workspace.join(relative);
+
+        if candidate.exists() {
+            let canonical = candidate.canonicalize().map_err(|error| {
+                MediaError::InvalidJob(format!("media path cannot be canonicalized: {error}"))
+            })?;
+            if !canonical.starts_with(&workspace) {
+                return Err(MediaError::InvalidJob(
+                    "media path escapes the configured workspace".into(),
+                ));
+            }
+            return Ok(canonical);
+        }
+
+        let parent = candidate.parent().ok_or_else(|| {
+            MediaError::InvalidJob("media path has no parent directory".into())
+        })?;
+        let canonical_parent = parent.canonicalize().map_err(|error| {
+            MediaError::InvalidJob(format!("media parent cannot be canonicalized: {error}"))
+        })?;
+        if !canonical_parent.starts_with(&workspace) {
+            return Err(MediaError::InvalidJob(
+                "media path parent escapes the configured workspace".into(),
+            ));
+        }
+        Ok(canonical_parent.join(
+            candidate
+                .file_name()
+                .ok_or_else(|| MediaError::InvalidJob("media path has no filename".into()))?,
+        ))
     }
 }
 
@@ -442,6 +474,17 @@ mod tests {
         );
         assert!(!result.passed);
         assert_eq!(result.failures.len(), 2);
+    }
+
+    #[test]
+    fn safe_path_is_lexically_restricted_before_execution() {
+        let temp = std::env::temp_dir().join(format!("company-agents-media-{}", std::process::id()));
+        std::fs::create_dir_all(temp.join("input")).unwrap();
+        std::fs::write(temp.join("input").join("source.mp4"), b"test").unwrap();
+        let executor = FfmpegExecutor::new("ffmpeg", &temp, Duration::from_secs(10)).unwrap();
+        assert!(executor.safe_path("input/source.mp4").is_ok());
+        assert!(executor.safe_path("../outside.mp4").is_err());
+        let _ = std::fs::remove_dir_all(temp);
     }
 
     #[test]
