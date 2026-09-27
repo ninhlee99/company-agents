@@ -391,3 +391,76 @@ fn proposal_risk_floor_is_hard() {
     };
     assert!(proposal.validate().is_err());
 }
+
+#[test]
+fn governor_firewall_covers_all_agent_action_status_combinations() {
+    let governor = crate::governor::Governor;
+    let actions = [
+        ActionKind::None,
+        ActionKind::CreateExperiment,
+        ActionKind::AllocateExperimentBudget,
+        ActionKind::ReduceBudget,
+        ActionKind::RebalanceOperations,
+        ActionKind::ResearchOpportunity,
+        ActionKind::PublishContent,
+        ActionKind::ProposeHire,
+        ActionKind::ProduceReport,
+        ActionKind::EscalateIncident,
+    ];
+    let statuses = [
+        CompanyStatus::Active,
+        CompanyStatus::Growth,
+        CompanyStatus::Warning,
+        CompanyStatus::CostControl,
+        CompanyStatus::Distress,
+        CompanyStatus::Emergency,
+        CompanyStatus::Liquidation,
+        CompanyStatus::Bankrupt,
+    ];
+
+    for role in AgentRole::ALL {
+        for action in actions {
+            for status in statuses {
+                let cost = action.max_cost_minor().min(100);
+                let proposal = Proposal {
+                    agent: role,
+                    objective: "matrix".into(),
+                    action,
+                    cost_minor: cost,
+                    expected_revenue_minor: 100,
+                    risk: action.minimum_risk(),
+                    confidence_bps: 8_000,
+                    evidence: vec!["matrix".into()],
+                    rationale: "matrix".into(),
+                    reversible: !action.inherently_material(),
+                    requested_permission: Permission::Propose,
+                };
+                let company = CompanySnapshot { status, ..healthy_company() };
+                let governed = governor.evaluate(proposal, &company);
+
+                if role == AgentRole::Governor || !role.may_propose(action) {
+                    assert_ne!(governed.decision, GovernorDecision::Approve);
+                }
+
+                if matches!(status, CompanyStatus::Distress | CompanyStatus::Emergency | CompanyStatus::Liquidation | CompanyStatus::Bankrupt)
+                    && cost > 0
+                {
+                    assert_eq!(governed.decision, GovernorDecision::Reject);
+                }
+
+                if action.inherently_material() {
+                    assert_ne!(governed.decision, GovernorDecision::Approve);
+                }
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn runtime_replay_is_deterministic() {
+    let runtime = AgentRuntime::new_with_concurrency(Box::new(MockModel), 2);
+    let company = healthy_company();
+    let a = runtime.run_all(company.clone()).await;
+    let b = runtime.run_all(company).await;
+    assert_eq!(serde_json::to_string(&a).unwrap(), serde_json::to_string(&b).unwrap());
+}
