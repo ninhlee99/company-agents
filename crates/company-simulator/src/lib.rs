@@ -157,8 +157,6 @@ pub async fn run(config: SimConfig) -> SimulationResult {
 
         let sponsor_revenue = if rng.pct(150) { 250_i128 } else { 0 };
         let affiliate_revenue = content_revenue / 2;
-        let day_revenue = content_revenue + affiliate_revenue + sponsor_revenue;
-
         let portfolio_day = portfolio
             .settle_day(
                 day as u64,
