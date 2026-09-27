@@ -678,15 +678,50 @@ impl CompanyStore {
         std::collections::HashMap<AgentRole, Vec<agent_runtime::types::AgentMemory>>,
         Box<dyn std::error::Error + Send + Sync>,
     > {
+        if !(1..=100).contains(&limit_per_agent) {
+            return Err("memory limit must be between 1 and 100".into());
+        }
+        let id = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT agent_name, memory_key, value, confidence_bps, importance,
+                        updated_at::text, expires_at::text
+                   FROM (
+                        SELECT agent_name, memory_key, value, confidence_bps, importance,
+                               updated_at, expires_at,
+                               row_number() OVER (
+                                   PARTITION BY agent_name
+                                   ORDER BY importance DESC, updated_at DESC
+                               ) AS row_number
+                          FROM agent_memory
+                         WHERE company_id = $1
+                           AND (expires_at IS NULL OR expires_at > now())
+                   ) ranked
+                  WHERE row_number <= $2
+                  ORDER BY agent_name, importance DESC, updated_at DESC",
+                &[&id, &limit_per_agent],
+            )
+            .await?;
+
         let mut result = std::collections::HashMap::new();
-        for agent in AgentRole::ALL {
-            if agent == AgentRole::Governor {
+        for row in rows {
+            let Some(agent) = parse_agent_role(row.get(0)) else {
                 continue;
-            }
-            let memory = self
-                .load_agent_memory(company_id, agent, limit_per_agent)
-                .await?;
-            result.insert(agent, memory);
+            };
+            let confidence: i32 = row.get(3);
+            let importance: i16 = row.get(4);
+            result
+                .entry(agent)
+                .or_insert_with(Vec::new)
+                .push(agent_runtime::types::AgentMemory {
+                    key: row.get(1),
+                    value: row.get(2),
+                    confidence_bps: confidence.clamp(0, 10_000) as u16,
+                    importance: importance.clamp(0, 100) as u8,
+                    updated_at: row.get(5),
+                    expires_at: row.get(6),
+                });
         }
         Ok(result)
     }
@@ -1238,6 +1273,12 @@ impl CompanyStore {
             .map(|row| row.get::<_, serde_json::Value>(0))
             .collect())
     }
+}
+
+fn parse_agent_role(value: &str) -> Option<AgentRole> {
+    AgentRole::ALL
+        .into_iter()
+        .find(|role| role.as_str().eq_ignore_ascii_case(value))
 }
 
 fn execution_policy() -> ExecutionPolicy {
