@@ -1,6 +1,6 @@
 use affiliate_intelligence::{
-    search as search_affiliate, AffiliateProvider, AwinProvider, MockProvider, ProductSearchQuery,
-    SearchResponse,
+    search as search_affiliate, AffiliateProvider, AwinProvider, CompositeAffiliateProvider,
+    MockProvider, ProductSearchQuery, SearchResponse, TikTokShopCreatorProvider,
 };
 use agent_runtime::{model_from_env, AgentRunResult, AgentRuntime, CompanySnapshot};
 use axum::{
@@ -432,6 +432,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let affiliate: Arc<dyn AffiliateProvider> = match affiliate_mode.to_ascii_lowercase().as_str() {
         "mock" => Arc::new(MockProvider::default()),
         "awin" => Arc::new(AwinProvider::from_env()?),
+        "tiktok" | "tiktok_shop_creator" => Arc::new(TikTokShopCreatorProvider::from_env()?),
+        "composite" => {
+            let mut providers: Vec<Arc<dyn AffiliateProvider>> = Vec::new();
+            if std::env::var("AWIN_PUBLISHER_ID").is_ok()
+                && std::env::var("AWIN_ACCESS_TOKEN").is_ok()
+                && (std::env::var("AWIN_PRODUCT_FEED_URL").is_ok()
+                    || std::env::var("AWIN_PRODUCT_FEED_API_KEY").is_ok())
+            {
+                providers.push(Arc::new(AwinProvider::from_env()?));
+            }
+            if std::env::var("TTS_APP_KEY").is_ok()
+                && std::env::var("TTS_APP_SECRET").is_ok()
+                && std::env::var("TTS_ACCESS_TOKEN").is_ok()
+            {
+                providers.push(Arc::new(TikTokShopCreatorProvider::from_env()?));
+            }
+            Arc::new(CompositeAffiliateProvider::new(providers)?)
+        }
         other => return Err(format!("unknown AFFILIATE_PROVIDER={other}").into()),
     };
 
