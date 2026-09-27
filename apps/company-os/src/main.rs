@@ -52,6 +52,7 @@ async fn run_cycle(state: &AppState) -> Result<Vec<AgentRunResult>, Box<dyn std:
 }
 
 async fn index(State(state): State<AppState>) -> Html<String> {
+    let company = state.company.read().await.clone();
     let latest = state.latest.read().await;
     let mut rows = String::new();
 
@@ -160,8 +161,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let interval_secs = std::env::var("AGENT_CYCLE_SECONDS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
-        .filter(|v| *v >= 5)
-        .unwrap_or(60);
+        .filter(|v| *v >= 15)
+        .unwrap_or(300);
 
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_secs(interval_secs));
