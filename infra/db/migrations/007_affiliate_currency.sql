@@ -1,5 +1,11 @@
 ALTER TABLE affiliate_conversions
-  ADD COLUMN IF NOT EXISTS currency char(3);
+  ADD COLUMN IF NOT EXISTS currency text;
+
+UPDATE affiliate_conversions AS conversion
+   SET currency = upper(company.base_currency)
+  FROM companies AS company
+ WHERE conversion.company_id = company.id
+   AND conversion.currency IS NULL;
 
 UPDATE affiliate_conversions
    SET currency = upper(currency)
