@@ -250,7 +250,6 @@ async fn invalid_company_id_is_rejected() {
         .is_err());
 }
 
-
 #[tokio::test]
 async fn scheduler_lease_recovery_reuses_same_run_token() {
     let Some(store) = connect_store().await else {
