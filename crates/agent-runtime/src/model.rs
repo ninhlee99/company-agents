@@ -32,7 +32,7 @@ impl Model for MockModel {
         let role = system.lines().next().unwrap_or_default();
         Ok(json!({
             "role": role,
-            "summary": "Mock model: use deterministic role policy and do not execute material actions.",
+            "summary": "Mock model: deterministic policy only; no material execution.",
             "confidence": 0.50
         }))
     }
@@ -41,20 +41,29 @@ impl Model for MockModel {
 pub struct OpenAiCompatibleModel {
     client: reqwest::Client,
     base_url: String,
-    api_key: String,
+    api_key: Option<String>,
     model: String,
 }
 
 impl OpenAiCompatibleModel {
-    pub fn from_env() -> Result<Self, ModelError> {
-        let api_key = env::var("LLM_API_KEY").map_err(|_| ModelError::MissingConfiguration)?;
-        let base_url = env::var("LLM_BASE_URL").map_err(|_| ModelError::MissingConfiguration)?;
-        let model = env::var("LLM_MODEL").map_err(|_| ModelError::MissingConfiguration)?;
-        Ok(Self {
+    pub fn new(base_url: String, api_key: Option<String>, model: String) -> Self {
+        Self {
             client: reqwest::Client::new(),
             base_url: base_url.trim_end_matches('/').to_owned(),
             api_key,
             model,
+        }
+    }
+
+    fn request(&self, system: &str, user: &str) -> Value {
+        json!({
+            "model": self.model,
+            "temperature": 0,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user}
+            ]
         })
     }
 }
@@ -63,20 +72,15 @@ impl OpenAiCompatibleModel {
 impl Model for OpenAiCompatibleModel {
     async fn propose_json(&self, system: &str, user: &str) -> Result<Value, ModelError> {
         let url = format!("{}/chat/completions", self.base_url);
-        let body = json!({
-            "model": self.model,
-            "temperature": 0,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user}
-            ]
-        });
+        let mut request = self.client.post(url).json(&self.request(system, user));
 
-        let response = self.client
-            .post(url)
-            .bearer_auth(&self.api_key)
-            .json(&body)
+        if let Some(api_key) = &self.api_key {
+            if !api_key.trim().is_empty() {
+                request = request.bearer_auth(api_key);
+            }
+        }
+
+        let response = request
             .send()
             .await
             .map_err(|e| ModelError::Transport(e.to_string()))?;
@@ -100,21 +104,85 @@ impl Model for OpenAiCompatibleModel {
             .and_then(Value::as_str)
             .ok_or_else(|| ModelError::InvalidResponse("missing choices[0].message.content".into()))?;
 
-        serde_json::from_str(content)
-            .map_err(|e| ModelError::InvalidResponse(format!("content is not JSON: {e}")))
+        match serde_json::from_str(content) {
+            Ok(value) => Ok(value),
+            Err(_) => Ok(json!({
+                "summary": content,
+                "confidence": 0.0
+            })),
+        }
+    }
+}
+
+pub struct OllamaModel(OpenAiCompatibleModel);
+
+impl OllamaModel {
+    pub fn from_env() -> Self {
+        let base_url = env::var("OLLAMA_BASE_URL")
+            .unwrap_or_else(|_| "http://127.0.0.1:11434/v1".into());
+        let model = env::var("OLLAMA_MODEL")
+            .unwrap_or_else(|_| "qwen3:4b".into());
+        Self(OpenAiCompatibleModel::new(base_url, Some("ollama".into()), model))
+    }
+}
+
+#[async_trait]
+impl Model for OllamaModel {
+    async fn propose_json(&self, system: &str, user: &str) -> Result<Value, ModelError> {
+        self.0.propose_json(system, user).await
+    }
+}
+
+pub struct GeminiModel(OpenAiCompatibleModel);
+
+impl GeminiModel {
+    pub fn from_env() -> Result<Self, ModelError> {
+        let api_key = env::var("GEMINI_API_KEY")
+            .or_else(|_| env::var("LLM_API_KEY"))
+            .map_err(|_| ModelError::MissingConfiguration)?;
+
+        let model = env::var("GEMINI_MODEL")
+            .or_else(|_| env::var("LLM_MODEL"))
+            .unwrap_or_else(|_| "gemini-3.6-flash".into());
+
+        Ok(Self(OpenAiCompatibleModel::new(
+            "https://generativelanguage.googleapis.com/v1beta/openai/".into(),
+            Some(api_key),
+            model,
+        )))
+    }
+}
+
+#[async_trait]
+impl Model for GeminiModel {
+    async fn propose_json(&self, system: &str, user: &str) -> Result<Value, ModelError> {
+        self.0.propose_json(system, user).await
     }
 }
 
 pub fn model_from_env() -> Box<dyn Model> {
-    if env::var("LLM_API_KEY").is_ok()
-        && env::var("LLM_BASE_URL").is_ok()
-        && env::var("LLM_MODEL").is_ok()
-    {
-        if let Ok(model) = OpenAiCompatibleModel::from_env() {
-            return Box::new(model);
+    let provider = env::var("LLM_PROVIDER")
+        .unwrap_or_else(|_| "ollama".into())
+        .to_ascii_lowercase();
+
+    match provider.as_str() {
+        "mock" => Box::new(MockModel),
+        "ollama" | "local" => Box::new(OllamaModel::from_env()),
+        "gemini" => match GeminiModel::from_env() {
+            Ok(model) => Box::new(model),
+            Err(_) => Box::new(MockModel),
+        },
+        "openai-compatible" => {
+            let base_url = env::var("LLM_BASE_URL").ok();
+            let key = env::var("LLM_API_KEY").ok();
+            let model = env::var("LLM_MODEL").ok();
+            match (base_url, model) {
+                (Some(base_url), Some(model)) => Box::new(OpenAiCompatibleModel::new(base_url, key, model)),
+                _ => Box::new(MockModel),
+            }
         }
+        _ => Box::new(OllamaModel::from_env()),
     }
-    Box::new(MockModel)
 }
 
 #[cfg(test)]
@@ -125,5 +193,12 @@ mod tests {
     async fn mock_model_is_always_available() {
         let result = MockModel.propose_json("CEO", "{}").await.unwrap();
         assert_eq!(result["confidence"], 0.5);
+    }
+
+    #[test]
+    fn defaults_to_local_ollama_configuration_shape() {
+        let model = OllamaModel::from_env();
+        assert_eq!(model.0.base_url, "http://127.0.0.1:11434/v1");
+        assert!(!model.0.model.is_empty());
     }
 }
