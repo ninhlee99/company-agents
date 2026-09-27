@@ -841,6 +841,62 @@ fn parse_tiktok_search_response(
     })
 }
 
+fn format_major_decimal(value_minor: i128, minor_units: u32) -> String {
+    let negative = value_minor < 0;
+    let magnitude = value_minor.unsigned_abs();
+    let scale = 10_u128.pow(minor_units.min(6));
+    let whole = magnitude / scale;
+    let fraction = magnitude % scale;
+    if minor_units == 0 {
+        return if negative { format!("-{whole}") } else { whole.to_string() };
+    }
+    let mut fraction_text = fraction.to_string();
+    while fraction_text.len() < minor_units as usize {
+        fraction_text.insert(0, '0');
+    }
+    let sign = if negative { "-" } else { "" };
+    format!("{sign}{whole}.{fraction_text}")
+}
+
+fn parse_decimal_minor_floor(
+    value: &str,
+    minor_units: u32,
+) -> Result<i128, AffiliateError> {
+    let normalized = value.trim().replace(',', "");
+    let negative = normalized.starts_with('-');
+    let unsigned = normalized.trim_start_matches('-');
+    let mut pieces = unsigned.split('.');
+    let whole = pieces.next().unwrap_or("0");
+    let fractional = pieces.next().unwrap_or("");
+    if pieces.next().is_some()
+        || !whole.chars().all(|c| c.is_ascii_digit())
+        || !fractional.chars().all(|c| c.is_ascii_digit())
+    {
+        return Err(AffiliateError::Parse(format!("invalid decimal amount: {value}")));
+    }
+    let scale = 10_i128.pow(minor_units.min(6));
+    let whole_value = whole
+        .parse::<i128>()
+        .map_err(|_| AffiliateError::Parse("amount overflow".into()))?;
+    let mut fraction = fractional.to_owned();
+    fraction.truncate(minor_units as usize);
+    while fraction.len() < minor_units as usize {
+        fraction.push('0');
+    }
+    let fraction_value = if fraction.is_empty() {
+        0
+    } else {
+        fraction
+            .parse::<i128>()
+            .map_err(|_| AffiliateError::Parse("amount overflow".into()))?
+    };
+    let result = whole_value
+        .checked_mul(scale)
+        .and_then(|value| value.checked_add(fraction_value))
+        .ok_or_else(|| AffiliateError::Parse("amount overflow".into()))?;
+    Ok(if negative { -result } else { result })
+}
+
 fn format_unix_rfc3339(value: i64) -> Option<String> {
     let datetime = time::OffsetDateTime::from_unix_timestamp(value).ok()?;
     datetime
