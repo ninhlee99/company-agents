@@ -182,7 +182,7 @@ pub fn model_from_env() -> Box<dyn Model> {
                 _ => Box::new(MockModel),
             }
         }
-        _ => Box::new(OllamaModel::from_env()),
+        _ => Box::new(MockModel),
     }
 }
 
