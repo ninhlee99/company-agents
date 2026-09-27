@@ -4,5 +4,6 @@ members = [
   "apps/company-os",
   "crates/economic-core",
   "crates/agent-runtime",
-  "crates/company-simulator"
+  "crates/company-simulator",
+  "crates/company-store"
 ]
