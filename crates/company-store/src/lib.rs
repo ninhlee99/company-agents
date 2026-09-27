@@ -915,7 +915,9 @@ impl CompanyStore {
                 "SELECT id, employee_id, period, gross_minor::text, currency,
                         due_at::text, paid_minor::text
                    FROM payroll_obligations
-                  WHERE company_id=$1 AND paid_minor < gross_minor
+                  WHERE company_id=$1
+                    AND paid_minor < gross_minor
+                    AND due_at <= now()
                   ORDER BY due_at ASC, id ASC
                   LIMIT $2",
                 &[&company_uuid, &limit],
