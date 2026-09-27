@@ -23,22 +23,6 @@ CREATE TABLE IF NOT EXISTS decision_journal (
 CREATE INDEX IF NOT EXISTS idx_decision_journal_company_time
   ON decision_journal(company_id, created_at DESC);
 
-ALTER TABLE scheduled_jobs
-  ADD COLUMN IF NOT EXISTS locked_until timestamptz;
-
-ALTER TABLE scheduled_jobs
-  ADD COLUMN IF NOT EXISTS run_token uuid;
-
-UPDATE scheduled_jobs
-   SET run_token = gen_random_uuid()
- WHERE run_token IS NULL;
-
-ALTER TABLE scheduled_jobs
-  ALTER COLUMN run_token SET DEFAULT gen_random_uuid();
-
-ALTER TABLE scheduled_jobs
-  ALTER COLUMN run_token SET NOT NULL;
-
 CREATE TABLE IF NOT EXISTS scheduled_jobs (
   id uuid PRIMARY KEY,
   company_id uuid NOT NULL REFERENCES companies(id),
@@ -56,6 +40,22 @@ CREATE TABLE IF NOT EXISTS scheduled_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_due
   ON scheduled_jobs(status, next_run_at);
+
+ALTER TABLE scheduled_jobs
+  ADD COLUMN IF NOT EXISTS locked_until timestamptz;
+
+ALTER TABLE scheduled_jobs
+  ADD COLUMN IF NOT EXISTS run_token uuid;
+
+UPDATE scheduled_jobs
+   SET run_token = gen_random_uuid()
+ WHERE run_token IS NULL;
+
+ALTER TABLE scheduled_jobs
+  ALTER COLUMN run_token SET DEFAULT gen_random_uuid();
+
+ALTER TABLE scheduled_jobs
+  ALTER COLUMN run_token SET NOT NULL;
 
 DO $
 BEGIN
