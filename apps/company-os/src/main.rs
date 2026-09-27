@@ -101,10 +101,10 @@ small{{color:#666}}
 <table><tr><th>Agent</th><th>Status</th><th>Governor</th><th>Action</th></tr>{}</table>
 </div>
 </body></html>"#,
-        format_minor(state.company.cash_minor),
-        format_minor(state.company.revenue_minor),
-        format_minor(state.company.expenses_minor),
-        state.company.runway_days,
+        format_minor(company.cash_minor),
+        format_minor(company.revenue_minor),
+        format_minor(company.expenses_minor),
+        company.runway_days,
         rows,
     ))
 }
