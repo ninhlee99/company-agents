@@ -142,5 +142,33 @@ mod tests {
     #[test] fn bankrupt_and_liquidation_block_spend(){let b=budget();assert!(!CompanyState{status:CompanyStatus::Bankrupt,..state()}.can_spend(&b,1));assert!(!CompanyState{status:CompanyStatus::Liquidation,..state()}.can_spend(&b,1));}
     #[test] fn huge_money_is_exact(){let value=10_i128.pow(30);let m=Money::new(value,"USD").unwrap();assert_eq!(m.amount_minor,value);}
     #[test] fn invalid_money_currency_is_rejected(){assert!(Money::new(1,"usd").is_err());}
-    #[test] fn spend_updates_state_and_budget(){let(next_state,next_budget)=spend_from_budget(&state(),&budget(),100).unwrap();assert_eq!(next_state.cash_minor,900);assert_eq!(next_state.expenses_minor,100);assert_eq!(next_budget.spent_minor,100);}
+    #[test]
+    fn spend_updates_state_and_budget(){
+        let(next_state,next_budget)=spend_from_budget(&state(),&budget(),100).unwrap();
+        assert_eq!(next_state.cash_minor,900);
+        assert_eq!(next_state.expenses_minor,100);
+        assert_eq!(next_budget.spent_minor,100);
+    }
+
+    #[test]
+    fn runway_and_status_refresh_are_deterministic() {
+        let mut s = state();
+        s.revenue_minor = 0;
+        s.expenses_minor = 1_000;
+        assert_eq!(s.runway_days_from_burn(100), 10);
+        assert_eq!(s.refresh_status_from_runway(100).status, CompanyStatus::CostControl);
+    }
+
+    #[test]
+    fn zero_burn_has_infinite_runway() {
+        assert_eq!(state().runway_days_from_burn(0), i64::MAX);
+    }
+
+    #[test]
+    fn spend_overflow_is_rejected() {
+        let mut b = budget();
+        b.spent_minor = i128::MAX;
+        b.limit_minor = i128::MAX;
+        assert_eq!(spend_from_budget(&state(), &b, 1), Err("spend rejected by company or budget policy"));
+    }
 }
