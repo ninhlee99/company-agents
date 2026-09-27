@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::{
-    cmp::Ordering,
     collections::HashMap,
     fmt,
     sync::Arc,
@@ -19,6 +18,7 @@ const MAX_FEED_BYTES: usize = 64 * 1024 * 1024;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Product {
     pub id: String,
+    pub gtin: Option<String>,
     pub advertiser_id: String,
     pub advertiser_name: Option<String>,
     pub name: String,
@@ -401,6 +401,11 @@ fn quality_assessment(product: &Product) -> QualityAssessment {
         weights.push(10);
         reasons.push("seller reputation supplied by provider".into());
     }
+    if let Some(refund) = product.refund_rate_bps {
+        values.push((SCORE_MAX.saturating_sub(refund)) as u64 * 10);
+        weights.push(10);
+        reasons.push(format!("refund/cancel signal={refund} bps"));
+    }
     if let Some(delivery) = product.delivery_reliability_bps {
         values.push(delivery as u64 * 5);
         weights.push(5);
@@ -549,15 +554,10 @@ fn weighted_score(
 }
 
 fn dedupe_key(product: &Product) -> String {
-    if let Some(gtin) = product
-        .id
-        .split(':')
-        .next_back()
-        .filter(|v| !v.is_empty())
-    {
-        return format!("{}:{gtin}", product.advertiser_id);
+    if let Some(gtin) = product.gtin.as_deref().filter(|v| !v.is_empty()) {
+        return format!("gtin:{gtin}");
     }
-    format!("{}:{}", product.advertiser_id, product.name.to_ascii_lowercase())
+    format!("{}:{}", product.advertiser_id, product.id)
 }
 
 fn coupon_is_active_on(coupon: &Coupon, as_of_date: Option<&str>) -> bool {
@@ -603,6 +603,7 @@ impl Default for MockProvider {
             products: vec![
                 Product {
                     id: "mock:phone-1".into(),
+                    gtin: Some("0000000000001".into()),
                     advertiser_id: "100".into(),
                     advertiser_name: Some("Mock Electronics".into()),
                     name: "Creator Phone Pro".into(),
@@ -629,6 +630,7 @@ impl Default for MockProvider {
                 },
                 Product {
                     id: "mock:phone-2".into(),
+                    gtin: Some("0000000000002".into()),
                     advertiser_id: "200".into(),
                     advertiser_name: Some("Mock Deal Store".into()),
                     name: "High Commission Camera Phone".into(),
@@ -923,6 +925,7 @@ fn parse_awin_feed(
 
         products.push(Product {
             id,
+            gtin: first_nonempty(&[get("product_GTIN"), get("product_gtin"), get("ean"), get("upc")]),
             advertiser_id,
             advertiser_name: get("merchant_name"),
             name,
@@ -942,7 +945,7 @@ fn parse_awin_feed(
             savings_bps,
             seller_reputation_bps: None,
             refund_rate_bps: None,
-            delivery_reliability_bps: None,
+        delivery_reliability_bps: None,
             commission_group,
             commission_rate_bps,
             source: "awin_product_feed".into(),
@@ -1013,24 +1016,24 @@ fn parse_percent_bps(value: &str) -> Option<u32> {
 
 #[derive(Debug, Deserialize)]
 struct AwinOffer {
-    #[serde(default)]
-    promotionId: Option<serde_json::Value>,
-    #[serde(rename = "type")]
-    offer_type: Option<String>,
+    #[serde(default, rename = "promotionId")]
+    promotion_id: Option<serde_json::Value>,
     advertiser: Option<AwinAdvertiser>,
     title: Option<String>,
     description: Option<String>,
-    startDate: Option<String>,
-    endDate: Option<String>,
+    #[serde(rename = "startDate")]
+    start_date: Option<String>,
+    #[serde(rename = "endDate")]
+    end_date: Option<String>,
     url: Option<String>,
-    urlTracking: Option<String>,
+    #[serde(rename = "urlTracking")]
+    url_tracking: Option<String>,
     voucher: Option<AwinVoucher>,
 }
 
 #[derive(Debug, Deserialize)]
 struct AwinAdvertiser {
     id: Option<u64>,
-    name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1079,12 +1082,12 @@ fn parse_offer_array(items: &[serde_json::Value]) -> Result<Vec<Coupon>, Affilia
             description,
             code,
             discount_bps,
-            starts_at: raw.startDate,
-            ends_at: raw.endDate,
+            starts_at: raw.start_date,
+            ends_at: raw.end_date,
             active: true,
             exclusive: raw.voucher.as_ref().and_then(|v| v.exclusive).unwrap_or(false),
             attributable: raw.voucher.as_ref().and_then(|v| v.attributable).unwrap_or(false),
-            url: raw.urlTracking.or(raw.url),
+            url: raw.url_tracking.or(raw.url),
             source: "awin_offers_api".into(),
         });
     }
@@ -1122,6 +1125,7 @@ mod tests {
     ) -> Product {
         Product {
             id: id.into(),
+            gtin: None,
             advertiser_id: id.into(),
             advertiser_name: None,
             name: name.into(),
