@@ -16,8 +16,15 @@ pub enum AgentRole {
 
 impl AgentRole {
     pub const ALL: [Self; 9] = [
-        Self::Governor, Self::CEO, Self::CFO, Self::COO, Self::Growth,
-        Self::Content, Self::Recruiter, Self::Analyst, Self::Experiment,
+        Self::Governor,
+        Self::CEO,
+        Self::CFO,
+        Self::COO,
+        Self::Growth,
+        Self::Content,
+        Self::Recruiter,
+        Self::Analyst,
+        Self::Experiment,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -139,36 +146,6 @@ pub struct Proposal {
     pub requested_permission: Permission,
 }
 
-impl Proposal {
-    pub fn validate(&self) -> Result<(), String> {
-        if self.objective.trim().is_empty() {
-            return Err("objective is required".into());
-        }
-        if self.rationale.trim().is_empty() {
-            return Err("rationale is required".into());
-        }
-        if self.evidence.is_empty() {
-            return Err("at least one evidence item is required".into());
-        }
-        if self.action == ActionKind::None {
-            return Err("action is required".into());
-        }
-        if self.cost_minor < 0 || self.expected_revenue_minor < 0 {
-            return Err("economic values cannot be negative".into());
-        }
-        if self.confidence_bps > 10_000 {
-            return Err("confidence must be <= 10000 basis points".into());
-        }
-        if self.requested_permission != Permission::Propose {
-            return Err("agent proposals may request Propose permission only".into());
-        }
-        if !self.agent.may_propose(self.action) {
-            return Err(format!("agent {} is not allowed to propose {:?}", self.agent.as_str(), self.action));
-        }
-        Ok(())
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GovernedProposal {
     pub proposal: Proposal,
@@ -182,23 +159,6 @@ pub struct AgentRunResult {
     pub proposal: Proposal,
     pub governance: Option<GovernedProposal>,
 }
-
-
-impl RiskTier {
-    pub fn rank(self) -> u8 {
-        match self {
-            Self::Low => 0,
-            Self::Medium => 1,
-            Self::High => 2,
-            Self::Critical => 3,
-        }
-    }
-
-    pub fn max(self, other: Self) -> Self {
-        if self.rank() >= other.rank() { self } else { other }
-    }
-}
-
 
 impl ActionKind {
     pub fn parse(value: &str) -> Option<Self> {
@@ -221,18 +181,27 @@ impl ActionKind {
         match self {
             Self::CreateExperiment | Self::AllocateExperimentBudget | Self::ResearchOpportunity => 500,
             Self::ProposeHire => 1_000,
-            Self::PublishContent | Self::ProduceReport | Self::ReduceBudget | Self::RebalanceOperations
-            | Self::EscalateIncident | Self::None => 0,
+            Self::PublishContent
+            | Self::ProduceReport
+            | Self::ReduceBudget
+            | Self::RebalanceOperations
+            | Self::EscalateIncident
+            | Self::None => 0,
         }
     }
 
     pub fn minimum_risk(self) -> RiskTier {
         match self {
             Self::ProposeHire => RiskTier::High,
-            Self::AllocateExperimentBudget | Self::CreateExperiment | Self::ResearchOpportunity
+            Self::AllocateExperimentBudget
+            | Self::CreateExperiment
+            | Self::ResearchOpportunity
             | Self::PublishContent => RiskTier::Medium,
-            Self::ReduceBudget | Self::RebalanceOperations | Self::ProduceReport
-            | Self::EscalateIncident | Self::None => RiskTier::Low,
+            Self::ReduceBudget
+            | Self::RebalanceOperations
+            | Self::ProduceReport
+            | Self::EscalateIncident
+            | Self::None => RiskTier::Low,
         }
     }
 
@@ -240,7 +209,6 @@ impl ActionKind {
         matches!(self, Self::ProposeHire | Self::PublishContent)
     }
 }
-
 
 impl RiskTier {
     pub fn rank(self) -> u8 {
@@ -267,3 +235,38 @@ impl RiskTier {
     }
 }
 
+impl Proposal {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.objective.trim().is_empty() {
+            return Err("objective is required".into());
+        }
+        if self.rationale.trim().is_empty() {
+            return Err("rationale is required".into());
+        }
+        if self.evidence.is_empty() {
+            return Err("at least one evidence item is required".into());
+        }
+        if self.action == ActionKind::None {
+            return Err("action is required".into());
+        }
+        if self.cost_minor < 0 || self.expected_revenue_minor < 0 {
+            return Err("economic values cannot be negative".into());
+        }
+        if self.cost_minor > self.action.max_cost_minor() {
+            return Err("proposal cost exceeds action safety cap".into());
+        }
+        if self.confidence_bps > 10_000 {
+            return Err("confidence must be <= 10000 basis points".into());
+        }
+        if self.requested_permission != Permission::Propose {
+            return Err("agent proposals may request Propose permission only".into());
+        }
+        if !self.agent.may_propose(self.action) {
+            return Err(format!("agent {} is not allowed to propose {:?}", self.agent.as_str(), self.action));
+        }
+        if self.risk.rank() < self.action.minimum_risk().rank() {
+            return Err("proposal risk is below the action minimum".into());
+        }
+        Ok(())
+    }
+}
