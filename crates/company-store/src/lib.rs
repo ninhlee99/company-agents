@@ -73,6 +73,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/007_organization_payroll.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/008_affiliate_revenue_accounting.sql"
+            ))
             .await
     }
 
@@ -1566,6 +1571,133 @@ impl CompanyStore {
 
         tx.commit().await?;
         Ok(reconciled)
+    }
+
+    pub async fn record_affiliate_payout(
+        &self,
+        company_id: &str,
+        payout_id: &str,
+        amount_minor: i128,
+        currency: &str,
+        occurred_at: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if payout_id.trim().is_empty() || amount_minor <= 0 {
+            return Err("affiliate payout requires a positive amount and payout id".into());
+        }
+        let occurred = time::OffsetDateTime::parse(
+            occurred_at,
+            &time::format_description::well_known::Rfc3339,
+        )
+        .map_err(|error| format!("invalid affiliate payout timestamp: {error}"))?;
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let company_currency = self.company_currency(&company_uuid).await?;
+        if currency != company_currency {
+            return Err("affiliate payout currency must match company currency".into());
+        }
+
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let exists = tx
+            .query_opt(
+                "SELECT 1 FROM affiliate_payouts
+                  WHERE company_id=$1 AND payout_id=$2
+                  FOR UPDATE",
+                &[&company_uuid, &payout_id],
+            )
+            .await?;
+        if exists.is_some() {
+            tx.rollback().await?;
+            return Ok(());
+        }
+
+        let recognized = parse_i128_numeric(
+            &tx
+                .query_one(
+                    "SELECT COALESCE(SUM(recognized_minor),0)::text
+                       FROM affiliate_revenue_recognition
+                      WHERE company_id=$1 AND status='RECOGNIZED'",
+                    &[&company_uuid],
+                )
+                .await?
+                .get::<_, String>(0),
+        )?;
+        let paid = parse_i128_numeric(
+            &tx
+                .query_one(
+                    "SELECT COALESCE(SUM(amount_minor),0)::text
+                       FROM affiliate_payouts
+                      WHERE company_id=$1",
+                    &[&company_uuid],
+                )
+                .await?
+                .get::<_, String>(0),
+        )?;
+        let available = recognized
+            .checked_sub(paid)
+            .ok_or("affiliate receivable balance overflow")?;
+        if amount_minor > available {
+            return Err("affiliate payout exceeds recognized receivable".into());
+        }
+
+        let (cash_account, receivable_account, _) =
+            ensure_affiliate_accounts(&tx, company_uuid, &company_currency).await?;
+        let payout_uuid = Uuid::new_v4();
+        let amount = amount_minor.to_string();
+        tx.execute(
+            "INSERT INTO ledger_transactions
+             (id, company_id, description, idempotency_key)
+             VALUES ($1,$2,'affiliate payout settlement',$3)",
+            &[&payout_uuid, &company_uuid, &format!("affiliate:payout:{payout_id}")],
+        )
+        .await?;
+        insert_ledger_entry(
+            &tx,
+            payout_uuid,
+            cash_account,
+            &amount,
+            "0",
+            &company_currency,
+        )
+        .await?;
+        insert_ledger_entry(
+            &tx,
+            payout_uuid,
+            receivable_account,
+            "0",
+            &amount,
+            &company_currency,
+        )
+        .await?;
+
+        let occurred_text = occurred.format(&time::format_description::well_known::Rfc3339)?;
+        tx.execute(
+            "INSERT INTO affiliate_payouts
+             (company_id,payout_id,currency,amount_minor,occurred_at,ledger_transaction_id)
+             VALUES ($1,$2,$3,$4::numeric,$5,$6)",
+            &[&company_uuid,&payout_id,&currency,&amount,&occurred_text,&payout_uuid],
+        )
+        .await?;
+
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'AFFILIATE_PAYOUT_SETTLED',$2,$3,$4)
+             ON CONFLICT (company_id,idempotency_key) DO NOTHING",
+            &[
+                &company_uuid,
+                &payout_id,
+                &format!("outbox:affiliate:payout:{payout_id}"),
+                &serde_json::json!({
+                    "payout_id": payout_id,
+                    "amount_minor": amount_minor,
+                    "currency": currency,
+                    "occurred_at": occurred_text,
+                }),
+            ],
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(())
     }
 
     pub async fn content_affiliate_performance(
