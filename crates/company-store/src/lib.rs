@@ -1575,7 +1575,7 @@ impl CompanyStore {
             .and_then(|row| row.get::<_, Option<Uuid>>(1));
 
         if delta != 0 {
-            let (cash_account, receivable_account, revenue_account) =
+            let (_cash_account, receivable_account, revenue_account) =
                 ensure_affiliate_accounts(&tx, company_id, &currency).await?;
 
             let transaction_id = Uuid::new_v4();
@@ -2090,6 +2090,68 @@ fn parse_employee_status(
         "TERMINATED" => Ok(company_organization::EmployeeStatus::Terminated),
         other => Err(format!("unknown employee status: {other}").into()),
     }
+}
+
+async fn load_affiliate_attributions(
+    tx: &Transaction<'_>,
+    company_id: Uuid,
+    conversion_id: &str,
+) -> Result<Vec<affiliate_attribution::Attribution>, Box<dyn std::error::Error + Send + Sync>> {
+    let rows = tx
+        .query(
+            "SELECT click_id, product_id, content_id,
+                    attributed_order_value_minor::text,
+                    attributed_commission_minor::text,
+                    confidence_bps
+               FROM affiliate_attributions
+              WHERE company_id=$1 AND conversion_id=$2
+              ORDER BY click_id ASC",
+            &[&company_id, &conversion_id],
+        )
+        .await?;
+    rows.into_iter()
+        .map(|row| {
+            Ok(affiliate_attribution::Attribution {
+                click_id: row.get(0),
+                product_id: row.get(1),
+                content_id: row.get(2),
+                attributed_order_value_minor: parse_i128_numeric(
+                    &row.get::<_, String>(3),
+                )?,
+                attributed_commission_minor: parse_i128_numeric(
+                    &row.get::<_, String>(4),
+                )?,
+                confidence_bps: row.get::<_, i32>(5).clamp(0, 10_000) as u32,
+            })
+        })
+        .collect()
+}
+
+async fn ensure_affiliate_accounts(
+    tx: &Transaction<'_>,
+    company_id: Uuid,
+    currency: &str,
+) -> Result<(Uuid, Uuid, Uuid), Box<dyn std::error::Error + Send + Sync>> {
+    let cash = ensure_ledger_account(tx, company_id, "CASH", "Cash", "ASSET", currency).await?;
+    let receivable = ensure_ledger_account(
+        tx,
+        company_id,
+        "AFFILIATE_RECEIVABLE",
+        "Affiliate Receivable",
+        "ASSET",
+        currency,
+    )
+    .await?;
+    let revenue = ensure_ledger_account(
+        tx,
+        company_id,
+        "AFFILIATE_REVENUE",
+        "Affiliate Revenue",
+        "REVENUE",
+        currency,
+    )
+    .await?;
+    Ok((cash, receivable, revenue))
 }
 
 async fn ensure_payroll_accounts(
