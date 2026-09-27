@@ -1,0 +1,219 @@
+#![forbid(unsafe_code)]
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum EmployeeStatus {
+    Proposed,
+    Active,
+    Suspended,
+    Terminated,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Employee {
+    pub id: String,
+    pub name: String,
+    pub role: String,
+    pub monthly_cost_minor: i128,
+    pub currency: String,
+    pub status: EmployeeStatus,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum BusinessUnitLifecycle {
+    Testing,
+    Growing,
+    Stable,
+    Distress,
+    Paused,
+    Closed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BusinessUnit {
+    pub id: String,
+    pub name: String,
+    pub currency: String,
+    pub cash_minor: i128,
+    pub revenue_minor: i128,
+    pub variable_cost_minor: i128,
+    pub fixed_cost_minor: i128,
+    pub budget_minor: i128,
+    pub lifecycle: BusinessUnitLifecycle,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PayrollObligation {
+    pub id: String,
+    pub employee_id: String,
+    pub period: String,
+    pub gross_minor: i128,
+    pub currency: String,
+    pub due_at: String,
+    pub paid_minor: i128,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PortfolioMetrics {
+    pub revenue_minor: i128,
+    pub contribution_margin_minor: i128,
+    pub operating_cost_minor: i128,
+    pub burn_minor: i128,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OrganizationError {
+    InvalidValue(String),
+    Overflow,
+}
+
+impl std::fmt::Display for OrganizationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidValue(v) => write!(f, "invalid organization value: {v}"),
+            Self::Overflow => write!(f, "organization arithmetic overflow"),
+        }
+    }
+}
+
+impl std::error::Error for OrganizationError {}
+
+pub fn contribution_margin(
+    revenue_minor: i128,
+    variable_cost_minor: i128,
+) -> Result<i128, OrganizationError> {
+    if revenue_minor < 0 || variable_cost_minor < 0 {
+        return Err(OrganizationError::InvalidValue(
+            "revenue and variable cost must be non-negative".into(),
+        ));
+    }
+    revenue_minor
+        .checked_sub(variable_cost_minor)
+        .ok_or(OrganizationError::Overflow)
+}
+
+pub fn unit_contribution_margin(unit: &BusinessUnit) -> Result<i128, OrganizationError> {
+    let contribution = contribution_margin(unit.revenue_minor, unit.variable_cost_minor)?;
+    contribution
+        .checked_sub(unit.fixed_cost_minor.max(0))
+        .ok_or(OrganizationError::Overflow)
+}
+
+pub fn summarize_portfolio(units: &[BusinessUnit]) -> Result<PortfolioMetrics, OrganizationError> {
+    let mut revenue = 0_i128;
+    let mut contribution = 0_i128;
+    let mut operating = 0_i128;
+
+    for unit in units {
+        if unit.currency.len() != 3 || !unit.currency.bytes().all(|b| b.is_ascii_uppercase()) {
+            return Err(OrganizationError::InvalidValue(
+                "business unit currency must be uppercase 3-letter code".into(),
+            ));
+        }
+        if unit.cash_minor < 0
+            || unit.revenue_minor < 0
+            || unit.variable_cost_minor < 0
+            || unit.fixed_cost_minor < 0
+            || unit.budget_minor < 0
+        {
+            return Err(OrganizationError::InvalidValue(
+                "business unit economics cannot be negative".into(),
+            ));
+        }
+        revenue = revenue
+            .checked_add(unit.revenue_minor)
+            .ok_or(OrganizationError::Overflow)?;
+        contribution = contribution
+            .checked_add(unit_contribution_margin(unit)?)
+            .ok_or(OrganizationError::Overflow)?;
+        operating = operating
+            .checked_add(unit.fixed_cost_minor)
+            .ok_or(OrganizationError::Overflow)?;
+    }
+
+    Ok(PortfolioMetrics {
+        revenue_minor: revenue,
+        contribution_margin_minor: contribution,
+        operating_cost_minor: operating,
+        burn_minor: contribution.saturating_neg().max(0),
+    })
+}
+
+pub fn validate_employee(employee: &Employee) -> Result<(), OrganizationError> {
+    if employee.id.trim().is_empty() || employee.name.trim().is_empty() || employee.role.trim().is_empty() {
+        return Err(OrganizationError::InvalidValue(
+            "employee id, name and role are required".into(),
+        ));
+    }
+    if employee.monthly_cost_minor < 0 {
+        return Err(OrganizationError::InvalidValue(
+            "monthly employee cost cannot be negative".into(),
+        ));
+    }
+    if employee.currency.len() != 3 || !employee.currency.bytes().all(|b| b.is_ascii_uppercase()) {
+        return Err(OrganizationError::InvalidValue(
+            "employee currency must be uppercase 3-letter code".into(),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn unit(
+        id: &str,
+        revenue: i128,
+        variable: i128,
+        fixed: i128,
+    ) -> BusinessUnit {
+        BusinessUnit {
+            id: id.into(),
+            name: id.into(),
+            currency: "USD".into(),
+            cash_minor: 1_000,
+            revenue_minor: revenue,
+            variable_cost_minor: variable,
+            fixed_cost_minor: fixed,
+            budget_minor: 500,
+            lifecycle: BusinessUnitLifecycle::Growing,
+        }
+    }
+
+    #[test]
+    fn contribution_margin_is_exact() {
+        assert_eq!(contribution_margin(1_000, 250).unwrap(), 750);
+    }
+
+    #[test]
+    fn portfolio_metrics_sum_units() {
+        let metrics = summarize_portfolio(&[
+            unit("a", 1_000, 100, 50),
+            unit("b", 2_000, 500, 100),
+        ])
+        .unwrap();
+        assert_eq!(metrics.revenue_minor, 3_000);
+        assert_eq!(metrics.contribution_margin_minor, 2_250);
+    }
+
+    #[test]
+    fn invalid_employee_is_rejected() {
+        let employee = Employee {
+            id: "".into(),
+            name: "x".into(),
+            role: "creator".into(),
+            monthly_cost_minor: 100,
+            currency: "USD".into(),
+            status: EmployeeStatus::Active,
+        };
+        assert!(validate_employee(&employee).is_err());
+    }
+
+    #[test]
+    fn negative_economics_are_rejected() {
+        assert!(contribution_margin(-1, 0).is_err());
+        assert!(contribution_margin(1, -1).is_err());
+    }
+}
