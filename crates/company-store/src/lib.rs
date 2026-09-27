@@ -1655,7 +1655,7 @@ impl CompanyStore {
                             WHEN attempt_count >= 8 THEN interval '1 hour'
                             ELSE make_interval(secs => LEAST(900, GREATEST(5, attempt_count * 15)))
                           END,
-                        last_error = $3
+                        last_error = $4
                   WHERE company_id = $1
                     AND id = $2
                     AND published_at IS NULL
