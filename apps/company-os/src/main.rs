@@ -1,15 +1,53 @@
-use agent_runtime::{model_from_env, AgentRunResult, AgentRuntime, CompanySnapshot};
+use affiliate_intelligence::{
+    now_epoch, AffiliateIntelligence, AffiliateSearchResult, AwinCsvProvider,
+    ProductSearchQuery, ProviderError, TikTokShopOpenCollaborationProvider,
+};
+use agent_runtime::{
+    model_from_env, AgentRunResult, AgentRuntime, CompanySnapshot, ExecutionEngine, ExecutionOutcome,
+};
 use company_store::CompanyStore;
-use axum::{extract::State, http::StatusCode, response::Html, routing::{get, post}, Json, Router};
+use axum::{
+    extract::{Query, State},
+    http::StatusCode,
+    response::Html,
+    routing::{get, post},
+    Json, Router,
+};
+use serde::Deserialize;
+use serde_json::Value;
 use std::{sync::Arc, time::Duration};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
+use uuid::Uuid;
 
 #[derive(Clone)]
 struct AppState {
     runtime: Arc<AgentRuntime>,
     company: Arc<RwLock<CompanySnapshot>>,
     latest: Arc<RwLock<Vec<AgentRunResult>>>,
+    latest_outcomes: Arc<RwLock<Vec<ExecutionOutcome>>>,
     store: Arc<CompanyStore>,
+    cycle_lock: Arc<Mutex<()>>,
+    affiliate: Option<Arc<AffiliateIntelligence>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AffiliateQueryParams {
+    category: Option<String>,
+    keywords: Option<String>,
+    currency: Option<String>,
+    min_commission_bps: Option<u32>,
+    require_coupon: Option<bool>,
+    min_rating_bps: Option<u32>,
+    min_reviews: Option<u64>,
+    min_stock: Option<u64>,
+    max_price_minor: Option<i128>,
+    max_content_cost_minor: Option<i128>,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct ValueError {
+    error: String,
 }
 
 fn format_minor(value: i128) -> String {
@@ -18,8 +56,9 @@ fn format_minor(value: i128) -> String {
     let whole = absolute / 100;
     let cents = absolute % 100;
     let rendered = format!("{}.{:02}", whole, cents);
-    if negative { format!("-${}", rendered) } else { format!("${}", rendered) }
+    if negative { format!("-{}", rendered) } else { rendered }
 }
+
 fn seed_company(company_id: String) -> CompanySnapshot {
     CompanySnapshot {
         company_id,
@@ -42,28 +81,70 @@ fn seed_company(company_id: String) -> CompanySnapshot {
     }
 }
 
+fn build_affiliate_intelligence() -> Option<Arc<AffiliateIntelligence>> {
+    let mut providers: Vec<Box<dyn affiliate_intelligence::AffiliateProvider>> = Vec::new();
+
+    if std::env::var("AWIN_FEED_URL").ok().filter(|v| !v.trim().is_empty()).is_some() {
+        match AwinCsvProvider::from_env() {
+            Ok(provider) => providers.push(Box::new(provider)),
+            Err(error) => eprintln!("Awin disabled: {error}"),
+        }
+    }
+
+    if std::env::var("TIKTOK_APP_KEY").is_ok() {
+        match TikTokShopOpenCollaborationProvider::from_env() {
+            Ok(provider) => providers.push(Box::new(provider)),
+            Err(error) => eprintln!("TikTok Shop disabled: {error}"),
+        }
+    }
+
+    if providers.is_empty() { None } else { Some(Arc::new(AffiliateIntelligence::new(providers))) }
+}
+
 async fn run_cycle(state: &AppState) -> Result<Vec<AgentRunResult>, Box<dyn std::error::Error + Send + Sync>> {
+    let _guard = state.cycle_lock.lock().await;
     let company = state.company.read().await.clone();
-    let results = state.runtime.run_all(company.clone()).await;
-    state.store.persist_cycle(&company, &results).await?;
+    let mut results = state.runtime.run_all(company).await;
+    let mut next_company = state.company.read().await.clone();
+    let outcomes = ExecutionEngine::default().execute_batch(&mut next_company, &mut results);
+    let cycle_id = Uuid::new_v4().to_string();
+
+    store_cycle(state, &next_company, &cycle_id, &results, &outcomes).await?;
+
+    *state.company.write().await = next_company;
     *state.latest.write().await = results.clone();
+    *state.latest_outcomes.write().await = outcomes;
     Ok(results)
+}
+
+async fn store_cycle(
+    state: &AppState,
+    snapshot: &CompanySnapshot,
+    cycle_id: &str,
+    results: &[AgentRunResult],
+    outcomes: &[ExecutionOutcome],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    state.store.persist_decision_cycle(snapshot, cycle_id, results, outcomes).await?;
+    Ok(())
 }
 
 async fn index(State(state): State<AppState>) -> Html<String> {
     let company = state.company.read().await.clone();
     let latest = state.latest.read().await;
+    let outcomes = state.latest_outcomes.read().await;
     let mut rows = String::new();
 
-    for item in latest.iter() {
+    for (index, item) in latest.iter().enumerate() {
         let decision = item.governance
             .as_ref()
             .map(|g| format!("{:?}", g.decision))
             .unwrap_or_else(|| "—".into());
+        let executed = outcomes.get(index).map(|o| o.executed).unwrap_or(false);
 
         rows.push_str(&format!(
-            "<tr><td>{}</td><td>READY</td><td>{}</td><td>{:?}</td></tr>",
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{:?}</td></tr>",
             item.agent.as_str(),
+            if executed { "EXECUTED" } else { "NOT EXECUTED" },
             decision,
             item.proposal.action
         ));
@@ -86,18 +167,18 @@ button{{padding:10px 14px;border:1px solid #bbb;border-radius:8px;background:#ff
 small{{color:#666}}
 </style></head><body>
 <h1>Company OS</h1>
-<small>Rust control plane • 8 operating agents + Governor policy engine</small>
+<small>Rust control plane • governed execution • durable decision journal • affiliate intelligence</small>
 <div class="grid">
-<div class="card"><strong>Cash</strong><div>${}</div></div>
-<div class="card"><strong>Revenue</strong><div>${}</div></div>
-<div class="card"><strong>Expenses</strong><div>${}</div></div>
+<div class="card"><strong>Cash</strong><div>{}</div></div>
+<div class="card"><strong>Revenue</strong><div>{}</div></div>
+<div class="card"><strong>Expenses</strong><div>{}</div></div>
 <div class="card"><strong>Runway</strong><div>{}</div></div>
 </div>
 <div class="card"><h2>Run agents</h2>
 <form method="post" action="/run"><button type="submit">Run one decision cycle</button></form>
-<p><small>LLM reasoning is optional; deterministic policy and Governor remain in control.</small></p></div>
+<p><small>LLM reasoning is advisory metadata. Governor and deterministic execution remain authoritative.</small></p></div>
 <div class="card"><h2>Agents</h2>
-<table><tr><th>Agent</th><th>Status</th><th>Governor</th><th>Action</th></tr>{}</table>
+<table><tr><th>Agent</th><th>Execution</th><th>Governor</th><th>Action</th></tr>{}</table>
 </div>
 </body></html>"#,
         format_minor(company.cash_minor),
@@ -111,16 +192,63 @@ small{{color:#666}}
 async fn run_html(State(state): State<AppState>) -> (StatusCode, Html<String>) {
     match run_cycle(&state).await {
         Ok(_) => (StatusCode::SEE_OTHER, Html(r#"<meta http-equiv="refresh" content="0; url=/" />"#.into())),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Html("cycle failed safely; inspect logs".into())),
+        Err(error) => {
+            eprintln!("cycle error: {error}");
+            (StatusCode::INTERNAL_SERVER_ERROR, Html("cycle failed safely; inspect logs".into()))
+        }
     }
 }
 
 async fn run_api(State(state): State<AppState>) -> Result<Json<Vec<AgentRunResult>>, StatusCode> {
-    run_cycle(&state).await.map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    run_cycle(&state).await.map(Json).map_err(|error| {
+        eprintln!("api cycle error: {error}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })
 }
 
 async fn agents_api(State(state): State<AppState>) -> Json<Vec<AgentRunResult>> {
     Json(state.latest.read().await.clone())
+}
+
+async fn affiliate_search(
+    State(state): State<AppState>,
+    Query(params): Query<AffiliateQueryParams>,
+) -> Result<Json<AffiliateSearchResult>, (StatusCode, Json<ValueError>)> {
+    let intelligence = state.affiliate.as_ref().ok_or_else(|| (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(ValueError { error: "no affiliate provider is configured".into() }),
+    ))?;
+
+    let query = ProductSearchQuery {
+        category: params.category,
+        keywords: params.keywords.unwrap_or_default().split_whitespace().map(str::to_string).collect(),
+        currency: params.currency.map(|v| v.to_ascii_uppercase()),
+        min_commission_bps: params.min_commission_bps,
+        require_coupon: params.require_coupon.unwrap_or(false),
+        min_rating_bps: params.min_rating_bps,
+        min_reviews: params.min_reviews,
+        min_stock: params.min_stock,
+        max_price_minor: params.max_price_minor,
+        max_content_cost_minor: params.max_content_cost_minor.unwrap_or(0).max(0),
+        limit: params.limit.unwrap_or(20),
+        now_epoch: now_epoch(),
+    };
+
+    intelligence.search(query).await
+        .map(Json)
+        .map_err(|error| {
+            let status = match &error {
+                ProviderError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
+                ProviderError::RateLimited => StatusCode::TOO_MANY_REQUESTS,
+                ProviderError::Configuration(_) => StatusCode::BAD_REQUEST,
+                ProviderError::InvalidData(_) | ProviderError::Transport(_) => StatusCode::BAD_GATEWAY,
+            };
+            (status, Json(ValueError { error: error.to_string() }))
+        })
+}
+
+async fn affiliate_providers(State(state): State<AppState>) -> Json<Vec<String>> {
+    Json(state.affiliate.as_ref().map(|a| a.provider_names()).unwrap_or_default())
 }
 
 async fn healthz() -> &'static str {
@@ -153,7 +281,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         runtime,
         company: Arc::new(RwLock::new(company)),
         latest: Arc::new(RwLock::new(Vec::new())),
+        latest_outcomes: Arc::new(RwLock::new(Vec::new())),
         store,
+        cycle_lock: Arc::new(Mutex::new(())),
+        affiliate: build_affiliate_intelligence(),
     };
 
     let background = state.clone();
@@ -179,12 +310,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/run", post(run_html))
         .route("/api/run", post(run_api))
         .route("/api/agents", get(agents_api))
+        .route("/api/affiliate/search", get(affiliate_search))
+        .route("/api/affiliate/providers", get(affiliate_providers))
         .route("/healthz", get(healthz))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(("0.0.0.0", 8080)).await?;
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 8080)).await?;
 
-    println!("Company OS listening on http://localhost:8080");
+    println!("Company OS listening on http://127.0.0.1:8080");
     axum::serve(listener, app).await?;
     Ok(())
 }
