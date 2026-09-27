@@ -1040,6 +1040,22 @@ impl CompanyStore {
         Ok(row.map(|r| r.get(0)))
     }
 
+    pub async fn retry_cycle_schedule(
+        &self,
+        company_id: &str,
+        delay_seconds: i64,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let delay = delay_seconds.clamp(5, 3_600);
+        let client = self.client.lock().await;
+        Ok(client.execute(
+            "UPDATE company_schedules
+             SET next_run_at=now() + ($2 * interval '1 second'), updated_at=now()
+             WHERE company_id=$1 AND job_type='AGENT_CYCLE' AND enabled=true",
+            &[&company_uuid, &delay],
+        ).await? == 1)
+    }
+
     pub async fn set_schedule_enabled(
         &self,
         company_id: &str,
