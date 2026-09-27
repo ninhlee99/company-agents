@@ -5,7 +5,6 @@ on:
 permissions:
   contents: read
   issues: write
-  pull-requests: write
 jobs:
   report:
     runs-on: ubuntu-latest
@@ -24,16 +23,8 @@ jobs:
             cargo check --workspace --all-targets
             echo CHECK_EXIT=$?
           } 2>&1 | tee /tmp/ci-output.log
-      - name: Comment diagnostic
+      - name: Create temporary issue with diagnostic
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          BODY=$(python3 - <<'PY'
-          from pathlib import Path
-          s=Path('/tmp/ci-output.log').read_text(errors='replace')
-          print('## Temporary CI diagnostic\n\n' + chr(96)*3 + 'text')
-          print(s[-50000:])
-          print(chr(96)*3)
-          PY
-          )
-          gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" -X POST -f body="$BODY"
+          gh issue create --repo "${{ github.repository }}" --title "TEMP-CI-DIAGNOSTIC-${{ github.event.pull_request.number }}" --body-file /tmp/ci-output.log
