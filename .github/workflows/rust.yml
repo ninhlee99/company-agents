@@ -1,11 +1,4 @@
 name: rust
-concurrency:
-  group: rust-ci-${{ github.ref }}
-  cancel-in-progress: true
-
-permissions:
-  contents: write
-
 on:
   push:
   pull_request:
