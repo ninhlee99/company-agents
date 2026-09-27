@@ -1,6 +1,11 @@
 #![forbid(unsafe_code)]
 
 use serde::{Deserialize, Serialize};
+use std::{
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+    time::{Duration, Instant},
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MediaJob {
@@ -67,6 +72,101 @@ impl std::error::Error for MediaError {}
 
 pub trait MediaExecutor {
     fn execute(&self, job: &MediaJob) -> Result<(), MediaError>;
+}
+
+pub struct FfmpegExecutor {
+    executable: PathBuf,
+    workspace: PathBuf,
+    timeout: Duration,
+}
+
+impl FfmpegExecutor {
+    pub fn new(
+        executable: impl Into<PathBuf>,
+        workspace: impl Into<PathBuf>,
+        timeout: Duration,
+    ) -> Result<Self, MediaError> {
+        if timeout < Duration::from_secs(1) || timeout > Duration::from_secs(86_400) {
+            return Err(MediaError::InvalidJob("FFmpeg timeout outside safe bounds".into()));
+        }
+        Ok(Self {
+            executable: executable.into(),
+            workspace: workspace.into(),
+            timeout,
+        })
+    }
+
+    pub fn from_env() -> Result<Self, MediaError> {
+        let executable = std::env::var("FFMPEG_BIN").unwrap_or_else(|_| "ffmpeg".into());
+        let workspace = std::env::var("MEDIA_WORKSPACE")
+            .map(PathBuf::from)
+            .map_err(|_| MediaError::InvalidJob("MEDIA_WORKSPACE is required for FFmpeg execution".into()))?;
+        let timeout_seconds = std::env::var("FFMPEG_TIMEOUT_SECONDS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(900);
+        Self::new(executable, workspace, Duration::from_secs(timeout_seconds))
+    }
+
+    fn safe_path(&self, relative: &str) -> Result<PathBuf, MediaError> {
+        validate_safe_path(relative)?;
+        Ok(self.workspace.join(relative))
+    }
+}
+
+impl MediaExecutor for FfmpegExecutor {
+    fn execute(&self, job: &MediaJob) -> Result<(), MediaError> {
+        let args = ffmpeg_args(job)?;
+        let input = self.safe_path(&job.input_path)?;
+        let output = self.safe_path(&job.output_path)?;
+
+        if !input.exists() {
+            return Err(MediaError::InvalidJob("input media does not exist".into()));
+        }
+        if let Some(parent) = output.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| MediaError::InvalidJob(format!("cannot create output directory: {e}")))?;
+        }
+
+        let mut child = Command::new(&self.executable)
+            .current_dir(&self.workspace)
+            .args(args)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| MediaError::InvalidJob(format!("failed to start FFmpeg: {e}")))?;
+
+        let started = Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    if status.success() {
+                        return Ok(());
+                    }
+                    return Err(MediaError::InvalidJob(format!(
+                        "FFmpeg exited with status {status}"
+                    )));
+                }
+                Ok(None) => {
+                    if started.elapsed() >= self.timeout {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(MediaError::InvalidJob(
+                            "FFmpeg execution timed out and was terminated".into(),
+                        ));
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                Err(error) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(MediaError::InvalidJob(format!(
+                        "FFmpeg process polling failed: {error}"
+                    )));
+                }
+            }
+        }
+    }
 }
 
 pub fn validate_job(job: &MediaJob) -> Result<(), MediaError> {
@@ -181,6 +281,7 @@ pub fn qa(probe: &MediaProbe, policy: &MediaQaPolicy) -> MediaQaResult {
 
 fn validate_safe_path(path: &str) -> Result<(), MediaError> {
     if path.trim().is_empty()
+        || Path::new(path).is_absolute()
         || path.starts_with('/')
         || path.contains("..")
         || path.contains('\\')
