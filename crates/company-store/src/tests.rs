@@ -418,7 +418,10 @@ async fn scheduler_lease_recovery_reuses_same_run_token() {
         .await
         .unwrap()
         .expect("job should be claimable");
-    store.release_job_after_failure(first.0).await.unwrap();
+    store
+        .release_job_after_failure(first.0, first.1, first.2)
+        .await
+        .unwrap();
 
     let second = store
         .claim_due_job(&company_id, "agent_cycle")
@@ -428,8 +431,15 @@ async fn scheduler_lease_recovery_reuses_same_run_token() {
 
     assert_eq!(first.0, second.0);
     assert_eq!(first.1, second.1);
+    assert_ne!(first.2, second.2);
+
+    let stale = store
+        .complete_job(first.0, first.1, first.2, uuid::Uuid::new_v4())
+        .await;
+    assert!(stale.is_err());
+
     store
-        .complete_job(second.0, uuid::Uuid::new_v4())
+        .complete_job(second.0, second.1, second.2, uuid::Uuid::new_v4())
         .await
         .unwrap();
 }
