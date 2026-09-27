@@ -78,6 +78,8 @@ struct AppState {
     currency: String,
     metrics: Arc<RuntimeMetrics>,
     portfolio: Arc<RwLock<CompanyPortfolio>>,
+    mutation_token: Option<String>,
+    production: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -323,7 +325,16 @@ code{{background:#f2f2f2;padding:2px 5px;border-radius:5px}}
     ))
 }
 
-async fn run_html(State(state): State<AppState>) -> (StatusCode, Html<String>) {
+async fn run_html(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> (StatusCode, Html<String>) {
+    if !mutation_authorized(&state, &headers) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Html("mutation authorization required".into()),
+        );
+    }
     match run_cycle(&state, &uuid::Uuid::new_v4().to_string()).await {
         Ok(_) => (
             StatusCode::SEE_OTHER,
@@ -347,7 +358,13 @@ async fn run_html(State(state): State<AppState>) -> (StatusCode, Html<String>) {
     }
 }
 
-async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, StatusCode> {
+async fn run_api(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<CycleResponse>, StatusCode> {
+    if !mutation_authorized(&state, &headers) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
     run_cycle(&state, &uuid::Uuid::new_v4().to_string())
         .await
         .map(Json)
@@ -402,8 +419,12 @@ async fn metrics(State(state): State<AppState>) -> (StatusCode, [(axum::http::He
 
 async fn affiliate_click_api(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Json(event): Json<affiliate_attribution::ClickEvent>,
 ) -> Result<StatusCode, StatusCode> {
+    if !mutation_authorized(&state, &headers) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
     if event.company_id != state.company_id {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -417,8 +438,12 @@ async fn affiliate_click_api(
 
 async fn affiliate_conversion_api(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Json(request): Json<AffiliateConversionRequest>,
 ) -> Result<Json<affiliate_attribution::ReconciledConversion>, StatusCode> {
+    if !mutation_authorized(&state, &headers) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
     if request.event.company_id != state.company_id {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -443,8 +468,12 @@ async fn affiliate_performance_api(
 
 async fn affiliate_payout_api(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Json(event): Json<affiliate_attribution::AffiliatePayoutEvent>,
 ) -> Result<StatusCode, StatusCode> {
+    if !mutation_authorized(&state, &headers) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
     if event.company_id != state.company_id {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -473,6 +502,16 @@ async fn portfolio_api(
     Ok(Json(state.portfolio.read().await.clone()))
 }
 
+fn mutation_authorized(state: &AppState, headers: &axum::http::HeaderMap) -> bool {
+    let Some(expected) = state.mutation_token.as_deref() else {
+        return !state.production;
+    };
+    headers
+        .get("x-company-os-token")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value == expected)
+}
+
 async fn healthz() -> &'static str {
     "ok"
 }
@@ -486,6 +525,30 @@ async fn readyz(State(state): State<AppState>) -> Result<&'static str, StatusCod
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
 
+fn read_secret_env(name: &str) -> Option<String> {
+    let direct = std::env::var(name).ok().filter(|value| !value.trim().is_empty());
+    let file = std::env::var(format!("{name}_FILE"))
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+
+    if direct.is_some() && file.is_some() {
+        return None;
+    }
+    match (direct, file) {
+        (Some(value), None) => Some(value.trim().to_owned()),
+        (None, Some(path)) => {
+            let metadata = std::fs::metadata(&path).ok()?;
+            if metadata.len() > 16 * 1024 || metadata.is_dir() {
+                return None;
+            }
+            let value = std::fs::read_to_string(path).ok()?;
+            let value = value.trim().to_owned();
+            (!value.is_empty()).then_some(value)
+        }
+        _ => None,
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let database_url = std::env::var("DATABASE_URL")?;
@@ -493,6 +556,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .unwrap_or_else(|_| "00000000-0000-0000-0000-000000000001".into());
     let company_name = std::env::var("COMPANY_NAME").unwrap_or_else(|_| "Demo Company".into());
     let currency = std::env::var("COMPANY_CURRENCY").unwrap_or_else(|_| "USD".into());
+    let production = std::env::var("COMPANY_ENV")
+        .map(|value| value.eq_ignore_ascii_case("production"))
+        .unwrap_or(false);
+    let mutation_token = read_secret_env("COMPANY_OS_MUTATION_TOKEN");
+    if production && mutation_token.is_none() {
+        return Err("COMPANY_OS_MUTATION_TOKEN is required in production".into());
+    }
 
     let store = Arc::new(CompanyStore::connect(&database_url).await?);
     store.migrate().await?;
@@ -562,6 +632,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         currency: currency.clone(),
         metrics: Arc::new(RuntimeMetrics::default()),
         portfolio: Arc::new(RwLock::new(portfolio)),
+        mutation_token,
+        production,
     };
 
     let interval_secs = std::env::var("AGENT_CYCLE_SECONDS")
