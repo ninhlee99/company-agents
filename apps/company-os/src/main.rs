@@ -107,52 +107,12 @@ async fn run_cycle(
     let _cycle_guard = state.cycle_lock.lock().await;
     let company = state.company.read().await.clone();
 
-    let memory_limit = std::env::var("AGENT_MEMORY_LIMIT")
-        .ok()
-        .and_then(|value| value.parse::<i64>().ok())
-        .map(|value| value.clamp(1, 100))
-        .unwrap_or(20);
-    let memory = state
-        .store
-        .load_all_agent_memory(&state.company_id, memory_limit)
-        .await?;
-
-    let rate_window_seconds = std::env::var("AGENT_RATE_WINDOW_SECONDS")
-        .ok()
-        .and_then(|value| value.parse::<i64>().ok())
-        .map(|value| value.clamp(15, 86_400))
-        .unwrap_or(300);
-    let max_calls = std::env::var("AGENT_MAX_CALLS_PER_WINDOW")
-        .ok()
-        .and_then(|value| value.parse::<i32>().ok())
-        .map(|value| value.clamp(1, 100))
-        .unwrap_or(1);
-
-    let allowed_roles = state
-        .store
-        .claim_agent_run_slots(
-            &state.company_id,
-            &state.runtime.agent_roles(),
-            rate_window_seconds,
-            max_calls,
-        )
-        .await?;
-
-    let timeout_ms = std::env::var("MODEL_TIMEOUT_MS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .filter(|value| (250..=120_000).contains(value))
-        .unwrap_or(15_000);
-
+    let runtime_state: Arc<dyn agent_runtime::agent::AgentStateProvider> = state.store.clone();
     let results = state
         .runtime
-        .run_roles_with_memory(
-            company.clone(),
-            Duration::from_millis(timeout_ms),
-            allowed_roles,
-            &memory,
-        )
+        .run_all_with_state(company.clone(), Some(runtime_state))
         .await;
+
     let persisted = state
         .store
         .persist_and_execute_cycle_with_id(&company, &results, cycle_id)
