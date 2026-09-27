@@ -58,6 +58,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/004_affiliate_attribution.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/005_media_jobs.sql"
+            ))
             .await
     }
 
@@ -1018,6 +1023,133 @@ impl CompanyStore {
             .into_iter()
             .map(|row| row.get::<_, serde_json::Value>(0))
             .collect())
+    }
+
+    pub async fn enqueue_media_job(
+        &self,
+        company_id: &str,
+        job: &media_pipeline::MediaJob,
+        idempotency_key: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        media_pipeline::validate_job(job).map_err(|error| error.to_string())?;
+        if idempotency_key.trim().is_empty() || idempotency_key.len() > 256 {
+            return Err("media idempotency key is invalid".into());
+        }
+        let company_id = Uuid::parse_str(company_id)?;
+        let format = match job.format {
+            media_pipeline::MediaFormat::Mp4H264 => "Mp4H264",
+            media_pipeline::MediaFormat::WebMvp9 => "WebMvp9",
+        };
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "INSERT INTO media_jobs
+                 (id, company_id, input_path, output_path, format,
+                  width, height, fps, max_duration_seconds,
+                  normalize_audio, status, idempotency_key)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'QUEUED',$11)
+                 ON CONFLICT (company_id, idempotency_key) DO NOTHING",
+                &[
+                    &Uuid::parse_str(&job.id)?,
+                    &company_id,
+                    &job.input_path,
+                    &job.output_path,
+                    &format,
+                    &(job.width as i32),
+                    &(job.height as i32),
+                    &(job.fps as i32),
+                    &(job.max_duration_seconds as i32),
+                    &job.normalize_audio,
+                    &idempotency_key,
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn claim_media_job(
+        &self,
+        company_id: &str,
+    ) -> Result<Option<media_pipeline::MediaJob>, Box<dyn std::error::Error + Send + Sync>> {
+        let company_id = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let row = tx
+            .query_opt(
+                "SELECT id, input_path, output_path, format, width, height,
+                        fps, max_duration_seconds, normalize_audio
+                   FROM media_jobs
+                  WHERE company_id = $1
+                    AND (
+                      status = 'QUEUED'
+                      OR (status = 'RUNNING' AND locked_until <= now())
+                    )
+                  ORDER BY created_at ASC
+                  FOR UPDATE SKIP LOCKED
+                  LIMIT 1",
+                &[&company_id],
+            )
+            .await?;
+        let Some(row) = row else {
+            tx.rollback().await?;
+            return Ok(None);
+        };
+
+        let id: Uuid = row.get(0);
+        let format: String = row.get(3);
+        let job = media_pipeline::MediaJob {
+            id: id.to_string(),
+            input_path: row.get(1),
+            output_path: row.get(2),
+            format: match format.as_str() {
+                "Mp4H264" => media_pipeline::MediaFormat::Mp4H264,
+                "WebMvp9" => media_pipeline::MediaFormat::WebMvp9,
+                other => {
+                    tx.rollback().await?;
+                    return Err(format!("unknown media format {other}").into());
+                }
+            },
+            width: row.get::<_, i32>(4).max(16) as u32,
+            height: row.get::<_, i32>(5).max(16) as u32,
+            fps: row.get::<_, i32>(6).max(1) as u32,
+            max_duration_seconds: row.get::<_, i32>(7).max(1) as u32,
+            normalize_audio: row.get(8),
+        };
+
+        tx.execute(
+            "UPDATE media_jobs
+                SET status='RUNNING', attempts=attempts+1,
+                    locked_until=now()+interval '15 minutes',
+                    updated_at=now()
+              WHERE id=$1",
+            &[&id],
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(Some(job))
+    }
+
+    pub async fn finish_media_job(
+        &self,
+        job_id: &str,
+        success: bool,
+        error: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let id = Uuid::parse_str(job_id)?;
+        let bounded_error = error.map(|value| value.chars().take(4096).collect::<String>());
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "UPDATE media_jobs
+                    SET status = CASE WHEN $2 THEN 'SUCCEEDED' ELSE 'FAILED' END,
+                        locked_until = NULL,
+                        last_error = $3,
+                        updated_at = now()
+                  WHERE id = $1",
+                &[&id, &success, &bounded_error],
+            )
+            .await?;
+        Ok(())
     }
 
     pub async fn record_cycle_failure(
