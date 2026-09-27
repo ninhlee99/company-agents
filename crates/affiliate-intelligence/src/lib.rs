@@ -392,7 +392,7 @@ pub fn rank_candidates(
                 coupon_score_bps: coupon_score,
                 reliability_score_bps: reliability,
                 content_fit_bps: content_fit,
-                expected_commission_minor,
+                expected_commission_minor: expected_commission,
                 expected_contribution_minor: contribution,
                 quality_confidence_bps: quality_confidence,
                 commercial_confidence_bps: commercial_confidence,
@@ -743,7 +743,7 @@ impl AwinCsvProvider {
             .map_err(|e| ProviderError::InvalidData(e.to_string()))?
             .clone();
         let index = HeaderIndex::new(&headers);
-        let now = query.now_epoch();
+        let now = query.now_epoch;
         let mut output = Vec::new();
 
         for row in reader.records() {
@@ -916,7 +916,7 @@ fn parse_coupon_json(body: &str) -> Result<HashMap<String, Coupon>, ProviderErro
         };
         let replace = coupons
             .get(&merchant_id)
-            .map(|c| {
+            .map(|c: &Coupon| {
                 coupon.expires_at_epoch.unwrap_or(i64::MAX) > c.expires_at_epoch.unwrap_or(i64::MAX)
             })
             .unwrap_or(true);
