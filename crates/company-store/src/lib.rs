@@ -797,6 +797,225 @@ impl CompanyStore {
         Ok(allowed)
     }
 
+    pub async fn record_affiliate_click(
+        &self,
+        event: &affiliate_attribution::ClickEvent,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if event.company_id.trim().is_empty()
+            || event.click_id.trim().is_empty()
+            || event.product_id.trim().is_empty()
+            || event.advertiser_id.trim().is_empty()
+            || event.content_id.trim().is_empty()
+            || event.occurred_at.trim().is_empty()
+        {
+            return Err("affiliate click has incomplete identifiers".into());
+        }
+        let company_id = Uuid::parse_str(&event.company_id)?;
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "INSERT INTO affiliate_clicks
+                 (company_id, click_id, product_id, advertiser_id, content_id,
+                  occurred_at, source)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7)
+                 ON CONFLICT (company_id, click_id) DO NOTHING",
+                &[
+                    &company_id,
+                    &event.click_id,
+                    &event.product_id,
+                    &event.advertiser_id,
+                    &event.content_id,
+                    &event.occurred_at,
+                    &event.source,
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn record_affiliate_conversion(
+        &self,
+        event: &affiliate_attribution::ConversionEvent,
+        model: affiliate_attribution::AttributionModel,
+    ) -> Result<affiliate_attribution::ReconciledConversion, Box<dyn std::error::Error + Send + Sync>>
+    {
+        let company_id = Uuid::parse_str(&event.company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        if let Some(row) = tx
+            .query_opt(
+                "SELECT conversion_id, order_value_minor, commission_minor, refunded_minor,
+                        cancelled, click_id, product_id, advertiser_id, occurred_at, source
+                   FROM affiliate_conversions
+                  WHERE company_id = $1 AND idempotency_key = $2",
+                &[&company_id, &affiliate_attribution::conversion_idempotency_key(event)],
+            )
+            .await?
+        {
+            let conversion_id: String = row.get(0);
+            let result = affiliate_attribution::ReconciledConversion {
+                conversion_id,
+                attributed: tx
+                    .query(
+                        "SELECT click_id, product_id, content_id,
+                                attributed_order_value_minor, attributed_commission_minor,
+                                confidence_bps
+                           FROM affiliate_attributions
+                          WHERE company_id = $1 AND conversion_id = $2
+                          ORDER BY click_id",
+                        &[&company_id, &row.get::<_, String>(0)],
+                    )
+                    .await?
+                    .into_iter()
+                    .map(|r| affiliate_attribution::Attribution {
+                        click_id: r.get(0),
+                        product_id: r.get(1),
+                        content_id: r.get(2),
+                        attributed_order_value_minor: parse_i128_numeric(&r.get::<_, String>(3))?,
+                        attributed_commission_minor: parse_i128_numeric(&r.get::<_, String>(4))?,
+                        confidence_bps: (r.get::<_, i32>(5)).clamp(0, 10_000) as u32,
+                    })
+                    .collect(),
+                net_commission_minor: parse_i128_numeric(&row.get::<_, String>(2))?,
+                reconciliation_variance_minor: 0,
+                status: affiliate_attribution::ReconciliationStatus::Verified,
+                idempotency_key: affiliate_attribution::conversion_idempotency_key(event),
+            };
+            tx.rollback().await?;
+            return Ok(result);
+        }
+
+        let rows = tx
+            .query(
+                "SELECT click_id, company_id, product_id, advertiser_id, content_id,
+                        occurred_at, source
+                   FROM affiliate_clicks
+                  WHERE company_id = $1 AND product_id = $2 AND advertiser_id = $3
+                  ORDER BY occurred_at ASC, click_id ASC",
+                &[&company_id, &event.product_id, &event.advertiser_id],
+            )
+            .await?;
+        let clicks = rows
+            .into_iter()
+            .map(|row| affiliate_attribution::ClickEvent {
+                click_id: row.get(0),
+                company_id: row.get::<_, Uuid>(1).to_string(),
+                product_id: row.get(2),
+                advertiser_id: row.get(3),
+                content_id: row.get(4),
+                occurred_at: row.get(5),
+                source: row.get(6),
+            })
+            .collect::<Vec<_>>();
+
+        let reconciled =
+            affiliate_attribution::attribute_conversion(event, &clicks, model)
+                .map_err(|error| error.to_string())?;
+
+        let order_value = event.order_value_minor.to_string();
+        let commission = event.commission_minor.to_string();
+        let refunded = event.refunded_minor.to_string();
+        let idempotency_key = reconciled.idempotency_key.clone();
+
+        tx.execute(
+            "INSERT INTO affiliate_conversions
+             (company_id, conversion_id, click_id, order_id, product_id,
+              advertiser_id, occurred_at, order_value_minor, commission_minor,
+              refunded_minor, cancelled, source, idempotency_key)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8::numeric,$9::numeric,$10::numeric,
+                     $11,$12,$13)",
+            &[
+                &company_id,
+                &event.conversion_id,
+                &event.click_id,
+                &event.order_id,
+                &event.product_id,
+                &event.advertiser_id,
+                &event.occurred_at,
+                &order_value,
+                &commission,
+                &refunded,
+                &event.cancelled,
+                &event.source,
+                &idempotency_key,
+            ],
+        )
+        .await?;
+
+        for attribution in &reconciled.attributed {
+            let value = attribution.attributed_order_value_minor.to_string();
+            let commission = attribution.attributed_commission_minor.to_string();
+            tx.execute(
+                "INSERT INTO affiliate_attributions
+                 (company_id, conversion_id, click_id, product_id, content_id,
+                  attributed_order_value_minor, attributed_commission_minor, confidence_bps)
+                 VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8)
+                 ON CONFLICT (company_id, conversion_id, click_id) DO NOTHING",
+                &[
+                    &company_id,
+                    &event.conversion_id,
+                    &attribution.click_id,
+                    &attribution.product_id,
+                    &attribution.content_id,
+                    &value,
+                    &commission,
+                    &(attribution.confidence_bps as i32),
+                ],
+            )
+            .await?;
+        }
+
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id, event_type, aggregate_id, idempotency_key, payload)
+             VALUES ($1,'AFFILIATE_CONVERSION_RECONCILED',$2,$3,$4)
+             ON CONFLICT (company_id, idempotency_key) DO NOTHING",
+            &[
+                &company_id,
+                &event.conversion_id,
+                &format!("outbox:{idempotency_key}"),
+                &serde_json::to_value(&reconciled)?,
+            ],
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(reconciled)
+    }
+
+    pub async fn content_affiliate_performance(
+        &self,
+        company_id: &str,
+        limit: i64,
+    ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=200).contains(&limit) {
+            return Err("performance limit must be between 1 and 200".into());
+        }
+        let id = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT jsonb_build_object(
+                    'content_id', content_id,
+                    'orders_minor', SUM(attributed_order_value_minor)::text,
+                    'commission_minor', SUM(attributed_commission_minor)::text,
+                    'attributions', COUNT(*),
+                    'avg_confidence_bps', ROUND(AVG(confidence_bps))::int)
+                   FROM affiliate_attributions
+                  WHERE company_id = $1
+                  GROUP BY content_id
+                  ORDER BY SUM(attributed_commission_minor) DESC
+                  LIMIT $2",
+                &[&id, &limit],
+            )
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| row.get::<_, serde_json::Value>(0))
+            .collect())
+    }
+
     pub async fn record_cycle_failure(
         &self,
         company_id: &str,
@@ -950,4 +1169,8 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             ))
         }
     }
+}
+
+fn parse_i128_numeric(value: &str) -> Result<i128, Box<dyn std::error::Error + Send + Sync>> {
+    value.parse::<i128>().map_err(|error| format!("numeric value out of i128 range: {error}").into())
 }
