@@ -40,6 +40,8 @@ pub struct Product {
     pub delivery_reliability_bps: Option<u32>,
     pub commission_group: Option<String>,
     pub commission_rate_bps: Option<u32>,
+    pub commission_fixed_minor: Option<i128>,
+    pub commission_currency: Option<String>,
     pub source: String,
     pub source_updated_at: Option<String>,
 }
@@ -674,6 +676,8 @@ impl Default for MockProvider {
                     delivery_reliability_bps: Some(9_000),
                     commission_group: Some("premium".into()),
                     commission_rate_bps: Some(1_800),
+                    commission_fixed_minor: None,
+                    commission_currency: None,
                     source: "mock".into(),
                     source_updated_at: Some("2026-09-27T00:00:00Z".into()),
                 },
@@ -701,6 +705,8 @@ impl Default for MockProvider {
                     delivery_reliability_bps: Some(7_000),
                     commission_group: Some("very-high".into()),
                     commission_rate_bps: Some(4_500),
+                    commission_fixed_minor: None,
+                    commission_currency: None,
                     source: "mock".into(),
                     source_updated_at: Some("2026-09-27T00:00:00Z".into()),
                 },
@@ -745,7 +751,9 @@ struct Cache<T> {
 
 pub struct AwinProvider {
     client: Client,
-    product_feed_url: String,
+    product_feed_url: Option<String>,
+    product_feed_api_key: Option<String>,
+    feed_id: Option<String>,
     publisher_id: String,
     access_token: String,
     commission_map: HashMap<String, u32>,
@@ -760,7 +768,22 @@ pub struct AwinProvider {
 impl AwinProvider {
     pub fn from_env() -> Result<Self, AffiliateError> {
         let product_feed_url = std::env::var("AWIN_PRODUCT_FEED_URL")
-            .map_err(|_| AffiliateError::Provider("AWIN_PRODUCT_FEED_URL is required".into()))?;
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .map(|v| v.trim().to_owned());
+        let product_feed_api_key = std::env::var("AWIN_PRODUCT_FEED_API_KEY")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .map(|v| v.trim().to_owned());
+        if product_feed_url.is_none() && product_feed_api_key.is_none() {
+            return Err(AffiliateError::Provider(
+                "set AWIN_PRODUCT_FEED_URL or AWIN_PRODUCT_FEED_API_KEY".into(),
+            ));
+        }
+        let feed_id = std::env::var("AWIN_FEED_ID")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .map(|v| v.trim().to_owned());
         let publisher_id = std::env::var("AWIN_PUBLISHER_ID")
             .map_err(|_| AffiliateError::Provider("AWIN_PUBLISHER_ID is required".into()))?;
         let access_token = std::env::var("AWIN_ACCESS_TOKEN")
@@ -792,6 +815,8 @@ impl AwinProvider {
                 .build()
                 .map_err(|e| AffiliateError::Provider(e.to_string()))?,
             product_feed_url,
+            product_feed_api_key,
+            feed_id,
             publisher_id,
             access_token,
             commission_map: parse_commission_map(
@@ -807,11 +832,16 @@ impl AwinProvider {
     }
 
     async fn refresh_products(&self) -> Result<Vec<Product>, AffiliateError> {
+        let feed_url = match self.product_feed_url.as_deref() {
+            Some(url) => url.to_owned(),
+            None => self.discover_feed_url().await?,
+        };
+
         let mut response = None;
         for attempt in 0..3_u32 {
             let candidate = self
                 .client
-                .get(&self.product_feed_url)
+.get(&feed_url)
                 .send()
                 .await
                 .map_err(|e| AffiliateError::Provider(e.to_string()))?;
@@ -947,6 +977,18 @@ impl AwinProvider {
                 if let Some(group) = rate {
                     if let Some(bps) = group.percentage_bps {
                         product.commission_rate_bps = Some(bps);
+                    }
+                    if let Some(amount) = group.fixed_amount {
+                        let units = minor_units_for_currency(
+                            group.currency.as_deref().unwrap_or(&product.currency),
+                            self.minor_units,
+                        );
+                        let scale = 10_i128.pow(units);
+                        let fixed_minor = (amount * scale as f64).round();
+                        if fixed_minor.is_finite() && fixed_minor >= 0.0 && fixed_minor <= i128::MAX as f64 {
+                            product.commission_fixed_minor = Some(fixed_minor as i128);
+                            product.commission_currency = group.currency.clone();
+                        }
                     }
                 }
             }
@@ -1341,6 +1383,8 @@ struct ParsedCommissionGroup {
     code: String,
     is_default: bool,
     percentage_bps: Option<u32>,
+    fixed_amount: Option<f64>,
+    currency: Option<String>,
 }
 
 fn parse_awin_commission_groups(
