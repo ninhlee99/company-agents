@@ -104,6 +104,8 @@ struct AffiliateSearchParams {
     require_coupon: Option<bool>,
     min_rating_bps: Option<u32>,
     min_reviews: Option<u64>,
+    min_quality_bps: Option<u32>,
+    require_attributable_coupon: Option<bool>,
     in_stock_only: Option<bool>,
     max_results: Option<usize>,
     as_of_date: Option<String>,
@@ -215,6 +217,8 @@ fn affiliate_query(params: AffiliateSearchParams) -> ProductSearchQuery {
         require_coupon: params.require_coupon.unwrap_or(false),
         min_rating_bps: params.min_rating_bps,
         min_reviews: params.min_reviews,
+        min_quality_bps: params.min_quality_bps,
+        require_attributable_coupon: params.require_attributable_coupon.unwrap_or(false),
         in_stock_only: params.in_stock_only.unwrap_or(true),
         max_results: params.max_results.unwrap_or(20),
         as_of_date: params
