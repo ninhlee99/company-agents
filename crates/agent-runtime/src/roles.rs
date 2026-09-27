@@ -1,5 +1,5 @@
 use crate::{
-    agent::{call_model, model_context, proposal_confidence, Agent, AgentContext, AgentError},
+    agent::{call_model, proposal_confidence, Agent, AgentContext, AgentError},
     model::Model,
     types::*,
 };
