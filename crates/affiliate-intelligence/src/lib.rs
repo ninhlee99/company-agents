@@ -15,6 +15,25 @@ const SCORE_MAX: u32 = 10_000;
 const DEFAULT_HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_FEED_BYTES: usize = 64 * 1024 * 1024;
 
+#[derive(Clone)]
+struct SecretString(String);
+
+impl SecretString {
+    fn new(value: String) -> Self {
+        Self(value)
+    }
+
+    fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for SecretString {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("[REDACTED]")
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Product {
     pub id: String,
@@ -1205,10 +1224,10 @@ struct Cache<T> {
 pub struct AwinProvider {
     client: Client,
     product_feed_url: Option<String>,
-    product_feed_api_key: Option<String>,
+    product_feed_api_key: Option<SecretString>,
     feed_id: Option<String>,
     publisher_id: String,
-    access_token: String,
+    access_token: SecretString,
     commission_map: HashMap<String, u32>,
     auto_fetch_commissions: bool,
     max_commission_advertisers: usize,
@@ -1227,7 +1246,7 @@ impl AwinProvider {
         let product_feed_api_key = std::env::var("AWIN_PRODUCT_FEED_API_KEY")
             .ok()
             .filter(|v| !v.trim().is_empty())
-            .map(|v| v.trim().to_owned());
+            .map(|v| SecretString::new(v.trim().to_owned()));
         if product_feed_url.is_none() && product_feed_api_key.is_none() {
             return Err(AffiliateError::Provider(
                 "set AWIN_PRODUCT_FEED_URL or AWIN_PRODUCT_FEED_API_KEY".into(),
@@ -1239,8 +1258,10 @@ impl AwinProvider {
             .map(|v| v.trim().to_owned());
         let publisher_id = std::env::var("AWIN_PUBLISHER_ID")
             .map_err(|_| AffiliateError::Provider("AWIN_PUBLISHER_ID is required".into()))?;
-        let access_token = std::env::var("AWIN_ACCESS_TOKEN")
-            .map_err(|_| AffiliateError::Provider("AWIN_ACCESS_TOKEN is required".into()))?;
+        let access_token = SecretString::new(
+            std::env::var("AWIN_ACCESS_TOKEN")
+                .map_err(|_| AffiliateError::Provider("AWIN_ACCESS_TOKEN is required".into()))?,
+        );
         let auto_fetch_commissions = std::env::var("AWIN_AUTO_FETCH_COMMISSIONS")
             .ok()
             .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
@@ -1353,7 +1374,10 @@ impl AwinProvider {
             .product_feed_api_key
             .as_deref()
             .ok_or_else(|| AffiliateError::Provider("Awin feed API key is missing".into()))?;
-        let url = format!("https://productdata.awin.com/datafeed/list/apikey/{api_key}");
+        let url = format!(
+            "https://productdata.awin.com/datafeed/list/apikey/{}",
+            api_key.expose()
+        );
         let response = self
             .client
             .get(url)
@@ -1451,10 +1475,10 @@ impl AwinProvider {
                     .client
                     .get(&url)
                     .query(&[
-                        ("accessToken", self.access_token.as_str()),
+                        ("accessToken", self.access_token.expose()),
                         ("advertiserId", advertiser_id.as_str()),
                     ])
-                    .bearer_auth(&self.access_token)
+                    .bearer_auth(self.access_token.expose())
                     .send()
                     .await
                     .map_err(|e| AffiliateError::Provider(e.to_string()))?;
