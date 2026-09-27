@@ -2,9 +2,10 @@
 
 use agent_runtime::{
     model::MockModel,
-    types::{ActionKind, CompanySnapshot, GovernorDecision},
+    types::CompanySnapshot,
     AgentRuntime,
 };
+use company_execution::{execute_approved_results, ExecutionPolicy, ExecutionStatus};
 use economic_core::{CompanyState, CompanyStatus};
 use serde::{Deserialize, Serialize};
 
@@ -160,43 +161,23 @@ pub async fn run(config: SimConfig) -> SimulationResult {
         let results = runtime.run_all(snapshot).await;
         decision_cycles += 1;
 
-        for result in results {
-            if let Some(governed) = result.governance {
-                if governed.decision == GovernorDecision::Approve
-                    && governed.proposal.cost_minor > 0
-                    && governed.proposal.cost_minor > cash
-                {
-                    violations.push(format!("day {day}: approved cost exceeded cash"));
+        let execution = execute_approved_results(
+            snapshot.clone(),
+            &results,
+            ExecutionPolicy { max_spend_per_cycle_minor: 1_000 },
+        );
+        match execution {
+            Ok(batch) => {
+                for receipt in &batch.receipts {
+                    if receipt.status == ExecutionStatus::Rejected {
+                        violations.push(format!("day {day}: execution rejected for {:?}: {}", receipt.action, receipt.reason));
+                    }
                 }
-
-                match governed.proposal.action {
-                    ActionKind::CreateExperiment => {
-                        if governed.decision == GovernorDecision::Approve && governed.proposal.cost_minor > 0 {
-                            let spend = governed.proposal.cost_minor.min(100);
-                            cash = cash.saturating_sub(spend);
-                            expenses = expenses.saturating_add(spend);
-                            content_efficiency_bps = content_efficiency_bps.saturating_add(50).min(20_000);
-                        }
-                    }
-                    ActionKind::AllocateExperimentBudget => {
-                        if governed.decision == GovernorDecision::Approve && governed.proposal.cost_minor > 0 {
-                            let spend = governed.proposal.cost_minor.min(100);
-                            if spend <= cash {
-                                cash = cash.saturating_sub(spend);
-                                expenses = expenses.saturating_add(spend);
-                            } else {
-                                violations.push(format!("day {day}: kernel cash violation"));
-                            }
-                        }
-                    }
-                    ActionKind::RebalanceOperations => {
-                        backlog = backlog.saturating_sub(2);
-                    }
-                    _ => {}
-                }
-            } else {
-                violations.push(format!("day {day}: missing governance result for {:?}", result.agent));
+                cash = batch.snapshot.cash_minor;
+                expenses = batch.snapshot.expenses_minor;
+                backlog = batch.snapshot.backlog;
             }
+            Err(error) => violations.push(format!("day {day}: execution engine error: {error}")),
         }
 
         minimum_cash = minimum_cash.min(cash);
