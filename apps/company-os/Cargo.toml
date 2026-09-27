@@ -5,8 +5,10 @@ edition = "2021"
 
 [dependencies]
 agent-runtime = { path = "../../crates/agent-runtime" }
+affiliate-intelligence = { path = "../../crates/affiliate-intelligence" }
 company-store = { path = "../../crates/company-store" }
 axum = "0.8"
 economic-core = { path = "../../crates/economic-core" }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
