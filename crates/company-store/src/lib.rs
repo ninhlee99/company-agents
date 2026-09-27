@@ -1324,7 +1324,10 @@ async fn persist_execution_ledgers(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let spend = receipts
         .iter()
-        .filter(|receipt| matches!(receipt.status, company_execution::ExecutionStatus::Executed))
+        .filter(|receipt| {
+            matches!(receipt.status, company_execution::ExecutionStatus::Executed)
+                && receipt.action == agent_runtime::types::ActionKind::CreateExperiment
+        })
         .try_fold(0_i128, |total, receipt| {
             total.checked_add(receipt.cost_minor).ok_or("execution spend overflow")
         })?;
@@ -1354,7 +1357,10 @@ async fn persist_execution_ledgers(
 
     for receipt in receipts
         .iter()
-        .filter(|item| matches!(item.status, company_execution::ExecutionStatus::Executed))
+        .filter(|item| {
+            matches!(item.status, company_execution::ExecutionStatus::Executed)
+                && item.action == agent_runtime::types::ActionKind::CreateExperiment
+        })
         .filter(|item| item.cost_minor > 0)
     {
         let proposal_key = &receipt.idempotency_key;
