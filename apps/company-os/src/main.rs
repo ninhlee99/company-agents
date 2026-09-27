@@ -1,6 +1,6 @@
 use affiliate_intelligence::{
     search as search_affiliate, AffiliateProvider, AwinProvider, MockProvider, ProductSearchQuery,
-    SearchResponse,
+    SearchResponse, TikTokShopProvider,
 };
 use agent_runtime::{model_from_env, AgentRunResult, AgentRuntime, CompanySnapshot};
 use axum::{
@@ -540,6 +540,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let affiliate: Arc<dyn AffiliateProvider> = match affiliate_mode.to_ascii_lowercase().as_str() {
         "mock" => Arc::new(MockProvider::default()),
         "awin" => Arc::new(AwinProvider::from_env()?),
+        "tiktok" | "tiktok_shop" => Arc::new(TikTokShopProvider::from_env()?),
         other => return Err(format!("unknown AFFILIATE_PROVIDER={other}").into()),
     };
 
