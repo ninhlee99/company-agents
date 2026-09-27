@@ -671,7 +671,7 @@ impl CompanyStore {
         &self,
         company_id: &str,
         job_type: &str,
-    ) -> Result<Option<(Uuid, Uuid)>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<(Uuid, Uuid, Uuid)>, Box<dyn std::error::Error + Send + Sync>> {
         let id = Uuid::parse_str(company_id)?;
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
@@ -1426,7 +1426,10 @@ impl CompanyStore {
     pub async fn claim_media_job(
         &self,
         company_id: &str,
-    ) -> Result<Option<media_pipeline::MediaJob>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<
+        Option<(media_pipeline::MediaJob, Uuid)>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
         let company_id = Uuid::parse_str(company_id)?;
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
