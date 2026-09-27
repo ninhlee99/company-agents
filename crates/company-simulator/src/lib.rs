@@ -351,6 +351,9 @@ mod tests {
         })
         .await;
         assert_eq!(result.decision_cycles, 30);
+        assert_eq!(result.business_unit_count, 3);
+        assert!(result.payroll_accrued_minor > 0);
+        assert!(result.peak_liabilities_minor > 0);
         assert!(result.violations.is_empty(), "{:?}", result.violations);
     }
 
@@ -364,6 +367,8 @@ mod tests {
         })
         .await;
         assert!(result.ending_cash_minor >= 0 || result.bankruptcy_day.is_some());
+        assert!(result.payroll_accrued_minor > 0);
+        assert!(result.minimum_runway_days >= 0);
         assert!(result.violations.is_empty(), "{:?}", result.violations);
     }
 }
