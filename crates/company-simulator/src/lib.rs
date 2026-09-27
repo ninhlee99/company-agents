@@ -179,14 +179,12 @@ pub async fn run(config: SimConfig) -> SimulationResult {
         ];
         let portfolio = company_organization::summarize_portfolio(&units);
         let (day_revenue, day_business_cost) = match portfolio {
-            Ok(metrics) => (metrics.revenue_minor, metrics.operating_cost_minor),
+            Ok(metrics) => (metrics.revenue_minor, metrics.total_cost_minor),
             Err(error) => {
                 violations.push(format!("day {day}: business-unit economics error: {error}"));
                 (0, 0)
             }
         };
-        let day_expense = day_business_cost + content_cost * 6 / 10;
-
         let daily_payroll = employees
             .iter()
             .map(|employee| employee.monthly_cost_minor / 30)
@@ -194,6 +192,8 @@ pub async fn run(config: SimConfig) -> SimulationResult {
         liabilities = liabilities.saturating_add(daily_payroll.max(0));
         payroll_accrued = payroll_accrued.saturating_add(daily_payroll.max(0));
         peak_liabilities = peak_liabilities.max(liabilities);
+
+        let day_expense = day_business_cost + content_cost * 6 / 10 + daily_payroll;
 
         let payroll_pay_threshold =
             cash.saturating_sub(config.initial_cash_minor.saturating_mul(config.reserve_ratio_bps.min(9_000) as i128) / 10_000);
@@ -226,11 +226,12 @@ pub async fn run(config: SimConfig) -> SimulationResult {
         }
 
         let daily_burn = (expenses / day as i128).max(1);
+        let projected_expenses = expenses.saturating_add(day_expense.max(0));
         let economic = CompanyState {
             company_id: "simulation".into(),
             cash_minor: cash,
             revenue_minor: revenue,
-            expenses_minor: expenses,
+            expenses_minor: projected_expenses,
             liabilities_minor: liabilities.max(0),
             assets_minor: cash,
             runway_days: 0,
