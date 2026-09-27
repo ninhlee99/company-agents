@@ -121,7 +121,7 @@ async fn healthz() -> &'static str {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runtime = Arc::new(AgentRuntime::new(model_from_env()));
     let state = AppState {
         runtime,
@@ -153,10 +153,9 @@ async fn main() {
         .route("/healthz", get(healthz))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(("0.0.0.0", 8080))
-        .await
-        .expect("failed to bind port 8080");
+    let listener = tokio::net::TcpListener::bind(("0.0.0.0", 8080)).await?;
 
     println!("Company OS listening on http://localhost:8080");
-    axum::serve(listener, app).await.expect("server failed");
+    axum::serve(listener, app).await?;
+    Ok(())
 }
