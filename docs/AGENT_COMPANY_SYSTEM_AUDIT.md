@@ -31,6 +31,10 @@ The repository now has a Rust-based Agent Runtime and deterministic economic/gov
 25. Simulator now reuses the production execution engine.
 26. Affiliate Intelligence ranking, coupon checks, evidence confidence, dedupe and Awin adapters.
 27. Awin commission-group API enrichment for live commission filtering.
+28. Durable Agent memory loaded before model calls and last-decision memory persisted.
+29. Persistent transactional per-Agent rate windows with fail-closed admission.
+30. Affiliate click/conversion attribution and content-level monetization reporting.
+31. Durable media job queue, isolated FFmpeg worker, FFprobe inspection and post-render QA.
 28. Durable Agent memory with bounded retention and untrusted-context semantics.
 29. Persistent per-Agent rate windows enforced before model calls.
 30. Scheduler run tokens that preserve idempotent replay after failure.
