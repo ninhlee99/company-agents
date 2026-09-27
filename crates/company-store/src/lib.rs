@@ -368,20 +368,21 @@ impl CompanyStore {
             .await?;
         }
 
-        persist_execution_ledgers(
-            &tx,
-            company_id,
-            &cycle_key,
-            &persisted_cycle_currency(&tx, company_id).await?,
-            &batch.receipts,
-        )
-        .await?;
-
         let persisted = PersistedCycle {
             snapshot: batch.snapshot.clone(),
             results: authoritative_results,
             receipts: batch.receipts,
         };
+
+        let currency = persisted_cycle_currency(&tx, company_id).await?;
+        persist_execution_ledgers(
+            &tx,
+            company_id,
+            &cycle_key,
+            &currency,
+            &persisted.receipts,
+        )
+        .await?;
         let response = serde_json::to_value(&persisted)?;
 
         tx.execute(
