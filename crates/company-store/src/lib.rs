@@ -703,7 +703,7 @@ impl CompanyStore {
         }
 
         if total > 0 {
-            let (expense_account, liability_account) =
+            let (_cash_account, liability_account, expense_account) =
                 ensure_payroll_accounts(&tx, company_uuid, &currency).await?;
             let transaction_id = Uuid::new_v4();
             let debit = total.to_string();
@@ -825,7 +825,7 @@ impl CompanyStore {
         )
         .await?;
 
-        let (cash_account, liability_account) =
+        let (cash_account, liability_account, _expense_account) =
             ensure_payroll_accounts(&tx, company_uuid, &currency).await?;
         let transaction_id = Uuid::new_v4();
         let amount = amount_minor.to_string();
@@ -1678,14 +1678,20 @@ async fn ensure_payroll_accounts(
     tx: &Transaction<'_>,
     company_id: Uuid,
     currency: &str,
-) -> Result<(Uuid, Uuid), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(Uuid, Uuid, Uuid), Box<dyn std::error::Error + Send + Sync>> {
     let cash = ensure_ledger_account(tx, company_id, "CASH", "Cash", "ASSET", currency).await?;
     let payroll_liability =
         ensure_ledger_account(tx, company_id, "PAYROLL_LIABILITY", "Payroll Liability", "LIABILITY", currency).await?;
-    let payroll_expense =
-        ensure_ledger_account(tx, company_id, "PAYROLL_EXPENSE", "Payroll Expense", "EXPENSE", currency).await?;
-    let _ = payroll_expense;
-    Ok((cash, payroll_liability))
+    let payroll_expense = ensure_ledger_account(
+        tx,
+        company_id,
+        "PAYROLL_EXPENSE",
+        "Payroll Expense",
+        "EXPENSE",
+        currency,
+    )
+    .await?;
+    Ok((cash, payroll_liability, payroll_expense))
 }
 
 async fn ensure_ledger_account(
