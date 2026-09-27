@@ -26,7 +26,7 @@ impl AgentRuntime {
             agents: executive_agents(),
             governor: Governor,
             model: Arc::from(model),
-            concurrency: Arc::new(Semaphore::new(max_concurrent.max(1))),
+            concurrency: Arc::new(Semaphore::new(max_concurrent.clamp(1, 8))),
         }
     }
 
@@ -48,7 +48,7 @@ impl AgentRuntime {
             let agent = agent.clone();
             let model = model.clone();
             let concurrency = concurrency.clone();
-            let ctx = AgentContext { company: ctx.company.clone() };
+            let ctx = AgentContext { company: ctx.company.clone(), model_timeout: ctx.model_timeout };
 
             async move {
                 let _permit = concurrency.acquire_owned().await.expect("agent semaphore closed");
