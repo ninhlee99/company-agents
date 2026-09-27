@@ -1252,7 +1252,7 @@ impl CompanyStore {
 
         let idempotency_key = affiliate_attribution::payout_idempotency_key(event);
         let payload_hash = affiliate_payout_payload_hash(event);
-        if tx
+        if let Some(row) = tx
             .query_opt(
                 "SELECT payout_id, payload_hash
                    FROM affiliate_payouts
@@ -1261,8 +1261,14 @@ impl CompanyStore {
                 &[&company_id, &idempotency_key],
             )
             .await?
-            .is_some()
         {
+            let existing_hash: Option<String> = row.get(1);
+            if existing_hash.as_deref() != Some(payload_hash.as_str()) {
+                tx.rollback().await?;
+                return Err(
+                    "affiliate payout idempotency key reused with a different payload".into(),
+                );
+            }
             tx.rollback().await?;
             return Ok(());
         }
