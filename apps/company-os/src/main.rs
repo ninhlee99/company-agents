@@ -448,6 +448,28 @@ async fn journal_api(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
+async fn employees_api(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<company_organization::Employee>>, StatusCode> {
+    state
+        .store
+        .list_employees(&state.company_id)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn payroll_due_api(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<company_organization::PayrollObligation>>, StatusCode> {
+    state
+        .store
+        .payroll_due(&state.company_id, 100)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 async fn healthz() -> &'static str {
     "ok"
 }
@@ -581,6 +603,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/affiliate/click", post(affiliate_click_api))
         .route("/api/affiliate/conversion", post(affiliate_conversion_api))
         .route("/api/affiliate/performance", get(affiliate_performance_api))
+        .route("/api/employees", get(employees_api))
+        .route("/api/payroll/due", get(payroll_due_api))
         .route("/api/journal", get(journal_api))
         .route("/healthz", get(healthz))
         .route("/metrics", get(metrics))
