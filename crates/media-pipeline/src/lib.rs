@@ -76,16 +76,22 @@ pub fn validate_job(job: &MediaJob) -> Result<(), MediaError> {
     validate_safe_path(&job.input_path)?;
     validate_safe_path(&job.output_path)?;
     if job.input_path == job.output_path {
-        return Err(MediaError::InvalidJob("input and output paths must differ".into()));
+        return Err(MediaError::InvalidJob(
+            "input and output paths must differ".into(),
+        ));
     }
     if !(16..=8_192).contains(&job.width) || !(16..=8_192).contains(&job.height) {
-        return Err(MediaError::InvalidJob("dimensions outside safe bounds".into()));
+        return Err(MediaError::InvalidJob(
+            "dimensions outside safe bounds".into(),
+        ));
     }
     if !(1..=120).contains(&job.fps) {
         return Err(MediaError::InvalidJob("fps outside safe bounds".into()));
     }
     if !(1..=86_400).contains(&job.max_duration_seconds) {
-        return Err(MediaError::InvalidJob("duration outside safe bounds".into()));
+        return Err(MediaError::InvalidJob(
+            "duration outside safe bounds".into(),
+        ));
     }
     Ok(())
 }
@@ -99,7 +105,10 @@ pub fn ffmpeg_args(job: &MediaJob) -> Result<Vec<String>, MediaError> {
         "-i".into(),
         job.input_path.clone(),
         "-vf".into(),
-        format!("scale={}:{}:force_original_aspect_ratio=decrease,fps={}", job.width, job.height, job.fps),
+        format!(
+            "scale={}:{}:force_original_aspect_ratio=decrease,fps={}",
+            job.width, job.height, job.fps
+        ),
         "-t".into(),
         job.max_duration_seconds.to_string(),
     ];
