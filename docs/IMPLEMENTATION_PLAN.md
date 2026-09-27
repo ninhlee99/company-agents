@@ -97,7 +97,7 @@ Target:
 Research → planning → scripting → production → media QA → publishing → analytics → attribution.
 
 ## Phase 6 — Monetization
-**Status: affiliate intelligence implemented; broader monetization pending**
+**Status: affiliate intelligence + attribution implemented; broader monetization pending**
 
 Implemented:
 - provider-neutral affiliate product model
@@ -117,7 +117,7 @@ Implemented:
 External authorization remains required. Awin/TikTok data is never invented when the provider has not supplied it.
 
 Remaining:
-- affiliate attribution/order ingestion
+- verified payout/revenue ingestion
 - click/conversion tracking
 - sponsorship CRM
 - service proposal/invoicing
@@ -158,3 +158,8 @@ continuous economic loop with verified revenue attribution, payroll, reinvestmen
 
 ## Release rule
 Do not advance a phase until its predecessor passes unit → contract → scenario → adversarial → economic → security → load → recovery → chaos gates.
+
+
+## Engineering rule
+
+All generated LLM text remains untrusted data. Money, permissions, approvals, state transitions, external side effects, and durable accounting are owned by deterministic Rust code and transactional persistence.
