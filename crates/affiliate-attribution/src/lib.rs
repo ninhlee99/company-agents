@@ -316,6 +316,7 @@ mod tests {
             product_id: "p".into(),
             advertiser_id: "a".into(),
             occurred_at: "2026-09-27T10:00:00Z".into(),
+            currency: "USD".into(),
             order_value_minor: 1_001,
             commission_minor: 101,
             refunded_minor: 0,
@@ -377,7 +378,7 @@ mod tests {
         c.refunded_minor = 400;
         c.commission_minor = 100;
         let result =
-            attribute_conversion(&c, &[click("c1", "a", "t")], AttributionModel::LastClick)
+            attribute_conversion(&c, &[click("c1", "a", "2026-09-27T09:00:00Z")], AttributionModel::LastClick)
                 .unwrap();
         assert_eq!(result.attributed[0].attributed_order_value_minor, 600);
 
