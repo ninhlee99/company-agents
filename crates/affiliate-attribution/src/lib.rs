@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ClickEvent {
@@ -105,20 +105,34 @@ pub fn attribute_conversion(
             "conversion economic values are invalid".into(),
         ));
     }
+    let conversion_time = parse_rfc3339(&conversion.occurred_at).ok_or_else(|| {
+        AttributionError::InvalidInput("conversion occurred_at must be RFC3339".into())
+    })?;
 
+    let mut seen_clicks = HashSet::new();
     let mut matching = clicks
         .iter()
         .filter(|click| click.company_id == conversion.company_id)
         .filter(|click| click.product_id == conversion.product_id)
         .filter(|click| click.advertiser_id == conversion.advertiser_id)
-        .filter(|click| click.occurred_at <= conversion.occurred_at)
-        .cloned()
+        .filter_map(|click| {
+            let click_time = parse_rfc3339(&click.occurred_at)?;
+            if click_time <= conversion_time && seen_clicks.insert(click.click_id.clone()) {
+                Some((click_time, click.clone()))
+            } else {
+                None
+            }
+        })
         .collect::<Vec<_>>();
-    matching.sort_by(|a, b| {
-        a.occurred_at
-            .cmp(&b.occurred_at)
+    matching.sort_by(|(a_time, a), (b_time, b)| {
+        a_time
+            .cmp(b_time)
             .then_with(|| a.click_id.cmp(&b.click_id))
     });
+    let matching = matching
+        .into_iter()
+        .map(|(_, click)| click)
+        .collect::<Vec<_>>();
 
     let selected = match (&conversion.click_id, model) {
         (Some(id), _) => matching
@@ -213,6 +227,10 @@ pub fn attribute_conversion(
         },
         idempotency_key: conversion_idempotency_key(conversion),
     })
+}
+
+fn parse_rfc3339(value: &str) -> Option<time::OffsetDateTime> {
+    time::OffsetDateTime::parse(value.trim(), &time::format_description::well_known::Rfc3339).ok()
 }
 
 pub fn conversion_idempotency_key(conversion: &ConversionEvent) -> String {
@@ -340,6 +358,36 @@ mod tests {
             attribute_conversion(&c, &[click("c1", "a", "t")], AttributionModel::LastClick)
                 .unwrap();
         assert_eq!(result.attributed[0].confidence_bps, 10_000);
+    }
+
+    #[test]
+    fn invalid_conversion_timestamp_is_rejected() {
+        let mut event = conversion("6");
+        event.occurred_at = "not-a-date".into();
+        assert!(matches!(
+            attribute_conversion(&event, &[], AttributionModel::LastClick),
+            Err(AttributionError::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn duplicate_click_ids_do_not_double_count_linear_attribution() {
+        let event = conversion("7");
+        let clicks = vec![
+            click("c1", "a", "2026-09-27T09:00:00Z"),
+            click("c1", "a", "2026-09-27T09:30:00Z"),
+            click("c2", "b", "2026-09-27T09:45:00Z"),
+        ];
+        let result = attribute_conversion(&event, &clicks, AttributionModel::Linear).unwrap();
+        assert_eq!(result.attributed.len(), 2);
+        assert_eq!(
+            result
+                .attributed
+                .iter()
+                .map(|v| v.attributed_order_value_minor)
+                .sum::<i128>(),
+            1_001
+        );
     }
 
     #[test]
