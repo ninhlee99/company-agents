@@ -1,0 +1,8 @@
+{
+  "initialCashMinor": 1000000,
+  "currency": "USD",
+  "days": 180,
+  "seed": 42,
+  "reserveRatio": 0.25,
+  "bankruptcyEnabled": true
+}
