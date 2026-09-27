@@ -3,6 +3,7 @@
 use agent_runtime::{
     ExecutionEngine, ExecutionOutcome, AgentRunResult, CompanySnapshot,
 };
+use affiliate_attribution::{attribute, AttributionModel, AttributionResult, ClickTouch, OrderEvent, OrderStatus};
 use affiliate_intelligence::{AffiliateSearchResult, ProductSearchQuery};
 use company_domain::{ContentAsset, Contract, CreatorUnit, Employee, Experiment, Task};
 use economic_core::{validate_balanced_transaction, LedgerEntry, LedgerTransaction};
@@ -470,6 +471,123 @@ impl CompanyStore {
 
         tx.commit().await?;
         Ok(transaction_id)
+    }
+
+    pub async fn record_affiliate_click(
+        &self,
+        company_id: &str,
+        click: &ClickTouch,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        if click.click_id.trim().is_empty() || click.product_id.trim().is_empty() {
+            return Err("affiliate click id and product id are required".into());
+        }
+        let client = self.client.lock().await;
+        client.execute(
+            "INSERT INTO affiliate_clicks
+             (company_id,click_id,content_id,creator_id,product_id,occurred_at_epoch)
+             VALUES ($1,$2,$3,$4,$5,$6)
+             ON CONFLICT (company_id,click_id) DO NOTHING",
+            &[&company_uuid,&click.click_id,&click.content_id,&click.creator_id,&click.product_id,&click.occurred_at_epoch],
+        ).await?;
+        Ok(())
+    }
+
+    pub async fn record_affiliate_order(
+        &self,
+        company_id: &str,
+        order: &OrderEvent,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        if order.order_id.trim().is_empty() || order.product_id.trim().is_empty() {
+            return Err("affiliate order id and product id are required".into());
+        }
+        if order.gross_sales_minor < 0 || order.commission_minor < 0 {
+            return Err("affiliate order amounts cannot be negative".into());
+        }
+        client_insert_order(&self.client, &company_uuid, order).await
+    }
+
+    pub async fn rebuild_affiliate_attribution(
+        &self,
+        company_id: &str,
+        model: AttributionModel,
+        window_secs: i64,
+        since_epoch: i64,
+    ) -> Result<AttributionResult, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let since = since_epoch.saturating_sub(window_secs.max(1));
+        let client = self.client.lock().await;
+        let click_rows = client.query(
+            "SELECT click_id,content_id,creator_id,product_id,occurred_at_epoch
+             FROM affiliate_clicks
+             WHERE company_id=$1 AND occurred_at_epoch >= $2
+             ORDER BY occurred_at_epoch, click_id",
+            &[&company_uuid,&since],
+        ).await?;
+        let order_rows = client.query(
+            "SELECT order_id,click_id,product_id,gross_sales_minor::text,commission_minor::text,status,occurred_at_epoch
+             FROM affiliate_order_events
+             WHERE company_id=$1 AND occurred_at_epoch >= $2
+             ORDER BY occurred_at_epoch, id",
+            &[&company_uuid,&since],
+        ).await?;
+
+        let mut clicks = Vec::with_capacity(click_rows.len());
+        for row in click_rows {
+            clicks.push(ClickTouch {
+                click_id: row.get(0),
+                content_id: row.get(1),
+                creator_id: row.get(2),
+                product_id: row.get(3),
+                occurred_at_epoch: row.get(4),
+            });
+        }
+
+        let mut orders = Vec::with_capacity(order_rows.len());
+        for row in order_rows {
+            orders.push(OrderEvent {
+                order_id: row.get(0),
+                click_id: row.get(1),
+                product_id: row.get(2),
+                gross_sales_minor: row.get::<_, String>(3).parse()?,
+                commission_minor: row.get::<_, String>(4).parse()?,
+                status: parse_order_status(row.get::<_, String>(5).as_str())?,
+                occurred_at_epoch: row.get(6),
+            });
+        }
+
+        let result = attribute(&clicks, &orders, model, window_secs)
+            .map_err(|e| e.to_string())?;
+
+        let mut tx = client.transaction().await?;
+        for order in &result.orders {
+            tx.execute(
+                "INSERT INTO affiliate_attributions
+                 (company_id,order_id,content_id,creator_id,product_id,gross_sales_minor,commission_minor,
+                  attribution_confidence_bps,attribution_reason)
+                 VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8,$9)
+                 ON CONFLICT (company_id,order_id) DO UPDATE SET
+                   content_id=EXCLUDED.content_id,creator_id=EXCLUDED.creator_id,
+                   product_id=EXCLUDED.product_id,gross_sales_minor=EXCLUDED.gross_sales_minor,
+                   commission_minor=EXCLUDED.commission_minor,
+                   attribution_confidence_bps=EXCLUDED.attribution_confidence_bps,
+                   attribution_reason=EXCLUDED.attribution_reason",
+                &[
+                    &company_uuid,
+                    &order.order_id,
+                    &order.content_id,
+                    &order.creator_id,
+                    &order.product_id,
+                    &order.gross_sales_minor.to_string(),
+                    &order.commission_minor.to_string(),
+                    &(order.attribution_confidence_bps as i32),
+                    &order.attribution_reason,
+                ],
+            ).await?;
+        }
+        tx.commit().await?;
+        Ok(result)
     }
 
     pub async fn record_affiliate_search(
