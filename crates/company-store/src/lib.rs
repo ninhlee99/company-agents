@@ -113,3 +113,7 @@ impl CompanyStore {
         Ok(())
     }
 }
+
+
+#[cfg(test)]
+mod tests;
