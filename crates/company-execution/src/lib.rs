@@ -96,6 +96,18 @@ pub fn execute_approved_results(
             continue;
         };
 
+        if result.agent != governed.proposal.agent {
+            receipts.push(ExecutionReceipt {
+                idempotency_key: proposal_idempotency_key(&governed.proposal),
+                agent: result.agent,
+                action: governed.proposal.action,
+                status: ExecutionStatus::Rejected,
+                cost_minor: governed.proposal.cost_minor,
+                reason: "agent/result identity mismatch; execution boundary rejects ambiguous authority".into(),
+            });
+            continue;
+        }
+
         let key = proposal_idempotency_key(&governed.proposal);
         if governed.decision != GovernorDecision::Approve {
             receipts.push(ExecutionReceipt {
