@@ -212,6 +212,9 @@ impl CompanyStore {
     ) -> Result<PersistCycleResult, Box<dyn std::error::Error + Send + Sync>> {
         ExecutionEngine::validate_snapshot(snapshot)
             .map_err(|e| format!("snapshot validation failed: {e}"))?;
+        if cycle_id.trim().is_empty() || cycle_id.len() > 200 {
+            return Err("cycle id must be non-empty and <= 200 characters".into());
+        }
         if results.len() != outcomes.len() {
             return Err("results/outcomes length mismatch".into());
         }
@@ -352,6 +355,30 @@ impl CompanyStore {
         ).await?;
 
         Ok(())
+    }
+
+    pub async fn load_cycle_results(
+        &self,
+        cycle_id: &str,
+    ) -> Result<Option<Vec<AgentRunResult>>, Box<dyn std::error::Error + Send + Sync>> {
+        let cycle_uuid = Uuid::parse_str(cycle_id)?;
+        let client = self.client.lock().await;
+        let rows = client.query(
+            "SELECT proposal_json
+             FROM decision_journal
+             WHERE cycle_id=$1
+             ORDER BY id",
+            &[&cycle_uuid],
+        ).await?;
+        if rows.is_empty() {
+            return Ok(None);
+        }
+        let mut results = Vec::with_capacity(rows.len());
+        for row in rows {
+            let value: Value = row.get(0);
+            results.push(serde_json::from_value(value)?);
+        }
+        Ok(Some(results))
     }
 
     /// Compatibility wrapper for existing callers/tests. New code should use
