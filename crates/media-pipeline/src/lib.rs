@@ -131,9 +131,9 @@ impl FfmpegExecutor {
             return Ok(canonical);
         }
 
-        let parent = candidate.parent().ok_or_else(|| {
-            MediaError::InvalidJob("media path has no parent directory".into())
-        })?;
+        let parent = candidate
+            .parent()
+            .ok_or_else(|| MediaError::InvalidJob("media path has no parent directory".into()))?;
         let canonical_parent = parent.canonicalize().map_err(|error| {
             MediaError::InvalidJob(format!("media parent cannot be canonicalized: {error}"))
         })?;
@@ -482,7 +482,8 @@ mod tests {
 
     #[test]
     fn safe_path_is_lexically_restricted_before_execution() {
-        let temp = std::env::temp_dir().join(format!("company-agents-media-{}", std::process::id()));
+        let temp =
+            std::env::temp_dir().join(format!("company-agents-media-{}", std::process::id()));
         std::fs::create_dir_all(temp.join("input")).unwrap();
         std::fs::write(temp.join("input").join("source.mp4"), b"test").unwrap();
         let executor = FfmpegExecutor::new("ffmpeg", &temp, Duration::from_secs(10)).unwrap();
