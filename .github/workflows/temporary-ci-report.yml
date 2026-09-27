@@ -1,10 +1,10 @@
 name: temporary-ci-report
 on:
-  push:
-    branches:
-      - feature/company-os-completion
+  pull_request:
+    types: [synchronize, reopened]
 permissions:
   contents: read
+  issues: write
   pull-requests: write
 jobs:
   report:
@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Run checks and keep output
+      - name: Run compile diagnostics
         shell: bash
         run: |
           set +e
@@ -23,18 +23,11 @@ jobs:
             echo '=== CHECK ==='
             cargo check --workspace --all-targets
             echo CHECK_EXIT=$?
-            echo '=== TEST ==='
-            cargo test --workspace --no-fail-fast
-            echo TEST_EXIT=$?
-            echo '=== CLIPPY ==='
-            cargo clippy --workspace --all-targets --all-features -- -D warnings
-            echo CLIPPY_EXIT=$?
           } 2>&1 | tee /tmp/ci-output.log
       - name: Comment diagnostic
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          PR=$(gh pr list --repo "${{ github.repository }}" --head "feature/company-os-completion" --json number -q '.[0].number')
           BODY=$(python3 - <<'PY'
           from pathlib import Path
           s=Path('/tmp/ci-output.log').read_text(errors='replace')
@@ -43,4 +36,4 @@ jobs:
           print(chr(96)*3)
           PY
           )
-          gh api "repos/${{ github.repository }}/issues/$PR/comments" -X POST -f body="$BODY"
+          gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" -X POST -f body="$BODY"
