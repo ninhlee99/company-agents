@@ -90,10 +90,17 @@ impl Model for OpenAiCompatibleModel {
             ));
         }
 
-        let envelope: Value = response
-            .json()
+        let body = response
+            .text()
             .await
-            .map_err(|e| ModelError::InvalidResponse(e.to_string()))?;
+            .map_err(|e| ModelError::Transport(e.to_string()))?;
+
+        if body.len() > 1_048_576 {
+            return Err(ModelError::InvalidResponse("model response exceeds 1 MiB safety limit".into()));
+        }
+
+        let envelope: Value = serde_json::from_str(&body)
+            .map_err(|e| ModelError::InvalidResponse(format!("provider response is not JSON: {e}")))?;
 
         let content = envelope
             .get("choices")
