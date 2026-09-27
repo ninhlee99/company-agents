@@ -1120,19 +1120,25 @@ impl CompanyStore {
                     return Err(format!("unknown media format {other}").into());
                 }
             },
-            width: row.get::<_, i32>(4).max(16) as u32,
-            height: row.get::<_, i32>(5).max(16) as u32,
-            fps: row.get::<_, i32>(6).max(1) as u32,
-            max_duration_seconds: row.get::<_, i32>(7).max(1) as u32,
+            width: u32::try_from(row.get::<_, i32>(4))
+                .map_err(|_| "invalid media width in persistent job")?,
+            height: u32::try_from(row.get::<_, i32>(5))
+                .map_err(|_| "invalid media height in persistent job")?,
+            fps: u32::try_from(row.get::<_, i32>(6))
+                .map_err(|_| "invalid media fps in persistent job")?,
+            max_duration_seconds: u32::try_from(row.get::<_, i32>(7))
+                .map_err(|_| "invalid media duration in persistent job")?,
             normalize_audio: row.get(8),
         };
+        media_pipeline::validate_job(&job).map_err(|error| error.to_string())?;
 
         tx.execute(
             "UPDATE media_jobs
                 SET status='RUNNING', attempts=attempts+1,
                     locked_until=now()+interval '15 minutes',
                     updated_at=now()
-              WHERE id=$1",
+              WHERE id=$1 AND (status='QUEUED' OR (status='RUNNING' AND locked_until <= now()))
+            ",
             &[&id],
         )
         .await?;
@@ -1152,7 +1158,7 @@ impl CompanyStore {
         let id = Uuid::parse_str(job_id)?;
         let bounded_error = error.map(|value| value.chars().take(4096).collect::<String>());
         let client = self.client.lock().await;
-        client
+        let updated = client
             .execute(
                 "UPDATE media_jobs
                     SET status = CASE
@@ -1162,10 +1168,14 @@ impl CompanyStore {
                         locked_until = NULL,
                         last_error = $3,
                         updated_at = now()
-                  WHERE id = $1",
+                  WHERE id = $1
+                    AND status = 'RUNNING'",
                 &[&id, &status, &bounded_error],
             )
             .await?;
+        if updated != 1 {
+            return Err("media job completion rejected: job is not RUNNING".into());
+        }
         Ok(())
     }
 
