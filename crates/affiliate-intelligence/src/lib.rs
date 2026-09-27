@@ -1601,6 +1601,8 @@ mod tests {
             delivery_reliability_bps: None,
             commission_group: None,
             commission_rate_bps: commission,
+            commission_fixed_minor: None,
+            commission_currency: None,
             source: "test".into(),
             source_updated_at: None,
         }
@@ -1639,6 +1641,8 @@ mod tests {
             delivery_reliability_bps: Some(5_000),
             commission_group: None,
             commission_rate_bps: Some(6_000),
+            commission_fixed_minor: None,
+            commission_currency: None,
             source: "test".into(),
             source_updated_at: Some("2026-09-27T00:00:00Z".into()),
         };
@@ -1666,6 +1670,66 @@ mod tests {
         };
         let ranked = rank_products(&[quality, high_commission], &[coupon], &query);
         assert_eq!(ranked.len(), 1);
+        assert_eq!(ranked[0].product.id, "quality");
+    }
+
+    #[test]
+    fn fixed_commission_is_used_for_expected_value() {
+        let mut p = product("fixed", "Fixed commission", None, Some(9_000), Some(100));
+        p.commission_fixed_minor = Some(250);
+        p.commission_currency = Some("USD".into());
+        let ranked = rank_products(&[p], &[], &ProductSearchQuery::default());
+        assert_eq!(ranked.len(), 1);
+        assert_eq!(ranked[0].economics.expected_commission_minor, Some(250));
+    }
+
+    #[test]
+    fn quality_test_really_compares_two_eligible_products() {
+        let quality = product("quality", "Quality Phone", Some(1_500), Some(9_600), Some(5_000));
+        let mut high = product("high", "High Commission Phone", Some(6_000), Some(6_200), Some(8));
+        high.seller_reputation_bps = Some(5_500);
+        high.refund_rate_bps = Some(2_500);
+        let coupons = vec![
+            Coupon {
+                id: "q".into(),
+                advertiser_id: "quality".into(),
+                title: "10% off".into(),
+                description: "active".into(),
+                code: Some("Q10".into()),
+                discount_bps: Some(1_000),
+                starts_at: Some("2026-01-01".into()),
+                ends_at: Some("2026-12-31".into()),
+                active: true,
+                exclusive: false,
+                attributable: true,
+                url: None,
+                source: "test".into(),
+            },
+            Coupon {
+                id: "h".into(),
+                advertiser_id: "high".into(),
+                title: "5% off".into(),
+                description: "active".into(),
+                code: Some("H5".into()),
+                discount_bps: Some(500),
+                starts_at: Some("2026-01-01".into()),
+                ends_at: Some("2026-12-31".into()),
+                active: true,
+                exclusive: false,
+                attributable: true,
+                url: None,
+                source: "test".into(),
+            }
+        ];
+        let query = ProductSearchQuery {
+            category: Some("electronics".into()),
+            currency: Some("USD".into()),
+            require_coupon: true,
+            as_of_date: Some("2026-09-27".into()),
+            ..Default::default()
+        };
+        let ranked = rank_products(&[quality, high], &coupons, &query);
+        assert_eq!(ranked.len(), 2);
         assert_eq!(ranked[0].product.id, "quality");
     }
 
