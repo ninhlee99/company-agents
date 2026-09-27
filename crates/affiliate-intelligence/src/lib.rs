@@ -191,8 +191,6 @@ pub struct TikTokShopProvider {
     app_key: String,
     app_secret: String,
     shop_cipher: Option<String>,
-    cache_ttl: Duration,
-    products_cache: RwLock<Option<Cache<Vec<Product>>>>,
 }
 
 impl TikTokShopProvider {
@@ -228,13 +226,6 @@ impl TikTokShopProvider {
             .filter(|v| !v.trim().is_empty())
             .map(|v| v.trim().to_owned());
 
-        let cache_ttl = std::env::var("AFFILIATE_CACHE_TTL_SECONDS")
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-            .map(Duration::from_secs)
-            .filter(|v| v.as_secs() > 0)
-            .unwrap_or(Duration::from_secs(300));
-
         Ok(Self {
             client: Client::builder()
                 .timeout(DEFAULT_HTTP_TIMEOUT)
@@ -247,8 +238,6 @@ impl TikTokShopProvider {
             app_key,
             app_secret,
             shop_cipher,
-            cache_ttl,
-            products_cache: RwLock::new(None),
         })
     }
 
@@ -404,45 +393,34 @@ impl AffiliateProvider for TikTokShopProvider {
     }
 
     async fn products(&self) -> Result<Vec<Product>, AffiliateError> {
-        {
-            let cache = self.products_cache.read().await;
-            if let Some(cached) = cache.as_ref() {
-                if cached.loaded_at.elapsed() < self.cache_ttl {
-                    return Ok(cached.value.clone());
-                }
-            }
-        }
         Err(AffiliateError::Provider(
-            "TikTok provider requires a search query; call search_tiktok_products through the adapter".into(),
+            "TikTok provider requires a ProductSearchQuery; use AffiliateProvider::search".into(),
         ))
     }
 
     async fn coupons(&self) -> Result<Vec<Coupon>, AffiliateError> {
         Ok(Vec::new())
     }
-}
 
-async fn search_tiktok_products(
-    provider: &TikTokShopProvider,
-    query: &ProductSearchQuery,
-) -> Result<SearchResponse, AffiliateError> {
-    validate_query(query)?;
-    let products = provider.fetch_products(query).await?;
-    let ranked = rank_products(&products, &[], query);
-    let total = ranked.len();
-    Ok(SearchResponse {
-        source: provider.name().into(),
-        total_candidates: total,
-        returned: total.min(query.max_results),
-        products: ranked.into_iter().take(query.max_results).collect(),
-    })
+    async fn search(&self, query: &ProductSearchQuery) -> Result<Vec<Product>, AffiliateError> {
+        self.fetch_products(query).await
+    }
 }
 
 #[async_trait]
 pub trait AffiliateProvider: Send + Sync {
     fn name(&self) -> &'static str;
+
     async fn products(&self) -> Result<Vec<Product>, AffiliateError>;
+
     async fn coupons(&self) -> Result<Vec<Coupon>, AffiliateError>;
+
+    async fn search(
+        &self,
+        query: &ProductSearchQuery,
+    ) -> Result<Vec<Product>, AffiliateError> {
+        self.products().await
+    }
 }
 
 pub async fn search(
@@ -450,7 +428,7 @@ pub async fn search(
     query: ProductSearchQuery,
 ) -> Result<SearchResponse, AffiliateError> {
     validate_query(&query)?;
-    let products = provider.products().await?;
+    let products = provider.search(&query).await?;
     let coupons = provider.coupons().await?;
     let ranked = rank_products(&products, &coupons, &query);
     let total = ranked.len();
