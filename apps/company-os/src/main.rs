@@ -591,9 +591,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     "outbox event dispatched to internal event sink"
                 );
 
+                let Some(lease_token) = event
+                    .get("lease_token")
+                    .and_then(|value| value.as_str())
+                    .and_then(|value| uuid::Uuid::parse_str(value).ok())
+                else {
+                    tracing::error!(outbox_id = id, "outbox event missing lease token");
+                    continue;
+                };
+
                 if let Err(error) = outbox_state
                     .store
-                    .mark_outbox_published(&outbox_state.company_id, id)
+                    .mark_outbox_published(&outbox_state.company_id, id, lease_token)
                     .await
                 {
                     tracing::warn!(outbox_id = id, error = %error, "outbox acknowledgement failed");
@@ -602,6 +611,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         .mark_outbox_failed(
                             &outbox_state.company_id,
                             id,
+                            lease_token,
                             &error.to_string(),
                         )
                         .await;
@@ -621,12 +631,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .await;
 
             match claimed {
-                Ok(Some((job_id, run_token))) => {
+                Ok(Some((job_id, run_token, lease_token))) => {
                     match run_cycle(&background, &run_token.to_string()).await {
                         Ok(_) => {
                             if let Err(error) = background
                                 .store
-                                .complete_job(job_id, uuid::Uuid::new_v4())
+                                .complete_job(
+                                    job_id,
+                                    run_token,
+                                    lease_token,
+                                    uuid::Uuid::new_v4(),
+                                )
                                 .await
                             {
                                 eprintln!("scheduler completion error: {error}");
@@ -639,7 +654,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                 .record_cycle_failure(&background.company_id, &error.to_string())
                                 .await;
                             if let Err(release_error) =
-                                background.store.release_job_after_failure(job_id).await
+                                background
+                                    .store
+                                    .release_job_after_failure(
+                                        job_id,
+                                        run_token,
+                                        lease_token,
+                                    )
+                                    .await
                             {
                                 eprintln!("scheduler recovery error: {release_error}");
                             }
