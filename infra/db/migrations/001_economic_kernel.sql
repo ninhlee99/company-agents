@@ -32,8 +32,8 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
   id bigserial PRIMARY KEY,
   transaction_id uuid NOT NULL REFERENCES ledger_transactions(id),
   account_id uuid NOT NULL REFERENCES ledger_accounts(id),
-  debit_minor numeric(38,0) NOT NULL DEFAULT 0 CHECK (debit_minor >= 0),
-  credit_minor numeric(38,0) NOT NULL DEFAULT 0 CHECK (credit_minor >= 0),
+  debit_minor numeric(39,0) NOT NULL DEFAULT 0 CHECK (debit_minor >= 0),
+  credit_minor numeric(39,0) NOT NULL DEFAULT 0 CHECK (credit_minor >= 0),
   currency char(3) NOT NULL,
   CHECK ((debit_minor > 0 AND credit_minor = 0) OR (credit_minor > 0 AND debit_minor = 0))
 );
@@ -46,8 +46,8 @@ CREATE TABLE IF NOT EXISTS budgets (
   company_id uuid NOT NULL REFERENCES companies(id),
   name text NOT NULL,
   currency char(3) NOT NULL,
-  limit_minor numeric(38,0) NOT NULL CHECK (limit_minor >= 0),
-  spent_minor numeric(38,0) NOT NULL DEFAULT 0 CHECK (spent_minor >= 0),
+  limit_minor numeric(39,0) NOT NULL CHECK (limit_minor >= 0),
+  spent_minor numeric(39,0) NOT NULL DEFAULT 0 CHECK (spent_minor >= 0),
   active boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
   CHECK (spent_minor <= limit_minor)
@@ -97,3 +97,87 @@ DROP TRIGGER IF EXISTS ledger_entries_no_update ON ledger_entries;
 DROP TRIGGER IF EXISTS ledger_entries_no_delete ON ledger_entries;
 CREATE TRIGGER ledger_entries_no_update BEFORE UPDATE ON ledger_entries FOR EACH ROW EXECUTE FUNCTION reject_ledger_entry_update();
 CREATE TRIGGER ledger_entries_no_delete BEFORE DELETE ON ledger_entries FOR EACH ROW EXECUTE FUNCTION reject_ledger_entry_delete();
+
+
+CREATE OR REPLACE FUNCTION validate_ledger_transaction() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  entry_count bigint;
+  debit_total numeric(39,0);
+  credit_total numeric(39,0);
+  currency_count bigint;
+BEGIN
+  SELECT COUNT(*), COALESCE(SUM(debit_minor),0), COALESCE(SUM(credit_minor),0), COUNT(DISTINCT currency)
+    INTO entry_count, debit_total, credit_total, currency_count
+    FROM ledger_entries
+   WHERE transaction_id = NEW.transaction_id;
+
+  IF entry_count < 2 THEN
+    RAISE EXCEPTION 'ledger transaction requires at least two entries';
+  END IF;
+
+  IF debit_total <> credit_total THEN
+    RAISE EXCEPTION 'ledger transaction is unbalanced';
+  END IF;
+
+  IF currency_count <> 1 THEN
+    RAISE EXCEPTION 'ledger transaction has mixed currencies';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+      FROM ledger_entries e
+      JOIN ledger_accounts a ON a.id = e.account_id
+      JOIN ledger_transactions t ON t.id = e.transaction_id
+     WHERE e.transaction_id = NEW.transaction_id
+  IF EXISTS (
+    SELECT 1
+      FROM ledger_entries e
+      JOIN ledger_accounts a ON a.id = e.account_id
+      JOIN ledger_transactions t ON t.id = e.transaction_id
+     WHERE e.transaction_id = NEW.transaction_id
+       AND a.company_id <> t.company_id
+  ) THEN
+    RAISE EXCEPTION 'ledger entry/account company mismatch';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+      FROM ledger_entries e
+      JOIN ledger_accounts a ON a.id = e.account_id
+     WHERE e.transaction_id = NEW.transaction_id
+       AND e.currency <> a.currency
+  ) THEN
+    RAISE EXCEPTION 'ledger entry/account currency mismatch';
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS ledger_transaction_balanced ON ledger_entries;
+CREATE CONSTRAINT TRIGGER ledger_transaction_balanced
+AFTER INSERT ON ledger_entries
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION validate_ledger_transaction();
+
+CREATE OR REPLACE FUNCTION reject_ledger_transaction_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'ledger_transactions are immutable';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS ledger_transactions_no_update ON ledger_transactions;
+DROP TRIGGER IF EXISTS ledger_transactions_no_delete ON ledger_transactions;
+CREATE TRIGGER ledger_transactions_no_update BEFORE UPDATE ON ledger_transactions FOR EACH ROW EXECUTE FUNCTION reject_ledger_transaction_mutation();
+CREATE TRIGGER ledger_transactions_no_delete BEFORE DELETE ON ledger_transactions FOR EACH ROW EXECUTE FUNCTION reject_ledger_transaction_mutation();
+
+CREATE OR REPLACE FUNCTION reject_audit_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'audit_log is append-only';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS audit_log_no_update ON audit_log;
+DROP TRIGGER IF EXISTS audit_log_no_delete ON audit_log;
+CREATE TRIGGER audit_log_no_update BEFORE UPDATE ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_audit_mutation();
+CREATE TRIGGER audit_log_no_delete BEFORE DELETE ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_audit_mutation();
