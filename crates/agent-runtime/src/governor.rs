@@ -24,9 +24,24 @@ impl Governor {
             };
         }
 
+        if matches!(
+            company.status,
+            economic_core::CompanyStatus::Distress
+                | economic_core::CompanyStatus::Emergency
+                | economic_core::CompanyStatus::Liquidation
+                | economic_core::CompanyStatus::Bankrupt
+        ) && proposal.cost_minor > 0 {
+            return GovernedProposal {
+                proposal,
+                decision: GovernorDecision::Reject,
+                reason: "distress policy blocks new discretionary spend".into(),
+            };
+        }
+
         if matches!(company.status, economic_core::CompanyStatus::Bankrupt | economic_core::CompanyStatus::Liquidation)
             && proposal.action != ActionKind::ProduceReport
             && proposal.action != ActionKind::EscalateIncident
+            && proposal.action != ActionKind::ReduceBudget
         {
             return GovernedProposal {
                 proposal,
