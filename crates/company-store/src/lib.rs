@@ -3,6 +3,7 @@
 use agent_runtime::{
     ExecutionEngine, ExecutionOutcome, AgentRunResult, CompanySnapshot,
 };
+use economic_core::{validate_balanced_transaction, LedgerTransaction};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use tokio_postgres::{Client, NoTls};
@@ -70,6 +71,55 @@ impl CompanyStore {
             )
             .await?;
         Ok(())
+    }
+
+    pub async fn post_ledger_transaction(
+        &self,
+        company_id: &str,
+        transaction: &LedgerTransaction,
+        idempotency_key: &str,
+    ) -> Result<Uuid, Box<dyn std::error::Error + Send + Sync>> {
+        validate_balanced_transaction(transaction)
+            .map_err(|e| format!("ledger validation failed: {e}"))?;
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let transaction_uuid = Uuid::parse_str(&transaction.id)?;
+
+        let client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let inserted = tx.execute(
+            "INSERT INTO ledger_transactions (id, company_id, description, idempotency_key)
+             VALUES ($1,$2,$3,$4)
+             ON CONFLICT (company_id,idempotency_key) DO NOTHING",
+            &[&transaction_uuid, &company_uuid, &transaction.description, &idempotency_key],
+        ).await?;
+
+        if inserted == 0 {
+            let row = tx.query_one(
+                "SELECT id FROM ledger_transactions WHERE company_id=$1 AND idempotency_key=$2",
+                &[&company_uuid, &idempotency_key],
+            ).await?;
+            tx.rollback().await?;
+            return Ok(row.get(0));
+        }
+
+        for entry in &transaction.entries {
+            let account_uuid = Uuid::parse_str(&entry.account_id)
+                .map_err(|e| format!("invalid ledger account uuid: {e}"))?;
+            tx.execute(
+                "INSERT INTO ledger_entries (transaction_id, account_id, debit_minor, credit_minor, currency)
+                 VALUES ($1,$2,$3::numeric,$4::numeric,$5)",
+                &[
+                    &transaction_uuid,
+                    &account_uuid,
+                    &entry.debit_minor.to_string(),
+                    &entry.credit_minor.to_string(),
+                    &entry.currency,
+                ],
+            ).await?;
+        }
+
+        tx.commit().await?;
+        Ok(transaction_uuid)
     }
 
     pub async fn load_snapshot(
@@ -303,7 +353,7 @@ impl CompanyStore {
                 updated_at=now()
              WHERE command_type='AGENT_CYCLE'
                AND status='PROCESSING'
-               AND updated_at < now() - make_interval(secs => $1)",
+               AND updated_at < now() - ($1 * interval '1 second')",
             &[&threshold],
         ).await?;
         Ok(recovered)
