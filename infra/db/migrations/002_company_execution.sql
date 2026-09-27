@@ -59,7 +59,7 @@ ALTER TABLE scheduled_jobs
 ALTER TABLE scheduled_jobs
   ALTER COLUMN run_token SET NOT NULL;
 
-DO $
+DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
@@ -71,7 +71,7 @@ BEGIN
       CHECK (base_currency = upper(base_currency));
   END IF;
 END;
-$;
+$$;
 
 CREATE OR REPLACE FUNCTION validate_ledger_transaction_presence() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
