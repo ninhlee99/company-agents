@@ -1,5 +1,5 @@
 use crate::{
-    agent::{model_context, proposal_confidence, Agent, AgentContext, AgentError},
+    agent::{call_model, model_context, proposal_confidence, Agent, AgentContext, AgentError},
     model::Model,
     types::*,
 };
@@ -36,7 +36,7 @@ macro_rules! define_agent {
             fn permission(&self) -> Permission { $permission }
             fn system_prompt(&self) -> &'static str { include_str!(concat!("../../../agents/", $prompt, "/agent.md")) }
             async fn propose(&self, ctx: &AgentContext, model: Arc<dyn Model>) -> Result<Proposal, AgentError> {
-                let reasoning = model.propose_json(self.system_prompt(), &model_context(ctx)).await.map_err(AgentError::Model)?;
+                let reasoning = call_model(self, ctx, model).await?;
                 let proposal = $body(ctx);
                 Ok(attach_model_reasoning(proposal, &reasoning))
             }
