@@ -5,6 +5,7 @@ WORKDIR /src
 COPY Cargo.toml ./
 COPY apps ./apps
 COPY crates ./crates
+COPY agents ./agents
 RUN cargo build --release -p company-os
 
 FROM alpine:3.20
