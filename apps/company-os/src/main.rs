@@ -496,6 +496,16 @@ async fn healthz() -> &'static str {
     "ok"
 }
 
+async fn readyz(State(state): State<AppState>) -> (StatusCode, &'static str) {
+    match state.store.ready(&state.company_id).await {
+        Ok(()) => (StatusCode::OK, "ready"),
+        Err(error) => {
+            tracing::warn!(error = %error, "Company OS readiness check failed");
+            (StatusCode::SERVICE_UNAVAILABLE, "not ready")
+        }
+    }
+}
+
 async fn metrics(
     State(state): State<AppState>,
 ) -> (
@@ -632,6 +642,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/portfolio/metrics", get(portfolio_metrics_api))
         .route("/api/journal", get(journal_api))
         .route("/healthz", get(healthz))
+        .route("/readyz", get(readyz))
         .route("/metrics", get(metrics))
         .with_state(state);
 
