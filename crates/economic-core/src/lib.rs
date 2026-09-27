@@ -74,8 +74,35 @@ impl CompanyState {
             && !matches!(self.status, CompanyStatus::Liquidation | CompanyStatus::Bankrupt)
             && budget.active
             && budget.company_id == self.company_id
-            && budget.spent_minor.saturating_add(amount_minor) <= budget.limit_minor
+            && budget.spent_minor.checked_add(amount_minor).is_some_and(|next| next <= budget.limit_minor)
             && amount_minor <= self.cash_minor
+    }
+
+    pub fn runway_days_from_burn(&self, daily_burn_minor: i128) -> i64 {
+        if daily_burn_minor <= 0 {
+            return i64::MAX;
+        }
+        (self.cash_minor / daily_burn_minor).clamp(0, i64::MAX as i128) as i64
+    }
+
+    pub fn refresh_status_from_runway(&self, daily_burn_minor: i128) -> CompanyState {
+        let runway = self.runway_days_from_burn(daily_burn_minor);
+        let status = if self.cash_minor < 0 {
+            CompanyStatus::Emergency
+        } else if runway <= 0 {
+            CompanyStatus::Emergency
+        } else if runway <= 7 {
+            CompanyStatus::Distress
+        } else if runway <= 21 {
+            CompanyStatus::CostControl
+        } else if runway <= 45 {
+            CompanyStatus::Warning
+        } else if self.free_cash_flow() > 0 {
+            CompanyStatus::Growth
+        } else {
+            CompanyStatus::Active
+        };
+        CompanyState { runway_days: runway, status, ..self.clone() }
     }
 }
 
