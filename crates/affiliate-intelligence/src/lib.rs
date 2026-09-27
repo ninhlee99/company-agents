@@ -970,8 +970,7 @@ impl AwinProvider {
                 .iter_mut()
                 .filter(|p| p.advertiser_id == advertiser_id)
             {
-                if product.commission_rate_bps.is_some()
-                    || product.commission_fixed_minor.is_some()
+                if product.commission_rate_bps.is_some() || product.commission_fixed_minor.is_some()
                 {
                     continue;
                 }
@@ -992,15 +991,11 @@ impl AwinProvider {
                         product.commission_rate_bps = Some(bps);
                     }
                     if let Some(amount) = group.fixed_amount {
-                        let commission_currency = group
-                            .currency
-                            .as_deref()
-                            .unwrap_or(&product.currency);
+                        let commission_currency =
+                            group.currency.as_deref().unwrap_or(&product.currency);
                         if commission_currency.eq_ignore_ascii_case(&product.currency) {
-                            let units = minor_units_for_currency(
-                                commission_currency,
-                                self.minor_units,
-                            );
+                            let units =
+                                minor_units_for_currency(commission_currency, self.minor_units);
                             let scale = 10_i128.pow(units);
                             let fixed_minor = (amount * scale as f64).round();
                             if fixed_minor.is_finite()
