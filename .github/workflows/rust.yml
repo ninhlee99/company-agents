@@ -1,4 +1,8 @@
 name: rust
+concurrency:
+  group: rust-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
   pull_request:
