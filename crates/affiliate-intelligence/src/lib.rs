@@ -416,7 +416,7 @@ fn valid_product_evidence(product: &Product) -> bool {
     {
         return false;
     }
-    if !(product.url.starts_with("https://") || product.url.starts_with("http://")) {
+    if !product.url.starts_with("https://") {
         return false;
     }
     if let Some(old_price) = product.old_price_minor {
@@ -453,9 +453,27 @@ fn quality_assessment(product: &Product) -> QualityAssessment {
     let mut reasons = Vec::new();
 
     if let Some(rating) = product.rating_bps {
-        values.push(rating as u64 * 50);
+        let adjusted_rating = if let Some(reviews) = product.review_count {
+            let prior_rating = 8_000_u64;
+            let prior_weight = 20_u64;
+            let n = reviews.min(1_000_000);
+            (((rating as u64).saturating_mul(n)
+                + prior_rating.saturating_mul(prior_weight))
+                / n.saturating_add(prior_weight))
+                .min(SCORE_MAX as u64) as u32
+        } else {
+            rating
+        };
+        values.push(adjusted_rating as u64 * 50);
         weights.push(50_u64);
-        reasons.push(format!("provider rating={:.2}/5", rating as f64 / 2_000.0));
+        if adjusted_rating != rating {
+            reasons.push(format!(
+                "Bayesian-adjusted rating={:.2}/5",
+                adjusted_rating as f64 / 2_000.0
+            ));
+        } else {
+            reasons.push(format!("provider rating={:.2}/5", rating as f64 / 2_000.0));
+        }
     }
     if let Some(reviews) = product.review_count {
         let review_confidence = ((reviews.min(1_000) * SCORE_MAX as u64) / 1_000) as u32;
@@ -693,7 +711,7 @@ fn dedupe_key(product: &Product) -> String {
 }
 
 fn coupon_is_active_on(coupon: &Coupon, as_of_date: Option<&str>) -> bool {
-    if !coupon.active {
+    if !coupon.active || !valid_coupon_window(coupon) {
         return false;
     }
     let owned_today;
@@ -714,6 +732,25 @@ fn coupon_is_active_on(coupon: &Coupon, as_of_date: Option<&str>) -> bool {
         }
     }
     true
+}
+
+fn valid_coupon_window(coupon: &Coupon) -> bool {
+    let start = coupon.starts_at.as_deref().map(date_prefix);
+    let end = coupon.ends_at.as_deref().map(date_prefix);
+    if let Some(value) = start.as_deref() {
+        if !is_iso_date(value) {
+            return false;
+        }
+    }
+    if let Some(value) = end.as_deref() {
+        if !is_iso_date(value) {
+            return false;
+        }
+    }
+    match (start, end) {
+        (Some(start), Some(end)) => start <= end,
+        _ => true,
+    }
 }
 
 fn date_prefix(value: &str) -> String {
@@ -1943,6 +1980,39 @@ mod tests {
             ..Default::default()
         };
         assert!(rank_products(&[p], &[coupon], &query).is_empty());
+    }
+
+    #[test]
+    fn malformed_coupon_dates_are_not_usable() {
+        let p = product("a", "A", Some(2_000), Some(9_000), Some(100));
+        let coupon = Coupon {
+            id: "c".into(),
+            advertiser_id: "a".into(),
+            title: "10%".into(),
+            description: "".into(),
+            code: Some("SAVE10".into()),
+            discount_bps: Some(1_000),
+            starts_at: Some("not-a-date".into()),
+            ends_at: Some("2026-12-31".into()),
+            active: true,
+            exclusive: false,
+            attributable: true,
+            url: None,
+            source: "test".into(),
+        };
+        let query = ProductSearchQuery {
+            require_coupon_code: true,
+            as_of_date: Some("2026-09-27".into()),
+            ..Default::default()
+        };
+        assert!(rank_products(&[p], &[coupon], &query).is_empty());
+    }
+
+    #[test]
+    fn tiny_review_counts_are_shrunk_toward_prior() {
+        let p = product("a", "A", Some(1_500), Some(10_000), Some(1));
+        let ranked = rank_products(&[p], &[], &ProductSearchQuery::default());
+        assert!(ranked[0].quality.score_bps < 10_000);
     }
 
     #[test]
