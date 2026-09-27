@@ -72,7 +72,7 @@ fn floor_risk_for_action(action: ActionKind) -> RiskTier {
     }
 }
 
-fn attach_model_reasoning(mut proposal: Proposal, reasoning: &Value) -> Proposal {
+fn attach_model_reasoning(mut proposal: Proposal, reasoning: &Value, ctx: &AgentContext) -> Proposal {
     let suggestion = serde_json::from_value::<ModelSuggestion>(reasoning.clone()).ok();
 
     if let Some(s) = suggestion {
@@ -99,7 +99,8 @@ fn attach_model_reasoning(mut proposal: Proposal, reasoning: &Value) -> Proposal
         if let Some(cost) = s.cost_minor.filter(|v| *v >= 0) {
             proposal.cost_minor = cost
                 .min(max_safe_cost(proposal.action))
-                .min(ctx_budget(proposal.agent, 0));
+                .min(ctx.company.budget_remaining_minor.max(0))
+                .min(ctx.company.cash_minor.max(0));
         }
 
         if let Some(expected) = s.expected_revenue_minor.filter(|v| *v >= 0) {
@@ -124,12 +125,6 @@ fn attach_model_reasoning(mut proposal: Proposal, reasoning: &Value) -> Proposal
     proposal.evidence.push("llm_reasoning_is_untrusted_metadata".into());
     proposal
 }
-
-fn ctx_budget(_agent: AgentRole, _fallback: i128) -> i128 {
-    // Budget/cash limits are enforced by Governor and economic kernel.
-    i128::MAX
-}
-
 macro_rules! define_agent {
     ($name:ident, $role:expr, $permission:expr, $prompt:literal, $body:expr) => {
         pub struct $name;
@@ -141,7 +136,7 @@ macro_rules! define_agent {
             async fn propose(&self, ctx: &AgentContext, model: Arc<dyn Model>) -> Result<Proposal, AgentError> {
                 let reasoning = call_model(self, ctx, model).await?;
                 let proposal = $body(ctx);
-                Ok(attach_model_reasoning(proposal, &reasoning))
+                Ok(attach_model_reasoning(proposal, &reasoning, ctx))
             }
         }
     };
