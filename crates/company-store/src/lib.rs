@@ -2028,6 +2028,34 @@ impl CompanyStore {
         Ok(())
     }
 
+    pub async fn ready(
+        &self,
+        company_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let id = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        client.query_one("SELECT 1", &[]).await?;
+        client
+            .query_opt(
+                "SELECT 1
+                   FROM companies
+                  WHERE id=$1",
+                &[&id],
+            )
+            .await?
+            .ok_or("company is not registered")?;
+        client
+            .query_opt(
+                "SELECT 1
+                   FROM company_state_snapshots
+                  WHERE company_id=$1",
+                &[&id],
+            )
+            .await?
+            .ok_or("company state snapshot is unavailable")?;
+        Ok(())
+    }
+
     pub async fn recent_journal(
         &self,
         company_id: &str,
