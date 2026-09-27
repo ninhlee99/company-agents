@@ -440,7 +440,20 @@ impl CompanyStore {
                         "UPDATE idempotency_keys SET status='PROCESSING', response_json=NULL WHERE company_id=$1 AND key=$2",
                         &[&company_id, &cycle_id],
                     ).await?;
-                    Self::persist_cycle_rows(&tx, &company_id, &cycle_uuid, snapshot, &state, results, outcomes).await?;
+                    let previous_snapshot = tx
+            .query_opt(
+                "SELECT state FROM company_state_snapshots WHERE company_id=$1 FOR UPDATE",
+                &[&company_id],
+            )
+            .await?
+            .map(|row| row.get::<_, Value>(0));
+
+        if let Some(previous_state) = previous_snapshot {
+            let previous: CompanySnapshot = serde_json::from_value(previous_state)?;
+            Self::post_economic_deltas(&tx, &company_id, &cycle_uuid, &previous, snapshot).await?;
+        }
+
+        Self::persist_cycle_rows(&tx, &company_id, &cycle_uuid, snapshot, &state, results, outcomes).await?;
                     tx.commit().await?;
                     Ok(PersistCycleResult::Committed)
                 }
@@ -472,6 +485,132 @@ impl CompanyStore {
         ).await?;
         tx.commit().await?;
         Ok(PersistCycleResult::Committed)
+    }
+
+    async fn post_economic_deltas(
+        tx: &tokio_postgres::Transaction<'_>,
+        company_id: &Uuid,
+        cycle_id: &Uuid,
+        previous: &CompanySnapshot,
+        next: &CompanySnapshot,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let revenue_delta = next.revenue_minor
+            .checked_sub(previous.revenue_minor)
+            .ok_or("revenue delta overflow")?;
+        let expense_delta = next.expenses_minor
+            .checked_sub(previous.expenses_minor)
+            .ok_or("expense delta overflow")?;
+        let cash_delta = next.cash_minor
+            .checked_sub(previous.cash_minor)
+            .ok_or("cash delta overflow")?;
+
+        if revenue_delta < 0 || expense_delta < 0 {
+            return Err("revenue and expenses cannot decrease between committed states".into());
+        }
+        if cash_delta != revenue_delta.saturating_sub(expense_delta) {
+            return Err("cash delta does not reconcile with revenue and expense deltas".into());
+        }
+
+        if revenue_delta > 0 {
+            Self::post_ledger_tx(
+                tx,
+                company_id,
+                cycle_id,
+                "REVENUE",
+                revenue_delta,
+                true,
+                "agent-cycle revenue delta",
+            ).await?;
+        }
+        if expense_delta > 0 {
+            Self::post_ledger_tx(
+                tx,
+                company_id,
+                cycle_id,
+                "EXPENSE",
+                expense_delta,
+                false,
+                "agent-cycle expense delta",
+            ).await?;
+        }
+        Ok(())
+    }
+
+    async fn post_ledger_tx(
+        tx: &tokio_postgres::Transaction<'_>,
+        company_id: &Uuid,
+        cycle_id: &Uuid,
+        suffix: &str,
+        amount_minor: i128,
+        revenue: bool,
+        description: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if amount_minor <= 0 {
+            return Ok(());
+        }
+
+        let currency: String = tx.query_one(
+            "SELECT base_currency FROM companies WHERE id=$1",
+            &[company_id],
+        ).await?.get(0);
+
+        let cash_id: Uuid = tx.query_one(
+            "SELECT id FROM ledger_accounts WHERE company_id=$1 AND code='1000'",
+            &[company_id],
+        ).await?.get(0);
+        let other_code = if revenue { "4000" } else { "5000" };
+        let other_id: Uuid = tx.query_one(
+            "SELECT id FROM ledger_accounts WHERE company_id=$1 AND code=$2",
+            &[company_id, &other_code],
+        ).await?.get(0);
+
+        let transaction_id = Uuid::new_v4();
+        let ledger_key = format!("AGENT_CYCLE:{cycle_id}:{suffix}");
+        let (debit_account, credit_account) = if revenue { (cash_id, other_id) } else { (other_id, cash_id) };
+
+        let transaction = LedgerTransaction {
+            id: transaction_id.to_string(),
+            description: description.into(),
+            entries: vec![
+                LedgerEntry {
+                    account_id: debit_account.to_string(),
+                    debit_minor: amount_minor,
+                    credit_minor: 0,
+                    currency: currency.clone(),
+                },
+                LedgerEntry {
+                    account_id: credit_account.to_string(),
+                    debit_minor: 0,
+                    credit_minor: amount_minor,
+                    currency: currency.clone(),
+                },
+            ],
+        };
+        validate_balanced_transaction(&transaction).map_err(|e| format!("cycle ledger validation failed: {e}"))?;
+
+        tx.execute(
+            "INSERT INTO ledger_transactions (id, company_id, description, idempotency_key)
+             VALUES ($1,$2,$3,$4)
+             ON CONFLICT (company_id,idempotency_key) DO NOTHING",
+            &[&transaction_id, company_id, &transaction.description, &ledger_key],
+        ).await?;
+
+        for entry in &transaction.entries {
+            let account_id = Uuid::parse_str(&entry.account_id)?;
+            tx.execute(
+                "INSERT INTO ledger_entries (transaction_id, account_id, debit_minor, credit_minor, currency)
+                 VALUES ($1,$2,$3::numeric,$4::numeric,$5)",
+                &[
+                    &transaction_id,
+                    &account_id,
+                    &entry.debit_minor.to_string(),
+                    &entry.credit_minor.to_string(),
+                    &entry.currency,
+                ],
+            ).await?;
+        }
+
+        Ok(())
     }
 
     async fn persist_cycle_rows(
