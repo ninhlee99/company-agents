@@ -96,13 +96,14 @@ fn seed_company(company_id: String) -> CompanySnapshot {
 
 async fn run_cycle(
     state: &AppState,
+    cycle_id: &str,
 ) -> Result<CycleResponse, Box<dyn std::error::Error + Send + Sync>> {
     let _cycle_guard = state.cycle_lock.lock().await;
     let company = state.company.read().await.clone();
     let results = state.runtime.run_all(company.clone()).await;
     let persisted = state
         .store
-        .persist_and_execute_cycle(&company, &results)
+        .persist_and_execute_cycle_with_id(&company, &results, cycle_id)
         .await?;
 
     *state.company.write().await = persisted.snapshot.clone();
