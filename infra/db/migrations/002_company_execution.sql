@@ -39,9 +39,19 @@ CREATE TABLE IF NOT EXISTS scheduled_jobs (
 CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_due
   ON scheduled_jobs(status, next_run_at);
 
-ALTER TABLE companies
-  ADD CONSTRAINT companies_currency_uppercase
-  CHECK (base_currency = upper(base_currency));
+DO $
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'companies_currency_uppercase'
+      AND conrelid = 'companies'::regclass
+  ) THEN
+    ALTER TABLE companies
+      ADD CONSTRAINT companies_currency_uppercase
+      CHECK (base_currency = upper(base_currency));
+  END IF;
+END;
+$;
 
 CREATE OR REPLACE FUNCTION validate_ledger_transaction_presence() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
