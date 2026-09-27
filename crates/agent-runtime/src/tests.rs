@@ -168,8 +168,7 @@ async fn permission_escalation_is_rejected() {
         requested_permission: Permission::ExecuteMaterial,
     };
 
-    let decision =
-        crate::governor::Governor.evaluate(p, &healthy_company());
+    let decision = crate::governor::Governor.evaluate(p, &healthy_company());
     assert_eq!(decision.decision, GovernorDecision::Reject);
 }
 
