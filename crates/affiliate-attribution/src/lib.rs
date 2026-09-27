@@ -82,30 +82,61 @@ impl std::fmt::Display for AttributionError {
 
 impl std::error::Error for AttributionError {}
 
-pub fn attribute_conversion(
-    conversion: &ConversionEvent,
-    clicks: &[ClickEvent],
-    model: AttributionModel,
-) -> Result<ReconciledConversion, AttributionError> {
-    if conversion.company_id.trim().is_empty()
-        || conversion.conversion_id.trim().is_empty()
-        || conversion.order_id.trim().is_empty()
-        || conversion.product_id.trim().is_empty()
+pub fn validate_click_event(event: &ClickEvent) -> Result<(), AttributionError> {
+    if event.company_id.trim().is_empty()
+        || event.click_id.trim().is_empty()
+        || event.product_id.trim().is_empty()
+        || event.advertiser_id.trim().is_empty()
+        || event.content_id.trim().is_empty()
+        || event.source.trim().is_empty()
     {
         return Err(AttributionError::InvalidInput(
-            "conversion identifiers are required".into(),
+            "click identifiers and source are required".into(),
         ));
     }
-    if conversion.order_value_minor < 0
-        || conversion.commission_minor < 0
-        || conversion.refunded_minor < 0
-        || conversion.refunded_minor > conversion.order_value_minor
+    if parse_rfc3339(&event.occurred_at).is_none() {
+        return Err(AttributionError::InvalidInput(
+            "click occurred_at must be RFC3339".into(),
+        ));
+    }
+    Ok(())
+}
+
+pub fn validate_conversion_event(event: &ConversionEvent) -> Result<(), AttributionError> {
+    if event.company_id.trim().is_empty()
+        || event.conversion_id.trim().is_empty()
+        || event.order_id.trim().is_empty()
+        || event.product_id.trim().is_empty()
+        || event.advertiser_id.trim().is_empty()
+        || event.source.trim().is_empty()
+    {
+        return Err(AttributionError::InvalidInput(
+            "conversion identifiers and source are required".into(),
+        ));
+    }
+    if parse_rfc3339(&event.occurred_at).is_none() {
+        return Err(AttributionError::InvalidInput(
+            "conversion occurred_at must be RFC3339".into(),
+        ));
+    }
+    if event.order_value_minor < 0
+        || event.commission_minor < 0
+        || event.refunded_minor < 0
+        || event.refunded_minor > event.order_value_minor
     {
         return Err(AttributionError::InvalidInput(
             "conversion economic values are invalid".into(),
         ));
     }
+    Ok(())
+}
 
+pub fn attribute_conversion(
+    conversion: &ConversionEvent,
+    clicks: &[ClickEvent],
+    model: AttributionModel,
+) -> Result<ReconciledConversion, AttributionError> {
+    validate_conversion_event(conversion)?;
     let conversion_time = parse_rfc3339(&conversion.occurred_at).ok_or_else(|| {
         AttributionError::InvalidInput("conversion occurred_at must be RFC3339".into())
     })?;
