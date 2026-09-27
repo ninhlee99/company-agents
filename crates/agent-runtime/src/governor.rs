@@ -82,7 +82,8 @@ impl Governor {
             };
         }
 
-        let material = matches!(proposal.risk, RiskTier::High | RiskTier::Critical)
+        let material = proposal.action.inherently_material()
+            || matches!(proposal.risk, RiskTier::High | RiskTier::Critical)
             || proposal.cost_minor > 1_000
             || !proposal.reversible;
 
@@ -171,6 +172,24 @@ mod tests {
         let mut p = proposal();
         let company = CompanySnapshot { status: economic_core::CompanyStatus::Bankrupt, ..snapshot() };
         assert_eq!(Governor.evaluate(&Governor, p, &company).decision, GovernorDecision::Reject);
+    }
+
+    #[test]
+    fn governor_escalates_external_publish() {
+        let p = Proposal {
+            agent: AgentRole::Content,
+            objective: "publish".into(),
+            action: ActionKind::PublishContent,
+            cost_minor: 0,
+            expected_revenue_minor: 100,
+            risk: RiskTier::Medium,
+            confidence_bps: 8000,
+            evidence: vec!["approved content".into()],
+            rationale: "external side effect".into(),
+            reversible: true,
+            requested_permission: Permission::Propose,
+        };
+        assert_eq!(Governor.evaluate(&Governor, p, &snapshot()).decision, GovernorDecision::Escalate);
     }
 
     #[test]
