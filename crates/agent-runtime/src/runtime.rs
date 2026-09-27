@@ -78,13 +78,8 @@ impl AgentRuntime {
         model_timeout: std::time::Duration,
         memory: &HashMap<AgentRole, Vec<AgentMemory>>,
     ) -> Vec<AgentRunResult> {
-        self.run_roles_with_memory(
-            company,
-            model_timeout,
-            self.agent_roles(),
-            memory,
-        )
-        .await
+        self.run_roles_with_memory(company, model_timeout, self.agent_roles(), memory)
+            .await
     }
 
     pub async fn run_roles_with_memory(
@@ -94,14 +89,8 @@ impl AgentRuntime {
         roles: Vec<AgentRole>,
         memory: &HashMap<AgentRole, Vec<AgentMemory>>,
     ) -> Vec<AgentRunResult> {
-        self.run_roles_internal(
-            company,
-            model_timeout,
-            roles,
-            memory,
-            None,
-        )
-        .await
+        self.run_roles_internal(company, model_timeout, roles, memory, None)
+            .await
     }
 
     async fn run_roles_with_state(
@@ -112,23 +101,13 @@ impl AgentRuntime {
         state: Option<Arc<dyn AgentStateProvider>>,
     ) -> Vec<AgentRunResult> {
         if state.is_none() {
-            return self.run_roles_with_memory(
-                company,
-                model_timeout,
-                roles,
-                &HashMap::new(),
-            )
-            .await;
+            return self
+                .run_roles_with_memory(company, model_timeout, roles, &HashMap::new())
+                .await;
         }
 
-        self.run_roles_internal(
-            company,
-            model_timeout,
-            roles,
-            &HashMap::new(),
-            state,
-        )
-        .await
+        self.run_roles_internal(company, model_timeout, roles, &HashMap::new(), state)
+            .await
     }
 
     async fn run_roles_internal(
@@ -182,12 +161,7 @@ impl AgentRuntime {
                             .admit_model_call(&company.company_id, agent.role())
                             .await
                         {
-                            return fail_closed(
-                                agent.role(),
-                                &company,
-                                governor,
-                                &reason,
-                            );
+                            return fail_closed(agent.role(), &company, governor, &reason);
                         }
                         match provider
                             .load_memory(&company.company_id, agent.role())
@@ -222,12 +196,9 @@ impl AgentRuntime {
                             governance: Some(governance),
                         }
                     }
-                    Err(error) => fail_closed(
-                        agent.role(),
-                        &ctx.company,
-                        governor,
-                        &error.to_string(),
-                    ),
+                    Err(error) => {
+                        fail_closed(agent.role(), &ctx.company, governor, &error.to_string())
+                    }
                 }
             }
         });
