@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+tracked="$(git ls-files)"
+
+# Reject common high-entropy token prefixes and concrete secret assignments.
+for pattern in 'AKIA[0-9A-Z]{16}' 'ghp_[A-Za-z0-9]{20,}' 'github_pat_[A-Za-z0-9_]{20,}' 'sk-[A-Za-z0-9]{20,}' 'AIza[0-9A-Za-z_-]{20,}'; do
+  if printf '%s\n' "$tracked" | xargs -r grep -nE "$pattern" -- 2>/dev/null; then
+    echo "SECRET HYGIENE FAILED: token-like secret found in tracked files" >&2
+    exit 1
+  fi
+done
+
+for forbidden in GEMINI_API_KEY AWIN_ACCESS_TOKEN AWIN_PRODUCT_FEED_API_KEY TTS_APP_SECRET TTS_ACCESS_TOKEN; do
+  matches="$(printf '%s\n' "$tracked" | xargs -r grep -nE "(^|[^A-Z0-9_])${forbidden}=[^[:space:]]{8,}" -- 2>/dev/null || true)"
+  if [[ -n "$matches" ]]; then
+    echo "SECRET HYGIENE FAILED: non-empty $forbidden assignment is tracked" >&2
+    exit 1
+  fi
+done
+
+echo "SECRET HYGIENE PASSED"
