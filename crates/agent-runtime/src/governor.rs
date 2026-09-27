@@ -182,7 +182,7 @@ mod tests {
 
     #[test]
     fn governor_rejects_self_permission_escalation() {
-        let p = proposal();
+        let mut p = proposal();
         p.requested_permission = Permission::ExecuteMaterial;
         assert_eq!(
             Governor.evaluate(p, &snapshot()).decision,
@@ -192,7 +192,7 @@ mod tests {
 
     #[test]
     fn governor_rejects_bankrupt_discretionary_action() {
-        let mut p = proposal();
+        let p = proposal();
         let company = CompanySnapshot {
             status: economic_core::CompanyStatus::Bankrupt,
             ..snapshot()
