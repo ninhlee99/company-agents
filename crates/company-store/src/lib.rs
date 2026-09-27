@@ -1798,6 +1798,15 @@ impl CompanyStore {
         )
         .await?;
 
+        update_snapshot_financials(&tx, company_uuid, |snapshot| {
+            snapshot.cash_minor = snapshot
+                .cash_minor
+                .checked_add(amount_minor)
+                .ok_or("affiliate payout cash overflow".to_string())?;
+            Ok(())
+        })
+        .await?;
+
         let occurred_text = occurred.format(&time::format_description::well_known::Rfc3339)?;
         tx.execute(
             "INSERT INTO affiliate_payouts
