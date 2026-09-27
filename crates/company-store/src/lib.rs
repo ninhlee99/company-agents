@@ -56,6 +56,11 @@ impl CompanyStore {
             .await?;
         client
             .batch_execute(include_str!(
+                "../../../infra/db/migrations/004_affiliate_attribution.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
                 "../../../infra/db/migrations/003_agent_memory_and_rate_limits.sql"
             ))
             .await
