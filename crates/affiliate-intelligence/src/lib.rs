@@ -1537,9 +1537,7 @@ fn parse_awin_commission_groups(
         };
         let is_default =
             code.eq_ignore_ascii_case("default") || name.to_ascii_lowercase().contains("default");
-        let fixed_amount = if kind.eq_ignore_ascii_case("fix")
-            || kind.eq_ignore_ascii_case("fixed")
-        {
+        let fixed_amount = if kind.eq_ignore_ascii_case("fix") || kind.eq_ignore_ascii_case("fixed") {
             item.get("amount")
                 .and_then(|v| v.as_f64())
                 .filter(|v| v.is_finite() && *v >= 0.0)
