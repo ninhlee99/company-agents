@@ -108,8 +108,10 @@ pub fn attribute_conversion(
 
     let mut matching = clicks
         .iter()
+        .filter(|click| click.company_id == conversion.company_id)
         .filter(|click| click.product_id == conversion.product_id)
         .filter(|click| click.advertiser_id == conversion.advertiser_id)
+        .filter(|click| click.occurred_at <= conversion.occurred_at)
         .cloned()
         .collect::<Vec<_>>();
     matching.sort_by(|a, b| {
