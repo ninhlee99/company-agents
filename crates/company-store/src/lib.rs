@@ -1507,8 +1507,9 @@ impl CompanyStore {
         let limit = limit.clamp(1, 100);
         let lease_seconds = lease_seconds.clamp(30, 3_600);
         let client = self.client.lock().await;
-        let rows = client.query(
-            "WITH claimed AS (
+        let rows = client
+            .query(
+                "WITH claimed AS (
                 SELECT id
                 FROM outbox_events
                 WHERE published_at IS NULL
@@ -1525,20 +1526,23 @@ impl CompanyStore {
               WHERE o.id=claimed.id
               RETURNING o.id,o.company_id,o.event_type,o.aggregate_id,o.idempotency_key,
                         o.schema_version,o.payload",
-            &[&limit,&lease_owner,&lease_seconds],
-        ).await?;
+                &[&limit, &lease_owner, &lease_seconds],
+            )
+            .await?;
 
-        rows.into_iter().map(|row| {
-            Ok(OutboxEvent {
-                id: row.get(0),
-                company_id: row.get::<_, Uuid>(1).to_string(),
-                event_type: row.get(2),
-                aggregate_id: row.get(3),
-                idempotency_key: row.get(4),
-                schema_version: row.get(5),
-                payload: row.get(6),
+        rows.into_iter()
+            .map(|row| {
+                Ok(OutboxEvent {
+                    id: row.get(0),
+                    company_id: row.get::<_, Uuid>(1).to_string(),
+                    event_type: row.get(2),
+                    aggregate_id: row.get(3),
+                    idempotency_key: row.get(4),
+                    schema_version: row.get(5),
+                    payload: row.get(6),
+                })
             })
-        }).collect()
+            .collect()
     }
 
     pub async fn fail_outbox_event(
@@ -1550,16 +1554,19 @@ impl CompanyStore {
     ) -> Result<bool, tokio_postgres::Error> {
         let retry = retry_after_seconds.clamp(5, 3_600);
         let client = self.client.lock().await;
-        Ok(client.execute(
-            "UPDATE outbox_events
+        Ok(client
+            .execute(
+                "UPDATE outbox_events
                 SET lease_owner=NULL,
                     lease_until=now() + ($3 * interval '1 second'),
                     last_error=$4
               WHERE id=$1
                 AND lease_owner=$2
                 AND published_at IS NULL",
-            &[&event_id,&lease_owner,&retry,&error],
-        ).await? == 1)
+                &[&event_id, &lease_owner, &retry, &error],
+            )
+            .await?
+            == 1)
     }
 
     pub async fn pending_outbox(
