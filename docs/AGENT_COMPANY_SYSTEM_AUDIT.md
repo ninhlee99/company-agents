@@ -86,3 +86,11 @@ There are currently 40 test functions across the Rust economic core, Agent Runti
 An Agent is considered production-ready only when unit -> contract -> scenario -> adversarial -> economic -> security -> load -> recovery -> chaos passes without unauthorized material actions and with deterministic replay evidence.
 
 The current repository should be treated as controlled-runtime / pre-autonomy until the P0 gates are complete.
+
+## 2026-09 implementation checkpoint
+
+The controlled Company OS now includes durable cycle execution, PostgreSQL-backed scheduling, transactional/idempotent ledger and state persistence, decision journaling, affiliate product intelligence and attribution, company operating aggregates, bounded FFmpeg processing, and a gated TikTok Direct Post adapter.
+
+External side effects remain approval-bound. Provider credentials are configuration-only and must not be persisted in business state.
+
+Validation status is tracked from GitHub Actions runs on the feature branch. No production-autonomy claim is made until unit, integration, security, load, recovery, and chaos gates are green.
