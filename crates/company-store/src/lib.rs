@@ -953,7 +953,7 @@ impl CompanyStore {
         Ok(row.get(0))
     }
 
-    
+    pub async fn ensure_recurring_job(
         &self,
         company_id: &str,
         job_type: &str,
