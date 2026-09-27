@@ -72,6 +72,7 @@ pub struct ProductSearchQuery {
     pub max_price_minor: Option<i128>,
     pub min_commission_bps: Option<u32>,
     pub require_coupon: bool,
+    pub require_coupon_code: bool,
     pub min_rating_bps: Option<u32>,
     pub min_reviews: Option<u64>,
     pub in_stock_only: bool,
@@ -89,6 +90,7 @@ impl Default for ProductSearchQuery {
             max_price_minor: None,
             min_commission_bps: None,
             require_coupon: false,
+            require_coupon_code: false,
             min_rating_bps: None,
             min_reviews: None,
             in_stock_only: true,
@@ -133,6 +135,7 @@ pub struct EconomicsAssessment {
     pub score_bps: u32,
     pub confidence_bps: u32,
     pub expected_commission_minor: Option<i128>,
+    pub expected_net_commission_minor: Option<i128>,
     pub effective_discount_bps: Option<u32>,
     pub reasons: Vec<String>,
 }
@@ -227,6 +230,11 @@ pub fn rank_products(
         if query.require_coupon && usable_coupons.is_empty() {
             continue;
         }
+        if query.require_coupon_code && !usable_coupons.iter().any(|coupon| {
+            coupon.code.as_deref().is_some_and(|code| !code.trim().is_empty())
+        }) {
+            continue;
+        }
 
         let quality = quality_assessment(product);
         let economics = economics_assessment(product, &usable_coupons);
@@ -313,6 +321,13 @@ fn validate_query(query: &ProductSearchQuery) -> Result<(), AffiliateError> {
             ));
         }
     }
+    if let Some(currency) = query.currency.as_deref() {
+        if currency.len() != 3 || !currency.as_bytes().iter().all(u8::is_ascii_uppercase) {
+            return Err(AffiliateError::InvalidQuery(
+                "currency must be a three-letter uppercase ISO-like code".into(),
+            ));
+        }
+    }
     if query.max_results == 0 || query.max_results > 200 {
         return Err(AffiliateError::InvalidQuery(
             "max_results must be between 1 and 200".into(),
@@ -329,6 +344,9 @@ fn validate_query(query: &ProductSearchQuery) -> Result<(), AffiliateError> {
 }
 
 fn product_matches(product: &Product, query: &ProductSearchQuery) -> bool {
+    if !valid_product_evidence(product) {
+        return false;
+    }
     if let Some(currency) = query.currency.as_deref() {
         if product.currency != currency {
             return false;
@@ -385,6 +403,48 @@ fn product_matches(product: &Product, query: &ProductSearchQuery) -> bool {
         .keywords
         .iter()
         .all(|keyword| haystack.contains(&keyword.to_ascii_lowercase()))
+}
+
+fn valid_product_evidence(product: &Product) -> bool {
+    if product.id.trim().is_empty()
+        || product.advertiser_id.trim().is_empty()
+        || product.name.trim().is_empty()
+        || product.price_minor < 0
+        || product.currency.len() != 3
+        || !product.currency.as_bytes().iter().all(u8::is_ascii_uppercase)
+        || product.url.trim().is_empty()
+    {
+        return false;
+    }
+    if !(product.url.starts_with("https://") || product.url.starts_with("http://")) {
+        return false;
+    }
+    if let Some(old_price) = product.old_price_minor {
+        if old_price < product.price_minor {
+            return false;
+        }
+    }
+    if let Some(rate) = product.commission_rate_bps {
+        if rate > SCORE_MAX {
+            return false;
+        }
+    }
+    if let Some(fixed) = product.commission_fixed_minor {
+        if fixed < 0 {
+            return false;
+        }
+        if let Some(currency) = product.commission_currency.as_deref() {
+            if currency != product.currency {
+                return false;
+            }
+        }
+    }
+    if let Some(refund) = product.refund_rate_bps {
+        if refund > SCORE_MAX {
+            return false;
+        }
+    }
+    true
 }
 
 fn quality_assessment(product: &Product) -> QualityAssessment {
@@ -471,6 +531,13 @@ fn economics_assessment(product: &Product, coupons: &[Coupon]) -> EconomicsAsses
         .and_then(|rate| product.price_minor.checked_mul(rate as i128))
         .map(|v| v / SCORE_MAX as i128)
         .or(product.commission_fixed_minor);
+    let expected_net_commission_minor = expected_commission_minor.map(|value| {
+        if let Some(refund) = product.refund_rate_bps {
+            value.saturating_mul((SCORE_MAX - refund) as i128) / SCORE_MAX as i128
+        } else {
+            value
+        }
+    });
 
     let effective_discount_bps = coupons
         .iter()
@@ -478,7 +545,13 @@ fn economics_assessment(product: &Product, coupons: &[Coupon]) -> EconomicsAsses
         .chain(product.savings_bps)
         .max();
 
-    let commission_score = product.commission_rate_bps.unwrap_or(0).min(SCORE_MAX);
+    let commission_score = expected_net_commission_minor
+        .map(|value| {
+            let base = product.price_minor.max(1);
+            ((value.max(0).saturating_mul(SCORE_MAX as i128) / base).min(SCORE_MAX as i128))
+                as u32
+        })
+        .unwrap_or(0);
     let fixed_commission_score = product
         .commission_fixed_minor
         .map(|value| {
@@ -505,7 +578,7 @@ fn economics_assessment(product: &Product, coupons: &[Coupon]) -> EconomicsAsses
     let confidence_bps = [
         product.commission_rate_bps.is_some() || product.commission_fixed_minor.is_some(),
         effective_discount_bps.is_some(),
-        expected_commission_minor.is_some(),
+        expected_commission_minor.is_some() && expected_net_commission_minor.is_some(),
     ]
     .into_iter()
     .filter(|v| *v)
@@ -516,6 +589,7 @@ fn economics_assessment(product: &Product, coupons: &[Coupon]) -> EconomicsAsses
         score_bps,
         confidence_bps: confidence_bps.min(SCORE_MAX),
         expected_commission_minor,
+        expected_net_commission_minor,
         effective_discount_bps,
         reasons,
     }
@@ -1842,6 +1916,40 @@ mod tests {
             result[0].score_bps,
             rank_products(&products, &[], &query)[0].score_bps
         );
+    }
+
+    #[test]
+    fn coupon_code_requirement_filters_code_less_promotions() {
+        let p = product("a", "A", Some(2_000), Some(9_000), Some(100));
+        let coupon = Coupon {
+            id: "c".into(),
+            advertiser_id: "a".into(),
+            title: "10% sale".into(),
+            description: "automatic discount".into(),
+            code: None,
+            discount_bps: Some(1_000),
+            starts_at: Some("2026-01-01".into()),
+            ends_at: Some("2026-12-31".into()),
+            active: true,
+            exclusive: false,
+            attributable: true,
+            url: None,
+            source: "test".into(),
+        };
+        let query = ProductSearchQuery {
+            require_coupon: true,
+            require_coupon_code: true,
+            as_of_date: Some("2026-09-27".into()),
+            ..Default::default()
+        };
+        assert!(rank_products(&[p], &[coupon], &query).is_empty());
+    }
+
+    #[test]
+    fn invalid_product_evidence_is_fail_closed() {
+        let mut p = product("bad", "Bad", Some(2_000), Some(9_000), Some(100));
+        p.url = "javascript:alert(1)".into();
+        assert!(rank_products(&[p], &[], &ProductSearchQuery::default()).is_empty());
     }
 
     #[test]
