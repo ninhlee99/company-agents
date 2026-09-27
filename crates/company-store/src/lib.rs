@@ -104,6 +104,9 @@ impl CompanyStore {
     ) -> Result<Uuid, Box<dyn std::error::Error + Send + Sync>> {
         validate_balanced_transaction(transaction)
             .map_err(|e| format!("ledger validation failed: {e}"))?;
+        if idempotency_key.trim().is_empty() {
+            return Err("ledger idempotency key is required".into());
+        }
         let company_uuid = Uuid::parse_str(company_id)?;
         let transaction_uuid = Uuid::parse_str(&transaction.id)?;
 
