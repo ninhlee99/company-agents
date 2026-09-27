@@ -107,6 +107,7 @@ struct AffiliateSearchParams {
     in_stock_only: Option<bool>,
     max_results: Option<usize>,
     as_of_date: Option<String>,
+    max_source_age_seconds: Option<u64>,
 }
 
 fn format_minor(value: i128, currency: &str) -> String {
@@ -219,6 +220,7 @@ fn affiliate_query(params: AffiliateSearchParams) -> ProductSearchQuery {
         as_of_date: params
             .as_of_date
             .or_else(|| Some(time::OffsetDateTime::now_utc().date().to_string())),
+        max_source_age_seconds: params.max_source_age_seconds,
     }
 }
 
