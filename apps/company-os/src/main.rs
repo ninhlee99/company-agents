@@ -3,6 +3,7 @@ use affiliate_intelligence::{
     MockProvider, ProductSearchQuery, SearchResponse, TikTokShopCreatorProvider,
 };
 use agent_runtime::{model_from_env, AgentRunResult, AgentRuntime, CompanySnapshot};
+use business_economics::CompanyPortfolio;
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -76,6 +77,7 @@ struct AppState {
     company_id: String,
     currency: String,
     metrics: Arc<RuntimeMetrics>,
+    portfolio: Arc<RwLock<CompanyPortfolio>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -436,6 +438,12 @@ async fn journal_api(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
+async fn portfolio_api(
+    State(state): State<AppState>,
+) -> Result<Json<CompanyPortfolio>, StatusCode> {
+    Ok(Json(state.portfolio.read().await.clone()))
+}
+
 async fn healthz() -> &'static str {
     "ok"
 }
@@ -494,6 +502,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .try_init()
         .ok();
 
+    let portfolio = match store.load_portfolio(&company_id).await? {
+        Some(value) => value,
+        None => {
+            let value = CompanyPortfolio::startup_default(company.cash_minor)?;
+            store.save_portfolio(&company_id, &value).await?;
+            value
+        }
+    };
+
     let runtime = Arc::new(AgentRuntime::new(model_from_env()));
     let state = AppState {
         runtime,
@@ -506,6 +523,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         company_id: company_id.clone(),
         currency: currency.clone(),
         metrics: Arc::new(RuntimeMetrics::default()),
+        portfolio: Arc::new(RwLock::new(portfolio)),
     };
 
     let interval_secs = std::env::var("AGENT_CYCLE_SECONDS")
@@ -564,6 +582,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/run", post(run_html))
         .route("/api/run", post(run_api))
         .route("/api/agents", get(agents_api))
+        .route("/api/portfolio", get(portfolio_api))
         .route("/api/affiliate/search", get(affiliate_search_api))
         .route("/api/affiliate/click", post(affiliate_click_api))
         .route("/api/affiliate/conversion", post(affiliate_conversion_api))
