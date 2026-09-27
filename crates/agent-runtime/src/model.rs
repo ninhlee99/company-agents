@@ -2,6 +2,25 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::{env, fmt, time::Duration};
 
+#[derive(Clone)]
+struct SecretString(String);
+
+impl SecretString {
+    fn new(value: String) -> Self {
+        Self(value)
+    }
+
+    fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for SecretString {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("[REDACTED]")
+    }
+}
+
 #[derive(Debug)]
 pub enum ModelError {
     MissingConfiguration,
@@ -41,7 +60,7 @@ impl Model for MockModel {
 pub struct OpenAiCompatibleModel {
     client: reqwest::Client,
     base_url: String,
-    api_key: Option<String>,
+    api_key: Option<SecretString>,
     model: String,
 }
 
@@ -56,7 +75,7 @@ impl OpenAiCompatibleModel {
         Self {
             client,
             base_url: base_url.trim_end_matches('/').to_owned(),
-            api_key,
+            api_key: api_key.filter(|key| !key.trim().is_empty()).map(SecretString::new),
             model,
         }
     }
@@ -82,7 +101,7 @@ impl Model for OpenAiCompatibleModel {
 
         if let Some(api_key) = &self.api_key {
             if !api_key.trim().is_empty() {
-                request = request.bearer_auth(api_key);
+                request = request.bearer_auth(api_key.expose());
             }
         }
 
@@ -101,7 +120,7 @@ impl Model for OpenAiCompatibleModel {
             let mut detail = String::from_utf8_lossy(bounded).to_string();
             if let Some(api_key) = &self.api_key {
                 if !api_key.trim().is_empty() {
-                    detail = detail.replace(api_key, "[REDACTED]");
+                    detail = detail.replace(api_key.expose(), "[REDACTED]");
                 }
             }
             return Err(ModelError::Transport(format!("HTTP {status}: {detail}")));
@@ -250,6 +269,12 @@ mod tests {
 
         let result = BadModel.propose_json("x", "y").await;
         assert!(matches!(result, Err(ModelError::InvalidResponse(_))));
+    }
+
+    #[test]
+    fn secret_debug_is_redacted() {
+        let secret = SecretString::new("do-not-log".into());
+        assert_eq!(format!("{secret:?}"), "[REDACTED]");
     }
 
     #[test]
