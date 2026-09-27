@@ -1,7 +1,9 @@
 #![forbid(unsafe_code)]
 
 use agent_runtime::{AgentRunResult, CompanySnapshot};
-use company_execution::{execute_approved_results, proposal_idempotency_key, ExecutionPolicy, ExecutionReceipt};
+use company_execution::{
+    execute_approved_results, proposal_idempotency_key, ExecutionPolicy, ExecutionReceipt,
+};
 use economic_core::{validate_balanced_transaction, LedgerEntry, LedgerTransaction};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -233,12 +235,7 @@ impl CompanyStore {
                  (company_id, agent_name, payload, idempotency_key)
                  VALUES ($1, $2, $3, $4)
                  ON CONFLICT (company_id, idempotency_key) DO NOTHING",
-                &[
-                    &company_id,
-                    &result.agent.as_str(),
-                    &payload,
-                    &proposal_key,
-                ],
+                &[&company_id, &result.agent.as_str(), &payload, &proposal_key],
             )
             .await?;
 
@@ -257,10 +254,7 @@ impl CompanyStore {
                 .as_ref()
                 .map(|item| item.reason.clone())
                 .unwrap_or_else(|| "missing Governor result".into());
-            let execution = receipt
-                .as_ref()
-                .map(serde_json::to_value)
-                .transpose()?;
+            let execution = receipt.as_ref().map(serde_json::to_value).transpose()?;
             let executed = receipt.as_ref().is_some_and(|item| {
                 matches!(
                     item.status,
