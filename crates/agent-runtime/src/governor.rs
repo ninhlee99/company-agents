@@ -136,7 +136,7 @@ mod tests {
             action: ActionKind::CreateExperiment,
             cost_minor: 100,
             expected_revenue_minor: 200,
-            risk: RiskTier::Low,
+            risk: RiskTier::Medium,
             confidence_bps: 7000,
             evidence: vec!["bounded".into()],
             rationale: "small test".into(),
