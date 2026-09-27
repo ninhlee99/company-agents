@@ -6,11 +6,11 @@ The initial business model is an AI-native media and creator company. The deeper
 
 ## Primary implementation
 
-The production platform is being built in **Go**.
+The production Company OS core is being built in **Rust**.
 
-There is **no React and no Vue**. The operator dashboard is server-rendered by Go using html/template, keeping the runtime small and operationally simple.
+There is **no React and no Vue**. The operator dashboard is server-rendered HTML from the Rust service; no SPA or frontend build pipeline is required.
 
-Rust is optional and introduced only for measured CPU/memory-intensive components where it provides a clear advantage.
+Python remains available for analytics/forecasting/ML where justified. FFmpeg remains isolated for media processing. Rust is the default for the core runtime and performance-sensitive workers.
 
 ## Core thesis
 
@@ -24,7 +24,7 @@ Research → ideation → production → distribution → measurement → moneti
 
 ## Current build order
 
-Economic kernel → simulator → Go agent runtime → governance → executive agents → media factory → monetization → controlled autonomy.
+Economic kernel → simulator → Rust agent runtime → governance → executive agents → media factory → monetization → controlled autonomy.
 
 ## Non-negotiable economic rules
 
@@ -40,7 +40,7 @@ Economic kernel → simulator → Go agent runtime → governance → executive 
 ## Local development
 
 Requirements:
-- Go
+- Rust toolchain
 - Docker
 
 Start infrastructure:
@@ -49,10 +49,14 @@ Start infrastructure:
 
 Start the Company OS:
 
-    go run ./cmd/company-os
+    cargo run -p company-os
 
 Then open:
 
     http://localhost:8080
 
-The current dashboard is intentionally minimal while the economic kernel and agent runtime are being wired in.
+Run the Rust test suite:
+
+    cargo test --workspace
+
+The dashboard is intentionally minimal while the economic kernel and full agent runtime are being wired in.
