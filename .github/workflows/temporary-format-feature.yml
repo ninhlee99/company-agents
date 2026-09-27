@@ -5,6 +5,7 @@ on:
 permissions:
   contents: write
 jobs:
+  # canonical formatting helper
   fmt:
     runs-on: ubuntu-latest
     steps:
