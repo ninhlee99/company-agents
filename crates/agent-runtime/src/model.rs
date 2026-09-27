@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use std::{env, fmt};
+use std::{env, fmt, time::Duration};
 
 #[derive(Debug)]
 pub enum ModelError {
@@ -47,8 +47,14 @@ pub struct OpenAiCompatibleModel {
 
 impl OpenAiCompatibleModel {
     pub fn new(base_url: String, api_key: Option<String>, model: String) -> Self {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent("company-agents-runtime/0.1")
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
-            client: reqwest::Client::new(),
+            client,
             base_url: base_url.trim_end_matches('/').to_owned(),
             api_key,
             model,
@@ -59,6 +65,7 @@ impl OpenAiCompatibleModel {
         json!({
             "model": self.model,
             "temperature": 0,
+            "stream": false,
             "messages": [
                 {"role": "system", "content": format!("{system}\n\nReturn one JSON object. Optional keys: action, objective, cost_minor, expected_revenue_minor, risk, confidence, rationale, reversible, summary. Do not execute tools.")},
                 {"role": "user", "content": user}
@@ -90,8 +97,13 @@ impl Model for OpenAiCompatibleModel {
                 .bytes()
                 .await
                 .map_err(|e| ModelError::Transport(e.to_string()))?;
-            let bounded = &body[..body.len().min(65_536)];
-            let detail = String::from_utf8_lossy(bounded);
+            let bounded = &body[..body.len().min(4_096)];
+            let mut detail = String::from_utf8_lossy(bounded).to_string();
+            if let Some(api_key) = &self.api_key {
+                if !api_key.trim().is_empty() {
+                    detail = detail.replace(api_key, "[REDACTED]");
+                }
+            }
             return Err(ModelError::Transport(format!("HTTP {status}: {detail}")));
         }
 
