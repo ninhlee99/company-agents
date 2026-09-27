@@ -218,11 +218,8 @@ impl CompanyStore {
         )
         .await?;
 
-        let batch = execute_approved_results(
-            current_snapshot,
-            &authoritative_results,
-            execution_policy(),
-        )?;
+        let batch =
+            execute_approved_results(current_snapshot, &authoritative_results, execution_policy())?;
 
         for result in &authoritative_results {
             let proposal = &result.proposal;
@@ -505,12 +502,7 @@ impl CompanyStore {
                   next_run_at, status)
                  VALUES ($1, $2, $3, $4, now(), 'ACTIVE')
                  ON CONFLICT (company_id, job_type) DO NOTHING",
-                &[
-                    &job_id,
-                    &id,
-                    &job_type,
-                    &interval_seconds,
-                ],
+                &[&job_id, &id, &job_type, &interval_seconds],
             )
             .await?;
         Ok(())
