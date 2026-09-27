@@ -69,13 +69,8 @@ impl AgentRuntime {
         model_timeout: std::time::Duration,
         memory: &HashMap<AgentRole, Vec<AgentMemory>>,
     ) -> Vec<AgentRunResult> {
-        self.run_roles_with_memory(
-            company,
-            model_timeout,
-            self.agent_roles(),
-            memory,
-        )
-        .await
+        self.run_roles_with_memory(company, model_timeout, self.agent_roles(), memory)
+            .await
     }
 
     pub async fn run_roles_with_memory(
