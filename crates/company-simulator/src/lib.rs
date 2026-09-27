@@ -225,7 +225,7 @@ pub async fn run(config: SimConfig) -> SimulationResult {
             revenue_minor: revenue,
             expenses_minor: expenses,
             liabilities_minor: liabilities,
-            assets_minor: cash.saturating_add(liabilities),
+            assets_minor: cash,
             runway_days: economic.runway_days,
             status: economic.status,
             budget_remaining_minor: experiment_budget.max(0),
