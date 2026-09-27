@@ -76,6 +76,7 @@ pub trait MediaExecutor {
 
 pub struct FfmpegExecutor {
     executable: PathBuf,
+    probe_executable: PathBuf,
     workspace: PathBuf,
     timeout: Duration,
 }
@@ -93,6 +94,7 @@ impl FfmpegExecutor {
         }
         Ok(Self {
             executable: executable.into(),
+            probe_executable: PathBuf::from("ffprobe"),
             workspace: workspace.into(),
             timeout,
         })
@@ -100,6 +102,8 @@ impl FfmpegExecutor {
 
     pub fn from_env() -> Result<Self, MediaError> {
         let executable = std::env::var("FFMPEG_BIN").unwrap_or_else(|_| "ffmpeg".into());
+        let probe_executable =
+            std::env::var("FFPROBE_BIN").unwrap_or_else(|_| "ffprobe".into());
         let workspace = std::env::var("MEDIA_WORKSPACE")
             .map(PathBuf::from)
             .map_err(|_| {
@@ -109,7 +113,9 @@ impl FfmpegExecutor {
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(900);
-        Self::new(executable, workspace, Duration::from_secs(timeout_seconds))
+        let mut executor = Self::new(executable, workspace, Duration::from_secs(timeout_seconds))?;
+        executor.probe_executable = PathBuf::from(probe_executable);
+        Ok(executor)
     }
 
     fn safe_path(&self, relative: &str) -> Result<PathBuf, MediaError> {
@@ -156,35 +162,88 @@ impl FfmpegExecutor {
         if !path.exists() {
             return Err(MediaError::InvalidJob("output media does not exist".into()));
         }
-        let output = Command::new("ffprobe")
+
+        let mut child = Command::new(&self.probe_executable)
             .current_dir(&self.workspace)
             .args([
                 "-v",
                 "error",
+                "-select_streams",
+                "v:0",
                 "-show_entries",
                 "format=duration",
                 "-show_entries",
-                "stream=codec_type,codec_name,width,height,r_frame_rate",
+                "stream=codec_name,width,height,r_frame_rate",
                 "-of",
                 "json",
                 relative_path,
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
-            .output()
+            .spawn()
             .map_err(|e| MediaError::InvalidJob(format!("failed to start ffprobe: {e}")))?;
-        if !output.status.success() {
-            return Err(MediaError::InvalidJob(format!(
-                "ffprobe exited with status {}",
-                output.status
-            )));
+
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| MediaError::InvalidJob("ffprobe stdout is unavailable".into()))?;
+
+        let max_probe_bytes = 1_048_576usize;
+        let reader = std::thread::spawn(move || {
+            use std::io::Read;
+            let mut buffer = Vec::new();
+            let mut limited = stdout.take((max_probe_bytes + 1) as u64);
+            let read_result = limited.read_to_end(&mut buffer);
+            (buffer, read_result)
+        });
+
+        let started = Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    let (buffer, read_result) = reader
+                        .join()
+                        .map_err(|_| MediaError::InvalidJob("ffprobe reader thread panicked".into()))?;
+                    read_result
+                        .map_err(|e| MediaError::InvalidJob(format!("ffprobe output read failed: {e}")))?;
+                    if buffer.len() > max_probe_bytes {
+                        return Err(MediaError::InvalidJob(
+                            "ffprobe output exceeds safety limit".into(),
+                        ));
+                    }
+                    if !status.success() {
+                        return Err(MediaError::InvalidJob(format!(
+                            "ffprobe exited with status {status}"
+                        )));
+                    }
+                    return parse_probe(
+                        &buffer,
+                        std::fs::metadata(path)
+                            .map_err(|e| MediaError::InvalidJob(format!("cannot stat output media: {e}")))?
+                            .len(),
+                    );
+                }
+                Ok(None) => {
+                    if started.elapsed() >= self.timeout {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        let _ = reader.join();
+                        return Err(MediaError::InvalidJob(
+                            "ffprobe execution timed out and was terminated".into(),
+                        ));
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Err(error) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = reader.join();
+                    return Err(MediaError::InvalidJob(format!(
+                        "ffprobe process polling failed: {error}"
+                    )));
+                }
+            }
         }
-        parse_probe(
-            &output.stdout,
-            std::fs::metadata(path)
-                .map_err(|e| MediaError::InvalidJob(format!("cannot stat output media: {e}")))?
-                .len(),
-        )
     }
 }
 
