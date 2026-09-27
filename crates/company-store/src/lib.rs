@@ -505,7 +505,24 @@ impl CompanyStore {
         if order.gross_sales_minor < 0 || order.commission_minor < 0 {
             return Err("affiliate order amounts cannot be negative".into());
         }
-        client_insert_order(&self.client, &company_uuid, order).await
+        let client = self.client.lock().await;
+        client.execute(
+            "INSERT INTO affiliate_order_events
+             (company_id,order_id,click_id,product_id,gross_sales_minor,commission_minor,status,occurred_at_epoch)
+             VALUES ($1,$2,$3,$4,$5::numeric,$6::numeric,$7,$8)
+             ON CONFLICT (company_id,order_id,status) DO NOTHING",
+            &[
+                &company_uuid,
+                &order.order_id,
+                &order.click_id,
+                &order.product_id,
+                &order.gross_sales_minor.to_string(),
+                &order.commission_minor.to_string(),
+                &format!("{:?}", order.status),
+                &order.occurred_at_epoch,
+            ],
+        ).await?;
+        Ok(())
     }
 
     pub async fn rebuild_affiliate_attribution(
@@ -517,7 +534,7 @@ impl CompanyStore {
     ) -> Result<AttributionResult, Box<dyn std::error::Error + Send + Sync>> {
         let company_uuid = Uuid::parse_str(company_id)?;
         let since = since_epoch.saturating_sub(window_secs.max(1));
-        let client = self.client.lock().await;
+        let mut client = self.client.lock().await;
         let click_rows = client.query(
             "SELECT click_id,content_id,creator_id,product_id,occurred_at_epoch
              FROM affiliate_clicks
@@ -1132,6 +1149,15 @@ impl CompanyStore {
             "UPDATE outbox_events SET published_at=now() WHERE id=$1 AND published_at IS NULL",
             &[&event_id],
         ).await? == 1)
+    }
+}
+
+fn parse_order_status(value: &str) -> Result<OrderStatus, Box<dyn std::error::Error + Send + Sync>> {
+    match value {
+        "Pending" => Ok(OrderStatus::Pending),
+        "Confirmed" => Ok(OrderStatus::Confirmed),
+        "Refunded" => Ok(OrderStatus::Refunded),
+        _ => Err(format!("invalid affiliate order status: {value}").into()),
     }
 }
 
