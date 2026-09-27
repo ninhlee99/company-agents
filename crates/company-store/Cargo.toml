@@ -16,4 +16,5 @@ tokio-postgres = { version = "0.7", features = ["with-serde_json-1", "with-uuid-
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+time = { version = "0.3", features = ["parsing", "formatting"] }
 uuid = { version = "1", features = ["v4"] }
