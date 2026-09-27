@@ -177,7 +177,7 @@ impl FfmpegExecutor {
                 "stream=codec_type,codec_name,width,height,r_frame_rate",
                 "-of",
                 "json",
-                relative_path,
+                path.to_string_lossy().as_ref(),
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -200,9 +200,22 @@ impl FfmpegExecutor {
 
 impl MediaExecutor for FfmpegExecutor {
     fn execute(&self, job: &MediaJob) -> Result<(), MediaError> {
-        let args = ffmpeg_args(job)?;
+        let mut args = ffmpeg_args(job)?;
         let input = self.safe_path(&job.input_path)?;
         let output = self.safe_path(&job.output_path)?;
+        let input_arg = input.to_string_lossy().into_owned();
+        let output_arg = output.to_string_lossy().into_owned();
+        let input_index = args
+            .iter()
+            .position(|value| value == "-i")
+            .and_then(|index| args.get(index + 1).map(|_| index + 1))
+            .ok_or_else(|| MediaError::InvalidJob("FFmpeg input argument is missing".into()))?;
+        let output_index = args
+            .len()
+            .checked_sub(1)
+            .ok_or_else(|| MediaError::InvalidJob("FFmpeg output argument is missing".into()))?;
+        args[input_index] = input_arg;
+        args[output_index] = output_arg;
 
         if !input.exists() {
             return Err(MediaError::InvalidJob("input media does not exist".into()));
@@ -215,7 +228,7 @@ impl MediaExecutor for FfmpegExecutor {
 
         let mut child = Command::new(&self.executable)
             .current_dir(&self.workspace)
-            .args(args)
+            .args(&args)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
