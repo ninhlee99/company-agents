@@ -70,6 +70,22 @@ impl CompanyStore {
                 &[&id, &name, &currency],
             )
             .await?;
+
+        let accounts = [
+            ("1000", "Cash", "ASSET"),
+            ("2000", "Accounts Payable", "LIABILITY"),
+            ("3000", "Equity", "EQUITY"),
+            ("4000", "Affiliate Revenue", "REVENUE"),
+            ("5000", "Operating Expense", "EXPENSE"),
+        ];
+        for (code, account_name, account_type) in accounts {
+            client.execute(
+                "INSERT INTO ledger_accounts (id, company_id, code, name, account_type, currency)
+                 VALUES ($1,$2,$3,$4,$5,$6)
+                 ON CONFLICT (company_id,code) DO NOTHING",
+                &[&Uuid::new_v4(), &id, &code, &account_name, &account_type, &currency],
+            ).await?;
+        }
         Ok(())
     }
 
