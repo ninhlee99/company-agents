@@ -7,8 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::Sha256;
 use std::{
-    cmp::Ordering,
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap},
     fmt,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -33,7 +32,7 @@ impl Coupon {
     }
 
     pub fn value_minor(&self, price_minor: i128) -> i128 {
-        if price_minor <= 0 {
+        if price_minor <= 0 || price_minor < self.min_order_minor.max(0) {
             return 0;
         }
         let percent = price_minor.saturating_mul(self.discount_bps as i128) / 10_000;
@@ -283,16 +282,16 @@ pub fn rank_candidates(mut offers: Vec<AffiliateOffer>, query: &ProductSearchQue
             .clamp(0, 10_000) as u32;
         let commercial_score = ((commercial as u64 * 7 + (commission.min(10_000) as u64) * 3) / 10) as u32;
         let score = (
-            contribution_score as u64 * 35
-            + quality as u64 * 30
-            + commercial_score as u64 * 15
-            + coupon_score as u64 * 10
-            + reliability as u64 * 5
-            + content_fit as u64 * 3
+            contribution_score as u64 * 25
+            + quality as u64 * 45
+            + commercial_score as u64 * 10
+            + coupon_score as u64 * 8
+            + reliability as u64 * 6
+            + content_fit as u64 * 4
             + demand as u64 * 2
         ) / 100;
 
-        let quality_confidence = (quality_completeness(&offer) * 10_000).min(10_000);
+        let quality_confidence = ((quality_completeness(&offer) * 10_000) / 6).min(10_000);
         let commercial_confidence = match offer.commission_rate_bps {
             Some(_) => if offer.coupon.as_ref().map(|c| c.is_active(query.now_epoch)).unwrap_or(false) { 10_000 } else { 8_000 },
             None => 2_500,
