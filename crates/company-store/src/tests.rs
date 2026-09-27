@@ -240,6 +240,46 @@ async fn ledger_transaction_is_idempotent_and_balanced() {
 }
 
 #[tokio::test]
+async fn durable_agent_memory_round_trips_and_rate_limit_is_enforced() {
+    let Some(store) = connect_store().await else {
+        return;
+    };
+
+    let company_id = uuid::Uuid::new_v4().to_string();
+    store.ensure_company(&company_id, "Memory Test", "USD").await.unwrap();
+
+    store
+        .upsert_agent_memory(
+            &company_id,
+            AgentRole::Analyst,
+            "lesson",
+            &serde_json::json!({"finding":"quality evidence matters"}),
+            9500,
+            80,
+        )
+        .await
+        .unwrap();
+
+    let memory = store
+        .load_agent_memory(&company_id, AgentRole::Analyst, 10)
+        .await
+        .unwrap();
+    assert_eq!(memory.len(), 1);
+    assert_eq!(memory[0].key, "lesson");
+
+    let first = store
+        .claim_agent_run_slots(&company_id, &[AgentRole::Analyst], 60, 1)
+        .await
+        .unwrap();
+    let second = store
+        .claim_agent_run_slots(&company_id, &[AgentRole::Analyst], 60, 1)
+        .await
+        .unwrap();
+    assert_eq!(first, vec![AgentRole::Analyst]);
+    assert!(second.is_empty());
+}
+
+#[tokio::test]
 async fn invalid_company_id_is_rejected() {
     let Some(store) = connect_store().await else {
         return;
