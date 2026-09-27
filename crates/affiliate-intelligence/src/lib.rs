@@ -1069,7 +1069,7 @@ fn parse_offer_array(items: &[serde_json::Value]) -> Result<Vec<Coupon>, Affilia
         let title = raw.title.unwrap_or_else(|| "Awin promotion".into());
         let description = raw.description.unwrap_or_default();
         let id = raw
-            .promotionId
+            .promotion_id
             .and_then(|v| v.as_i64())
             .map(|v| v.to_string())
             .unwrap_or_else(|| format!("{advertiser_id}:{title}"));
