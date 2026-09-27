@@ -8,6 +8,7 @@ use agent_runtime::{
 use company_store::CompanyStore;
 use axum::{
     extract::{Query, State},
+    http::HeaderMap,
     http::StatusCode,
     response::Html,
     routing::{get, post},
@@ -100,20 +101,49 @@ fn build_affiliate_intelligence() -> Option<Arc<AffiliateIntelligence>> {
     if providers.is_empty() { None } else { Some(Arc::new(AffiliateIntelligence::new(providers))) }
 }
 
-async fn run_cycle(state: &AppState) -> Result<Vec<AgentRunResult>, Box<dyn std::error::Error + Send + Sync>> {
+async fn run_cycle_with_id(
+    state: &AppState,
+    cycle_id: String,
+) -> Result<Vec<AgentRunResult>, Box<dyn std::error::Error + Send + Sync>> {
     let _guard = state.cycle_lock.lock().await;
-    let company = state.company.read().await.clone();
-    let mut results = state.runtime.run_all(company).await;
-    let mut next_company = state.company.read().await.clone();
-    let outcomes = ExecutionEngine::default().execute_batch(&mut next_company, &mut results);
-    let cycle_id = Uuid::new_v4().to_string();
 
-    store_cycle(state, &next_company, &cycle_id, &results, &outcomes).await?;
+    if let Some(existing) = state.store.load_cycle_results(&cycle_id).await? {
+        if let Some(snapshot) = state.store.load_snapshot(
+            &state.company.read().await.company_id
+        ).await? {
+            *state.company.write().await = snapshot;
+        }
+        *state.latest.write().await = existing.clone();
+        return Ok(existing);
+    }
+
+    let company = state.company.read().await.clone();
+    let mut results = state.runtime.run_all(company.clone()).await;
+    let mut next_company = company;
+    let outcomes = ExecutionEngine::default().execute_batch(&mut next_company, &mut results);
+
+    let persisted = state.store
+        .persist_decision_cycle(&next_company, &cycle_id, &results, &outcomes)
+        .await?;
+
+    if persisted == company_store::PersistCycleResult::AlreadyProcessed {
+        if let Some(existing) = state.store.load_cycle_results(&cycle_id).await? {
+            *state.latest.write().await = existing.clone();
+            if let Some(snapshot) = state.store.load_snapshot(&next_company.company_id).await? {
+                *state.company.write().await = snapshot;
+            }
+            return Ok(existing);
+        }
+    }
 
     *state.company.write().await = next_company;
     *state.latest.write().await = results.clone();
     *state.latest_outcomes.write().await = outcomes;
     Ok(results)
+}
+
+async fn run_cycle(state: &AppState) -> Result<Vec<AgentRunResult>, Box<dyn std::error::Error + Send + Sync>> {
+    run_cycle_with_id(state, Uuid::new_v4().to_string()).await
 }
 
 async fn store_cycle(
@@ -198,10 +228,29 @@ async fn run_html(State(state): State<AppState>) -> (StatusCode, Html<String>) {
     }
 }
 
-async fn run_api(State(state): State<AppState>) -> Result<Json<Vec<AgentRunResult>>, StatusCode> {
-    run_cycle(&state).await.map(Json).map_err(|error| {
+async fn run_api(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<AgentRunResult>>, (StatusCode, Json<ValueError>)> {
+    let cycle_id = headers.get("idempotency-key")
+        .and_then(|v| v.to_str().ok())
+        .filter(|v| !v.trim().is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+
+    if cycle_id.len() > 200 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ValueError { error: "Idempotency-Key must be <= 200 characters".into() }),
+        ));
+    }
+
+    run_cycle_with_id(&state, cycle_id).await.map(Json).map_err(|error| {
         eprintln!("api cycle error: {error}");
-        StatusCode::INTERNAL_SERVER_ERROR
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ValueError { error: "agent cycle failed safely".into() }),
+        )
     })
 }
 
