@@ -57,11 +57,10 @@ impl AgentRuntime {
             let ctx = AgentContext { company: ctx.company.clone(), model_timeout: ctx.model_timeout };
 
             async move {
-                let permit = concurrency.acquire_owned().await;
-                if permit.is_err() {
-                    return AgentRunResult {
-                        agent: agent.role(),
-                        proposal: crate::types::Proposal {
+                let _permit = match concurrency.acquire_owned().await {
+                    Ok(permit) => permit,
+                    Err(_) => {
+                        let proposal = crate::types::Proposal {
                             agent: agent.role(),
                             objective: "agent runtime unavailable".into(),
                             action: crate::types::ActionKind::EscalateIncident,
@@ -73,11 +72,15 @@ impl AgentRuntime {
                             rationale: "runtime failed closed".into(),
                             reversible: true,
                             requested_permission: crate::types::Permission::Propose,
-                        },
-                        governance: None,
-                    };
-                }
-                let _permit = permit.expect("checked above");
+                        };
+                        let governance = governor.evaluate(proposal.clone(), &ctx.company);
+                        return AgentRunResult {
+                            agent: agent.role(),
+                            proposal,
+                            governance: Some(governance),
+                        };
+                    }
+                };
                 match agent.propose(&ctx, model).await {
                     Ok(proposal) => {
                         let governance = governor.evaluate(proposal.clone(), &ctx.company);
