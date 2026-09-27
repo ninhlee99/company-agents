@@ -285,11 +285,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ticker.tick().await;
             match background.store.claim_due_job(&background.company_id, "agent_cycle").await {
                 Ok(Some(job_id)) => {
-                    if let Err(error) = run_cycle(&background).await {
-                        eprintln!("agent cycle error: {error}");
-                    }
-                    if let Err(error) = background.store.complete_job(job_id).await {
-                        eprintln!("scheduler completion error: {error}");
+                    match run_cycle(&background).await {
+                        Ok(_) => {
+                            if let Err(error) = background.store.complete_job(job_id).await {
+                                eprintln!("scheduler completion error: {error}");
+                            }
+                        }
+                        Err(error) => {
+                            eprintln!("agent cycle error: {error}");
+                            if let Err(release_error) = background.store.release_job_after_failure(job_id).await {
+                                eprintln!("scheduler recovery error: {release_error}");
+                            }
+                        }
                     }
                 }
                 Ok(None) => {}
