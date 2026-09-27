@@ -8,6 +8,7 @@ agent-runtime = { path = "../agent-runtime" }
 async-trait = "0.1"
 company-execution = { path = "../company-execution" }
 affiliate-attribution = { path = "../affiliate-attribution" }
+media-pipeline = { path = "../media-pipeline" }
 economic-core = { path = "../economic-core" }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 tokio-postgres = { version = "0.7", features = ["with-serde_json-1", "with-uuid-1"] }
