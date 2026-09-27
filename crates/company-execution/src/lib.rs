@@ -1,9 +1,7 @@
 #![forbid(unsafe_code)]
 
 use agent_runtime::{
-    types::{
-        ActionKind, AgentRole, AgentRunResult, GovernedProposal, GovernorDecision, Proposal,
-    },
+    types::{ActionKind, AgentRole, AgentRunResult, GovernedProposal, GovernorDecision, Proposal},
     Tool, ToolRegistry,
 };
 use economic_core::CompanyStatus;
