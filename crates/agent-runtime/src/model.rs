@@ -60,7 +60,7 @@ impl OpenAiCompatibleModel {
             "model": self.model,
             "temperature": 0,
             "messages": [
-                {"role": "system", "content": format!("{system}\n\nReturn only a JSON object with keys summary and confidence. Do not execute tools.")},
+                {"role": "system", "content": format!("{system}\n\nReturn one JSON object. Optional keys: action, objective, cost_minor, expected_revenue_minor, risk, confidence, rationale, reversible, summary. Do not execute tools.")},
                 {"role": "user", "content": user}
             ]
         })
