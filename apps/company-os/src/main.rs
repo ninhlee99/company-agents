@@ -45,8 +45,7 @@ fn seed_company(company_id: String) -> CompanySnapshot {
 async fn run_cycle(state: &AppState) -> Result<Vec<AgentRunResult>, Box<dyn std::error::Error + Send + Sync>> {
     let company = state.company.read().await.clone();
     let results = state.runtime.run_all(company.clone()).await;
-    state.store.append_agent_runs(&company, &results).await?;
-    state.store.save_snapshot(&company).await?;
+    state.store.persist_cycle(&company, &results).await?;
     *state.latest.write().await = results.clone();
     Ok(results)
 }
