@@ -605,33 +605,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let client = connect(&database_url).await?;
     client
-        .batch_execute(include_str!("../../../infra/db/migrations/001_economic_kernel.sql"))
+        .batch_execute(include_str!(
+            "../../../infra/db/migrations/011_llm_web_relay.sql"
+        ))
         .await?;
-    client
-        .batch_execute(include_str!("../../../infra/db/migrations/002_company_execution.sql"))
-        .await?;
-    client
-        .batch_execute(include_str!("../../../infra/db/migrations/003_agent_memory_and_rate_limits.sql"))
-        .await?;
-    client
-        .batch_execute(include_str!("../../../infra/db/migrations/004_affiliate_attribution.sql"))
-        .await?;
-    client
-        .batch_execute(include_str!("../../../infra/db/migrations/005_media_jobs.sql"))
-        .await?;
-    client
-        .batch_execute(include_str!("../../../infra/db/migrations/006_affiliate_reconciliation_state.sql"))
-        .await?;
-    client
-        .batch_execute(include_str!("../../../infra/db/migrations/007_organization_payroll.sql"))
-        .await?;
-    client
-        .batch_execute(include_str!("../../../infra/db/migrations/008_affiliate_revenue_accounting.sql"))
-        .await?;
-    client
-.batch_execute(include_str!("../../../infra/db/migrations/009_llm_web_relay.sql"))
-        .await?;
-
     drop(client);
 
     let state = AppState {
