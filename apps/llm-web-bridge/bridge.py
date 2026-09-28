@@ -211,3 +211,47 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+def _self_test():
+    assert backend_profile("gemini-web")["host"] == "gemini.google.com"
+    assert backend_profile("chatgpt-web")["host"] == "chatgpt.com"
+    assert backend_profile("claude-web")["host"] == "claude.ai"
+    try:
+        backend_profile("unknown")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("unknown backend should fail")
+    assert normalize('{"action":"ProduceReport"}') == '{"action":"ProduceReport"}'
+    try:
+        normalize('["bad"]')
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("non-object output should fail")
+
+def _self_test():
+    assert backend_profile("gemini-web")["host"] == "gemini.google.com"
+    assert backend_profile("chatgpt-web")["host"] == "chatgpt.com"
+    assert backend_profile("claude-web")["host"] == "claude.ai"
+    try:
+        backend_profile("unknown")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("unknown backend should fail")
+    assert normalize('{"action":"ProduceReport"}') == '{"action":"ProduceReport"}'
+    try:
+        normalize('["bad"]')
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("non-object output should fail")
+
+if __name__ == "__main__":
+    if os.getenv("LLM_WEB_BRIDGE_SELF_TEST", "").lower() in {"1", "true", "yes", "on"}:
+        _self_test()
+        print("bridge self-test: OK")
+    else:
+        asyncio.run(main())
