@@ -37,23 +37,21 @@ impl AgentRuntime {
 
     #[test]
     fn web_provider_uses_longer_default_timeout() {
-        std::env::remove_var("LLM_PROVIDER");
-        assert_eq!(AgentRuntime::default_timeout_ms(), 15_000);
-        std::env::set_var("LLM_PROVIDER", "chatgpt-subscription");
-        assert_eq!(AgentRuntime::default_timeout_ms(), 90_000);
-        std::env::remove_var("LLM_PROVIDER");
+        assert_eq!(
+            AgentRuntime::default_timeout_ms_for_provider(""),
+            15_000
+        );
+        assert_eq!(
+            AgentRuntime::default_timeout_ms_for_provider("chatgpt-subscription"),
+            90_000
+        );
+        assert_eq!(
+            AgentRuntime::default_timeout_ms_for_provider("claude-web"),
+            90_000
+        );
     }
 
-    pub fn agent_roles(&self) -> Vec<AgentRole> {
-        self.agents.iter().map(|agent| agent.role()).collect()
-    }
-
-    pub async fn run_all(&self, company: CompanySnapshot) -> Vec<AgentRunResult> {
-        self.run_all_with_state(company, None).await
-    }
-
-    fn default_timeout_ms() -> u64 {
-        let provider = std::env::var("LLM_PROVIDER").unwrap_or_default();
+    fn default_timeout_ms_for_provider(provider: &str) -> u64 {
         if matches!(
             provider.to_ascii_lowercase().as_str(),
             "web"
@@ -70,6 +68,19 @@ impl AgentRuntime {
         } else {
             15_000
         }
+    }
+
+    pub fn agent_roles(&self) -> Vec<AgentRole> {
+        self.agents.iter().map(|agent| agent.role()).collect()
+    }
+
+    pub async fn run_all(&self, company: CompanySnapshot) -> Vec<AgentRunResult> {
+        self.run_all_with_state(company, None).await
+    }
+
+    fn default_timeout_ms() -> u64 {
+        let provider = std::env::var("LLM_PROVIDER").unwrap_or_default();
+        default_timeout_ms_for_provider(&provider)
     }
 
     pub async fn run_all_with_state(
