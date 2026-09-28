@@ -80,6 +80,7 @@ struct AffiliateAttributionRequest {
 }
 
 
+#[derive(Debug, Deserialize)]
 struct AffiliateQueryParams {
     category: Option<String>,
     keywords: Option<String>,
@@ -923,7 +924,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/affiliate/providers", get(affiliate_providers))
         .route("/api/affiliate/click", post(affiliate_click))
         .route("/api/affiliate/order", post(affiliate_order))
-        .route("/api/affiliate/attribution/rebuild", post(affiliate_attribution_rebuild))
+        .route(
+            "/api/affiliate/attribution/rebuild",
+            post(affiliate_attribution_rebuild),
+        )
         .route("/api/affiliate/payout", post(affiliate_payout))
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
