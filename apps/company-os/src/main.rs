@@ -227,7 +227,7 @@ small{{color:#666}}
 }
 
 async fn run_html(State(state): State<AppState>) -> (StatusCode, Html<String>) {
-    match run_cycle(&state).await {
+    match run_cycle_with_id(&state, Uuid::new_v4().to_string()).await {
         Ok(_) => (
             StatusCode::SEE_OTHER,
             Html(r#"<meta http-equiv="refresh" content="0; url=/" />"#.into()),
@@ -244,7 +244,6 @@ async fn run_html(State(state): State<AppState>) -> (StatusCode, Html<String>) {
 
 async fn run_api(
     State(state): State<AppState>,
-    headers: HeaderMap,
 ) -> Result<Json<Vec<AgentRunResult>>, (StatusCode, Json<ValueError>)> {
     let cycle_id = headers
         .get("idempotency-key")
