@@ -15,6 +15,17 @@ pub struct CompanyStore {
     client: Mutex<Client>,
 }
 
+#[derive(Debug, Clone)]
+pub struct OutboxEvent {
+    pub id: i64,
+    pub company_id: String,
+    pub event_type: String,
+    pub aggregate_id: Option<String>,
+    pub schema_version: i32,
+    pub payload: serde_json::Value,
+    pub attempts: i32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PersistedCycle {
     pub snapshot: CompanySnapshot,
@@ -2698,6 +2709,117 @@ impl CompanyStore {
                 &[&id, &status, &bounded_error],
             )
             .await?;
+        Ok(())
+    }
+
+    pub async fn claim_outbox_events(
+        &self,
+        company_id: &str,
+        lease_owner: &str,
+        lease_seconds: i64,
+        max_attempts: i32,
+        limit: i64,
+    ) -> Result<Vec<OutboxEvent>, Box<dyn std::error::Error + Send + Sync>> {
+        if lease_owner.trim().is_empty() || !(5..=300).contains(&lease_seconds)
+            || !(1..=100).contains(&max_attempts) || !(1..=100).contains(&limit)
+        {
+            return Err("invalid outbox lease parameters".into());
+        }
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let rows = tx
+            .query(
+                "SELECT id, company_id, event_type, aggregate_id, schema_version,
+                        payload, attempts
+                   FROM outbox_events
+                  WHERE company_id=$1
+                    AND published_at IS NULL
+                    AND attempts < $2
+                    AND (lease_until IS NULL OR lease_until <= now())
+                  ORDER BY id ASC
+                  FOR UPDATE SKIP LOCKED
+                  LIMIT $3",
+                &[&company_uuid, &max_attempts, &limit],
+            )
+            .await?;
+
+        let mut events = Vec::with_capacity(rows.len());
+        for row in rows {
+            let id: i64 = row.get(0);
+            let company: Uuid = row.get(1);
+            let attempts: i32 = row.get(6);
+            tx.execute(
+                "UPDATE outbox_events
+                    SET attempts=attempts+1,
+                        lease_owner=$2,
+                        lease_until=now()+($3::double precision * interval '1 second'),
+                        last_error=NULL
+                  WHERE id=$1
+                    AND published_at IS NULL",
+                &[&id, &lease_owner, &lease_seconds],
+            )
+            .await?;
+
+            events.push(OutboxEvent {
+                id,
+                company_id: company.to_string(),
+                event_type: row.get(2),
+                aggregate_id: row.get(3),
+                schema_version: row.get(4),
+                payload: row.get(5),
+                attempts: attempts + 1,
+            });
+        }
+        tx.commit().await?;
+        Ok(events)
+    }
+
+    pub async fn mark_outbox_published(
+        &self,
+        event_id: i64,
+        lease_owner: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if lease_owner.trim().is_empty() {
+            return Err("outbox lease owner is required".into());
+        }
+        let client = self.client.lock().await;
+        let changed = client
+            .execute(
+                "UPDATE outbox_events
+                    SET published_at=now(), lease_owner=NULL, lease_until=NULL, last_error=NULL
+                  WHERE id=$1 AND published_at IS NULL AND lease_owner=$2",
+                &[&event_id, &lease_owner],
+            )
+            .await?;
+        if changed != 1 {
+            return Err("outbox event lease is no longer owned".into());
+        }
+        Ok(())
+    }
+
+    pub async fn release_outbox_event(
+        &self,
+        event_id: i64,
+        lease_owner: &str,
+        error: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if lease_owner.trim().is_empty() {
+            return Err("outbox lease owner is required".into());
+        }
+        let bounded = error.chars().take(4096).collect::<String>();
+        let client = self.client.lock().await;
+        let changed = client
+            .execute(
+                "UPDATE outbox_events
+                    SET lease_owner=NULL, lease_until=NULL, last_error=$3
+                  WHERE id=$1 AND published_at IS NULL AND lease_owner=$2",
+                &[&event_id, &lease_owner, &bounded],
+            )
+            .await?;
+        if changed != 1 {
+            return Err("outbox event lease is no longer owned".into());
+        }
         Ok(())
     }
 

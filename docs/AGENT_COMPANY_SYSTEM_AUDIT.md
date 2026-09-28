@@ -29,6 +29,7 @@ The repository now has a Rust-based Agent Runtime and deterministic economic/gov
 23. PostgreSQL idempotency, decision journal, audit and outbox persistence.
 24. Lease-based scheduler with failure release/recovery.
 25. Simulator now reuses the production execution engine.
+26. Durable outbox event dispatcher with database leases, bounded retries and optional HMAC-signed HTTPS webhook delivery.
 26. Affiliate Intelligence ranking, coupon checks, evidence confidence, dedupe and Awin adapters.
 27. Awin commission-group API enrichment for live commission filtering.
 28. Durable Agent memory loaded before model calls and last-decision memory persisted.
@@ -72,7 +73,7 @@ The repository now contains a broad Rust test suite across the Rust economic cor
 ## Remaining production gates
 
 ### P0
-- distributed tracing/metrics
+- distributed tracing/metrics across all workers
 - secrets isolation and secret-rotation workflow
 - distributed observability/tracing
 - restart/replay recovery drill under production-like deployment
