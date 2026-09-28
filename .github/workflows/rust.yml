@@ -59,3 +59,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test -p company-store -- --nocapture
+
+  browser-bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Python browser bridge
+        run: python -m compileall -q apps/llm-web-bridge
