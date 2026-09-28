@@ -108,6 +108,25 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  outbox-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: outbox-worker-runtime
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/company_agents
+      COMPANY_ID: ${COMPANY_ID:-00000000-0000-0000-0000-000000000001}
+      OUTBOX_WEBHOOK_URL: ${OUTBOX_WEBHOOK_URL:-}
+      OUTBOX_WEBHOOK_SECRET: ${OUTBOX_WEBHOOK_SECRET:-}
+      OUTBOX_POLL_SECONDS: ${OUTBOX_POLL_SECONDS:-2}
+      OUTBOX_LEASE_SECONDS: ${OUTBOX_LEASE_SECONDS:-30}
+      OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-20}
+      OUTBOX_MAX_ATTEMPTS: ${OUTBOX_MAX_ATTEMPTS:-10}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   llm-web-relay:
     profiles: ["web-relay"]
     build:
