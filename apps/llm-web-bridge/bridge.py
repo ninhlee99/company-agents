@@ -1,7 +1,5 @@
 import asyncio, json, os
 from pathlib import Path
-import httpx
-from playwright.async_api import async_playwright
 
 S = {
  "chatgpt-web": {
@@ -80,6 +78,9 @@ async def run_job(page, job):
     raise TimeoutError("web model response timeout")
 
 async def main():
+    import httpx
+    from playwright.async_api import async_playwright
+
     relay = os.getenv("LLM_RELAY_URL", "http://127.0.0.1:9010").rstrip("/")
     token = os.getenv("LLM_RELAY_WORKER_TOKEN", "").strip()
     profile = Path(os.getenv("LLM_WEB_BROWSER_PROFILE", str(Path.home()/".company-agents-web-profile"))).expanduser()
