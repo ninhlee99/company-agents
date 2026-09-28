@@ -45,6 +45,61 @@ impl CompanyStore {
             .await?;
         client
             .batch_execute(include_str!(
+                "../../../infra/db/migrations/002_company_control.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/003_ledger_completeness.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/004_affiliate_searches.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/005_durable_scheduler.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/006_company_operations.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/007_affiliate_attribution.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/008_commercial_and_payroll.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/009_outbox_leases.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/010_media_jobs.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/011_llm_web_relay.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/012_runtime_controls.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
                 "../../../infra/db/migrations/002_company_execution.sql"
             ))
             .await?;
@@ -2772,7 +2827,7 @@ fn parse_employee_status(
     }
 }
 
-async async fn load_affiliate_attributions(
+async fn load_affiliate_attributions(
     tx: &Transaction<'_>,
     company_id: Uuid,
     conversion_id: &str,
