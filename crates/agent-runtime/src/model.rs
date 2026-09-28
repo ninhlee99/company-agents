@@ -724,14 +724,39 @@ impl Model for WebRelayModel {
             ));
         }
 
-        let response = self
-            .client
-            .post(&self.url)
-            .bearer_auth(&self.token)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|error| ModelError::Transport(error.to_string()))?;
+        let mut response = None;
+        for attempt in 0..3_u32 {
+            let candidate = self
+                .client
+                .post(&self.url)
+                .bearer_auth(&self.token)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|error| ModelError::Transport(error.to_string()))?;
+            if (candidate.status() == StatusCode::TOO_MANY_REQUESTS
+                || candidate.status().is_server_error())
+                && attempt < 2
+            {
+                let retry_after_ms = candidate
+                    .headers()
+                    .get("retry-after")
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .map(|seconds| seconds.saturating_mul(1_000))
+                    .unwrap_or(250 * (1_u64 << attempt));
+                tokio::time::sleep(Duration::from_millis(
+                    retry_after_ms.clamp(100, 5_000),
+                ))
+                .await;
+                continue;
+            }
+            response = Some(candidate);
+            break;
+        }
+        let response = response.ok_or_else(|| {
+            ModelError::Transport("web relay retry loop exhausted".into())
+        })?;
 
         let status = response.status();
         let raw = bounded_body(response).await?;
