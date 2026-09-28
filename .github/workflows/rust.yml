@@ -31,6 +31,7 @@ jobs:
           - company-os
           - media-worker
           - llm-web-relay
+          - llm-web-worker
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
