@@ -9,6 +9,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::{env, sync::Arc, time::{Duration, Instant}};
 use tokio::sync::Mutex;
 use tokio_postgres::{Client, NoTls};
