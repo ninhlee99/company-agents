@@ -1,6 +1,6 @@
 use affiliate_intelligence::{
-    search as search_affiliate, AffiliateProvider, AwinProvider, MockProvider, ProductSearchQuery,
-    SearchResponse, TikTokShopProvider,
+    search as search_affiliate, AffiliateProvider, AggregateAffiliateProvider, AwinProvider,
+    MockProvider, ProductSearchQuery, SearchResponse, TikTokShopProvider,
 };
 use agent_runtime::{model_from_env, AgentRunResult, AgentRuntime, CompanySnapshot};
 use axum::{
@@ -546,13 +546,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     };
 
-    let affiliate_mode = std::env::var("AFFILIATE_PROVIDER").unwrap_or_else(|_| "mock".into());
-    let affiliate: Arc<dyn AffiliateProvider> = match affiliate_mode.to_ascii_lowercase().as_str() {
-        "mock" => Arc::new(MockProvider::default()),
-        "awin" => Arc::new(AwinProvider::from_env()?),
-        "tiktok" | "tiktok_shop" => Arc::new(TikTokShopProvider::from_env()?),
-        other => return Err(format!("unknown AFFILIATE_PROVIDER={other}").into()),
-    };
+    let affiliate_names = std::env::var("AFFILIATE_PROVIDERS")
+        .or_else(|_| std::env::var("AFFILIATE_PROVIDER"))
+        .unwrap_or_else(|_| "mock".into());
+    let strict_affiliate = std::env::var("AFFILIATE_STRICT_PROVIDERS")
+        .ok()
+        .is_some_and(|value| {
+            matches!(
+                value.to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        });
+
+    let mut affiliate_providers: Vec<Arc<dyn AffiliateProvider>> = Vec::new();
+
+    for name in affiliate_names
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let provider = match name.to_ascii_lowercase().as_str() {
+            "mock" => Ok(Arc::new(MockProvider::default()) as Arc<dyn AffiliateProvider>),
+            "awin" => AwinProvider::from_env()
+                .map(|provider| Arc::new(provider) as Arc<dyn AffiliateProvider>)
+                .map_err(|error| error.to_string()),
+            "tiktok" | "tiktok_shop" | "tiktok-shop" => TikTokShopProvider::from_env()
+                .map(|provider| Arc::new(provider) as Arc<dyn AffiliateProvider>)
+                .map_err(|error| error.to_string()),
+            other => Err(format!("unknown affiliate provider {other}")),
+        };
+
+        match provider {
+            Ok(provider) => affiliate_providers.push(provider),
+            Err(error) if strict_affiliate => return Err(error.into()),
+            Err(error) => tracing::warn!(provider = name, error = %error, "affiliate provider skipped"),
+        }
+    }
+
+    if affiliate_providers.is_empty() {
+        return Err("no usable affiliate providers configured".into());
+    }
+
+    let affiliate: Arc<dyn AffiliateProvider> =
+        Arc::new(AggregateAffiliateProvider::new(affiliate_providers)?);
 
     tracing_subscriber::fmt()
         .json()
