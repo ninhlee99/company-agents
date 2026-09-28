@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use std::{env, fmt, fs, path::Path, time::Duration};
+use std::{env, fmt, fs, path::Path, sync::Arc, time::Duration};
 
 #[derive(Debug)]
 pub enum ModelError {
