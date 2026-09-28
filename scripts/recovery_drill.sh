@@ -6,22 +6,29 @@ set -euo pipefail
 : "${PGPORT:?PGPORT is required}"
 : "${PGUSER:?PGUSER is required}"
 : "${PGPASSWORD:?PGPASSWORD is required}"
-DB_NAME="${PGDATABASE:-company_agents}"
+
 WORKDIR="${TMPDIR:-/tmp}/company-agents-recovery-$$"
 mkdir -p "$WORKDIR"
-trap 'rm -rf "$WORKDIR"' EXIT
+cleanup() {
+  rm -rf "$WORKDIR"
+  if [[ -n "${DRILL_DB_NAME:-}" ]]; then
+    dropdb --if-exists --host "$PGHOST" --port "$PGPORT" --username "$PGUSER" "$DRILL_DB_NAME" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
 
-psql -v ON_ERROR_STOP=1 "$DATABASE_URL" <<'SQL'
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-DROP TABLE IF EXISTS recovery_drill_marker;
-CREATE TABLE recovery_drill_marker (id integer PRIMARY KEY, payload text NOT NULL);
-INSERT INTO recovery_drill_marker VALUES (1, 'recovery-ok');
-SQL
+# The source is read-only. The drill never drops or mutates it.
+DRILL_DB_NAME="${PGDATABASE:-company_agents}_recovery_$"
+SOURCE_COMPANIES_BEFORE="$(psql -At -v ON_ERROR_STOP=1 "$DATABASE_URL" -c "SELECT count(*) FROM companies;")"
 
 pg_dump --no-owner --no-privileges --format=custom "$DATABASE_URL" > "$WORKDIR/db.dump"
-dropdb --if-exists --host "$PGHOST" --port "$PGPORT" --username "$PGUSER" "$DB_NAME"
-createdb --host "$PGHOST" --port "$PGPORT" --username "$PGUSER" "$DB_NAME"
-pg_restore --no-owner --no-privileges --dbname="$DATABASE_URL" "$WORKDIR/db.dump"
-restored="$(psql -At -v ON_ERROR_STOP=1 "$DATABASE_URL" -c "SELECT payload FROM recovery_drill_marker WHERE id = 1;")"
-test "$restored" = "recovery-ok"
+createdb --host "$PGHOST" --port "$PGPORT" --username "$PGUSER" "$DRILL_DB_NAME"
+pg_restore --no-owner --no-privileges --exit-on-error   --dbname="$DRILL_DB_NAME" "$WORKDIR/db.dump"
+
+restored="$(PGDATABASE="$DRILL_DB_NAME" psql -At -v ON_ERROR_STOP=1 -c   "SELECT CASE WHEN EXISTS (SELECT 1 FROM companies) THEN 'RESTORE_OK' ELSE 'RESTORE_EMPTY' END;")"
+
+test "$restored" = "RESTORE_OK"
+SOURCE_COMPANIES_AFTER="$(psql -At -v ON_ERROR_STOP=1 "$DATABASE_URL" -c "SELECT count(*) FROM companies;")"
+test "$SOURCE_COMPANIES_BEFORE" = "$SOURCE_COMPANIES_AFTER"
 echo "RECOVERY DRILL PASSED"
+

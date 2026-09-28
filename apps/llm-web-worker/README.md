@@ -73,3 +73,13 @@ Company OS
 ```
 
 The deterministic Company OS Governor remains authoritative after the LLM response returns.
+
+## Credential isolation
+
+The worker clears the adapter subprocess environment before launch.
+
+By default only basic process variables such as PATH, HOME, USER, TMPDIR, TERM, and XDG_CONFIG_HOME are passed through. Add a variable explicitly with:
+
+    WEB_SESSION_ENV_ALLOWLIST=CODEX_ACCESS_TOKEN,CLAUDE_CODE_OAUTH_TOKEN
+
+Do not place unrelated company secrets in this allowlist. Prefer the CLI's own local login storage under the isolated worker user's home directory when supported.

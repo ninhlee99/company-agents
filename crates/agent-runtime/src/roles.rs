@@ -167,9 +167,51 @@ fn attach_model_reasoning(
         }
     }
 
+    proposal.cost_minor = proposal
+        .cost_minor
+        .max(0)
+        .min(max_safe_cost(proposal.action))
+        .min(ctx.company.budget_remaining_minor.max(0))
+        .min(ctx.company.cash_minor.max(0));
+    proposal.expected_revenue_minor = proposal.expected_revenue_minor.max(0).min(1_000_000_000);
+    proposal.risk = proposal.risk.max(floor_risk_for_action(proposal.action));
+
     proposal
         .evidence
         .push("llm_reasoning_is_untrusted_metadata".into());
+    enforce_context(proposal, ctx)
+}
+
+fn enforce_context(mut proposal: Proposal, ctx: &AgentContext) -> Proposal {
+    if action_allowed_in_context(proposal.agent, proposal.action, ctx) {
+        return proposal;
+    }
+
+    let fallback = match proposal.agent {
+        AgentRole::CEO | AgentRole::CFO | AgentRole::Recruiter => ActionKind::ReduceBudget,
+        AgentRole::COO => {
+            if ctx.company.backlog > ctx.company.capacity {
+                ActionKind::RebalanceOperations
+            } else {
+                ActionKind::ProduceReport
+            }
+        }
+        AgentRole::Growth | AgentRole::Content | AgentRole::Experiment => {
+            ActionKind::ResearchOpportunity
+        }
+        AgentRole::Analyst => ActionKind::ProduceReport,
+        AgentRole::Governor => ActionKind::EscalateIncident,
+    };
+
+    proposal.action = fallback;
+    proposal.cost_minor = 0;
+    proposal.expected_revenue_minor = 0;
+    proposal.risk = floor_risk_for_action(fallback);
+    proposal.reversible = true;
+    proposal.objective = "remain inside current operating envelope".into();
+    proposal.rationale =
+        "baseline or model action was blocked by deterministic company context policy".into();
+    proposal.evidence.push("context_policy_fallback".into());
     proposal
 }
 macro_rules! define_agent {
@@ -331,13 +373,18 @@ define_agent!(
         } else {
             ActionKind::CreateExperiment
         };
+        let (cost, expected) = if action == ActionKind::ResearchOpportunity {
+            (0, 0)
+        } else {
+            (100, 300)
+        };
         base_proposal(
             AgentRole::Growth,
             action,
             ctx,
             "increase profitable demand",
-            100,
-            300,
+            cost,
+            expected,
             RiskTier::Medium,
             proposal_confidence(0.68),
             "connect audience growth to conversion and contribution economics",

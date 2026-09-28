@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    io::AsyncWriteExt,
+    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
     process::Command,
     time::timeout,
 };
@@ -235,35 +235,56 @@ async fn run_adapter(
         .env("WEB_RELAY_MODEL", &job.model)
         .current_dir(&workdir);
 
-    let mut child = command
+    let child = command
         .spawn()
         .map_err(|error| format!("adapter spawn failed: {error}"))?;
 
-    if let (Some(payload), Some(mut stdin)) = (stdin_payload, child.stdin.take()) {
-        stdin
-            .write_all(&payload)
-            .await
-            .map_err(|error| format!("adapter stdin failed: {error}"))?;
-    }
+    let result = timeout(timeout_duration, async move {
+        let mut child = child;
 
-    let result = timeout(timeout_duration, async {
-        let output = child
-            .wait_with_output()
-            .await
-            .map_err(|error| format!("adapter wait failed: {error}"))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(
-                &output.stderr[..output.stderr.len().min(MAX_ERROR_BYTES)],
-            );
-            return Err(format!("adapter exited unsuccessfully: {stderr}"));
+        if let (Some(payload), Some(mut stdin)) = (stdin_payload, child.stdin.take()) {
+            stdin
+                .write_all(&payload)
+                .await
+                .map_err(|error| format!("adapter stdin failed: {error}"))?;
         }
 
-        if output.stdout.len() > MAX_OUTPUT_BYTES {
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "adapter stdout pipe is unavailable".to_owned())?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| "adapter stderr pipe is unavailable".to_owned())?;
+
+        let (stdout_result, stderr_result) = tokio::join!(
+            read_limited(stdout, MAX_OUTPUT_BYTES + 1),
+            read_limited(stderr, MAX_ERROR_BYTES + 1)
+        );
+
+        let stdout = stdout_result?;
+        let stderr = stderr_result?;
+
+        if stdout.len() > MAX_OUTPUT_BYTES {
+            child
+                .kill()
+                .await
+                .map_err(|error| format!("failed to kill oversized adapter: {error}"))?;
             return Err("adapter output exceeds 1 MiB".into());
         }
 
-        let raw = String::from_utf8(output.stdout)
+        let status = child
+            .wait()
+            .await
+            .map_err(|error| format!("adapter wait failed: {error}"))?;
+
+        if !status.success() {
+            let stderr = String::from_utf8_lossy(&stderr);
+            return Err(format!("adapter exited unsuccessfully: {stderr}"));
+        }
+
+        let raw = String::from_utf8(stdout)
             .map_err(|_| "adapter output is not UTF-8".to_owned())?;
         extract_json_object(adapter_kind, &raw)
     })
@@ -271,6 +292,32 @@ async fn run_adapter(
     .map_err(|_| "adapter execution timed out".to_owned())??;
 
     Ok(result)
+}
+
+async fn read_limited<R>(
+    mut reader: R,
+    max_bytes: usize,
+) -> Result<Vec<u8>, String>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut output = Vec::with_capacity(max_bytes.min(64 * 1024));
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let read = reader
+            .read(&mut buffer)
+            .await
+            .map_err(|error| format!("adapter pipe read failed: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        if output.len() + read > max_bytes {
+            output.extend_from_slice(&buffer[..read.min(max_bytes.saturating_sub(output.len()))]);
+            break;
+        }
+        output.extend_from_slice(&buffer[..read]);
+    }
+    Ok(output)
 }
 
 fn extract_json_object(adapter_kind: &str, raw: &str) -> Result<String, String> {

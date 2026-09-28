@@ -1,7 +1,7 @@
 # Agent Company System Audit
 
 ## Executive assessment
-The repository now has a Rust-based Company OS with deterministic economic/governance boundaries, a durable control plane, a governed execution engine, and an affiliate intelligence subsystem. It is substantially beyond a proposal-only harness, but it remains controlled-runtime software rather than unrestricted production autonomy.
+The repository now has a Rust-based Agent Runtime and deterministic economic/governance boundaries. It is suitable as a controlled development/simulation platform, but it is not yet production-autonomous.
 
 ## Critical findings fixed in this pass
 1. Per-Agent action capability matrix.
@@ -24,10 +24,24 @@ The repository now has a Rust-based Company OS with deterministic economic/gover
 18. Least-privilege Tool Registry.
 19. Database-side immutable ledger/audit protections and deferred transaction-balance checking.
 20. Local-only Docker service bindings for development.
+21. Deterministic execution engine with global cycle spend cap.
+22. Execution-bound capability recheck before state mutation.
+23. PostgreSQL idempotency, decision journal, audit and outbox persistence.
+24. Lease-based scheduler with failure release/recovery.
+25. Simulator now reuses the production execution engine.
+26. Affiliate Intelligence ranking, coupon checks, evidence confidence, dedupe and Awin adapters.
+27. Awin commission-group API enrichment for live commission filtering.
+28. Durable Agent memory loaded before model calls and last-decision memory persisted.
+29. Persistent transactional per-Agent rate windows with fail-closed admission.
+30. Affiliate click/conversion attribution and content-level monetization reporting.
+31. Durable media job queue, isolated FFmpeg worker, FFprobe inspection and post-render QA.
+28. Durable Agent memory with bounded retention and untrusted-context semantics.
+29. Persistent per-Agent rate windows enforced before model calls.
+30. Scheduler run tokens that preserve idempotent replay after failure.
 
 ## Test volume
 
-There are currently 40 test functions across the Rust economic core, Agent Runtime, Governor, tool registry, simulator and PostgreSQL store. In addition, the suite exercises 720 Agent × Action × CompanyStatus combinations, 2,000 randomized company snapshots and 256 full multi-agent cycles.
+The repository now contains a broad Rust test suite across the Rust economic core, Agent Runtime, Governor, tool registry, simulator and PostgreSQL store. In addition, the suite exercises 720 Agent × Action × CompanyStatus combinations, 2,000 randomized company snapshots and 256 full multi-agent cycles.
 
 ## Agent coverage
 | Agent | Primary invariant | Adversarial coverage |
@@ -58,21 +72,18 @@ There are currently 40 test functions across the Rust economic core, Agent Runti
 ## Remaining production gates
 
 ### P0
-- production secret-manager integration
-- audit-event ingestion/retention and operator alerting
-- durable outbox worker with retry/lease semantics
-- distributed scheduler/lease semantics
-- per-Agent durable budget/rate-limit accounting
-- automated recovery/replay verification
+- distributed tracing/metrics
+- secrets isolation and secret-rotation workflow
+- distributed observability/tracing
+- restart/replay recovery drill under production-like deployment
 
 ### P1
-- richer creator/business-unit simulator with payroll and contract liabilities
-- affiliate click/conversion/order attribution
-- verified payout/revenue ingestion
-- sponsorship CRM and service/invoicing flows
-- media production + QA + publishing pipeline
-- provider contract-test fixtures and real API sandbox tests
-- PostgreSQL load test and backup/restore drill
+- richer business simulator with creator/business-unit economics and payroll liabilities
+- content/media QA pipeline and bounded publishing adapters
+- affiliate attribution and verified revenue ingestion
+- sponsorship CRM and service monetization
+- load tests against PostgreSQL
+- backup/restore drill
 
 ### P2
 - model benchmark matrix by Agent
@@ -85,12 +96,4 @@ There are currently 40 test functions across the Rust economic core, Agent Runti
 ## Release rule
 An Agent is considered production-ready only when unit -> contract -> scenario -> adversarial -> economic -> security -> load -> recovery -> chaos passes without unauthorized material actions and with deterministic replay evidence.
 
-The current repository should be treated as controlled-runtime / pre-autonomy until the P0 gates are complete.
-
-## 2026-09 implementation checkpoint
-
-The controlled Company OS now includes durable cycle execution, PostgreSQL-backed scheduling, transactional/idempotent ledger and state persistence, decision journaling, affiliate product intelligence and attribution, company operating aggregates, bounded FFmpeg processing, and a gated TikTok Direct Post adapter.
-
-External side effects remain approval-bound. Provider credentials are configuration-only and must not be persisted in business state.
-
-Validation status is tracked from GitHub Actions runs on the feature branch. No production-autonomy claim is made until unit, integration, security, load, recovery, and chaos gates are green.
+The repository should still be treated as controlled-runtime / pre-autonomy until observability, secrets operations and production recovery drills are complete.
