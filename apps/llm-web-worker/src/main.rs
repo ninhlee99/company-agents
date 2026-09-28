@@ -74,7 +74,7 @@ fn env_duration(name: &str, default_seconds: u64, min: u64, max: u64) -> Duratio
 
 fn required(name: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let value = env::var(name)?.trim().to_owned();
-    if value.len() < 8 {
+    if value.len() < 16 {
         return Err(format!("{name} is too short").into());
     }
     Ok(value)
@@ -146,6 +146,28 @@ fn claude_args(job: &WorkerJob) -> Vec<String> {
     args
 }
 
+fn configure_child_environment(command: &mut Command) {
+    command.env_clear();
+
+    let defaults = ["PATH", "HOME", "USER", "TMPDIR", "TERM", "XDG_CONFIG_HOME"];
+    for name in defaults {
+        if let Ok(value) = env::var(name) {
+            command.env(name, value);
+        }
+    }
+
+    if let Ok(raw) = env::var("WEB_SESSION_ENV_ALLOWLIST") {
+        for name in raw.split(',').map(str::trim).filter(|v| !v.is_empty()) {
+            if defaults.contains(&name) {
+                continue;
+            }
+            if let Ok(value) = env::var(name) {
+                command.env(name, value);
+            }
+        }
+    }
+}
+
 async fn run_adapter(
     adapter_kind: &str,
     command_path: Option<&str>,
@@ -199,6 +221,7 @@ async fn run_adapter(
 
     let mut command = Command::new(program);
     command.kill_on_drop(true);
+    configure_child_environment(&mut command);
     command
         .args(args)
         .stdin(if stdin_payload.is_some() {
