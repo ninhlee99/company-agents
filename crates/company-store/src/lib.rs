@@ -2378,6 +2378,54 @@ async fn update_company_status(
     Ok(())
 }
 
+
+
+#[async_trait::async_trait]
+impl agent_runtime::agent::AgentStateProvider for CompanyStore {
+    async fn load_memory(
+        &self,
+        company_id: &str,
+        agent: AgentRole,
+    ) -> Result<serde_json::Value, String> {
+        self.load_agent_memory(company_id, agent, 20)
+            .await
+            .map(|items| serde_json::json!({ "items": items }))
+            .map_err(|error| error.to_string())
+    }
+
+    async fn admit_model_call(
+        &self,
+        company_id: &str,
+        agent: AgentRole,
+    ) -> Result<(), String> {
+        let window_seconds = std::env::var("AGENT_RATE_WINDOW_SECONDS")
+            .ok()
+            .and_then(|value| value.parse::<i64>().ok())
+            .filter(|value| (15..=86_400).contains(value))
+            .unwrap_or(60);
+
+        let max_calls = std::env::var("AGENT_MAX_CALLS_PER_WINDOW")
+            .ok()
+            .and_then(|value| value.parse::<i32>().ok())
+            .filter(|value| (1..=100).contains(value))
+            .unwrap_or(1);
+
+        let allowed = self
+            .claim_agent_run_slots(company_id, &[agent], window_seconds, max_calls)
+            .await
+            .map_err(|error| error.to_string())?;
+
+        if allowed.contains(&agent) {
+            Ok(())
+        } else {
+            Err(format!(
+                "agent {} exceeded durable model-call rate limit",
+                agent.as_str()
+            ))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;
 
