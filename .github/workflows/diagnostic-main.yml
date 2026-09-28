@@ -1,0 +1,94 @@
+name: diagnostic-main
+
+on:
+  push:
+    branches:
+      - ci/diagnose-main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_DB: company_agents
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d company_agents"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/company_agents
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Capture rust verification
+        shell: bash
+        run: |
+          set +e
+          cargo fmt --all -- --check 2>&1 | tee /tmp/fmt.log
+          FMT=$?
+          cargo test --workspace -- --nocapture 2>&1 | tee /tmp/test.log
+          TEST=$?
+          cargo clippy --workspace --all-targets --all-features -- -D warnings 2>&1 | tee /tmp/clippy.log
+          CLIPPY=$?
+          {
+            echo "FMT=$FMT"
+            echo "TEST=$TEST"
+            echo "CLIPPY=$CLIPPY"
+          } | tee /tmp/status.txt
+          exit 0
+      - name: Upload rust diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-diagnostics
+          path: |
+            /tmp/fmt.log
+            /tmp/test.log
+            /tmp/clippy.log
+            /tmp/status.txt
+
+  web-bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Capture bridge verification
+        shell: bash
+        working-directory: apps/llm-web-bridge
+        run: |
+          set +e
+          python -m pip install -r requirements.txt 2>&1 | tee /tmp/pip.log
+          PIP=$?
+          python -m py_compile bridge.py test_bridge.py 2>&1 | tee /tmp/pycompile.log
+          COMPILE=$?
+          python -m unittest -v test_bridge.py 2>&1 | tee /tmp/unittest.log
+          UNIT=$?
+          {
+            echo "PIP=$PIP"
+            echo "COMPILE=$COMPILE"
+            echo "UNIT=$UNIT"
+          } | tee /tmp/bridge-status.txt
+          exit 0
+      - name: Upload bridge diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-bridge-diagnostics
+          path: |
+            /tmp/pip.log
+            /tmp/pycompile.log
+            /tmp/unittest.log
+            /tmp/bridge-status.txt
