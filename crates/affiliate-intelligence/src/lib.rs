@@ -1027,6 +1027,88 @@ pub trait AffiliateProvider: Send + Sync {
     }
 }
 
+pub struct AggregateAffiliateProvider {
+    providers: Vec<Arc<dyn AffiliateProvider>>,
+}
+
+impl AggregateAffiliateProvider {
+    pub fn new(providers: Vec<Arc<dyn AffiliateProvider>>) -> Result<Self, AffiliateError> {
+        if providers.is_empty() {
+            return Err(AffiliateError::Provider(
+                "affiliate provider set cannot be empty".into(),
+            ));
+        }
+        Ok(Self { providers })
+    }
+
+    pub fn provider_names(&self) -> Vec<&'static str> {
+        self.providers.iter().map(|provider| provider.name()).collect()
+    }
+}
+
+#[async_trait]
+impl AffiliateProvider for AggregateAffiliateProvider {
+    fn name(&self) -> &'static str {
+        "aggregate"
+    }
+
+    async fn products(&self) -> Result<Vec<Product>, AffiliateError> {
+        let mut products = Vec::new();
+        let mut last_error = None;
+
+        for provider in &self.providers {
+            match provider.products().await {
+                Ok(mut values) => products.append(&mut values),
+                Err(error) => last_error = Some(error),
+            }
+        }
+
+        if products.is_empty() {
+            return Err(last_error.unwrap_or_else(|| {
+                AffiliateError::Provider("all affiliate providers returned no products".into())
+            }));
+        }
+
+        Ok(products)
+    }
+
+    async fn coupons(&self) -> Result<Vec<Coupon>, AffiliateError> {
+        let mut coupons = Vec::new();
+
+        for provider in &self.providers {
+            if let Ok(mut values) = provider.coupons().await {
+                coupons.append(&mut values);
+            }
+        }
+
+        Ok(coupons)
+    }
+
+    async fn search(
+        &self,
+        query: &ProductSearchQuery,
+    ) -> Result<Vec<Product>, AffiliateError> {
+        let mut products = Vec::new();
+        let mut failures = Vec::new();
+
+        for provider in &self.providers {
+            match provider.search(query).await {
+                Ok(mut values) => products.append(&mut values),
+                Err(error) => failures.push(format!("{}: {error}", provider.name())),
+            }
+        }
+
+        if products.is_empty() {
+            return Err(AffiliateError::Provider(format!(
+                "all affiliate providers failed: {}",
+                failures.join(" | ")
+            )));
+        }
+
+        Ok(products)
+    }
+}
+
 pub async fn search(
     provider: Arc<dyn AffiliateProvider>,
     query: ProductSearchQuery,
