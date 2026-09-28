@@ -533,6 +533,106 @@ impl Model for WebRelayModel {
     }
 }
 
+
+pub struct GeminiInteractionsModel {
+    client: reqwest::Client,
+    api_key: String,
+    model: String,
+}
+
+impl GeminiInteractionsModel {
+    pub fn from_env() -> Result<Self, ModelError> {
+        let api_key =
+            secret_from_env("GEMINI_API_KEY").or_else(|_| secret_from_env("LLM_API_KEY"))?;
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(45))
+            .connect_timeout(Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent("company-agents-gemini-interactions/0.3")
+            .build()
+            .map_err(|e| ModelError::Transport(e.to_string()))?;
+        Ok(Self {
+            client,
+            api_key,
+            model: env::var("GEMINI_MODEL")
+                .unwrap_or_else(|_| "gemini-3.8-flash".into()),
+        })
+    }
+}
+
+#[async_trait]
+impl Model for GeminiInteractionsModel {
+    async fn propose_json(&self, system: &str, user: &str) -> Result<Value, ModelError> {
+        let body = json!({
+            "model": self.model,
+            "input": user,
+            "system_instruction": system,
+            "generation_config": {"temperature": 0},
+            "response_format": {"mime_type": "application/json"},
+            "store": false
+        });
+
+        let response = self
+            .client
+            .post("https://generativelanguage.googleapis.com/v1/interactions")
+            .header("x-goog-api-key", &self.api_key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ModelError::Transport(e.to_string()))?;
+
+        let status = response.status();
+        let body = response
+            .bytes()
+            .await
+            .map_err(|e| ModelError::Transport(e.to_string()))?;
+
+        if body.len() > 1_048_576 {
+            return Err(ModelError::InvalidResponse(
+                "Gemini response exceeds 1 MiB".into(),
+            ));
+        }
+
+        if !status.is_success() {
+            let detail = String::from_utf8_lossy(&body[..body.len().min(4_096)])
+                .replace(&self.api_key, "[REDACTED]");
+            return Err(ModelError::Transport(format!(
+                "HTTP {status}: {detail}"
+            )));
+        }
+
+        let envelope: Value = serde_json::from_slice(&body).map_err(|e| {
+            ModelError::InvalidResponse(format!("Gemini response is not JSON: {e}"))
+        })?;
+
+        let text = envelope
+            .get("output_text")
+            .and_then(Value::as_str)
+            .or_else(|| {
+                envelope.get("steps").and_then(Value::as_array).and_then(|steps| {
+                    steps.iter().rev().find_map(|step| {
+                        if step.get("type").and_then(Value::as_str) == Some("model_output") {
+                            step.get("content").and_then(Value::as_array).and_then(|items| {
+                                items.iter().rev().find_map(|item| {
+                                    item.get("text").and_then(Value::as_str)
+                                })
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                })
+            })
+            .ok_or_else(|| {
+                ModelError::InvalidResponse("missing Gemini Interactions output".into())
+            })?;
+
+        serde_json::from_str(text.trim())
+            .map_err(|e| ModelError::InvalidResponse(format!("Gemini output is not valid JSON: {e}")))
+    }
+}
+
+
 pub struct FallbackModel {
     providers: Vec<(String, Arc<dyn Model>)>,
 }
@@ -567,7 +667,7 @@ fn build_llm_provider(name: &str) -> Result<Arc<dyn Model>, ModelError> {
     match name.trim().to_ascii_lowercase().as_str() {
         "mock" => Ok(Arc::new(MockModel)),
         "ollama" | "local" => Ok(Arc::new(OllamaModel::from_env())),
-        "gemini" => Ok(Arc::new(GeminiModel::from_env()?)),
+        "gemini" => Ok(Arc::new(GeminiInteractionsModel::from_env()?)),
         "openai" | "chatgpt" => Ok(Arc::new(OpenAiResponsesModel::from_env()?)),
         "anthropic" | "claude" => Ok(Arc::new(AnthropicMessagesModel::from_env()?)),
         "web" | "web-relay" => Ok(Arc::new(WebRelayModel::from_env()?)),
