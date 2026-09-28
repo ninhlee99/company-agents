@@ -1,0 +1,39 @@
+name: recovery-drill
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 0"
+jobs:
+  postgres-recovery:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_DB: company_agents
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d company_agents"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/company_agents
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Apply schema
+        run: |
+          for f in infra/db/migrations/*.sql; do
+            echo "Applying $f"
+            psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"
+          done
+      - name: Run recovery drill
+        run: bash scripts/recovery_drill.sh
+      - name: Run secret hygiene
+        run: bash scripts/secret_hygiene.sh

@@ -1,8 +1,23 @@
-use async_trait::async_trait;
-use serde_json::{json, Value};
-use std::{env, fmt, time::Duration};
+#![forbid(unsafe_code)]
 
-#[derive(Debug)]
+use async_trait::async_trait;
+use reqwest::{Client, StatusCode, Url};
+use serde_json::{json, Value};
+use std::{
+    env,
+    fmt,
+    fs,
+    path::Path,
+    sync::Arc,
+    time::Duration,
+};
+
+const MAX_RESPONSE_BYTES: usize = 1_048_576;
+const MAX_ERROR_BYTES: usize = 4_096;
+const MAX_WEB_RELAY_REQUEST_BYTES: usize = 512 * 1024;
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(45);
+
+#[derive(Debug, Clone)]
 pub enum ModelError {
     MissingConfiguration,
     Transport(String),
@@ -13,11 +28,13 @@ impl fmt::Display for ModelError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::MissingConfiguration => write!(f, "model configuration is missing"),
-            Self::Transport(e) => write!(f, "model transport error: {e}"),
-            Self::InvalidResponse(e) => write!(f, "model response error: {e}"),
+            Self::Transport(value) => write!(f, "model transport error: {value}"),
+            Self::InvalidResponse(value) => write!(f, "model response error: {value}"),
         }
     }
 }
+
+impl std::error::Error for ModelError {}
 
 #[async_trait]
 pub trait Model: Send + Sync {
@@ -29,193 +46,756 @@ pub struct MockModel;
 #[async_trait]
 impl Model for MockModel {
     async fn propose_json(&self, system: &str, _user: &str) -> Result<Value, ModelError> {
-        let role = system.lines().next().unwrap_or_default();
         Ok(json!({
-            "role": role,
-            "summary": "Mock model: deterministic policy only; no material execution.",
-            "confidence": 0.50
+            "role": system.lines().next().unwrap_or_default(),
+            "summary": "mock provider; deterministic agent policy remains authoritative",
+            "confidence": 0.5
         }))
     }
 }
 
+pub struct FailClosedModel {
+    reason: String,
+}
+
+impl FailClosedModel {
+    pub fn new(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+        }
+    }
+}
+
+#[async_trait]
+impl Model for FailClosedModel {
+    async fn propose_json(&self, _system: &str, _user: &str) -> Result<Value, ModelError> {
+        Err(ModelError::Transport(format!(
+            "LLM unavailable: {}",
+            self.reason
+        )))
+    }
+}
+
+fn secret_from_env(name: &str) -> Result<String, ModelError> {
+    let direct = env::var(name)
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let file = env::var(format!("{name}_FILE"))
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+
+    if direct.is_some() && file.is_some() {
+        return Err(ModelError::MissingConfiguration);
+    }
+
+    let raw = match (direct, file) {
+        (Some(value), None) => value,
+        (None, Some(path)) => {
+            let path = Path::new(path.trim());
+            if path.is_dir() {
+                return Err(ModelError::MissingConfiguration);
+            }
+            let metadata =
+                fs::metadata(path).map_err(|_| ModelError::MissingConfiguration)?;
+            if metadata.len() > 16 * 1024 {
+                return Err(ModelError::MissingConfiguration);
+            }
+            fs::read_to_string(path).map_err(|_| ModelError::MissingConfiguration)?
+        }
+        _ => return Err(ModelError::MissingConfiguration),
+    };
+
+    let value = raw.trim().to_owned();
+    if value.is_empty() {
+        return Err(ModelError::MissingConfiguration);
+    }
+    Ok(value)
+}
+
+fn build_client(user_agent: &'static str, timeout: Duration) -> Result<Client, ModelError> {
+    Client::builder()
+        .timeout(timeout)
+        .connect_timeout(Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent(user_agent)
+        .build()
+        .map_err(|error| ModelError::Transport(error.to_string()))
+}
+
+async fn bounded_body(response: reqwest::Response) -> Result<Vec<u8>, ModelError> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
+    {
+        return Err(ModelError::InvalidResponse(
+            "provider response exceeds 1 MiB safety limit".into(),
+        ));
+    }
+
+    let body = response
+        .bytes()
+        .await
+        .map_err(|error| ModelError::Transport(error.to_string()))?;
+
+    if body.len() > MAX_RESPONSE_BYTES {
+        return Err(ModelError::InvalidResponse(
+            "provider response exceeds 1 MiB safety limit".into(),
+        ));
+    }
+
+    Ok(body.to_vec())
+}
+
+fn bounded_provider_error(
+    status: StatusCode,
+    body: &[u8],
+    secrets: &[&str],
+) -> ModelError {
+    let bounded = &body[..body.len().min(MAX_ERROR_BYTES)];
+    let mut text = String::from_utf8_lossy(bounded).to_string();
+
+    for secret in secrets.iter().filter(|value| !value.is_empty()) {
+        text = text.replace(secret, "[REDACTED]");
+    }
+
+    ModelError::Transport(format!("HTTP {status}: {text}"))
+}
+
+fn parse_json_text(value: &str) -> Result<Value, ModelError> {
+    let trimmed = value.trim();
+    let normalized = trimmed
+        .strip_prefix("json:")
+        .map(str::trim)
+        .unwrap_or(trimmed);
+
+    serde_json::from_str(normalized).map_err(|error| {
+        ModelError::InvalidResponse(format!(
+            "LLM output is not valid JSON: {error}"
+        ))
+    })
+}
+
+fn validate_web_relay_url(value: &str) -> Result<(), ModelError> {
+    let parsed = Url::parse(value).map_err(|_| ModelError::MissingConfiguration)?;
+    let host = parsed.host_str().unwrap_or_default();
+
+    if parsed.scheme() == "https"
+        || matches!(host, "127.0.0.1" | "localhost" | "::1")
+    {
+        return Ok(());
+    }
+
+    let allowed_hosts = env::var("LLM_WEB_RELAY_ALLOW_HTTP_HOSTS")
+        .unwrap_or_default();
+
+    if parsed.scheme() == "http"
+        && allowed_hosts
+            .split(',')
+            .map(str::trim)
+            .any(|allowed| !allowed.is_empty() && allowed == host)
+    {
+        return Ok(());
+    }
+
+    Err(ModelError::MissingConfiguration)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WebBackend {
+    Gemini,
+    ChatGpt,
+    Claude,
+}
+
+impl WebBackend {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Gemini => "gemini-web",
+            Self::ChatGpt => "chatgpt-web",
+            Self::Claude => "claude-web",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "gemini-web" | "gemini" => Some(Self::Gemini),
+            "chatgpt-web" | "chatgpt" => Some(Self::ChatGpt),
+            "claude-web" | "claude" => Some(Self::Claude),
+            _ => None,
+        }
+    }
+}
+
 pub struct OpenAiCompatibleModel {
-    client: reqwest::Client,
+    client: Client,
     base_url: String,
     api_key: Option<String>,
     model: String,
 }
 
 impl OpenAiCompatibleModel {
-    pub fn new(base_url: String, api_key: Option<String>, model: String) -> Self {
-        Self {
-            client: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(120))
-                .build()
-                .unwrap_or_else(|_| reqwest::Client::new()),
+    pub fn new(
+        base_url: String,
+        api_key: Option<String>,
+        model: String,
+    ) -> Result<Self, ModelError> {
+        let client = build_client(
+            "company-agents-compatible/0.6",
+            Duration::from_secs(30),
+        )?;
+
+        let parsed = Url::parse(&base_url)
+            .map_err(|_| ModelError::MissingConfiguration)?;
+        if !matches!(parsed.scheme(), "https" | "http") {
+            return Err(ModelError::MissingConfiguration);
+        }
+
+        Ok(Self {
+            client,
             base_url: base_url.trim_end_matches('/').to_owned(),
             api_key,
             model,
-        }
-    }
-
-    fn request(&self, system: &str, user: &str) -> Value {
-        json!({
-            "model": self.model,
-            "temperature": 0,
-            "messages": [
-                {"role": "system", "content": format!("{system}\n\nReturn one JSON object. Optional keys: action, objective, cost_minor, expected_revenue_minor, risk, confidence, rationale, reversible, summary. Do not execute tools.")},
-                {"role": "user", "content": user}
-            ]
         })
     }
 }
 
 #[async_trait]
 impl Model for OpenAiCompatibleModel {
-    async fn propose_json(&self, system: &str, user: &str) -> Result<Value, ModelError> {
-        let url = format!("{}/chat/completions", self.base_url);
-        let mut request = self.client.post(url).json(&self.request(system, user));
+    async fn propose_json(
+        &self,
+        system: &str,
+        user: &str,
+    ) -> Result<Value, ModelError> {
+        let body = json!({
+            "model": self.model,
+            "temperature": 0,
+            "stream": false,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": format!(
+                        "{system}\n\nReturn exactly one JSON object. Do not execute tools."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": user
+                }
+            ]
+        });
 
-        if let Some(api_key) = &self.api_key {
-            if !api_key.trim().is_empty() {
-                request = request.bearer_auth(api_key);
-            }
+        let mut request = self
+            .client
+            .post(format!("{}/chat/completions", self.base_url))
+            .json(&body);
+
+        if self
+            .base_url
+            .contains("generativelanguage.googleapis.com")
+        {
+            request = request.header("x-goog-api-client", "company-agents/0.6");
+        }
+
+        if let Some(api_key) = self.api_key.as_deref().filter(|value| !value.is_empty()) {
+            request = request.bearer_auth(api_key);
         }
 
         let response = request
             .send()
             .await
-            .map_err(|e| ModelError::Transport(e.to_string()))?;
-
-        if let Some(length) = response.content_length() {
-            if length > 1_048_576 {
-                return Err(ModelError::InvalidResponse(
-                    "model response exceeds 1 MiB safety limit".into(),
-                ));
-            }
-        }
+            .map_err(|error| ModelError::Transport(error.to_string()))?;
 
         let status = response.status();
-        let body_bytes = response
-            .bytes()
-            .await
-            .map_err(|e| ModelError::Transport(e.to_string()))?;
+        let raw = bounded_body(response).await?;
 
-        if body_bytes.len() > 1_048_576 {
-            return Err(ModelError::InvalidResponse(
-                "model response exceeds 1 MiB safety limit".into(),
+        if !status.is_success() {
+            return Err(bounded_provider_error(
+                status,
+                &raw,
+                self.api_key.as_deref().into_iter().collect::<Vec<_>>().as_slice(),
             ));
         }
 
-        let body = String::from_utf8(body_bytes.to_vec()).map_err(|e| {
-            ModelError::InvalidResponse(format!("model response is not UTF-8: {e}"))
-        })?;
-
-        if !status.is_success() {
-            let safe = body.chars().take(512).collect::<String>();
-            return Err(ModelError::Transport(format!("http {status}: {safe}")));
-        }
-
-        let envelope: Value = serde_json::from_str(&body).map_err(|e| {
-            ModelError::InvalidResponse(format!("provider response is not JSON: {e}"))
+        let envelope: Value = serde_json::from_slice(&raw).map_err(|error| {
+            ModelError::InvalidResponse(format!(
+                "provider response is not JSON: {error}"
+            ))
         })?;
 
         let content = envelope
             .get("choices")
-            .and_then(|v| v.get(0))
-            .and_then(|v| v.get("message"))
-            .and_then(|v| v.get("content"))
+            .and_then(|value| value.get(0))
+            .and_then(|value| value.get("message"))
+            .and_then(|value| value.get("content"))
             .and_then(Value::as_str)
             .ok_or_else(|| {
-                ModelError::InvalidResponse("missing choices[0].message.content".into())
+                ModelError::InvalidResponse(
+                    "missing choices[0].message.content".into(),
+                )
             })?;
 
-        let normalized = content
-            .trim()
-            .strip_prefix("```json")
-            .and_then(|v| v.strip_suffix("```"))
-            .map(str::trim)
-            .unwrap_or_else(|| content.trim());
-
-        serde_json::from_str(normalized)
-            .map_err(|e| ModelError::InvalidResponse(format!("content is not valid JSON: {e}")))
+        parse_json_text(content)
     }
 }
 
 pub struct OllamaModel(OpenAiCompatibleModel);
 
 impl OllamaModel {
-    pub fn from_env() -> Self {
-        let base_url =
-            env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:11434/v1".into());
-        let model = env::var("OLLAMA_MODEL").unwrap_or_else(|_| "qwen3:4b".into());
-        Self(OpenAiCompatibleModel::new(
-            base_url,
+    pub fn from_env() -> Result<Self, ModelError> {
+        Ok(Self(OpenAiCompatibleModel::new(
+            env::var("OLLAMA_BASE_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:11434/v1".into()),
             Some("ollama".into()),
-            model,
-        ))
+            env::var("OLLAMA_MODEL").unwrap_or_else(|_| "qwen3:4b".into()),
+        )?))
     }
 }
 
 #[async_trait]
 impl Model for OllamaModel {
-    async fn propose_json(&self, system: &str, user: &str) -> Result<Value, ModelError> {
+    async fn propose_json(
+        &self,
+        system: &str,
+        user: &str,
+    ) -> Result<Value, ModelError> {
         self.0.propose_json(system, user).await
     }
 }
 
-pub struct GeminiModel(OpenAiCompatibleModel);
+pub struct OpenAiResponsesModel {
+    client: Client,
+    api_key: String,
+    model: String,
+}
 
-impl GeminiModel {
+impl OpenAiResponsesModel {
     pub fn from_env() -> Result<Self, ModelError> {
-        let api_key = env::var("GEMINI_API_KEY")
-            .or_else(|_| env::var("LLM_API_KEY"))
-            .map_err(|_| ModelError::MissingConfiguration)?;
-
-        let model = env::var("GEMINI_MODEL")
-            .or_else(|_| env::var("LLM_MODEL"))
-            .unwrap_or_else(|_| "gemini-3.6-flash".into());
-
-        Ok(Self(OpenAiCompatibleModel::new(
-            "https://generativelanguage.googleapis.com/v1beta/openai/".into(),
-            Some(api_key),
-            model,
-        )))
+        Ok(Self {
+            client: build_client(
+                "company-agents-openai/0.5",
+                DEFAULT_TIMEOUT,
+            )?,
+            api_key: secret_from_env("OPENAI_API_KEY")
+                .or_else(|_| secret_from_env("LLM_API_KEY"))?,
+            model: env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.6-luna".into()),
+        })
     }
 }
 
 #[async_trait]
-impl Model for GeminiModel {
-    async fn propose_json(&self, system: &str, user: &str) -> Result<Value, ModelError> {
-        self.0.propose_json(system, user).await
+impl Model for OpenAiResponsesModel {
+    async fn propose_json(
+        &self,
+        system: &str,
+        user: &str,
+    ) -> Result<Value, ModelError> {
+        let body = json!({
+            "model": self.model,
+            "instructions": format!(
+                "{system}\n\nReturn exactly one JSON object. Do not execute tools."
+            ),
+            "input": user,
+            "store": false,
+            "text": {
+                "format": {
+                    "type": "json_object"
+                }
+            }
+        });
+
+        let response = self
+            .client
+            .post("https://api.openai.com/v1/responses")
+            .bearer_auth(&self.api_key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|error| ModelError::Transport(error.to_string()))?;
+
+        let status = response.status();
+        let raw = bounded_body(response).await?;
+
+        if !status.is_success() {
+            return Err(bounded_provider_error(
+                status,
+                &raw,
+                &[self.api_key.as_str()],
+            ));
+        }
+
+        let envelope: Value = serde_json::from_slice(&raw).map_err(|error| {
+            ModelError::InvalidResponse(format!(
+                "OpenAI response is not JSON: {error}"
+            ))
+        })?;
+
+        let content = envelope
+            .get("output_text")
+            .and_then(Value::as_str)
+            .or_else(|| {
+                envelope
+                    .get("output")
+                    .and_then(Value::as_array)
+                    .and_then(|items| {
+                        items.iter().find_map(|item| {
+                            item.get("content")
+                                .and_then(Value::as_array)
+                                .and_then(|blocks| {
+                                    blocks.iter().find_map(|block| {
+                                        block.get("text")
+                                            .and_then(Value::as_str)
+                                    })
+                                })
+                        })
+                    })
+            })
+            .ok_or_else(|| {
+                ModelError::InvalidResponse(
+                    "missing OpenAI Responses output".into(),
+                )
+            })?;
+
+        parse_json_text(content)
+    }
+}
+
+pub struct AnthropicMessagesModel {
+    client: Client,
+    api_key: String,
+    model: String,
+}
+
+impl AnthropicMessagesModel {
+    pub fn from_env() -> Result<Self, ModelError> {
+        Ok(Self {
+            client: build_client(
+                "company-agents-anthropic/0.5",
+                DEFAULT_TIMEOUT,
+            )?,
+            api_key: secret_from_env("ANTHROPIC_API_KEY")
+                .or_else(|_| secret_from_env("LLM_API_KEY"))?,
+            model: env::var("ANTHROPIC_MODEL")
+                .unwrap_or_else(|_| "claude-opus-4-8".into()),
+        })
+    }
+}
+
+#[async_trait]
+impl Model for AnthropicMessagesModel {
+    async fn propose_json(
+        &self,
+        system: &str,
+        user: &str,
+    ) -> Result<Value, ModelError> {
+        let body = json!({
+            "model": self.model,
+            "max_tokens": 4096,
+            "system": format!(
+                "{system}\n\nReturn exactly one JSON object. Do not execute tools."
+            ),
+            "messages": [
+                {
+                    "role": "user",
+                    "content": user
+                }
+            ]
+        });
+
+        let response = self
+            .client
+            .post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|error| ModelError::Transport(error.to_string()))?;
+
+        let status = response.status();
+        let raw = bounded_body(response).await?;
+
+        if !status.is_success() {
+            return Err(bounded_provider_error(
+                status,
+                &raw,
+                &[self.api_key.as_str()],
+            ));
+        }
+
+        let envelope: Value = serde_json::from_slice(&raw).map_err(|error| {
+            ModelError::InvalidResponse(format!(
+                "Anthropic response is not JSON: {error}"
+            ))
+        })?;
+
+        let content = envelope
+            .get("content")
+            .and_then(Value::as_array)
+            .and_then(|items| {
+                items.iter().find_map(|item| {
+                    if item.get("type").and_then(Value::as_str) == Some("text") {
+                        item.get("text").and_then(Value::as_str)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .ok_or_else(|| {
+                ModelError::InvalidResponse(
+                    "missing Anthropic text content".into(),
+                )
+            })?;
+
+        parse_json_text(content)
+    }
+}
+
+pub struct WebRelayModel {
+    client: Client,
+    url: String,
+    token: String,
+    backend: WebBackend,
+    model: String,
+}
+
+impl WebRelayModel {
+    pub fn from_env() -> Result<Self, ModelError> {
+        Self::from_env_with_backend(None)
+    }
+
+    pub fn from_env_with_backend(
+        default_backend: Option<WebBackend>,
+    ) -> Result<Self, ModelError> {
+        let url =
+            env::var("LLM_WEB_RELAY_URL").map_err(|_| ModelError::MissingConfiguration)?;
+        let token = secret_from_env("LLM_WEB_RELAY_TOKEN")
+            .or_else(|_| secret_from_env("LLM_WEB_RELAY_SECRET"))?;
+
+        validate_web_relay_url(&url)?;
+
+        let configured_backend = env::var("LLM_WEB_RELAY_BACKEND")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .and_then(|value| WebBackend::parse(&value));
+
+        let backend = match default_backend {
+            Some(forced) => forced,
+            None => configured_backend.unwrap_or(WebBackend::Gemini),
+        };
+
+        if configured_backend.is_none()
+            && env::var("LLM_WEB_RELAY_BACKEND")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .is_some()
+            && default_backend.is_none()
+        {
+            return Err(ModelError::MissingConfiguration);
+        }
+
+        Ok(Self {
+            client: build_client(
+                "company-agents-web-relay/0.5",
+                Duration::from_secs(60),
+            )?,
+            url,
+            token,
+            backend,
+            model: env::var("LLM_WEB_RELAY_MODEL")
+                .unwrap_or_else(|_| "web-session".into()),
+        })
+    }
+}
+
+#[async_trait]
+impl Model for WebRelayModel {
+    async fn propose_json(
+        &self,
+        system: &str,
+        user: &str,
+    ) -> Result<Value, ModelError> {
+        let body = json!({
+            "protocol_version": 1,
+            "backend": self.backend.as_str(),
+            "model": self.model,
+            "system": system,
+            "user": user,
+            "response_format": "json_object",
+            "allow_tools": false
+        });
+
+        let encoded = serde_json::to_vec(&body)
+            .map_err(|error| ModelError::InvalidResponse(error.to_string()))?;
+        if encoded.len() > MAX_WEB_RELAY_REQUEST_BYTES {
+            return Err(ModelError::InvalidResponse(
+                "web relay request exceeds 512 KiB".into(),
+            ));
+        }
+
+        let response = self
+            .client
+            .post(&self.url)
+            .bearer_auth(&self.token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|error| ModelError::Transport(error.to_string()))?;
+
+        let status = response.status();
+        let raw = bounded_body(response).await?;
+
+        if !status.is_success() {
+            return Err(bounded_provider_error(
+                status,
+                &raw,
+                &[self.token.as_str()],
+            ));
+        }
+
+        let envelope: Value = serde_json::from_slice(&raw).map_err(|error| {
+            ModelError::InvalidResponse(format!(
+                "web relay response is not JSON: {error}"
+            ))
+        })?;
+
+        let output = envelope
+            .get("output")
+            .or_else(|| envelope.get("content"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                ModelError::InvalidResponse("web relay missing output".into())
+            })?;
+
+        parse_json_text(output)
+    }
+}
+
+pub struct FallbackModel {
+    providers: Vec<(String, Arc<dyn Model>)>,
+}
+
+impl FallbackModel {
+    pub fn new(providers: Vec<(String, Arc<dyn Model>)>) -> Result<Self, ModelError> {
+        if providers.is_empty() {
+            return Err(ModelError::MissingConfiguration);
+        }
+        Ok(Self { providers })
+    }
+
+    pub fn provider_names(&self) -> Vec<String> {
+        self.providers
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+}
+
+#[async_trait]
+impl Model for FallbackModel {
+    async fn propose_json(
+        &self,
+        system: &str,
+        user: &str,
+    ) -> Result<Value, ModelError> {
+        let mut failures = Vec::new();
+
+        for (name, provider) in &self.providers {
+            match provider.propose_json(system, user).await {
+                Ok(value) => return Ok(value),
+                Err(error) => failures.push(format!("{name}: {error}")),
+            }
+        }
+
+        Err(ModelError::Transport(format!(
+            "all configured LLM providers failed: {}",
+            failures.join(" | ")
+        )))
+    }
+}
+
+fn build_provider(name: &str) -> Result<Arc<dyn Model>, ModelError> {
+    match name.trim().to_ascii_lowercase().as_str() {
+        "mock" => Ok(Arc::new(MockModel)),
+        "ollama" | "local" => Ok(Arc::new(OllamaModel::from_env()?)),
+        "gemini" => {
+            let api_key = secret_from_env("GEMINI_API_KEY")
+                .or_else(|_| secret_from_env("LLM_API_KEY"))?;
+            let model =
+                env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.8-flash".into());
+            Ok(Arc::new(OpenAiCompatibleModel::new(
+                "https://generativelanguage.googleapis.com/v1beta/openai/".into(),
+                Some(api_key),
+                model,
+            )?))
+        },
+        "openai" | "chatgpt" => Ok(Arc::new(OpenAiResponsesModel::from_env()?)),
+        "anthropic" | "claude" => Ok(Arc::new(AnthropicMessagesModel::from_env()?)),
+        "web" | "web-relay" => Ok(Arc::new(WebRelayModel::from_env()?)),
+        "gemini-web" => Ok(Arc::new(
+            WebRelayModel::from_env_with_backend(Some(WebBackend::Gemini))?
+        )),
+        "chatgpt-web" => Ok(Arc::new(
+            WebRelayModel::from_env_with_backend(Some(WebBackend::ChatGpt))?
+        )),
+        "claude-web" => Ok(Arc::new(
+            WebRelayModel::from_env_with_backend(Some(WebBackend::Claude))?
+        )),
+        "openai-compatible" => {
+            let base_url =
+                env::var("LLM_BASE_URL").map_err(|_| ModelError::MissingConfiguration)?;
+            let model =
+                env::var("LLM_MODEL").map_err(|_| ModelError::MissingConfiguration)?;
+            Ok(Arc::new(OpenAiCompatibleModel::new(
+                base_url,
+                secret_from_env("LLM_API_KEY").ok(),
+                model,
+            )?))
+        }
+        other => Err(ModelError::Transport(format!(
+            "unknown LLM provider '{other}'"
+        ))),
     }
 }
 
 pub fn model_from_env() -> Box<dyn Model> {
-    let provider = env::var("LLM_PROVIDER")
-        .unwrap_or_else(|_| "ollama".into())
-        .to_ascii_lowercase();
+    let primary =
+        env::var("LLM_PROVIDER").unwrap_or_else(|_| "ollama".into());
+    let mut names = vec![primary];
 
-    match provider.as_str() {
-        "mock" => Box::new(MockModel),
-        "ollama" | "local" => Box::new(OllamaModel::from_env()),
-        "gemini" => match GeminiModel::from_env() {
-            Ok(model) => Box::new(model),
-            Err(_) => Box::new(MockModel),
-        },
-        "openai-compatible" => {
-            let base_url = env::var("LLM_BASE_URL").ok();
-            let key = env::var("LLM_API_KEY").ok();
-            let model = env::var("LLM_MODEL").ok();
-            match (base_url, model) {
-                (Some(base_url), Some(model)) => {
-                    Box::new(OpenAiCompatibleModel::new(base_url, key, model))
-                }
-                _ => Box::new(MockModel),
+    if let Ok(fallbacks) = env::var("LLM_FALLBACKS") {
+        names.extend(
+            fallbacks
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned),
+        );
+    }
+
+    let strict_primary = env::var("LLM_STRICT_CONFIG")
+        .ok()
+        .is_some_and(|value| {
+            matches!(
+                value.to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            )
+        });
+
+    let mut providers = Vec::new();
+
+    for (index, name) in names.into_iter().enumerate() {
+        match build_provider(&name) {
+            Ok(provider) => providers.push((name, provider)),
+            Err(error) if index == 0 && strict_primary => {
+                return Box::new(FailClosedModel::new(error.to_string()));
             }
+            Err(_error) => {}
         }
-        _ => Box::new(MockModel),
+    }
+
+    match FallbackModel::new(providers) {
+        Ok(provider) => Box::new(provider),
+        Err(error) => Box::new(FailClosedModel::new(error.to_string())),
     }
 }
 
@@ -224,31 +804,114 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn mock_model_is_always_available() {
-        let result = MockModel.propose_json("CEO", "{}").await.unwrap();
-        assert_eq!(result["confidence"], 0.5);
-    }
-
-    #[tokio::test]
-    async fn invalid_json_is_rejected() {
-        struct BadModel;
-        #[async_trait]
-        impl Model for BadModel {
-            async fn propose_json(&self, _: &str, _: &str) -> Result<Value, ModelError> {
-                Err(ModelError::InvalidResponse(
-                    "content is not valid JSON".into(),
-                ))
-            }
-        }
-
-        let result = BadModel.propose_json("x", "y").await;
-        assert!(matches!(result, Err(ModelError::InvalidResponse(_))));
+    async fn mock_model_is_available_without_external_services() {
+        let value = MockModel.propose_json("CEO", "{}").await.unwrap();
+        assert_eq!(value["confidence"], 0.5);
     }
 
     #[test]
-    fn defaults_to_local_ollama_configuration_shape() {
-        let model = OllamaModel::from_env();
-        assert_eq!(model.0.base_url, "http://127.0.0.1:11434/v1");
-        assert!(!model.0.model.is_empty());
+    fn web_backend_aliases_are_canonical() {
+        assert_eq!(
+            WebBackend::parse("gemini-web"),
+            Some(WebBackend::Gemini)
+        );
+        assert_eq!(
+            WebBackend::parse("chatgpt-web"),
+            Some(WebBackend::ChatGpt)
+        );
+        assert_eq!(
+            WebBackend::parse("claude-web"),
+            Some(WebBackend::Claude)
+        );
+        assert_eq!(WebBackend::parse("unknown"), None);
+    }
+
+    #[test]
+    fn web_relay_url_requires_tls_unless_loopback_or_allowlisted() {
+        assert!(validate_web_relay_url(
+            "https://relay.example.internal/v1/generate"
+        )
+        .is_ok());
+        assert!(validate_web_relay_url(
+            "http://127.0.0.1:9010/v1/generate"
+        )
+        .is_ok());
+        assert!(validate_web_relay_url(
+            "http://relay.example.internal/v1/generate"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn parse_json_text_accepts_plain_json() {
+        let value = parse_json_text("{\"ok\":true}").unwrap();
+        assert_eq!(value["ok"], true);
+    }
+
+    #[tokio::test]
+    async fn fallback_uses_first_healthy_provider() {
+        struct Bad;
+
+        #[async_trait]
+        impl Model for Bad {
+            async fn propose_json(
+                &self,
+                _system: &str,
+                _user: &str,
+            ) -> Result<Value, ModelError> {
+                Err(ModelError::Transport("down".into()))
+            }
+        }
+
+        struct Good;
+
+        #[async_trait]
+        impl Model for Good {
+            async fn propose_json(
+                &self,
+                _system: &str,
+                _user: &str,
+            ) -> Result<Value, ModelError> {
+                Ok(json!({"ok": true}))
+            }
+        }
+
+        let fallback = FallbackModel::new(vec![
+            ("bad".into(), Arc::new(Bad)),
+            ("good".into(), Arc::new(Good)),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            fallback.propose_json("x", "y").await.unwrap()["ok"],
+            true
+        );
+        assert_eq!(
+            fallback.provider_names(),
+            vec!["bad".to_string(), "good".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn fallback_fails_closed_when_every_provider_fails() {
+        struct Bad;
+
+        #[async_trait]
+        impl Model for Bad {
+            async fn propose_json(
+                &self,
+                _system: &str,
+                _user: &str,
+            ) -> Result<Value, ModelError> {
+                Err(ModelError::InvalidResponse("bad".into()))
+            }
+        }
+
+        let fallback =
+            FallbackModel::new(vec![("bad".into(), Arc::new(Bad))]).unwrap();
+        assert!(matches!(
+            fallback.propose_json("x", "y").await,
+            Err(ModelError::Transport(_))
+        ));
     }
 }

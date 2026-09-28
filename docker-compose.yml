@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: company-runtime
     ports:
       - "127.0.0.1:8080:8080"
     environment:
@@ -11,12 +12,30 @@ services:
       COMPANY_NAME: ${COMPANY_NAME:-Demo Company}
       COMPANY_CURRENCY: ${COMPANY_CURRENCY:-USD}
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      LLM_FALLBACKS: ${LLM_FALLBACKS:-}
+      LLM_STRICT_CONFIG: ${LLM_STRICT_CONFIG:-true}
+      LLM_WEB_RELAY_URL: ${LLM_WEB_RELAY_URL:-http://llm-web-relay:9010/v1/generate}
+      LLM_WEB_RELAY_TOKEN: ${LLM_WEB_RELAY_TOKEN:-}
+      LLM_WEB_RELAY_TOKEN_FILE: ${LLM_WEB_RELAY_TOKEN_FILE:-}
+      LLM_WEB_RELAY_ALLOW_HTTP_HOSTS: ${LLM_WEB_RELAY_ALLOW_HTTP_HOSTS:-llm-web-relay}
+      LLM_WEB_RELAY_BACKEND: ${LLM_WEB_RELAY_BACKEND:-gemini-web}
+      LLM_WEB_RELAY_MODEL: ${LLM_WEB_RELAY_MODEL:-web-session}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_API_KEY_FILE: ${LLM_API_KEY_FILE:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_KEY_FILE: ${OPENAI_API_KEY_FILE:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_API_KEY_FILE: ${GEMINI_API_KEY_FILE:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_API_KEY_FILE: ${ANTHROPIC_API_KEY_FILE:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-4-8}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434/v1}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:4b}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.6-flash}
       AGENT_CYCLE_SECONDS: ${AGENT_CYCLE_SECONDS:-300}
       MODEL_TIMEOUT_MS: ${MODEL_TIMEOUT_MS:-15000}
+      AGENT_CONCURRENCY: ${AGENT_CONCURRENCY:-2}
       AWIN_FEED_URL: ${AWIN_FEED_URL:-}
       AWIN_FEED_BEARER: ${AWIN_FEED_BEARER:-}
       AWIN_COUPON_FEED_URL: ${AWIN_COUPON_FEED_URL:-}
@@ -34,6 +53,51 @@ services:
         condition: service_healthy
       ollama-init:
         condition: service_completed_successfully
+    restart: unless-stopped
+
+  llm-web-relay:
+    profiles: ["web-relay"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: llm-web-relay-runtime
+    ports:
+      - "127.0.0.1:9010:9010"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/company_agents
+      LLM_RELAY_BIND_ADDR: 0.0.0.0:9010
+      LLM_RELAY_API_TOKEN: ${LLM_RELAY_API_TOKEN:-}
+      LLM_RELAY_API_TOKEN_FILE: ${LLM_RELAY_API_TOKEN_FILE:-}
+      LLM_RELAY_WORKER_TOKEN: ${LLM_RELAY_WORKER_TOKEN:-}
+      LLM_RELAY_WORKER_TOKEN_FILE: ${LLM_RELAY_WORKER_TOKEN_FILE:-}
+      LLM_RELAY_WAIT_TIMEOUT_SECONDS: ${LLM_RELAY_WAIT_TIMEOUT_SECONDS:-55}
+      LLM_RELAY_JOB_TTL_SECONDS: ${LLM_RELAY_JOB_TTL_SECONDS:-120}
+      LLM_RELAY_LEASE_SECONDS: ${LLM_RELAY_LEASE_SECONDS:-60}
+      LLM_RELAY_MAX_ATTEMPTS: ${LLM_RELAY_MAX_ATTEMPTS:-3}
+      LLM_RELAY_RETENTION_SECONDS: ${LLM_RELAY_RETENTION_SECONDS:-3600}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  media-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: media-runtime
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/company_agents
+      COMPANY_ID: ${COMPANY_ID:-00000000-0000-0000-0000-000000000001}
+      MEDIA_WORKSPACE: /app/media
+      FFMPEG_BIN: ${FFMPEG_BIN:-ffmpeg}
+      FFPROBE_BIN: ${FFPROBE_BIN:-ffprobe}
+      FFMPEG_TIMEOUT_SECONDS: ${FFMPEG_TIMEOUT_SECONDS:-900}
+      MEDIA_WORKER_POLL_SECONDS: ${MEDIA_WORKER_POLL_SECONDS:-5}
+    volumes:
+      - company_agents_media:/app/media
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   ollama:
@@ -83,7 +147,9 @@ services:
     image: redis:7-alpine
     ports:
       - "127.0.0.1:6379:6379"
+    restart: unless-stopped
 
 volumes:
   company_agents_pg:
   ollama_models:
+  company_agents_media:

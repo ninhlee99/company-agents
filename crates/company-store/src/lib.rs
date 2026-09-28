@@ -91,6 +91,21 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/008_commercial_and_payroll.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/009_outbox_leases.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/010_media_jobs.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/011_llm_web_relay.sql"
+            ))
             .await
     }
 
@@ -190,6 +205,148 @@ impl CompanyStore {
 
         tx.commit().await?;
         Ok(transaction_uuid)
+    }
+
+    pub async fn enqueue_media_job(
+        &self,
+        company_id: &str,
+        job: &media_pipeline::MediaJob,
+        idempotency_key: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        media_pipeline::validate_job(job).map_err(|error| error.to_string())?;
+        if idempotency_key.trim().is_empty() || idempotency_key.len() > 256 {
+            return Err("media idempotency key is invalid".into());
+        }
+
+        let operation = serde_json::to_value(&job.operation)?;
+        let (format, width, height, fps, normalize_audio) = match job.operation {
+            media_pipeline::MediaOperation::NormalizeMp4 { width, height, fps } => {
+                ("Mp4H264", width, height, fps, true)
+            }
+            media_pipeline::MediaOperation::ExtractAudioAac => ("Mp4H264", 16, 16, 1, true),
+            media_pipeline::MediaOperation::Thumbnail { .. } => ("Mp4H264", 16, 16, 1, false),
+        };
+
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "INSERT INTO media_jobs
+                 (id, company_id, input_path, output_path, format,
+                  width, height, fps, max_duration_seconds,
+                  normalize_audio, max_output_bytes, operation, status, idempotency_key)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'QUEUED',$13)
+                 ON CONFLICT (company_id, idempotency_key) DO NOTHING",
+                &[
+                    &Uuid::parse_str(&job.id)?,
+                    &company_uuid,
+                    &job.input_path,
+                    &job.output_path,
+                    &format,
+                    &(width as i32),
+                    &(height as i32),
+                    &(fps as i32),
+                    &(job.max_duration_seconds as i32),
+                    &normalize_audio,
+                    &(job.max_output_bytes as i64),
+                    &operation,
+                    &idempotency_key,
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn claim_media_job(
+        &self,
+        company_id: &str,
+    ) -> Result<Option<media_pipeline::MediaJob>, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        let row = tx
+            .query_opt(
+                "SELECT id, input_path, output_path, max_duration_seconds,
+                        max_output_bytes, operation
+                   FROM media_jobs
+                  WHERE company_id=$1
+                    AND (
+                      status='QUEUED'
+                      OR (status='RUNNING' AND locked_until <= now())
+                    )
+                  ORDER BY created_at ASC, id ASC
+                  FOR UPDATE SKIP LOCKED
+                  LIMIT 1",
+                &[&company_uuid],
+            )
+            .await?;
+
+        let Some(row) = row else {
+            tx.rollback().await?;
+            return Ok(None);
+        };
+
+        let id: Uuid = row.get(0);
+        let operation: media_pipeline::MediaOperation =
+            serde_json::from_value(row.get(5))
+                .map_err(|error| format!("stored media operation is invalid: {error}"))?;
+
+        let job = media_pipeline::MediaJob {
+            id: id.to_string(),
+            input_path: row.get(1),
+            output_path: row.get(2),
+            operation,
+            max_duration_seconds: row.get::<_, i32>(3) as u32,
+            max_output_bytes: row.get::<_, i64>(4).max(1) as u64,
+        };
+
+        media_pipeline::validate_job(&job).map_err(|error| error.to_string())?;
+
+        tx.execute(
+            "UPDATE media_jobs
+                SET status='RUNNING',
+                    attempts=attempts+1,
+                    locked_until=now()+interval '15 minutes',
+                    updated_at=now()
+              WHERE id=$1",
+            &[&id],
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(Some(job))
+    }
+
+    pub async fn finish_media_job(
+        &self,
+        job_id: &str,
+        status: &str,
+        error: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if !matches!(status, "SUCCEEDED" | "FAILED" | "QA_FAILED") {
+            return Err("invalid media completion status".into());
+        }
+
+        let id = Uuid::parse_str(job_id)?;
+        let bounded_error = error.map(|value| value.chars().take(4096).collect::<String>());
+        let client = self.client.lock().await;
+
+        client
+            .execute(
+                "UPDATE media_jobs
+                    SET status = CASE
+                          WHEN $2='FAILED' AND attempts < 3 THEN 'QUEUED'
+                          ELSE $2
+                        END,
+                        locked_until=NULL,
+                        last_error=$3,
+                        updated_at=now()
+                  WHERE id=$1",
+                &[&id, &status, &bounded_error],
+            )
+            .await?;
+        Ok(())
     }
 
     pub async fn save_business_unit(
