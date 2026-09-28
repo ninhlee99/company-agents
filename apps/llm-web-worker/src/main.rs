@@ -177,6 +177,7 @@ async fn run_adapter(
     };
 
     let mut command = Command::new(program);
+    command.kill_on_drop(true);
     command
         .args(args)
         .stdin(if stdin_payload.is_some() {
