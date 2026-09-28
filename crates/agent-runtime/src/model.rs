@@ -665,18 +665,22 @@ impl WebRelayModel {
 
         validate_web_relay_url(&url)?;
 
-        let backend = env::var("LLM_WEB_RELAY_BACKEND")
+        let configured_backend = env::var("LLM_WEB_RELAY_BACKEND")
             .ok()
             .filter(|value| !value.trim().is_empty())
-            .and_then(|value| WebBackend::parse(&value))
-            .or(default_backend)
-            .unwrap_or(WebBackend::Gemini);
+            .and_then(|value| WebBackend::parse(&value));
 
-        if backend == WebBackend::Gemini
+        let backend = match default_backend {
+            Some(forced) => forced,
+            None => configured_backend.unwrap_or(WebBackend::Gemini),
+        };
+
+        if configured_backend.is_none()
             && env::var("LLM_WEB_RELAY_BACKEND")
                 .ok()
                 .filter(|value| !value.trim().is_empty())
-                .is_some_and(|value| WebBackend::parse(&value).is_none())
+                .is_some()
+            && default_backend.is_none()
         {
             return Err(ModelError::MissingConfiguration);
         }
