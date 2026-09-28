@@ -2,7 +2,6 @@ name: ci-diagnostic
 
 on:
   pull_request:
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,27 +12,26 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Capture cargo check
+      - name: Diagnose cargo check
         shell: bash
         run: |
           set +e
-          cargo check --workspace 2>&1 | tee /tmp/cargo-check.log
-          status=${PIPESTATUS[0]}
-          if [ "$status" -ne 0 ]; then
-            line=$(grep -E 'error\[E[0-9]+\]|error: could not compile|error:' /tmp/cargo-check.log | head -n 1)
-            line=${line:-"cargo check failed"}
-            line=$(printf '%s' "$line" | tr '\n' ' ' | cut -c1-140)
-            gh api "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
-              -f state=error \
-              -f context="ci-diagnostic/cargo-check" \
-              -f description="$line" >/dev/null
-          else
-            gh api "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
-              -f state=success \
-              -f context="ci-diagnostic/cargo-check" \
-              -f description="cargo check --workspace passed" >/dev/null
+          cargo check --workspace > /tmp/cargo-check.log 2>&1
+          rc=$?
+          lines=$(grep -E 'error\[E[0-9]+\]|error: could not compile|error:' /tmp/cargo-check.log | head -n 8)
+          if [ -z "$lines" ]; then
+            lines=$(tail -n 8 /tmp/cargo-check.log)
           fi
+          i=1
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            clean=$(printf '%s' "$line" | tr '\r\n' ' ' | cut -c1-140)
+            gh api "repos/${GITHUB_REPOSITORY}/statuses/${TARGET_SHA}" -f state="$([ "$rc" -eq 0 ] && echo success || echo error)" -f context="ci-diagnostic/cargo-check-$i" -f description="$clean" >/dev/null || true
+            i=$((i+1))
+            [ "$i" -gt 8 ] && break
+          done <<< "$lines"
           exit 0
