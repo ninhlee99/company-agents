@@ -47,8 +47,12 @@ pub struct OpenAiCompatibleModel {
 
 fn secret_from_env(name: &str) -> Result<String, ModelError> {
     let file_key = format!("{name}_FILE");
-    let direct = env::var(name).ok();
-    let file = env::var(&file_key).ok();
+    let direct = env::var(name)
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let file = env::var(&file_key)
+        .ok()
+        .filter(|value| !value.trim().is_empty());
 
     if direct.is_some() && file.is_some() {
         return Err(ModelError::MissingConfiguration);
@@ -448,6 +452,7 @@ pub struct WebRelayModel {
     client: reqwest::Client,
     url: String,
     token: String,
+    backend: String,
     model: String,
 }
 
@@ -481,6 +486,11 @@ impl WebRelayModel {
             client,
             url,
             token,
+            backend: env::var("LLM_WEB_RELAY_BACKEND")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| default_backend.map(ToOwned::to_owned))
+                .unwrap_or_else(|| "gemini-web".into()),
             model: env::var("LLM_WEB_RELAY_MODEL").unwrap_or_else(|_| "web-session".into()),
         })
     }
@@ -492,11 +502,7 @@ impl Model for WebRelayModel {
         let body = json!({
             "protocol_version": 1,
             "model": self.model,
-            "backend": env::var("LLM_WEB_RELAY_BACKEND")
-                .ok()
-                .filter(|value| !value.trim().is_empty())
-                .or_else(|| default_backend.map(ToOwned::to_owned))
-                .unwrap_or_else(|| "gemini-web".into()),
+            "backend": self.backend,
             "system": system,
             "user": user,
             "response_format": "json_object",
