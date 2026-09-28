@@ -27,6 +27,7 @@ struct AppState {
     job_ttl: Duration,
     lease: Duration,
     max_attempts: i32,
+    retention: Duration,
 }
 
 #[derive(Debug, Deserialize)]
@@ -345,6 +346,15 @@ async fn claim(
     let tx = client.transaction().await.map_err(|_| ApiError::Internal)?;
 
     tx.execute(
+        "DELETE FROM llm_web_relay_jobs
+          WHERE status IN ('SUCCEEDED','FAILED','EXPIRED','CANCELLED')
+            AND updated_at < now() - ($1::double precision * interval '1 second')",
+        &[&state.retention.as_secs_f64()],
+    )
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    tx.execute(
         "UPDATE llm_web_relay_jobs
             SET status='EXPIRED', lease_token=NULL, locked_until=NULL,
                 error_message='job expired before completion'
@@ -386,7 +396,6 @@ async fn claim(
     let user: String = row.get(4);
     let response_format: String = row.get(5);
     let allow_tools: bool = row.get(6);
-    let attempt: i32 = row.get(7);
     let lease_token = Uuid::new_v4();
 
     let row = tx
@@ -632,6 +641,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         wait_timeout: parse_duration_env("LLM_RELAY_WAIT_TIMEOUT_SECONDS", 55, 5, 90),
         job_ttl: parse_duration_env("LLM_RELAY_JOB_TTL_SECONDS", 120, 30, 900),
         lease: parse_duration_env("LLM_RELAY_LEASE_SECONDS", 60, 15, 300),
+        retention: parse_duration_env("LLM_RELAY_RETENTION_SECONDS", 3600, 300, 86_400),
         max_attempts: env::var("LLM_RELAY_MAX_ATTEMPTS")
             .ok()
             .and_then(|v| v.parse::<i32>().ok())
