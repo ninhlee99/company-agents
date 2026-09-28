@@ -6,7 +6,7 @@ COPY Cargo.toml ./
 COPY apps ./apps
 COPY crates ./crates
 COPY agents ./agents
-RUN cargo build --release -p company-os -p media-worker
+RUN cargo build --release -p company-os -p media-worker -p llm-web-relay
 
 FROM alpine:3.20 AS company-runtime
 RUN apk add --no-cache ca-certificates && adduser -D -H -u 10001 app
@@ -23,3 +23,12 @@ WORKDIR /app
 COPY --from=build /src/target/release/media-worker /app/media-worker
 RUN mkdir -p /app/media
 ENTRYPOINT ["/app/media-worker"]
+
+
+FROM alpine:3.20 AS llm-web-relay-runtime
+RUN apk add --no-cache ca-certificates && adduser -D -H -u 10002 relay
+USER relay
+WORKDIR /app
+COPY --from=build /src/target/release/llm-web-relay /app/llm-web-relay
+EXPOSE 9010
+ENTRYPOINT ["/app/llm-web-relay"]
