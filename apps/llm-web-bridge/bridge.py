@@ -66,6 +66,14 @@ def make_prompt(job):
 
 def normalize(text):
     text = text.strip()
+    if text.startswith("```") and text.endswith("```"):
+        lines = text.splitlines()
+        if len(lines) < 3 or not lines[0].startswith("```") or lines[-1] != "```":
+            raise ValueError("malformed JSON fence")
+        payload = "\n".join(lines[1:-1]).strip()
+        if lines[0].lower() not in {"```", "```json"}:
+            raise ValueError("unexpected fenced response language")
+        text = payload
     value = json.loads(text)
     if not isinstance(value, dict):
         raise ValueError("output must be a JSON object")
@@ -224,6 +232,7 @@ def _self_test():
     else:
         raise AssertionError("unknown backend should fail")
     assert normalize('{"action":"ProduceReport"}') == '{"action":"ProduceReport"}'
+    assert normalize('```json\n{"action":"ProduceReport"}\n```') == '{"action":"ProduceReport"}'
     try:
         normalize('["bad"]')
     except ValueError:
