@@ -309,7 +309,7 @@ async fn proposal_for(agent: Arc<dyn Agent>, company: CompanySnapshot) -> Propos
             &AgentContext {
                 company,
                 model_timeout: std::time::Duration::from_secs(5),
-        memory: Vec::new(),
+                memory: Vec::new(),
             },
             Arc::new(MockModel),
         )

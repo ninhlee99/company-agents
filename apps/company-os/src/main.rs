@@ -322,7 +322,7 @@ async fn run_api(
     run_cycle_with_id(&state, cycle_id)
         .await
         .map(Json)
-.map_err(|error| {
+        .map_err(|error| {
             state.metrics.cycles_failed_total.fetch_add(1, Ordering::Relaxed);
             eprintln!("api cycle error: {error}");
             (

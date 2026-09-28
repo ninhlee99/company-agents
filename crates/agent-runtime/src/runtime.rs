@@ -173,8 +173,8 @@ impl AgentRuntime {
                             let memory = AgentMemory {
                                 memory_key: "latest_governed_proposal".into(),
                                 value: json!({
-                                    "proposal": result.proposal,
-                                    "governance": result.governance
+                                    "proposal": &result.proposal,
+                                    "governance": &result.governance
                                 }),
                                 confidence_bps: result.proposal.confidence_bps,
                                 importance: 80,
