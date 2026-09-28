@@ -32,6 +32,13 @@ pub trait AgentStateProvider: Send + Sync {
         company_id: &str,
         agent: AgentRole,
     ) -> Result<(), String>;
+
+    async fn remember(
+        &self,
+        company_id: &str,
+        agent: AgentRole,
+        memory: AgentMemory,
+    ) -> Result<(), String>;
 }
 
 #[async_trait]
