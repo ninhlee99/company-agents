@@ -145,7 +145,15 @@ WEB_SESSION_ADAPTER_KIND=codex-chatgpt
 WEB_SESSION_BACKEND=chatgpt-web
 ```
 
-Authenticate the Codex CLI on the browser/worker machine with the user's ChatGPT account. The worker runs one read-only `codex exec --json` job at a time.
+Authenticate the Codex CLI on the worker machine with the user's ChatGPT account, then run:
+
+```bash
+WEB_SESSION_BACKEND=chatgpt-web \
+WEB_SESSION_ADAPTER_KIND=codex-chatgpt \
+cargo run -p llm-web-worker
+```
+
+The worker runs one read-only `codex exec --json` job at a time.
 
 ### Claude Pro/Max via Claude Code
 
@@ -158,7 +166,15 @@ WEB_SESSION_ADAPTER_KIND=claude-code
 WEB_SESSION_BACKEND=claude-web
 ```
 
-Authenticate Claude Code with the user's Claude account. The worker uses one non-interactive `claude -p` job with a single turn and plan permissions.
+Authenticate Claude Code on the worker machine with the user's Claude account, then run:
+
+```bash
+WEB_SESSION_BACKEND=claude-web \
+WEB_SESSION_ADAPTER_KIND=claude-code \
+cargo run -p llm-web-worker
+```
+
+The worker uses one non-interactive `claude -p` job with a single turn and plan permissions.
 
 ### Gemini consumer web
 
@@ -172,4 +188,10 @@ WEB_SESSION_BACKEND=gemini-web
 WEB_SESSION_ADAPTER_COMMAND=/absolute/path/to/browser-adapter
 ```
 
-There is deliberately no "Gemini subscription API" shortcut in the Company OS. Consumer web sessions stay inside the user-controlled browser profile.
+There is deliberately no "Gemini subscription API" shortcut in the Company OS. Consumer web sessions stay inside the user-controlled browser profile. Start the browser bridge with:
+
+```bash
+cd apps/llm-web-bridge
+LLM_WEB_BRIDGE_BACKEND=gemini-web python bridge.py
+```
+
