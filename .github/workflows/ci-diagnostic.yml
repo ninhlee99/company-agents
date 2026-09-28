@@ -1,0 +1,37 @@
+name: ci-diagnostic
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Capture cargo check
+        shell: bash
+        run: |
+          set +e
+          cargo check --workspace 2>&1 | tee /tmp/cargo-check.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            line=$(grep -E 'error\[E[0-9]+\]|error: could not compile|error:' /tmp/cargo-check.log | head -n 1)
+            line=${line:-"cargo check failed"}
+            line=$(printf '%s' "$line" | tr '\n' ' ' | cut -c1-140)
+            gh api "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+              -f state=error \
+              -f context="ci-diagnostic/cargo-check" \
+              -f description="$line" >/dev/null
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+              -f state=success \
+              -f context="ci-diagnostic/cargo-check" \
+              -f description="cargo check --workspace passed" >/dev/null
+          fi
+          exit 0
