@@ -1,100 +1,64 @@
 # Agent Company System Audit
 
 ## Executive assessment
-The repository now has a Rust-based Agent Runtime and deterministic economic/governance boundaries. It is suitable as a controlled development/simulation platform, but it is not yet production-autonomous.
+The repository has a Rust-based Agent Runtime with deterministic economic and governance boundaries. It is a controlled-runtime platform with automated production acceptance gates; real-world autonomy remains gated by operator credentials, third-party account approval and production deployment evidence.
 
-## Critical findings fixed in this pass
+## Critical findings fixed
 1. Per-Agent action capability matrix.
 2. Context-aware action envelope for runway, distress, hiring, content and experiment conditions.
 3. Proposal schema validation for authority, cost, risk, evidence and action.
-4. Action-specific cost ceilings.
-5. Action-specific minimum risk.
-6. External publishing classified as material and escalated.
-7. Distress/emergency discretionary spending blocked.
-8. Model output cannot self-escalate permissions.
-9. Malicious model suggestions cannot bypass deterministic policy.
-10. Model calls have bounded timeout.
-11. Company snapshots are explicitly marked as untrusted model input.
-12. Invalid model JSON fails closed.
-13. Agent model outage produces escalation instead of execution.
-14. Bounded runtime concurrency.
-15. Randomized 2,000-snapshot invariant evaluation.
-16. 256 full multi-agent stress cycles.
-17. Individual branch tests for every operating Agent.
-18. Least-privilege Tool Registry.
-19. Database-side immutable ledger/audit protections and deferred transaction-balance checking.
-20. Local-only Docker service bindings for development.
-21. Deterministic execution engine with global cycle spend cap.
-22. Execution-bound capability recheck before state mutation.
-23. PostgreSQL idempotency, decision journal, audit and outbox persistence.
-24. Lease-based scheduler with failure release/recovery.
-25. Simulator now reuses the production execution engine.
-26. Durable outbox event dispatcher with database leases, bounded retries and optional HMAC-signed HTTPS webhook delivery.
-27. Affiliate Intelligence ranking, coupon checks, evidence confidence, dedupe and Awin adapters.
-28. Awin commission-group API enrichment for live commission filtering.
-29. Durable Agent memory loaded before model calls and last-decision memory persisted.
-30. Persistent transactional per-Agent rate windows with fail-closed admission.
-31. Affiliate click/conversion attribution and content-level monetization reporting.
-32. Durable media job queue, isolated FFmpeg worker, FFprobe inspection and post-render QA.
-28. Durable Agent memory with bounded retention and untrusted-context semantics.
-29. Persistent per-Agent rate windows enforced before model calls.
-30. Scheduler run tokens that preserve idempotent replay after failure.
+4. Action-specific cost ceilings and minimum risk.
+5. Material external publishing escalation.
+6. Distress/emergency discretionary spending block.
+7. Model output cannot self-escalate permissions.
+8. Malicious model suggestions cannot bypass deterministic policy.
+9. Bounded model timeout and fail-closed model errors.
+10. Untrusted company snapshots and strict model JSON handling.
+11. Bounded runtime concurrency.
+12. Randomized 2,000-snapshot invariant evaluation and 256 full multi-agent stress cycles.
+13. Least-privilege Tool Registry.
+14. Database-side immutable ledger/audit protections and deferred balance checking.
+15. Local-only Docker development bindings.
+16. Deterministic execution engine with global cycle spend cap and execution-bound capability recheck.
+17. PostgreSQL idempotency, decision journal, audit and outbox persistence.
+18. Lease-based scheduler recovery with replay-safe run tokens.
+19. Simulator reuse of the production execution engine.
+20. Durable outbox dispatcher with leases, bounded retries and optional HMAC-signed HTTPS delivery.
+21. Affiliate ranking, coupon checks, evidence confidence, dedupe, Awin and TikTok Shop adapters.
+22. Durable Agent memory with bounded retention and untrusted-context semantics.
+23. Persistent per-Agent rate windows enforced before model calls.
+24. Affiliate click/conversion attribution, reconciliation and verified revenue accounting.
+25. Durable media queue, isolated FFmpeg execution, FFprobe inspection and post-render QA.
+26. Publishing approval, lease and idempotency contract.
+27. Employee, payroll, business-unit and portfolio economics primitives.
+28. LLM web-relay queue with leases, expiry, authentication and request fingerprints.
+29. Database-backed readiness and Prometheus-style runtime metrics.
+30. Automated CI gates for formatting, tests, Clippy, migration lint, secret hygiene and Docker builds.
+31. Scheduled PostgreSQL backup/restore recovery drill.
+32. Explicit production acceptance and secret-rotation standard.
 
-## Test volume
+## Remaining acceptance items
 
-The repository now contains a broad Rust test suite across the Rust economic core, Agent Runtime, Governor, tool registry, simulator and PostgreSQL store. In addition, the suite exercises 720 Agent × Action × CompanyStatus combinations, 2,000 randomized company snapshots and 256 full multi-agent cycles.
+### P0 — environment-dependent
+- Run distributed tracing/metrics against the actual multi-worker production topology.
+- Perform a production-like restart/replay and chaos rehearsal.
+- Validate secret rotation against the chosen external secret manager.
+- Execute load tests against the actual production PostgreSQL sizing.
 
-## Agent coverage
-| Agent | Primary invariant | Adversarial coverage |
-|---|---|---|
-| Governor | cannot self-authorize | self-permission, material action, distress, liquidity |
-| CEO | capital bounded by state | distress guard, role/action boundary |
-| CFO | liquidity first | low-runway and negative-FCF branches |
-| COO | capacity before expansion | backlog/capacity branch |
-| Growth | attention tied to economics | low conversion / negative growth |
-| Content | negative unit economics causes redesign | loss branch |
-| Recruiter | hiring requires economic headroom | hiring gate + adversarial cross-role action |
-| Analyst | report-only capability | cross-role permission attack |
-| Experiment | bounded reversible tests | zero-budget + randomized snapshots |
+### P1 — business expansion
+- Richer creator/business-unit simulator calibration from real observations.
+- Sponsorship CRM, service proposals and invoicing.
+- Broader verified revenue ingestion beyond affiliate networks.
+- Additional platform publishing adapters where the operator has approved accounts.
 
-## Test categories currently represented
-- Unit / invariant
-- Contract
-- Scenario
-- Adversarial model behavior
-- Fault injection: model outage
-- Fault injection: model timeout
-- Economic guard tests
-- Permission/capability tests
-- Randomized property-like testing
-- Multi-agent stress
-- CI lint/test gate
-
-## Remaining production gates
-
-### P0
-- distributed tracing/metrics across all workers
-- secrets isolation and secret-rotation workflow
-- distributed observability/tracing
-- restart/replay recovery drill under production-like deployment
-
-### P1
-- richer business simulator with creator/business-unit economics and payroll liabilities
-- content/media QA pipeline and bounded publishing adapters
-- affiliate attribution and verified revenue ingestion
-- sponsorship CRM and service monetization
-- load tests against PostgreSQL
-- backup/restore drill
-
-### P2
-- model benchmark matrix by Agent
-- model router by task complexity and hardware profile
-- shadow mode with real data
-- bounded real-world publishing
-- controlled capital allocation
-- hiring/payroll workflows
+### P2 — autonomy expansion
+- Model benchmark matrix by Agent.
+- Task-complexity model routing and hardware-aware selection.
+- Shadow mode with real data.
+- Controlled capital allocation across business units.
+- Automated hiring/payroll workflows beyond the current governed primitives.
 
 ## Release rule
-An Agent is considered production-ready only when unit -> contract -> scenario -> adversarial -> economic -> security -> load -> recovery -> chaos passes without unauthorized material actions and with deterministic replay evidence.
+An Agent is production-ready only when unit, contract, scenario, adversarial, economic, security, load, recovery and chaos checks pass without unauthorized material actions and with deterministic replay evidence.
 
-The repository should still be treated as controlled-runtime / pre-autonomy until observability, secrets operations and production recovery drills are complete.
+The repository should not be treated as unsupervised autonomous production until the environment-dependent gates above have been executed with real deployment infrastructure and credentials.
