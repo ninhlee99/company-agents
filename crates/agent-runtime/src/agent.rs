@@ -19,7 +19,6 @@ impl fmt::Display for AgentError {
     }
 }
 
-
 #[async_trait]
 pub trait AgentStateProvider: Send + Sync {
     async fn load_memory(
