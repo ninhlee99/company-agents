@@ -25,34 +25,6 @@ pub trait AgentStateProvider: Send + Sync {
     async fn load_memory(
         &self,
         company_id: &str,
-        role: AgentRole,
-    ) -> Result<serde_json::Value, String>;
-
-    async fn admit_model_call(
-        &self,
-        company_id: &str,
-        role: AgentRole,
-    ) -> Result<(), String>;
-
-    async fn remember(
-        &self,
-        company_id: &str,
-        role: AgentRole,
-        memory: AgentMemory,
-    ) -> Result<(), String>;
-}
-
-pub struct AgentContext {
-    pub company: CompanySnapshot,
-    pub model_timeout: Duration,
-    pub memory: Vec<AgentMemory>,
-}
-
-#[async_trait]
-pub trait AgentStateProvider: Send + Sync {
-    async fn load_memory(
-        &self,
-        company_id: &str,
         agent: AgentRole,
     ) -> Result<serde_json::Value, String>;
 
