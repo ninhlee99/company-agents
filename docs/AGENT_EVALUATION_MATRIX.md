@@ -56,5 +56,17 @@ Pass when: zero budget blocks new experiments; healthy budget produces bounded e
 11. 2,000 randomized company snapshots.
 12. 256 full multi-agent cycles.
 
+## Execution gate
+Every approved result is re-validated against the authoritative persisted company snapshot before mutation. Safe economic actions are executed under a global cycle spend cap; material actions remain deferred/escalated.
+
+## Affiliate gate
+Affiliate product ranking must:
+- filter by category, market/currency, price, commission threshold, stock and quality evidence;
+- reject expired coupons when an effective date is supplied;
+- distinguish verified commission/offer data from estimates;
+- penalize missing evidence through confidence scoring;
+- deduplicate stable product identifiers;
+- remain deterministic across repeated runs.
+
 ## Production gate
-Do not unlock external execution until P0 persistence/tool/audit/recovery gates pass in addition to these Agent tests.
+Do not unlock external execution until durable memory, per-agent rate limits, secrets operations, observability and recovery drills pass in addition to these Agent tests.
