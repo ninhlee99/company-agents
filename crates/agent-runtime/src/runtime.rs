@@ -35,22 +35,6 @@ impl AgentRuntime {
         }
     }
 
-    #[test]
-    fn web_provider_uses_longer_default_timeout() {
-        assert_eq!(
-            AgentRuntime::default_timeout_ms_for_provider(""),
-            15_000
-        );
-        assert_eq!(
-            AgentRuntime::default_timeout_ms_for_provider("chatgpt-subscription"),
-            90_000
-        );
-        assert_eq!(
-            AgentRuntime::default_timeout_ms_for_provider("claude-web"),
-            90_000
-        );
-    }
-
     fn default_timeout_ms_for_provider(provider: &str) -> u64 {
         if matches!(
             provider.to_ascii_lowercase().as_str(),
@@ -279,5 +263,27 @@ fn fail_closed(
         agent: role,
         proposal,
         governance: Some(governance),
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::AgentRuntime;
+
+    #[test]
+    fn web_provider_uses_longer_default_timeout() {
+        assert_eq!(
+            AgentRuntime::default_timeout_ms_for_provider(""),
+            15_000
+        );
+        assert_eq!(
+            AgentRuntime::default_timeout_ms_for_provider("chatgpt-subscription"),
+            90_000
+        );
+        assert_eq!(
+            AgentRuntime::default_timeout_ms_for_provider("claude-web"),
+            90_000
+        );
     }
 }
