@@ -1,93 +1,132 @@
 # LLM Gateway
 
-Company OS now talks to a provider-neutral `Model` interface. Agent code does not know which model is serving the request.
+Company OS agents depend only on the Rust `Model` trait. The selected backend is an implementation detail of the gateway.
 
-## Provider modes
+## Programmatic providers
 
-`LLM_PROVIDER=ollama` keeps the current local-first deployment.
+- `ollama` / `local`: local OpenAI-compatible endpoint.
+- `gemini`: Google Gemini Interactions API.
+- `openai` / `chatgpt`: OpenAI Responses API.
+- `anthropic` / `claude`: Anthropic Messages API.
 
-`LLM_PROVIDER=gemini` uses the official Gemini Interactions API. Google documents Interactions as the recommended primitive for agentic workflows, with REST support and API-key authentication.
+These are programmatic developer APIs. They are the stable production path for server-side inference.
 
-`LLM_PROVIDER=openai` uses the OpenAI Responses API. This is the developer API and is separate from the ChatGPT consumer web application.
+## Consumer web providers
 
-`LLM_PROVIDER=anthropic` uses the Anthropic Messages API. This is the developer API and is separate from Claude consumer web sessions.
+The following names are supported:
 
-`LLM_PROVIDER=web-relay` uses the Company OS Web Relay protocol. The relay is intentionally a separate process because consumer web sessions are not a supported public inference API. The relay may be backed by a user-authenticated browser/session, but Company OS never receives browser cookies, passwords, or account tokens. The relay is responsible for its own session handling and website compatibility.
+- `gemini-web`
+- `chatgpt-web`
+- `claude-web`
 
-## Failover
+These do **not** call undocumented consumer endpoints from Company OS. They call the internal `llm-web-relay` service. The relay queues the job in PostgreSQL; a separate browser bridge running on the user's machine claims the job and interacts with the already-authenticated browser session.
 
-Set `LLM_FALLBACKS` to a comma-separated ordered list:
+The browser profile remains local to the browser machine. Company OS never receives provider cookies, passwords, or session storage.
+
+## Provider selection
+
+Primary provider:
+
+```
+LLM_PROVIDER=ollama
+```
+
+Web provider:
+
+```
+LLM_PROVIDER=gemini-web
+LLM_WEB_RELAY_URL=http://127.0.0.1:9010/v1/generate
+LLM_WEB_RELAY_TOKEN=<company-to-relay-secret>
+LLM_WEB_RELAY_BACKEND=gemini-web
+LLM_WEB_RELAY_MODEL=web-session
+```
+
+For the dedicated aliases, the provider name controls the web backend:
+
+```
+LLM_PROVIDER=gemini-web
+LLM_PROVIDER=chatgpt-web
+LLM_PROVIDER=claude-web
+```
+
+Ordered fallback:
 
 ```
 LLM_PROVIDER=web-relay
 LLM_FALLBACKS=gemini,anthropic,ollama
 ```
 
-The gateway tries providers in order. A provider returning malformed JSON or transport failure is treated as unavailable. No provider is allowed to execute tools; it only returns a proposal JSON object. The existing Governor, execution engine, economic limits, permissions, and persistence remain authoritative.
+The gateway tries providers in order. A malformed response, timeout, or provider transport error causes the next provider to be tried.
 
-## Web Relay protocol
+## Security boundary
 
-Request:
+The gateway never lets an LLM directly execute Company OS tools. The model returns proposal JSON only.
 
-```json
-{
-  "protocol_version": 1,
-  "backend": "gemini-web",
-  "model": "web-session",
-  "system": "...",
-  "user": "...",
-  "response_format": "json_object",
-  "allow_tools": false
-}
-```
+The deterministic layers remain authoritative:
 
-Response:
+`Agent policy → Proposal validation → Governor → Execution engine → PostgreSQL transaction → audit/outbox`
 
-```json
-{
-  "output": "{\"action\":\"ProduceReport\",\"confidence\":0.8}"
-}
-```
+The web relay adds another deterministic boundary:
 
-Required properties:
-- HTTPS for non-loopback relays.
-- Bearer token authentication.
-- No redirects.
-- Maximum request size 512 KiB.
-- Maximum response size 1 MiB.
-- The relay must not return browser secrets.
-- `allow_tools` must remain false for the current Company Agent proposal path.
+`Company OS → API bearer token → durable relay job → worker bearer token → browser session`
 
-## Recommended deployment pattern
+The relay rejects:
 
-For a web-subscription-backed setup, run a local or private relay on the same machine/network as the authenticated browser profile. The relay translates the protocol above into a browser-side operation and returns only the model text.
+- unknown web backends
+- non-v1 jobs
+- tool execution requests
+- non-JSON-object responses
+- oversize prompts
+- oversize outputs
+- stale or invalid lease tokens
 
-This design deliberately avoids undocumented provider-internal HTTP endpoints and avoids putting consumer session cookies into Company OS.
+## Browser bridge
 
-## What "web" means here
-
-Gemini API, OpenAI API, and Anthropic API are official programmatic interfaces. Google currently recommends the Gemini Interactions API for new agentic applications. OpenAI exposes its developer API through the OpenAI Platform. Anthropic distinguishes its developer platform/API from its consumer Claude applications.
-
-The web-relay mode is therefore an adapter boundary, not a claim that the consumer web products themselves expose a stable public REST API.
-
-## Configuration examples
-
-Official API backend:
+Start the relay:
 
 ```
-LLM_PROVIDER=gemini
-LLM_FALLBACKS=anthropic,ollama
+docker compose --profile web-relay up --build
 ```
 
-Consumer-web relay:
+Then on the browser machine:
 
 ```
-LLM_PROVIDER=web-relay
-LLM_WEB_RELAY_URL=https://relay.example.internal/v1/generate
-LLM_WEB_RELAY_TOKEN=<secret>
-LLM_WEB_RELAY_BACKEND=claude-web
-LLM_WEB_RELAY_MODEL=claude-web-session
-LLM_FALLBACKS=gemini,ollama
+cd apps/llm-web-bridge
+python -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+playwright install chromium
+export LLM_RELAY_URL=http://127.0.0.1:9010
+export LLM_RELAY_WORKER_TOKEN=<worker-secret>
+export LLM_WEB_BRIDGE_BACKEND=gemini-web
+export LLM_WEB_BRIDGE_HEADLESS=false
+python bridge.py
 ```
 
-The relay itself is intentionally not part of the core autonomy boundary until it has its own browser-session isolation, authentication, rate limiting, audit, and crash-recovery tests.
+Login to the desired consumer web application interactively in the persistent Chromium profile. The bridge subsequently reuses that local profile.
+
+Switching providers:
+
+```
+LLM_WEB_BRIDGE_BACKEND=chatgpt-web python bridge.py
+LLM_WEB_BRIDGE_BACKEND=claude-web python bridge.py
+```
+
+## Reliability
+
+Relay jobs have:
+
+- PostgreSQL durability
+- idempotency keys
+- attempt counters
+- expiry
+- worker leases
+- lease tokens
+- stale-worker rejection
+- explicit failure/requeue behavior
+
+An old browser worker cannot complete a job after another worker has reclaimed it.
+
+## Important limitation
+
+Consumer web UIs are not stable backend APIs. The selectors in `apps/llm-web-bridge/bridge.py` are intentionally isolated from Rust so UI changes can be fixed without changing Company OS. Production environments should run selector contract tests against the current web UI and keep official provider APIs as fallback.
