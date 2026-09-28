@@ -3,7 +3,6 @@
 use async_trait::async_trait;
 use reqwest::{Client, StatusCode, Url};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use std::{
     env,
