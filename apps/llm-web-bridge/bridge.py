@@ -135,6 +135,17 @@ async def run_job(context, job):
             selector: await page.locator(selector).count()
             for selector in reply_selectors
         }
+        baseline = {}
+        for selector in reply_selectors:
+            try:
+                loc = page.locator(selector)
+                if await loc.count():
+                    baseline[selector] = (await loc.last.inner_text()).strip()
+                else:
+                    baseline[selector] = ""
+            except Exception:
+                baseline[selector] = ""
+
         editor = await first_visible(
             page,
             input_selectors,
@@ -147,7 +158,6 @@ async def run_job(context, job):
             asyncio.get_running_loop().time()
             + min(120000, max(5000, job["expires_in_ms"])) / 1000
         )
-        last_text = ""
         while asyncio.get_running_loop().time() < deadline:
             current_body = (await page.locator("body").inner_text())[:20000]
             check_blocked_page_text(current_body)
@@ -158,10 +168,9 @@ async def run_job(context, job):
                     if count == 0:
                         continue
                     candidate = (await loc.last.inner_text()).strip()
-                    if not candidate or candidate == last_text:
+                    if not candidate or candidate == baseline.get(selector, ""):
                         continue
-                    last_text = candidate
-                    if count > before.get(selector, 0) or candidate:
+                    if count > before.get(selector, 0) or candidate != baseline.get(selector, ""):
                         return normalize(candidate)
                 except Exception:
                     pass
