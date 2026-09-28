@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 async-trait = "0.1"
+hmac = "0.12"
 csv = "1"
 hmac = "0.12"
 sha2 = "0.10"
