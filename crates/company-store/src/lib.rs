@@ -217,22 +217,25 @@ impl CompanyStore {
         if idempotency_key.trim().is_empty() || idempotency_key.len() > 256 {
             return Err("media idempotency key is invalid".into());
         }
-        let company_uuid = Uuid::parse_str(company_id)?;
-        if job.id.trim().is_empty() {
-            return Err("media job id is required".into());
-        }
-        let format = match job.format {
-            media_pipeline::MediaFormat::Mp4H264 => "Mp4H264",
-            media_pipeline::MediaFormat::WebMvp9 => "WebMvp9",
+
+        let operation = serde_json::to_value(&job.operation)?;
+        let (format, width, height, fps, normalize_audio) = match job.operation {
+            media_pipeline::MediaOperation::NormalizeMp4 { width, height, fps } => {
+                ("Mp4H264", width, height, fps, true)
+            }
+            media_pipeline::MediaOperation::ExtractAudioAac => ("Mp4H264", 16, 16, 1, true),
+            media_pipeline::MediaOperation::Thumbnail { .. } => ("Mp4H264", 16, 16, 1, false),
         };
+
+        let company_uuid = Uuid::parse_str(company_id)?;
         let client = self.client.lock().await;
         client
             .execute(
                 "INSERT INTO media_jobs
                  (id, company_id, input_path, output_path, format,
                   width, height, fps, max_duration_seconds,
-                  normalize_audio, max_output_bytes, status, idempotency_key)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'QUEUED',$12)
+                  normalize_audio, max_output_bytes, operation, status, idempotency_key)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'QUEUED',$13)
                  ON CONFLICT (company_id, idempotency_key) DO NOTHING",
                 &[
                     &Uuid::parse_str(&job.id)?,
@@ -240,12 +243,13 @@ impl CompanyStore {
                     &job.input_path,
                     &job.output_path,
                     &format,
-                    &(job.width as i32),
-                    &(job.height as i32),
-                    &(job.fps as i32),
+                    &(width as i32),
+                    &(height as i32),
+                    &(fps as i32),
                     &(job.max_duration_seconds as i32),
-                    &job.normalize_audio,
+                    &normalize_audio,
                     &(job.max_output_bytes as i64),
+                    &operation,
                     &idempotency_key,
                 ],
             )
@@ -260,10 +264,11 @@ impl CompanyStore {
         let company_uuid = Uuid::parse_str(company_id)?;
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
+
         let row = tx
             .query_opt(
-                "SELECT id, input_path, output_path, format, width, height,
-                        fps, max_duration_seconds, normalize_audio, max_output_bytes
+                "SELECT id, input_path, output_path, max_duration_seconds,
+                        max_output_bytes, operation
                    FROM media_jobs
                   WHERE company_id=$1
                     AND (
@@ -276,37 +281,28 @@ impl CompanyStore {
                 &[&company_uuid],
             )
             .await?;
+
         let Some(row) = row else {
             tx.rollback().await?;
             return Ok(None);
         };
 
         let id: Uuid = row.get(0);
-        let format: String = row.get(3);
+        let operation: media_pipeline::MediaOperation =
+            serde_json::from_value(row.get(5))
+                .map_err(|error| format!("stored media operation is invalid: {error}"))?;
+
         let job = media_pipeline::MediaJob {
             id: id.to_string(),
             input_path: row.get(1),
             output_path: row.get(2),
-            format: match format.as_str() {
-                "Mp4H264" => media_pipeline::MediaFormat::Mp4H264,
-                "WebMvp9" => media_pipeline::MediaFormat::WebMvp9,
-                other => {
-                    tx.rollback().await?;
-                    return Err(format!("unknown media format {other}").into());
-                }
-            },
-            width: row.get::<_, i32>(4) as u32,
-            height: row.get::<_, i32>(5) as u32,
-            fps: row.get::<_, i32>(6) as u32,
-            max_duration_seconds: row.get::<_, i32>(7) as u32,
-            normalize_audio: row.get(8),
-            max_output_bytes: row.get::<_, i64>(9).max(1) as u64,
-            operation: media_pipeline::MediaOperation::NormalizeMp4 {
-                width: row.get::<_, i32>(4) as u32,
-                height: row.get::<_, i32>(5) as u32,
-                fps: row.get::<_, i32>(6) as u32,
-            },
+            operation,
+            max_duration_seconds: row.get::<_, i32>(3) as u32,
+            max_output_bytes: row.get::<_, i64>(4).max(1) as u64,
         };
+
+        media_pipeline::validate_job(&job).map_err(|error| error.to_string())?;
+
         tx.execute(
             "UPDATE media_jobs
                 SET status='RUNNING',
@@ -317,6 +313,7 @@ impl CompanyStore {
             &[&id],
         )
         .await?;
+
         tx.commit().await?;
         Ok(Some(job))
     }
@@ -330,9 +327,11 @@ impl CompanyStore {
         if !matches!(status, "SUCCEEDED" | "FAILED" | "QA_FAILED") {
             return Err("invalid media completion status".into());
         }
+
         let id = Uuid::parse_str(job_id)?;
         let bounded_error = error.map(|value| value.chars().take(4096).collect::<String>());
         let client = self.client.lock().await;
+
         client
             .execute(
                 "UPDATE media_jobs
