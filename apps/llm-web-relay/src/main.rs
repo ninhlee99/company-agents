@@ -696,6 +696,24 @@ mod tests {
     }
 
     #[test]
+    fn request_fingerprint_changes_when_payload_changes() {
+        let mut first = GenerateRequest {
+            protocol_version: 1,
+            backend: "gemini-web".into(),
+            model: "web-session".into(),
+            system: "system".into(),
+            user: "hello".into(),
+            response_format: "json_object".into(),
+            allow_tools: false,
+            idempotency_key: Some("stable-key".into()),
+        };
+        let a = request_hash(&first);
+        first.user = "different".into();
+        let b = request_hash(&first);
+        assert_ne!(a, b);
+    }
+
+    #[test]
     fn tools_are_always_denied() {
         let request = GenerateRequest {
             protocol_version: 1,
