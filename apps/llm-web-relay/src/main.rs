@@ -532,7 +532,22 @@ async fn connect(url: &str) -> Result<Client, Box<dyn std::error::Error + Send +
 }
 
 fn required_secret(name: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    let value = env::var(name).unwrap_or_default().trim().to_owned();
+    let direct = env::var(name).ok().filter(|value| !value.trim().is_empty());
+    let file = env::var(format!("{name}_FILE"))
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+
+    if direct.is_some() && file.is_some() {
+        return Err(format!("{name} and {name}_FILE cannot both be set").into());
+    }
+
+    let value = match (direct, file) {
+        (Some(value), None) => value,
+        (None, Some(path)) => std::fs::read_to_string(path)?,
+        _ => return Err(format!("{name} or {name}_FILE is required").into()),
+    };
+
+    let value = value.trim().to_owned();
     if value.len() < 16 {
         return Err(format!("{name} must contain at least 16 characters").into());
     }
@@ -561,28 +576,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let client = connect(&database_url).await?;
     client
-        .batch_execute(include_str!("../../../../infra/db/migrations/001_economic_kernel.sql"))
+        .batch_execute(include_str!("../../../infra/db/migrations/001_economic_kernel.sql"))
         .await?;
     client
-        .batch_execute(include_str!("../../../../infra/db/migrations/002_company_execution.sql"))
+        .batch_execute(include_str!("../../../infra/db/migrations/002_company_execution.sql"))
         .await?;
     client
-        .batch_execute(include_str!("../../../../infra/db/migrations/003_agent_memory_and_rate_limits.sql"))
+        .batch_execute(include_str!("../../../infra/db/migrations/003_agent_memory_and_rate_limits.sql"))
         .await?;
     client
-        .batch_execute(include_str!("../../../../infra/db/migrations/004_affiliate_attribution.sql"))
+        .batch_execute(include_str!("../../../infra/db/migrations/004_affiliate_attribution.sql"))
         .await?;
     client
-        .batch_execute(include_str!("../../../../infra/db/migrations/005_media_jobs.sql"))
+        .batch_execute(include_str!("../../../infra/db/migrations/005_media_jobs.sql"))
         .await?;
     client
-        .batch_execute(include_str!("../../../../infra/db/migrations/006_affiliate_reconciliation_state.sql"))
+        .batch_execute(include_str!("../../../infra/db/migrations/006_affiliate_reconciliation_state.sql"))
         .await?;
     client
-        .batch_execute(include_str!("../../../../infra/db/migrations/007_organization_payroll.sql"))
+        .batch_execute(include_str!("../../../infra/db/migrations/007_organization_payroll.sql"))
         .await?;
     client
-        .batch_execute(include_str!("../../../../infra/db/migrations/008_affiliate_revenue_accounting.sql"))
+        .batch_execute(include_str!("../../../infra/db/migrations/008_affiliate_revenue_accounting.sql"))
         .await?;
     client
         .batch_execute(include_str!("../../infra/db/migrations/009_llm_web_relay.sql"))
