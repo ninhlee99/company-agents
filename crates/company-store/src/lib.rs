@@ -1897,7 +1897,7 @@ impl CompanyStore {
         client
             .execute(
                 "UPDATE affiliate_payouts
-                 SET ledger_transaction_id=$3, updated_at=now()
+                 SET ledger_transaction_id=$3
                  WHERE company_id=$1 AND payout_id=$2 AND ledger_transaction_id IS NULL",
                 &[&company_uuid, &payout_id, &transaction_id],
             )
