@@ -230,14 +230,14 @@ async fn generate(
 
     {
         let client = state.db.lock().await;
-        client
+        let inserted = client
             .execute(
                 "INSERT INTO llm_web_relay_jobs
                  (id, idempotency_key, backend, model, system_prompt, user_prompt,
                   response_format, allow_tools, status, attempt, max_attempts,
                   expires_at)
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'QUEUED',0,$9,
-                         now() + make_interval(secs => $10))",
+                         now() + ($10::double precision * interval '1 second'))",
                 &[
                     &job_id,
                     &idempotency_key,
@@ -251,8 +251,38 @@ async fn generate(
                     &(state.job_ttl.as_secs_f64()),
                 ],
             )
-            .await
-            .map_err(|_| ApiError::Conflict)?;
+            .await;
+
+        if inserted.is_err() {
+            if let Some(row) = client
+                .query_opt(
+                    "SELECT id, status, output_json, expires_at <= now()
+                       FROM llm_web_relay_jobs
+                      WHERE idempotency_key = $1",
+                    &[&idempotency_key],
+                )
+                .await
+                .map_err(|_| ApiError::Internal)?
+            {
+                let existing_id: Uuid = row.get(0);
+                let status: String = row.get(1);
+                let output: Option<String> = row.get(2);
+                let expired: bool = row.get(3);
+
+                if status == "SUCCEEDED" {
+                    return Ok(Json(GenerateResponse {
+                        job_id: existing_id,
+                        output: output.ok_or(ApiError::Internal)?,
+                    }));
+                }
+                if expired {
+                    return Err(ApiError::GatewayTimeout);
+                }
+                return wait_for_job(&state, existing_id).await.map(Json);
+            }
+
+            return Err(ApiError::Conflict);
+        }
     }
 
     wait_for_job(&state, job_id).await.map(Json)
@@ -365,7 +395,7 @@ async fn claim(
                 SET status='RUNNING',
                     attempt=attempt+1,
                     lease_token=$2,
-                    locked_until=now() + make_interval(secs => $3),
+                    locked_until=now() + ($3::double precision * interval '1 second'),
                     updated_at=now()
               WHERE id=$1
               RETURNING attempt",
