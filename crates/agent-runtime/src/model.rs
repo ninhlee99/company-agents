@@ -481,7 +481,7 @@ impl OpenAiResponsesModel {
             )?,
             api_key: secret_from_env("OPENAI_API_KEY")
                 .or_else(|_| secret_from_env("LLM_API_KEY"))?,
-            model: env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-5".into()),
+            model: env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.6-luna".into()),
         })
     }
 }
