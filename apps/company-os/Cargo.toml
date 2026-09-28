@@ -8,6 +8,7 @@ agent-runtime = { path = "../../crates/agent-runtime" }
 affiliate-intelligence = { path = "../../crates/affiliate-intelligence" }
 affiliate-attribution = { path = "../../crates/affiliate-attribution" }
 company-execution = { path = "../../crates/company-execution" }
+publishing-contract = { path = "../../crates/publishing-contract" }
 company-store = { path = "../../crates/company-store" }
 axum = "0.8"
 economic-core = { path = "../../crates/economic-core" }
