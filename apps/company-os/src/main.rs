@@ -8,7 +8,7 @@ use agent_runtime::{
 };
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::Html,
     routing::{get, post},
     Json, Router,
@@ -16,9 +16,48 @@ use axum::{
 use company_domain::{ContentAsset, Contract, CreatorUnit, Employee, Experiment, Task};
 use company_store::CompanyStore;
 use serde::Deserialize;
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
+
+#[derive(Default)]
+struct RuntimeMetrics {
+    cycles_started_total: AtomicU64,
+    cycles_succeeded_total: AtomicU64,
+    cycles_failed_total: AtomicU64,
+    affiliate_search_total: AtomicU64,
+    affiliate_search_failed_total: AtomicU64,
+}
+
+impl RuntimeMetrics {
+    fn render_prometheus(&self) -> String {
+        format!(
+            concat!(
+                "# TYPE company_cycles_started_total counter\n",
+                "company_cycles_started_total {}\n",
+                "# TYPE company_cycles_succeeded_total counter\n",
+                "company_cycles_succeeded_total {}\n",
+                "# TYPE company_cycles_failed_total counter\n",
+                "company_cycles_failed_total {}\n",
+                "# TYPE company_affiliate_search_total counter\n",
+                "company_affiliate_search_total {}\n",
+                "# TYPE company_affiliate_search_failed_total counter\n",
+                "company_affiliate_search_failed_total {}\n"
+            ),
+            self.cycles_started_total.load(Ordering::Relaxed),
+            self.cycles_succeeded_total.load(Ordering::Relaxed),
+            self.cycles_failed_total.load(Ordering::Relaxed),
+            self.affiliate_search_total.load(Ordering::Relaxed),
+            self.affiliate_search_failed_total.load(Ordering::Relaxed)
+        )
+    }
+}
 
 #[derive(Clone)]
 struct AppState {
@@ -29,6 +68,7 @@ struct AppState {
     store: Arc<CompanyStore>,
     cycle_lock: Arc<Mutex<()>>,
     affiliate: Option<Arc<AffiliateIntelligence>>,
+    metrics: Arc<RuntimeMetrics>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -44,6 +84,14 @@ struct AffiliateQueryParams {
     max_price_minor: Option<i128>,
     max_content_cost_minor: Option<i128>,
     limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AffiliatePayoutRequest {
+    payout_id: String,
+    currency: String,
+    amount_minor: i128,
+    occurred_at_epoch: i64,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -119,6 +167,7 @@ async fn run_cycle_with_id(
     cycle_id: String,
 ) -> Result<Vec<AgentRunResult>, Box<dyn std::error::Error + Send + Sync>> {
     let _guard = state.cycle_lock.lock().await;
+    state.metrics.cycles_started_total.fetch_add(1, Ordering::Relaxed);
 
     if let Some(existing) = state.store.load_cycle_results(&cycle_id).await? {
         let company_id = state.company.read().await.company_id.clone();
@@ -126,6 +175,7 @@ async fn run_cycle_with_id(
             *state.company.write().await = snapshot;
         }
         *state.latest.write().await = existing.clone();
+        state.metrics.cycles_succeeded_total.fetch_add(1, Ordering::Relaxed);
         return Ok(existing);
     }
 
@@ -157,9 +207,16 @@ async fn run_cycle_with_id(
             *state.company.write().await = next_company;
             *state.latest.write().await = results.clone();
             *state.latest_outcomes.write().await = outcomes;
+            state.metrics.cycles_succeeded_total.fetch_add(1, Ordering::Relaxed);
             Ok(results)
         }
     }
+}
+
+async fn run_cycle(
+    state: &AppState,
+) -> Result<Vec<AgentRunResult>, Box<dyn std::error::Error + Send + Sync>> {
+    run_cycle_with_id(state, Uuid::new_v4().to_string()).await
 }
 
 async fn index(State(state): State<AppState>) -> Html<String> {
@@ -232,6 +289,7 @@ async fn run_html(State(state): State<AppState>) -> (StatusCode, Html<String>) {
             Html(r#"<meta http-equiv="refresh" content="0; url=/" />"#.into()),
         ),
         Err(error) => {
+            state.metrics.cycles_failed_total.fetch_add(1, Ordering::Relaxed);
             eprintln!("cycle error: {error}");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -242,6 +300,7 @@ async fn run_html(State(state): State<AppState>) -> (StatusCode, Html<String>) {
 }
 
 async fn run_api(
+    headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<AgentRunResult>>, (StatusCode, Json<ValueError>)> {
     let cycle_id = headers
@@ -263,7 +322,8 @@ async fn run_api(
     run_cycle_with_id(&state, cycle_id)
         .await
         .map(Json)
-        .map_err(|error| {
+.map_err(|error| {
+            state.metrics.cycles_failed_total.fetch_add(1, Ordering::Relaxed);
             eprintln!("api cycle error: {error}");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -482,6 +542,7 @@ async fn affiliate_search(
     State(state): State<AppState>,
     Query(params): Query<AffiliateQueryParams>,
 ) -> Result<Json<AffiliateSearchResult>, (StatusCode, Json<ValueError>)> {
+    state.metrics.affiliate_search_total.fetch_add(1, Ordering::Relaxed);
     let intelligence = state.affiliate.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -530,6 +591,7 @@ async fn affiliate_search(
             Ok(Json(result))
         }
         Err(error) => {
+            state.metrics.affiliate_search_failed_total.fetch_add(1, Ordering::Relaxed);
             let status = match &error {
                 ProviderError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
                 ProviderError::RateLimited => StatusCode::TOO_MANY_REQUESTS,
@@ -556,6 +618,36 @@ async fn affiliate_providers(State(state): State<AppState>) -> Json<Vec<String>>
             .map(|a| a.provider_names())
             .unwrap_or_default(),
     )
+}
+
+async fn affiliate_payout(
+    State(state): State<AppState>,
+    Json(request): Json<AffiliatePayoutRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ValueError>)> {
+    let company_id = state.company.read().await.company_id.clone();
+    match state
+        .store
+        .record_affiliate_payout(
+            &company_id,
+            &request.payout_id,
+            &request.currency,
+            request.amount_minor,
+            request.occurred_at_epoch,
+        )
+        .await
+    {
+        Ok(transaction_id) => Ok(Json(serde_json::json!({
+            "payout_id": request.payout_id,
+            "ledger_transaction_id": transaction_id,
+            "status": "RECOGNIZED"
+        }))),
+        Err(error) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(ValueError {
+                error: error.to_string(),
+            }),
+        )),
+    }
 }
 
 async fn outbox_worker(
@@ -603,8 +695,30 @@ async fn healthz() -> &'static str {
     "ok"
 }
 
+async fn readyz(State(state): State<AppState>) -> (StatusCode, &'static str) {
+    let company_id = state.company.read().await.company_id.clone();
+    match state.store.ready(&company_id).await {
+        Ok(()) => (StatusCode::OK, "ready"),
+        Err(error) => {
+            eprintln!("readiness check failed: {error}");
+            (StatusCode::SERVICE_UNAVAILABLE, "not ready")
+        }
+    }
+}
+
+async fn metrics(State(state): State<AppState>) -> (StatusCode, [(axum::http::HeaderName, &'static str); 1], String) {
+    (
+        StatusCode::OK,
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4",
+        )],
+        state.metrics.render_prometheus(),
+    )
+}
+
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let database_url = std::env::var("DATABASE_URL")?;
     let company_id = std::env::var("COMPANY_ID")
         .unwrap_or_else(|_| "00000000-0000-0000-0000-000000000001".into());
@@ -630,7 +744,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let runtime = Arc::new(AgentRuntime::new(model_from_env()));
+    let runtime = Arc::new(AgentRuntime::new_with_store(
+        model_from_env(),
+        store.clone(),
+    ));
     let state = AppState {
         runtime,
         company: Arc::new(RwLock::new(company)),
@@ -639,6 +756,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         store,
         cycle_lock: Arc::new(Mutex::new(())),
         affiliate: build_affiliate_intelligence(),
+        metrics: Arc::new(RuntimeMetrics::default()),
     };
 
     let interval_secs = std::env::var("AGENT_CYCLE_SECONDS")
@@ -721,7 +839,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/tasks", post(save_task))
         .route("/api/affiliate/search", get(affiliate_search))
         .route("/api/affiliate/providers", get(affiliate_providers))
+        .route("/api/affiliate/payout", post(affiliate_payout))
         .route("/healthz", get(healthz))
+        .route("/readyz", get(readyz))
+        .route("/metrics", get(metrics))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 8080)).await?;

@@ -1078,7 +1078,7 @@ impl CompanyStore {
         let client = self.client.lock().await;
         let exists: bool = client
             .query_one(
-                "SELECT EXISTS(SELECT 1 FROM companies WHERE id=$1 AND status <> 'BANKRUPT')",
+                "SELECT EXISTS(SELECT 1 FROM companies WHERE id=$1)",
                 &[&company_uuid],
             )
             .await?

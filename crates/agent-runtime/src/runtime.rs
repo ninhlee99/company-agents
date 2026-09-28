@@ -91,7 +91,7 @@ impl AgentRuntime {
             let agent = agent.clone();
             let model = model.clone();
             let concurrency = concurrency.clone();
-            let governor = *governor;
+            let governor = governor;
             let store = store.clone();
             let ctx = AgentContext {
                 company: ctx.company.clone(),
@@ -206,7 +206,7 @@ fn concurrency_from_env() -> usize {
         .unwrap_or(2)
 }
 
-fn failed_result(governor: Governor, role: AgentRole, reason: String) -> AgentRunResult {
+fn failed_result(governor: &Governor, role: AgentRole, reason: String) -> AgentRunResult {
     let proposal = crate::types::Proposal {
         agent: role,
         objective: "agent runtime unavailable".into(),
