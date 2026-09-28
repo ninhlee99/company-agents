@@ -335,7 +335,13 @@ code{{background:#f2f2f2;padding:2px 5px;border-radius:5px}}
     ))
 }
 
-async fn run_html(State(state): State<AppState>) -> (StatusCode, Html<String>) {
+async fn run_html(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> (StatusCode, Html<String>) {
+    if !mutation_authorized(&state, &headers) {
+        return (StatusCode::UNAUTHORIZED, Html("mutation authorization required".into()));
+    }
     match run_cycle(&state, &uuid::Uuid::new_v4().to_string()).await {
         Ok(_) => (
             StatusCode::SEE_OTHER,
@@ -360,7 +366,13 @@ async fn run_html(State(state): State<AppState>) -> (StatusCode, Html<String>) {
     }
 }
 
-async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, StatusCode> {
+async fn run_api(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<CycleResponse>, StatusCode> {
+    if !mutation_authorized(&state, &headers) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
     run_cycle(&state, &uuid::Uuid::new_v4().to_string())
         .await
         .map(Json)
@@ -480,7 +492,7 @@ fn read_secret_env(name: &str) -> Option<String> {
         (Some(value), None) => Some(value.trim().to_owned()),
         (None, Some(path)) => {
             let metadata = std::fs::metadata(&path).ok()?;
-            if metadata.metadata().len() > 16 * 1024 || metadata.is_dir() {
+            if metadata.len() > 16 * 1024 || metadata.is_dir() {
                 return None;
             }
             let value = std::fs::read_to_string(path).ok()?;
