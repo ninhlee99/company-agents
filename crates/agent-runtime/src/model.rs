@@ -457,7 +457,7 @@ impl WebRelayModel {
             env::var("LLM_WEB_RELAY_URL").map_err(|_| ModelError::MissingConfiguration)?;
         let token = secret_from_env("LLM_WEB_RELAY_TOKEN")
             .or_else(|_| secret_from_env("LLM_WEB_RELAY_SECRET"))?;
-        let parsed = reqwest::Url::parse(&url).map_err(|e| ModelError::MissingConfiguration)?;
+        let parsed = reqwest::Url::parse(&url).map_err(|_| ModelError::MissingConfiguration)?;
         let host = parsed.host_str().unwrap_or_default();
         if parsed.scheme() != "https"
             && !matches!(host, "127.0.0.1" | "localhost" | "::1")
@@ -488,6 +488,8 @@ impl Model for WebRelayModel {
         let body = json!({
             "protocol_version": 1,
             "model": self.model,
+            "backend": env::var("LLM_WEB_RELAY_BACKEND")
+                .unwrap_or_else(|_| "gemini-web".into()),
             "system": system,
             "user": user,
             "response_format": "json_object",
