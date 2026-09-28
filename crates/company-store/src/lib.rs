@@ -1539,6 +1539,37 @@ impl CompanyStore {
         Ok(row.get(0))
     }
 
+    pub async fn claim_due_cycle_for(
+        &self,
+        company_id: &str,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "WITH due AS (
+                    SELECT id
+                    FROM company_schedules
+                    WHERE company_id=$1
+                      AND enabled=true
+                      AND job_type='AGENT_CYCLE'
+                      AND next_run_at <= now()
+                    ORDER BY next_run_at
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT 1
+                 )
+                 UPDATE company_schedules s
+                    SET next_run_at=now() + (s.interval_seconds * interval '1 second'),
+                        updated_at=now()
+                   FROM due
+                  WHERE s.id=due.id
+                RETURNING s.id",
+                &[&company_uuid],
+            )
+            .await?;
+        Ok(row.is_some())
+    }
+
     pub async fn claim_due_cycle(&self) -> Result<Option<Uuid>, tokio_postgres::Error> {
         let client = self.client.lock().await;
         let row = client
