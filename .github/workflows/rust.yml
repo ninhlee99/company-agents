@@ -66,3 +66,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Compile Python browser bridge
         run: python -m compileall -q apps/llm-web-bridge
+      - name: Run offline browser bridge self-test
+        env:
+          LLM_WEB_BRIDGE_SELF_TEST: "1"
+        run: |
+          python -m pip install -r apps/llm-web-bridge/requirements.txt
+          python apps/llm-web-bridge/bridge.py
