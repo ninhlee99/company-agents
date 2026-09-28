@@ -208,94 +208,6 @@ impl Model for OllamaModel {
     }
 }
 
-pub struct GeminiModel(OpenAiCompatibleModel);
-
-impl GeminiModel {
-    pub fn from_env() -> Result<Self, ModelError> {
-        let api_key = secret_from_env("GEMINI_API_KEY")
-            .or_else(|_| secret_from_env("LLM_API_KEY"))?;
-
-        let model = env::var("GEMINI_MODEL")
-            .or_else(|_| env::var("LLM_MODEL"))
-            .unwrap_or_else(|_| "gemini-3.6-flash".into());
-
-        Ok(Self(OpenAiCompatibleModel::new(
-            "https://generativelanguage.googleapis.com/v1beta/openai/".into(),
-            Some(api_key),
-            model,
-        )))
-    }
-}
-
-#[async_trait]
-impl Model for GeminiModel {
-    async fn propose_json(&self, system: &str, user: &str) -> Result<Value, ModelError> {
-        self.0.propose_json(system, user).await
-    }
-}
-
-pub fn legacy_model_from_env() -> Box<dyn Model> {
-    let provider = env::var("LLM_PROVIDER")
-        .unwrap_or_else(|_| "ollama".into())
-        .to_ascii_lowercase();
-
-    match provider.as_str() {
-        "mock" => Box::new(MockModel),
-        "ollama" | "local" => Box::new(OllamaModel::from_env()),
-        "gemini" => match GeminiModel::from_env() {
-            Ok(model) => Box::new(model),
-            Err(_) => Box::new(MockModel),
-        },
-        "openai-compatible" => {
-            let base_url = env::var("LLM_BASE_URL").ok();
-            let key = secret_from_env("LLM_API_KEY").ok();
-            let model = env::var("LLM_MODEL").ok();
-            match (base_url, model) {
-                (Some(base_url), Some(model)) => {
-                    Box::new(OpenAiCompatibleModel::new(base_url, key, model))
-                }
-                _ => Box::new(MockModel),
-            }
-        }
-        _ => Box::new(MockModel),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn mock_model_is_always_available() {
-        let result = MockModel.propose_json("CEO", "{}").await.unwrap();
-        assert_eq!(result["confidence"], 0.5);
-    }
-
-    #[tokio::test]
-    async fn invalid_json_is_rejected() {
-        struct BadModel;
-        #[async_trait]
-        impl Model for BadModel {
-            async fn propose_json(&self, _: &str, _: &str) -> Result<Value, ModelError> {
-                Err(ModelError::InvalidResponse(
-                    "content is not valid JSON".into(),
-                ))
-            }
-        }
-
-        let result = BadModel.propose_json("x", "y").await;
-        assert!(matches!(result, Err(ModelError::InvalidResponse(_))));
-    }
-
-    #[test]
-    fn defaults_to_local_ollama_configuration_shape() {
-        let model = OllamaModel::from_env();
-        assert_eq!(model.0.base_url, "http://127.0.0.1:11434/v1");
-        assert!(!model.0.model.is_empty());
-    }
-}
-
-
 pub struct OpenAiResponsesModel {
     client: reqwest::Client,
     api_key: String,
@@ -308,7 +220,7 @@ impl OpenAiResponsesModel {
             secret_from_env("OPENAI_API_KEY").or_else(|_| secret_from_env("LLM_API_KEY"))?;
         let model = env::var("OPENAI_MODEL")
             .or_else(|_| env::var("LLM_MODEL"))
-            .unwrap_or_else(|_| "gpt-5".into());
+            .unwrap_or_else(|_| "gpt-5.6-luna".into());
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(45))
             .connect_timeout(Duration::from_secs(10))
@@ -625,7 +537,7 @@ impl Model for GeminiInteractionsModel {
 
         let response = self
             .client
-            .post("https://generativelanguage.googleapis.com/v1/interactions")
+            .post("https://generativelanguage.googleapis.com/v1beta/interactions")
             .header("x-goog-api-key", &self.api_key)
             .json(&body)
             .send()
@@ -849,5 +761,68 @@ mod tests {
             fallback.propose_json("x", "y").await,
             Err(ModelError::Transport(_))
         ));
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn mock_model_is_available_without_external_services() {
+        let value = MockModel.propose_json("CEO", "{}").await.unwrap();
+        assert_eq!(value["confidence"], 0.5);
+    }
+
+    #[test]
+    fn web_backends_have_canonical_names() {
+        assert_eq!(web_backend("gemini-web"), Some("gemini-web"));
+        assert_eq!(web_backend("chatgpt-web"), Some("chatgpt-web"));
+        assert_eq!(web_backend("claude-web"), Some("claude-web"));
+        assert_eq!(web_backend("other"), None);
+    }
+
+    #[test]
+    fn web_relay_url_requires_tls_unless_loopback_or_allowlisted() {
+        assert!(validate_web_relay_url("https://relay.example.com/v1/generate").is_ok());
+        assert!(validate_web_relay_url("http://127.0.0.1:9010/v1/generate").is_ok());
+        assert!(validate_web_relay_url("http://relay.example.com/v1/generate").is_err());
+    }
+
+    #[tokio::test]
+    async fn fallback_uses_first_healthy_provider() {
+        struct Bad;
+        #[async_trait]
+        impl Model for Bad {
+            async fn propose_json(&self, _: &str, _: &str) -> Result<Value, ModelError> {
+                Err(ModelError::Transport("down".into()))
+            }
+        }
+
+        struct Good;
+        #[async_trait]
+        impl Model for Good {
+            async fn propose_json(&self, _: &str, _: &str) -> Result<Value, ModelError> {
+                Ok(json!({"ok": true}))
+            }
+        }
+
+        let model = FallbackModel::new(vec![
+            ("bad".into(), Arc::new(Bad)),
+            ("good".into(), Arc::new(Good)),
+        ])
+        .unwrap();
+
+        assert_eq!(model.propose_json("x", "y").await.unwrap()["ok"], true);
+    }
+}
+
+fn web_backend(value: &str) -> Option<&'static str> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "gemini-web" => Some("gemini-web"),
+        "chatgpt-web" => Some("chatgpt-web"),
+        "claude-web" => Some("claude-web"),
+        _ => None,
     }
 }
