@@ -813,6 +813,12 @@ fn build_provider(name: &str) -> Result<Arc<dyn Model>, ModelError> {
         "openai" | "chatgpt" => Ok(Arc::new(OpenAiResponsesModel::from_env()?)),
         "anthropic" | "claude" => Ok(Arc::new(AnthropicMessagesModel::from_env()?)),
         "web" | "web-relay" => Ok(Arc::new(WebRelayModel::from_env()?)),
+        "chatgpt-subscription" | "chatgpt-cli" => Ok(Arc::new(
+            WebRelayModel::from_env_with_backend(Some(WebBackend::ChatGpt))?
+        )),
+        "claude-subscription" | "claude-code" => Ok(Arc::new(
+            WebRelayModel::from_env_with_backend(Some(WebBackend::Claude))?
+        )),
         "gemini-web" => Ok(Arc::new(
             WebRelayModel::from_env_with_backend(Some(WebBackend::Gemini))?
         )),
