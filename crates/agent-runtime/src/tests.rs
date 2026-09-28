@@ -1,5 +1,5 @@
 use crate::{
-    agent::{Agent, AgentContext},
+    agent::{Agent, AgentContext, AgentStateProvider},
     model::{MockModel, Model, ModelError},
     roles::{
         AnalystAgent, CeoAgent, CfoAgent, ContentAgent, CooAgent, ExperimentAgent, GrowthAgent,
@@ -14,6 +14,7 @@ use crate::{
 use async_trait::async_trait;
 use economic_core::CompanyStatus;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 fn healthy_company() -> CompanySnapshot {
     CompanySnapshot {
@@ -84,6 +85,56 @@ async fn every_operating_agent_has_a_valid_contract() {
         assert!(proposal.expected_revenue_minor >= 0);
         assert_eq!(proposal.requested_permission, Permission::Propose);
     }
+}
+
+#[tokio::test]
+async fn state_provider_receives_bounded_last_decision_memory() {
+    struct MemoryProvider {
+        memories: Mutex<Vec<crate::types::AgentMemory>>,
+    }
+
+    #[async_trait]
+    impl AgentStateProvider for MemoryProvider {
+        async fn load_memory(
+            &self,
+            _: &str,
+            _: AgentRole,
+        ) -> Result<serde_json::Value, String> {
+            Ok(serde_json::json!({"items": []}))
+        }
+
+        async fn admit_model_call(
+            &self,
+            _: &str,
+            _: AgentRole,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn remember(
+            &self,
+            _: &str,
+            _: AgentRole,
+            memory: crate::types::AgentMemory,
+        ) -> Result<(), String> {
+            self.memories.lock().await.push(memory);
+            Ok(())
+        }
+    }
+
+    let provider = Arc::new(MemoryProvider {
+        memories: Mutex::new(Vec::new()),
+    });
+    let runtime = AgentRuntime::new_with_concurrency(Box::new(MockModel), 4);
+    let results = runtime
+        .run_all_with_state(healthy_company(), Some(provider.clone()))
+        .await;
+
+    assert_eq!(results.len(), 8);
+    let memories = provider.memories.lock().await;
+    assert_eq!(memories.len(), 8);
+    assert!(memories.iter().all(|memory| memory.key == "last_decision"));
+    assert!(memories.iter().all(|memory| serde_json::to_vec(&memory.value).unwrap().len() < 16 * 1024));
 }
 
 #[tokio::test]
