@@ -647,6 +647,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     client
 .batch_execute(include_str!("../../../infra/db/migrations/009_llm_web_relay.sql"))
         .await?;
+    client
+        .batch_execute(include_str!(
+            "../../../infra/db/migrations/010_llm_relay_request_fingerprint.sql"
+        ))
+        .await?;
 
     drop(client);
 
