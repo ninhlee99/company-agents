@@ -30,6 +30,7 @@ jobs:
           - company-simulator
           - company-os
           - media-worker
+          - llm-web-relay
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
