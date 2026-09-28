@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::AsyncWriteExt,
     process::Command,
     time::timeout,
 };
@@ -426,5 +426,71 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 }
             }
         }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backend_restrictions_are_enforced() {
+        let base = WorkerJob {
+            job_id: Uuid::nil(),
+            protocol_version: 1,
+            backend: "chatgpt-web".into(),
+            model: "gpt-5.6-luna".into(),
+            system: "system".into(),
+            user: "user".into(),
+            response_format: "json_object".into(),
+            allow_tools: false,
+            attempt: 1,
+            lease_token: Uuid::nil(),
+            lease_expires_in_ms: 10_000,
+            expires_in_ms: 10_000,
+        };
+        assert!(validate_job(&base).is_ok());
+
+        let mut unsafe_job = base.clone();
+        unsafe_job.allow_tools = true;
+        assert!(validate_job(&unsafe_job).is_err());
+
+        let mut expired = base;
+        expired.expires_in_ms = 0;
+        assert!(validate_job(&expired).is_err());
+    }
+
+    #[test]
+    fn claude_json_result_is_unwrapped_and_validated() {
+        let raw = r#"{"type":"result","result":"{"action":"ProduceReport"}"}"#;
+        assert_eq!(
+            extract_json_object("claude-code", raw).unwrap(),
+            r#"{"action":"ProduceReport"}"#
+        );
+    }
+
+    #[test]
+    fn codex_jsonl_extracts_last_agent_message() {
+        let raw = concat!(
+            r#"{"type":"item.completed","item":{"type":"reasoning","summary":[]}}"#,
+            "\n",
+            r#"{"type":"item.completed","item":{"type":"agent_message","content":[{"type":"output_text","text":"{\"action\":\"ProduceReport\"}"}]}}"#,
+            "\n"
+        );
+        assert_eq!(
+            extract_json_object("codex-chatgpt", raw).unwrap(),
+            r#"{"action":"ProduceReport"}"#
+        );
+    }
+
+    #[test]
+    fn browser_command_requires_one_json_object() {
+        assert_eq!(
+            validate_json_object(r#"{"action":"ProduceReport","cost_minor":0}"#).unwrap(),
+            r#"{"action":"ProduceReport","cost_minor":0}"#
+        );
+        assert!(validate_json_object(r#"["not-object"]"#).is_err());
+        assert!(validate_json_object("not-json").is_err());
     }
 }
