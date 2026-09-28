@@ -284,6 +284,13 @@ impl Model for OpenAiCompatibleModel {
             .post(format!("{}/chat/completions", self.base_url))
             .json(&body);
 
+        if self
+            .base_url
+            .contains("generativelanguage.googleapis.com")
+        {
+            request = request.header("x-goog-api-client", "company-agents/0.6");
+        }
+
         if let Some(api_key) = self.api_key.as_deref().filter(|value| !value.is_empty()) {
             request = request.bearer_auth(api_key);
         }
@@ -809,7 +816,17 @@ fn build_provider(name: &str) -> Result<Arc<dyn Model>, ModelError> {
     match name.trim().to_ascii_lowercase().as_str() {
         "mock" => Ok(Arc::new(MockModel)),
         "ollama" | "local" => Ok(Arc::new(OllamaModel::from_env())),
-        "gemini" => Ok(Arc::new(GeminiInteractionsModel::from_env()?)),
+        "gemini" => {
+            let api_key = secret_from_env("GEMINI_API_KEY")
+                .or_else(|_| secret_from_env("LLM_API_KEY"))?;
+            let model =
+                env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.8-flash".into());
+            Ok(Arc::new(OpenAiCompatibleModel::new(
+                "https://generativelanguage.googleapis.com/v1beta/openai/".into(),
+                Some(api_key),
+                model,
+            )))
+        },
         "openai" | "chatgpt" => Ok(Arc::new(OpenAiResponsesModel::from_env()?)),
         "anthropic" | "claude" => Ok(Arc::new(AnthropicMessagesModel::from_env()?)),
         "web" | "web-relay" => Ok(Arc::new(WebRelayModel::from_env()?)),
