@@ -230,7 +230,7 @@ impl Model for GeminiModel {
     }
 }
 
-pub fn model_from_env() -> Box<dyn Model> {
+pub fn legacy_model_from_env() -> Box<dyn Model> {
     let provider = env::var("LLM_PROVIDER")
         .unwrap_or_else(|_| "ollama".into())
         .to_ascii_lowercase();
@@ -288,5 +288,335 @@ mod tests {
         let model = OllamaModel::from_env();
         assert_eq!(model.0.base_url, "http://127.0.0.1:11434/v1");
         assert!(!model.0.model.is_empty());
+    }
+}
+
+
+pub struct OpenAiResponsesModel {
+    client: reqwest::Client,
+    api_key: String,
+    model: String,
+}
+
+impl OpenAiResponsesModel {
+    pub fn from_env() -> Result<Self, ModelError> {
+        let api_key =
+            secret_from_env("OPENAI_API_KEY").or_else(|_| secret_from_env("LLM_API_KEY"))?;
+        let model = env::var("OPENAI_MODEL")
+            .or_else(|_| env::var("LLM_MODEL"))
+            .unwrap_or_else(|_| "gpt-5.6-luna".into());
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(45))
+            .connect_timeout(Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent("company-agents-openai/0.3")
+            .build()
+            .map_err(|e| ModelError::Transport(e.to_string()))?;
+        Ok(Self { client, api_key, model })
+    }
+}
+
+#[async_trait]
+impl Model for OpenAiResponsesModel {
+    async fn propose_json(&self, system: &str, user: &str) -> Result<Value, ModelError> {
+        let body = json!({
+            "model": self.model,
+            "instructions": format!("{system}\n\nReturn exactly one JSON object. Do not execute tools."),
+            "input": user,
+            "store": false,
+            "text": {"format": {"type": "json_object"}}
+        });
+
+        let response = self.client
+            .post("https://api.openai.com/v1/responses")
+            .bearer_auth(&self.api_key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ModelError::Transport(e.to_string()))?;
+
+        let status = response.status();
+        let body = response.bytes().await.map_err(|e| ModelError::Transport(e.to_string()))?;
+        if body.len() > 1_048_576 {
+            return Err(ModelError::InvalidResponse("OpenAI response exceeds 1 MiB".into()));
+        }
+        if !status.is_success() {
+            let detail = String::from_utf8_lossy(&body[..body.len().min(4096)])
+                .replace(&self.api_key, "[REDACTED]");
+            return Err(ModelError::Transport(format!("HTTP {status}: {detail}")));
+        }
+
+        let envelope: Value = serde_json::from_slice(&body)
+            .map_err(|e| ModelError::InvalidResponse(format!("OpenAI response is not JSON: {e}")))?;
+
+        let text = envelope
+            .get("output_text")
+            .and_then(Value::as_str)
+            .or_else(|| {
+                envelope.get("output").and_then(Value::as_array).and_then(|items| {
+                    items.iter().find_map(|item| {
+                        item.get("content").and_then(Value::as_array).and_then(|blocks| {
+                            blocks.iter().find_map(|block| block.get("text").and_then(Value::as_str))
+                        })
+                    })
+                })
+            )
+            .ok_or_else(|| ModelError::InvalidResponse("missing OpenAI Responses output text".into()))?;
+
+        serde_json::from_str(text.trim())
+            .map_err(|e| ModelError::InvalidResponse(format!("OpenAI output is not valid JSON: {e}")))
+    }
+}
+
+pub struct AnthropicMessagesModel {
+    client: reqwest::Client,
+    api_key: String,
+    model: String,
+}
+
+impl AnthropicMessagesModel {
+    pub fn from_env() -> Result<Self, ModelError> {
+        let api_key =
+            secret_from_env("ANTHROPIC_API_KEY").or_else(|_| secret_from_env("LLM_API_KEY"))?;
+        let model = env::var("ANTHROPIC_MODEL")
+            .or_else(|_| env::var("LLM_MODEL"))
+            .unwrap_or_else(|_| "claude-opus-4-8".into());
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(45))
+            .connect_timeout(Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent("company-agents-anthropic/0.3")
+            .build()
+            .map_err(|e| ModelError::Transport(e.to_string()))?;
+        Ok(Self { client, api_key, model })
+    }
+}
+
+#[async_trait]
+impl Model for AnthropicMessagesModel {
+    async fn propose_json(&self, system: &str, user: &str) -> Result<Value, ModelError> {
+        let body = json!({
+            "model": self.model,
+            "max_tokens": 4096,
+            "system": format!("{system}\n\nReturn exactly one JSON object. Do not execute tools."),
+            "messages": [{"role": "user", "content": user}]
+        });
+
+        let response = self.client
+            .post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ModelError::Transport(e.to_string()))?;
+
+        let status = response.status();
+        let body = response.bytes().await.map_err(|e| ModelError::Transport(e.to_string()))?;
+        if body.len() > 1_048_576 {
+            return Err(ModelError::InvalidResponse("Anthropic response exceeds 1 MiB".into()));
+        }
+        if !status.is_success() {
+            let detail = String::from_utf8_lossy(&body[..body.len().min(4096)])
+                .replace(&self.api_key, "[REDACTED]");
+            return Err(ModelError::Transport(format!("HTTP {status}: {detail}")));
+        }
+
+        let envelope: Value = serde_json::from_slice(&body)
+            .map_err(|e| ModelError::InvalidResponse(format!("Anthropic response is not JSON: {e}")))?;
+
+        let text = envelope
+            .get("content")
+            .and_then(Value::as_array)
+            .and_then(|items| {
+                items.iter().find_map(|item| {
+                    if item.get("type").and_then(Value::as_str) == Some("text") {
+                        item.get("text").and_then(Value::as_str)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .ok_or_else(|| ModelError::InvalidResponse("missing Anthropic text content".into()))?;
+
+        serde_json::from_str(text.trim())
+            .map_err(|e| ModelError::InvalidResponse(format!("Anthropic output is not valid JSON: {e}")))
+    }
+}
+
+pub struct WebRelayModel {
+    client: reqwest::Client,
+    url: String,
+    token: String,
+    model: String,
+}
+
+impl WebRelayModel {
+    pub fn from_env() -> Result<Self, ModelError> {
+        let url =
+            env::var("LLM_WEB_RELAY_URL").map_err(|_| ModelError::MissingConfiguration)?;
+        let token = secret_from_env("LLM_WEB_RELAY_TOKEN")
+            .or_else(|_| secret_from_env("LLM_WEB_RELAY_SECRET"))?;
+        let parsed = reqwest::Url::parse(&url).map_err(|e| ModelError::MissingConfiguration)?;
+        let host = parsed.host_str().unwrap_or_default();
+        if parsed.scheme() != "https"
+            && !matches!(host, "127.0.0.1" | "localhost" | "::1")
+        {
+            return Err(ModelError::MissingConfiguration);
+        }
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(60))
+            .connect_timeout(Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent("company-agents-web-relay/0.3")
+            .build()
+            .map_err(|e| ModelError::Transport(e.to_string()))?;
+
+        Ok(Self {
+            client,
+            url,
+            token,
+            model: env::var("LLM_WEB_RELAY_MODEL").unwrap_or_else(|_| "web-session".into()),
+        })
+    }
+}
+
+#[async_trait]
+impl Model for WebRelayModel {
+    async fn propose_json(&self, system: &str, user: &str) -> Result<Value, ModelError> {
+        let body = json!({
+            "protocol_version": 1,
+            "model": self.model,
+            "system": system,
+            "user": user,
+            "response_format": "json_object",
+            "allow_tools": false
+        });
+        let encoded = serde_json::to_vec(&body)
+            .map_err(|e| ModelError::InvalidResponse(e.to_string()))?;
+        if encoded.len() > 512 * 1024 {
+            return Err(ModelError::InvalidResponse("web relay request exceeds 512 KiB".into()));
+        }
+
+        let response = self.client
+            .post(&self.url)
+            .bearer_auth(&self.token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ModelError::Transport(e.to_string()))?;
+
+        let status = response.status();
+        let body = response.bytes().await.map_err(|e| ModelError::Transport(e.to_string()))?;
+        if body.len() > 1_048_576 {
+            return Err(ModelError::InvalidResponse("web relay response exceeds 1 MiB".into()));
+        }
+        if !status.is_success() {
+            let detail = String::from_utf8_lossy(&body[..body.len().min(4096)])
+                .replace(&self.token, "[REDACTED]");
+            return Err(ModelError::Transport(format!("HTTP {status}: {detail}")));
+        }
+
+        let envelope: Value = serde_json::from_slice(&body)
+            .map_err(|e| ModelError::InvalidResponse(format!("web relay response is not JSON: {e}")))?;
+        let text = envelope
+            .get("output")
+            .or_else(|| envelope.get("content"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| ModelError::InvalidResponse("web relay missing output".into()))?;
+
+        serde_json::from_str(text.trim())
+            .map_err(|e| ModelError::InvalidResponse(format!("web relay output is not valid JSON: {e}")))
+    }
+}
+
+pub struct FallbackModel {
+    providers: Vec<(String, Arc<dyn Model>)>,
+}
+
+impl FallbackModel {
+    pub fn new(providers: Vec<(String, Arc<dyn Model>)>) -> Result<Self, ModelError> {
+        if providers.is_empty() {
+            return Err(ModelError::MissingConfiguration);
+        }
+        Ok(Self { providers })
+    }
+}
+
+#[async_trait]
+impl Model for FallbackModel {
+    async fn propose_json(&self, system: &str, user: &str) -> Result<Value, ModelError> {
+        let mut failures = Vec::new();
+        for (name, provider) in &self.providers {
+            match provider.propose_json(system, user).await {
+                Ok(value) => return Ok(value),
+                Err(error) => failures.push(format!("{name}: {error}")),
+            }
+        }
+        Err(ModelError::Transport(format!(
+            "all configured LLM providers failed: {}",
+            failures.join(" | ")
+        )))
+    }
+}
+
+fn build_llm_provider(name: &str) -> Result<Arc<dyn Model>, ModelError> {
+    match name.trim().to_ascii_lowercase().as_str() {
+        "mock" => Ok(Arc::new(MockModel)),
+        "ollama" | "local" => Ok(Arc::new(OllamaModel::from_env())),
+        "gemini" => Ok(Arc::new(GeminiModel::from_env()?)),
+        "openai" | "chatgpt" => Ok(Arc::new(OpenAiResponsesModel::from_env()?)),
+        "anthropic" | "claude" => Ok(Arc::new(AnthropicMessagesModel::from_env()?)),
+        "web" | "web-relay" => Ok(Arc::new(WebRelayModel::from_env()?)),
+        "openai-compatible" => {
+            let base_url =
+                env::var("LLM_BASE_URL").map_err(|_| ModelError::MissingConfiguration)?;
+            let model =
+                env::var("LLM_MODEL").map_err(|_| ModelError::MissingConfiguration)?;
+            let key = secret_from_env("LLM_API_KEY").ok();
+            Ok(Arc::new(OpenAiCompatibleModel::new(base_url, key, model)))
+        }
+        other => Err(ModelError::Transport(format!("unknown LLM provider '{other}'"))),
+    }
+}
+
+pub fn model_from_env() -> Box<dyn Model> {
+    let primary = env::var("LLM_PROVIDER").unwrap_or_else(|_| "ollama".into());
+    let mut names = vec![primary];
+    if let Ok(fallbacks) = env::var("LLM_FALLBACKS") {
+        names.extend(
+            fallbacks
+                .split(',')
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .map(ToOwned::to_owned),
+        );
+    }
+
+    let mut providers = Vec::new();
+    for name in names {
+        match build_llm_provider(&name) {
+            Ok(provider) => providers.push((name, provider)),
+            Err(error) => {
+                if env::var("LLM_STRICT_CONFIG").ok().is_some_and(|value| {
+                    matches!(
+                        value.to_ascii_lowercase().as_str(),
+                        "1" | "true" | "yes"
+                    )
+                }) {
+                    return Box::new(FailClosedModel {
+                        reason: error.to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    match FallbackModel::new(providers) {
+        Ok(provider) => Box::new(provider),
+        Err(error) => Box::new(FailClosedModel {
+            reason: error.to_string(),
+        }),
     }
 }
