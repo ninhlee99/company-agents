@@ -11,5 +11,6 @@ members = [
   "crates/affiliate-intelligence",
   "crates/affiliate-attribution",
   "crates/media-pipeline",
-  "crates/company-organization"
+  "crates/company-organization",
+  "apps/llm-web-relay"
 ]
