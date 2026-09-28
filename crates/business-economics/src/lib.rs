@@ -1,0 +1,498 @@
+#![forbid(unsafe_code)]
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum BusinessUnitStatus {
+    Testing,
+    Growing,
+    Stable,
+    Distress,
+    Paused,
+    Closed,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum BusinessUnitKind {
+    Creator,
+    AffiliateChannel,
+    MarketingService,
+    OwnedMedia,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PayrollObligation {
+    pub employee_id: String,
+    pub amount_minor: i128,
+    pub due_day: u64,
+    pub recurrence_days: Option<u64>,
+    pub priority: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContractObligation {
+    pub contract_id: String,
+    pub counterparty: String,
+    pub amount_minor: i128,
+    pub due_day: u64,
+    pub cancellable: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BusinessUnit {
+    pub id: String,
+    pub name: String,
+    pub kind: BusinessUnitKind,
+    pub status: BusinessUnitStatus,
+    pub cash_minor: i128,
+    pub revenue_minor: i128,
+    pub direct_cost_minor: i128,
+    pub fixed_cost_minor: i128,
+    pub payroll: Vec<PayrollObligation>,
+    pub contracts: Vec<ContractObligation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BusinessDayResult {
+    pub day: u64,
+    pub opening_cash_minor: i128,
+    pub revenue_minor: i128,
+    pub direct_cost_minor: i128,
+    pub fixed_cost_minor: i128,
+    pub payroll_paid_minor: i128,
+    pub contracts_paid_minor: i128,
+    pub closing_cash_minor: i128,
+    pub free_cash_flow_minor: i128,
+    pub unpaid_priority_minor: i128,
+    pub status: BusinessUnitStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum BusinessError {
+    Invalid(String),
+    Overflow,
+}
+
+impl std::fmt::Display for BusinessError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Invalid(value) => write!(f, "invalid business unit: {value}"),
+            Self::Overflow => write!(f, "business economics arithmetic overflow"),
+        }
+    }
+}
+
+impl std::error::Error for BusinessError {}
+
+impl BusinessUnit {
+    pub fn validate(&self) -> Result<(), BusinessError> {
+        if self.id.trim().is_empty() || self.name.trim().is_empty() {
+            return Err(BusinessError::Invalid("unit id and name are required".into()));
+        }
+        if self.cash_minor < 0
+            || self.revenue_minor < 0
+            || self.direct_cost_minor < 0
+            || self.fixed_cost_minor < 0
+        {
+            return Err(BusinessError::Invalid("unit economics cannot be negative".into()));
+        }
+        for payroll in &self.payroll {
+            if payroll.employee_id.trim().is_empty() || payroll.amount_minor < 0 {
+                return Err(BusinessError::Invalid("payroll obligation is invalid".into()));
+            }
+        }
+        for contract in &self.contracts {
+            if contract.contract_id.trim().is_empty()
+                || contract.counterparty.trim().is_empty()
+                || contract.amount_minor < 0
+            {
+                return Err(BusinessError::Invalid("contract obligation is invalid".into()));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn monthly_runway_days(&self) -> u64 {
+        let recurring = self
+            .payroll
+            .iter()
+            .try_fold(self.fixed_cost_minor, |total, item| total.checked_add(item.amount_minor))
+            .unwrap_or(i128::MAX);
+        if recurring == 0 {
+            return u64::MAX;
+        }
+        self.cash_minor
+            .saturating_mul(30)
+            .checked_div(recurring)
+            .unwrap_or(0)
+            .max(0) as u64
+    }
+
+    pub fn settle_day(
+        &mut self,
+        day: u64,
+        revenue_minor: i128,
+        direct_cost_minor: i128,
+    ) -> Result<BusinessDayResult, BusinessError> {
+        self.validate()?;
+        if revenue_minor < 0 || direct_cost_minor < 0 {
+            return Err(BusinessError::Invalid("daily economics cannot be negative".into()));
+        }
+
+        let opening = self.cash_minor;
+        let mut cash = opening;
+
+        cash = cash
+            .checked_add(revenue_minor)
+            .ok_or(BusinessError::Overflow)?;
+        cash = cash
+            .checked_sub(direct_cost_minor)
+            .ok_or(BusinessError::Overflow)?;
+        cash = cash
+            .checked_sub(self.fixed_cost_minor)
+            .ok_or(BusinessError::Overflow)?;
+
+        let mut due_payroll = self.payroll.iter().collect::<Vec<_>>();
+        due_payroll.retain(|obligation| {
+            if obligation.due_day > day {
+                return false;
+            }
+            match obligation.recurrence_days {
+                Some(period) if period > 0 => (day - obligation.due_day) % period == 0,
+                Some(_) => false,
+                None => day == obligation.due_day,
+            }
+        });
+        due_payroll.sort_by(|a, b| {
+            b.priority
+                .cmp(&a.priority)
+                .then_with(|| a.employee_id.cmp(&b.employee_id))
+        });
+
+        let mut payroll_paid = 0_i128;
+        let mut unpaid_priority = 0_i128;
+        for obligation in due_payroll {
+            if obligation.amount_minor <= cash {
+                cash = cash
+                    .checked_sub(obligation.amount_minor)
+                    .ok_or(BusinessError::Overflow)?;
+                payroll_paid = payroll_paid
+                    .checked_add(obligation.amount_minor)
+                    .ok_or(BusinessError::Overflow)?;
+            } else {
+                unpaid_priority = unpaid_priority
+                    .checked_add(obligation.amount_minor)
+                    .ok_or(BusinessError::Overflow)?;
+            }
+        }
+
+        let mut contracts_paid = 0_i128;
+        for contract in &self.contracts {
+            if contract.due_day > day {
+                continue;
+            }
+            if contract.amount_minor <= cash {
+                cash = cash
+                    .checked_sub(contract.amount_minor)
+                    .ok_or(BusinessError::Overflow)?;
+                contracts_paid = contracts_paid
+                    .checked_add(contract.amount_minor)
+                    .ok_or(BusinessError::Overflow)?;
+            } else {
+                unpaid_priority = unpaid_priority
+                    .checked_add(contract.amount_minor)
+                    .ok_or(BusinessError::Overflow)?;
+            }
+        }
+
+        self.cash_minor = cash;
+        self.revenue_minor = self
+            .revenue_minor
+            .checked_add(revenue_minor)
+            .ok_or(BusinessError::Overflow)?;
+        self.direct_cost_minor = self
+            .direct_cost_minor
+            .checked_add(direct_cost_minor)
+            .ok_or(BusinessError::Overflow)?;
+
+        self.status = if cash <= 0 {
+            BusinessUnitStatus::Distress
+        } else if self.monthly_runway_days() <= 7 {
+            BusinessUnitStatus::Distress
+        } else if self.revenue_minor > self.direct_cost_minor.saturating_add(self.fixed_cost_minor) {
+            BusinessUnitStatus::Growing
+        } else {
+            BusinessUnitStatus::Stable
+        };
+
+        let total_cost = direct_cost_minor
+            .checked_add(self.fixed_cost_minor)
+            .and_then(|v| v.checked_add(payroll_paid))
+            .and_then(|v| v.checked_add(contracts_paid))
+            .ok_or(BusinessError::Overflow)?;
+
+        let fcf = revenue_minor
+            .checked_sub(total_cost)
+            .ok_or(BusinessError::Overflow)?;
+
+        Ok(BusinessDayResult {
+            day,
+            opening_cash_minor: opening,
+            revenue_minor,
+            direct_cost_minor,
+            fixed_cost_minor: self.fixed_cost_minor,
+            payroll_paid_minor: payroll_paid,
+            contracts_paid_minor: contracts_paid,
+            closing_cash_minor: cash,
+            free_cash_flow_minor: fcf,
+            unpaid_priority_minor: unpaid_priority,
+            status: self.status,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct CompanyPortfolio {
+    pub units: Vec<BusinessUnit>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PortfolioDayResult {
+    pub day: u64,
+    pub revenue_minor: i128,
+    pub costs_minor: i128,
+    pub cash_minor: i128,
+    pub unpaid_priority_minor: i128,
+    pub distressed_units: usize,
+}
+
+impl CompanyPortfolio {
+    pub fn startup_default(initial_cash_minor: i128) -> Result<Self, BusinessError> {
+        if initial_cash_minor < 0 {
+            return Err(BusinessError::Invalid(
+                "startup cash cannot be negative".into(),
+            ));
+        }
+        let creator_cash = initial_cash_minor.saturating_mul(70) / 100;
+        let portfolio = Self {
+            units: vec![
+                BusinessUnit {
+                    id: "creator-media".into(),
+                    name: "Creator Media".into(),
+                    kind: BusinessUnitKind::Creator,
+                    status: BusinessUnitStatus::Testing,
+                    cash_minor: creator_cash,
+                    revenue_minor: 0,
+                    direct_cost_minor: 0,
+                    fixed_cost_minor: 180,
+                    payroll: vec![PayrollObligation {
+                        employee_id: "editor-1".into(),
+                        amount_minor: 70,
+                        due_day: 1,
+                        recurrence_days: Some(1),
+                        priority: 100,
+                    }],
+                    contracts: vec![],
+                },
+                BusinessUnit {
+                    id: "affiliate-commerce".into(),
+                    name: "Affiliate Commerce".into(),
+                    kind: BusinessUnitKind::AffiliateChannel,
+                    status: BusinessUnitStatus::Testing,
+                    cash_minor: initial_cash_minor.saturating_sub(creator_cash),
+                    revenue_minor: 0,
+                    direct_cost_minor: 0,
+                    fixed_cost_minor: 120,
+                    payroll: vec![PayrollObligation {
+                        employee_id: "ops-1".into(),
+                        amount_minor: 50,
+                        due_day: 1,
+                        recurrence_days: Some(1),
+                        priority: 80,
+                    }],
+                    contracts: vec![],
+                },
+            ],
+        };
+        portfolio.validate()?;
+        Ok(portfolio)
+    }
+
+    pub fn total_cash_minor(&self) -> Result<i128, BusinessError> {
+        self.units.iter().try_fold(0_i128, |total, unit| {
+            total.checked_add(unit.cash_minor).ok_or(BusinessError::Overflow)
+        })
+    }
+
+    pub fn apply_external_cash_delta(&mut self, delta_minor: i128) -> Result<(), BusinessError> {
+        if self.units.is_empty() {
+            return Err(BusinessError::Invalid("portfolio has no business units".into()));
+        }
+        if delta_minor >= 0 {
+            self.units[0].cash_minor = self.units[0]
+                .cash_minor
+                .checked_add(delta_minor)
+                .ok_or(BusinessError::Overflow)?;
+            return Ok(());
+        }
+
+        let mut remaining = delta_minor.unsigned_abs();
+        for unit in &mut self.units {
+            let reduction = remaining.min(unit.cash_minor as u128) as i128;
+            unit.cash_minor = unit.cash_minor.saturating_sub(reduction);
+            remaining -= reduction as u128;
+            if remaining == 0 {
+                return Ok(());
+            }
+        }
+        Err(BusinessError::Invalid(
+            "external cash adjustment exceeds portfolio cash".into(),
+        ))
+    }
+
+    pub fn validate(&self) -> Result<(), BusinessError> {
+        for unit in &self.units {
+            unit.validate()?;
+        }
+        Ok(())
+    }
+
+    pub fn settle_day(
+        &mut self,
+        day: u64,
+        revenues_minor: &[i128],
+        direct_costs_minor: &[i128],
+    ) -> Result<PortfolioDayResult, BusinessError> {
+        if revenues_minor.len() != self.units.len() || direct_costs_minor.len() != self.units.len() {
+            return Err(BusinessError::Invalid(
+                "portfolio daily economics must match unit count".into(),
+            ));
+        }
+        let mut revenue = 0_i128;
+        let mut costs = 0_i128;
+        let mut cash = 0_i128;
+        let mut unpaid = 0_i128;
+        let mut distressed = 0_usize;
+
+        for (index, unit) in self.units.iter_mut().enumerate() {
+            let result = unit.settle_day(day, revenues_minor[index], direct_costs_minor[index])?;
+            revenue = revenue.checked_add(result.revenue_minor).ok_or(BusinessError::Overflow)?;
+            let unit_costs = result
+                .direct_cost_minor
+                .checked_add(result.fixed_cost_minor)
+                .and_then(|value| value.checked_add(result.payroll_paid_minor))
+                .and_then(|value| value.checked_add(result.contracts_paid_minor))
+                .ok_or(BusinessError::Overflow)?;
+            costs = costs
+                .checked_add(unit_costs)
+                .ok_or(BusinessError::Overflow)?;
+            cash = cash.checked_add(result.closing_cash_minor).ok_or(BusinessError::Overflow)?;
+            unpaid = unpaid.checked_add(result.unpaid_priority_minor).ok_or(BusinessError::Overflow)?;
+            if result.status == BusinessUnitStatus::Distress {
+                distressed += 1;
+            }
+        }
+
+        Ok(PortfolioDayResult {
+            day,
+            revenue_minor: revenue,
+            costs_minor: costs,
+            cash_minor: cash,
+            unpaid_priority_minor: unpaid,
+            distressed_units: distressed,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn unit() -> BusinessUnit {
+        BusinessUnit {
+            id: "creator-1".into(),
+            name: "Creator A".into(),
+            kind: BusinessUnitKind::Creator,
+            status: BusinessUnitStatus::Growing,
+            cash_minor: 10_000,
+            revenue_minor: 0,
+            direct_cost_minor: 0,
+            fixed_cost_minor: 100,
+            payroll: vec![PayrollObligation {
+                employee_id: "editor-1".into(),
+                amount_minor: 200,
+                due_day: 1,
+                recurrence_days: Some(1),
+                priority: 100,
+            }],
+            contracts: vec![],
+        }
+    }
+
+    #[test]
+    fn payroll_is_paid_before_nonpriority_contracts() {
+        let mut value = unit();
+        value.contracts.push(ContractObligation {
+            contract_id: "vendor-1".into(),
+            counterparty: "Vendor".into(),
+            amount_minor: 9_900,
+            due_day: 1,
+            cancellable: true,
+        });
+        let result = value.settle_day(1, 0, 0).unwrap();
+        assert_eq!(result.payroll_paid_minor, 200);
+        assert_eq!(result.contracts_paid_minor, 0);
+        assert!(result.unpaid_priority_minor > 0);
+        assert_eq!(value.cash_minor, 9_700);
+    }
+
+    #[test]
+    fn negative_daily_revenue_is_rejected() {
+        let mut value = unit();
+        assert!(value.settle_day(1, -1, 0).is_err());
+    }
+
+    #[test]
+    fn portfolio_requires_aligned_inputs() {
+        let mut portfolio = CompanyPortfolio { units: vec![unit()] };
+        assert!(portfolio.settle_day(1, &[], &[]).is_err());
+    }
+
+    #[test]
+    fn zero_recurring_cost_has_infinite_runway() {
+        let mut value = unit();
+        value.fixed_cost_minor = 0;
+        value.payroll.clear();
+        assert_eq!(value.monthly_runway_days(), u64::MAX);
+    }
+
+    #[test]
+    fn recurring_payroll_is_paid_each_period() {
+        let mut value = unit();
+        let day_one = value.settle_day(1, 1_000, 0).unwrap();
+        let day_two = value.settle_day(2, 1_000, 0).unwrap();
+        assert_eq!(day_one.payroll_paid_minor, 200);
+        assert_eq!(day_two.payroll_paid_minor, 200);
+    }
+
+    #[test]
+    fn external_cash_adjustment_preserves_portfolio_total() {
+        let mut portfolio = CompanyPortfolio {
+            units: vec![unit(), BusinessUnit {
+                id: "creator-2".into(),
+                name: "Creator B".into(),
+                kind: BusinessUnitKind::Creator,
+                status: BusinessUnitStatus::Growing,
+                cash_minor: 5_000,
+                revenue_minor: 0,
+                direct_cost_minor: 0,
+                fixed_cost_minor: 0,
+                payroll: vec![],
+                contracts: vec![],
+            }],
+        };
+        let before = portfolio.total_cash_minor().unwrap();
+        portfolio.apply_external_cash_delta(-1_500).unwrap();
+        assert_eq!(portfolio.total_cash_minor().unwrap(), before - 1_500);
+    }
+}
