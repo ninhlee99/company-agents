@@ -453,6 +453,10 @@ pub struct WebRelayModel {
 
 impl WebRelayModel {
     pub fn from_env() -> Result<Self, ModelError> {
+        Self::from_env_with_backend(None)
+    }
+
+    pub fn from_env_with_backend(default_backend: Option<&str>) -> Result<Self, ModelError> {
         let url =
             env::var("LLM_WEB_RELAY_URL").map_err(|_| ModelError::MissingConfiguration)?;
         let token = secret_from_env("LLM_WEB_RELAY_TOKEN")
@@ -489,7 +493,10 @@ impl Model for WebRelayModel {
             "protocol_version": 1,
             "model": self.model,
             "backend": env::var("LLM_WEB_RELAY_BACKEND")
-                .unwrap_or_else(|_| "gemini-web".into()),
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| default_backend.map(ToOwned::to_owned))
+                .unwrap_or_else(|| "gemini-web".into()),
             "system": system,
             "user": user,
             "response_format": "json_object",
@@ -671,6 +678,9 @@ fn build_llm_provider(name: &str) -> Result<Arc<dyn Model>, ModelError> {
         "openai" | "chatgpt" => Ok(Arc::new(OpenAiResponsesModel::from_env()?)),
         "anthropic" | "claude" => Ok(Arc::new(AnthropicMessagesModel::from_env()?)),
         "web" | "web-relay" => Ok(Arc::new(WebRelayModel::from_env()?)),
+        "gemini-web" => Ok(Arc::new(WebRelayModel::from_env_with_backend(Some("gemini-web"))?)),
+        "chatgpt-web" => Ok(Arc::new(WebRelayModel::from_env_with_backend(Some("chatgpt-web"))?)),
+        "claude-web" => Ok(Arc::new(WebRelayModel::from_env_with_backend(Some("claude-web"))?)),
         "openai-compatible" => {
             let base_url =
                 env::var("LLM_BASE_URL").map_err(|_| ModelError::MissingConfiguration)?;
