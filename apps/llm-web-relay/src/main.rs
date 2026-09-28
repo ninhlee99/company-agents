@@ -253,14 +253,15 @@ async fn generate(
         let inserted = client
             .execute(
                 "INSERT INTO llm_web_relay_jobs
-                 (id, idempotency_key, backend, model, system_prompt, user_prompt,
+                 (id, idempotency_key, request_hash, backend, model, system_prompt, user_prompt,
                   response_format, allow_tools, status, attempt, max_attempts,
                   expires_at)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'QUEUED',0,$9,
-                         now() + ($10::double precision * interval '1 second'))",
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'QUEUED',0,$10,
+                         now() + ($11::double precision * interval '1 second'))",
                 &[
                     &job_id,
                     &idempotency_key,
+                    &request_hash,
                     &request.backend,
                     &request.model,
                     &request.system,
