@@ -48,13 +48,6 @@ struct GenerateResponse {
 }
 
 #[derive(Debug, Serialize)]
-struct AcceptedResponse {
-    job_id: Uuid,
-    status: &'static str,
-    expires_in_ms: u64,
-}
-
-#[derive(Debug, Serialize)]
 struct WorkerJob {
     job_id: Uuid,
     protocol_version: u16,
@@ -95,7 +88,6 @@ struct ErrorBody {
 #[derive(Debug)]
 enum ApiError {
     Unauthorized,
-    Forbidden,
     BadRequest,
     NotFound,
     Conflict,
@@ -600,7 +592,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .batch_execute(include_str!("../../../infra/db/migrations/008_affiliate_revenue_accounting.sql"))
         .await?;
     client
-        .batch_execute(include_str!("../../infra/db/migrations/009_llm_web_relay.sql"))
+.batch_execute(include_str!("../../../infra/db/migrations/009_llm_web_relay.sql"))
         .await?;
 
     drop(client);
