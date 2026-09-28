@@ -105,6 +105,7 @@ async fn run_adapter(
     command_path: Option<&str>,
     job: &WorkerJob,
     timeout_duration: Duration,
+    workdir: &str,
 ) -> Result<String, String> {
     let input = serde_json::to_vec(&AdapterInput {
         protocol_version: job.protocol_version,
@@ -339,13 +340,13 @@ async fn complete(client: &Client, relay_url: &str, token: &str, job: &WorkerJob
 }
 
 async fn fail(client: &Client, relay_url: &str, token: &str, job: &WorkerJob, error: &str) -> Result<(), String> {
-    let bounded = &error[..error.len().min(MAX_ERROR_BYTES)];
+    let bounded = error.chars().take(MAX_ERROR_BYTES).collect::<String>();
     client
         .post(format!("{relay_url}/v1/jobs/{}/fail", job.job_id))
         .bearer_auth(token)
         .json(&FailRequest {
             lease_token: job.lease_token,
-            error: bounded,
+            error: &bounded,
         })
         .send()
         .await
@@ -418,6 +419,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             adapter_command.as_deref(),
             &job,
             adapter_timeout,
+            &workdir,
         )
         .await {
             Ok(output) => {
@@ -469,7 +471,7 @@ mod tests {
 
     #[test]
     fn claude_json_result_is_unwrapped_and_validated() {
-        let raw = r#"{"type":"result","result":"{"action":"ProduceReport"}"}"#;
+        let raw = r#"{"type":"result","result":"{\"action\":\"ProduceReport\"}"}"#;
         assert_eq!(
             extract_json_object("claude-code", raw).unwrap(),
             r#"{"action":"ProduceReport"}"#
