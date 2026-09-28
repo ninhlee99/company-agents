@@ -308,7 +308,7 @@ impl OpenAiResponsesModel {
             secret_from_env("OPENAI_API_KEY").or_else(|_| secret_from_env("LLM_API_KEY"))?;
         let model = env::var("OPENAI_MODEL")
             .or_else(|_| env::var("LLM_MODEL"))
-            .unwrap_or_else(|_| "gpt-5.6-luna".into());
+            .unwrap_or_else(|_| "gpt-5".into());
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(45))
             .connect_timeout(Duration::from_secs(10))
@@ -588,7 +588,10 @@ impl Model for GeminiInteractionsModel {
             "input": user,
             "system_instruction": system,
             "generation_config": {"temperature": 0},
-            "response_format": {"mime_type": "application/json"},
+            "response_format": {
+                "type": "text",
+                "mime_type": "application/json"
+            },
             "store": false
         });
 
