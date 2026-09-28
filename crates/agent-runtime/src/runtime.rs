@@ -214,6 +214,34 @@ impl AgentRuntime {
                 match agent.propose(&ctx, model).await {
                     Ok(proposal) => {
                         let governance = governor.evaluate(proposal.clone(), &ctx.company);
+                        if let Some(provider) = state.as_ref() {
+                            let importance = if governance.decision == crate::types::GovernorDecision::Escalate {
+                                90
+                            } else {
+                                50
+                            };
+                            let memory = crate::types::AgentMemory {
+                                key: "last_decision".into(),
+                                value: serde_json::json!({
+                                    "action": format!("{:?}", proposal.action),
+                                    "decision": format!("{:?}", governance.decision),
+                                    "cost_minor": proposal.cost_minor,
+                                    "expected_revenue_minor": proposal.expected_revenue_minor,
+                                    "risk": format!("{:?}", proposal.risk),
+                                    "confidence_bps": proposal.confidence_bps,
+                                    "rationale": proposal.rationale.chars().take(2000).collect::<String>()
+                                }),
+                                confidence_bps: proposal.confidence_bps,
+                                importance,
+                                updated_at: "runtime".into(),
+                                expires_at: None,
+                            };
+                            let _ = provider.remember(
+                                &ctx.company.company_id,
+                                agent.role(),
+                                memory,
+                            ).await;
+                        }
                         AgentRunResult {
                             agent: agent.role(),
                             proposal,
