@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS media_jobs (
   max_duration_seconds int NOT NULL CHECK (max_duration_seconds BETWEEN 1 AND 86400),
   normalize_audio boolean NOT NULL,
   max_output_bytes bigint NOT NULL DEFAULT 52428800 CHECK (max_output_bytes > 0),
+  operation jsonb NOT NULL,
   status text NOT NULL CHECK (status IN ('QUEUED','RUNNING','SUCCEEDED','FAILED','QA_FAILED')),
   attempts int NOT NULL DEFAULT 0 CHECK (attempts >= 0),
   locked_until timestamptz,
@@ -22,3 +23,7 @@ CREATE TABLE IF NOT EXISTS media_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_media_jobs_queue
   ON media_jobs(status, locked_until, created_at);
+
+ALTER TABLE media_jobs ADD COLUMN IF NOT EXISTS max_output_bytes bigint;
+
+ALTER TABLE media_jobs ADD COLUMN IF NOT EXISTS operation jsonb;
