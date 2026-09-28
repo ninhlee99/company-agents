@@ -48,25 +48,42 @@ impl AgentRole {
                 ActionKind::AllocateExperimentBudget,
                 ActionKind::ReduceBudget,
                 ActionKind::ProduceReport,
+                ActionKind::EscalateIncident,
             ],
-            Self::CFO => &[ActionKind::ReduceBudget, ActionKind::ProduceReport],
-            Self::COO => &[ActionKind::RebalanceOperations, ActionKind::ProduceReport],
+            Self::CFO => &[
+                ActionKind::ReduceBudget,
+                ActionKind::ProduceReport,
+                ActionKind::EscalateIncident,
+            ],
+            Self::COO => &[
+                ActionKind::RebalanceOperations,
+                ActionKind::ProduceReport,
+                ActionKind::EscalateIncident,
+            ],
             Self::Growth => &[
                 ActionKind::CreateExperiment,
                 ActionKind::ResearchOpportunity,
                 ActionKind::ProduceReport,
+                ActionKind::EscalateIncident,
             ],
             Self::Content => &[
                 ActionKind::CreateExperiment,
                 ActionKind::ResearchOpportunity,
+                ActionKind::PublishContent,
                 ActionKind::ProduceReport,
+                ActionKind::EscalateIncident,
             ],
-            Self::Recruiter => &[ActionKind::ProposeHire, ActionKind::ProduceReport],
-            Self::Analyst => &[ActionKind::ProduceReport],
+            Self::Recruiter => &[
+                ActionKind::ProposeHire,
+                ActionKind::ProduceReport,
+                ActionKind::EscalateIncident,
+            ],
+            Self::Analyst => &[ActionKind::ProduceReport, ActionKind::EscalateIncident],
             Self::Experiment => &[
                 ActionKind::CreateExperiment,
                 ActionKind::ResearchOpportunity,
                 ActionKind::ProduceReport,
+                ActionKind::EscalateIncident,
             ],
         }
     }
@@ -114,7 +131,7 @@ pub enum GovernorDecision {
     Escalate,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CompanySnapshot {
     pub company_id: String,
     pub cash_minor: i128,
@@ -135,6 +152,16 @@ pub struct CompanySnapshot {
     pub hiring_need: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentMemory {
+    pub key: String,
+    pub value: serde_json::Value,
+    pub confidence_bps: u16,
+    pub importance: u8,
+    pub updated_at: String,
+    pub expires_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelSuggestion {
     pub action: Option<String>,
@@ -147,7 +174,7 @@ pub struct ModelSuggestion {
     pub reversible: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Proposal {
     pub agent: AgentRole,
     pub objective: String,
@@ -162,14 +189,14 @@ pub struct Proposal {
     pub requested_permission: Permission,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GovernedProposal {
     pub proposal: Proposal,
     pub decision: GovernorDecision,
     pub reason: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentRunResult {
     pub agent: AgentRole,
     pub proposal: Proposal,
