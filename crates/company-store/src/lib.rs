@@ -302,31 +302,6 @@ impl CompanyStore {
             });
 
             tx.execute(
-                "INSERT INTO agent_memory
-                 (company_id, agent_name, memory_key, value,
-                  confidence_bps, importance)
-                 VALUES ($1, $2, 'last_decision', $3, $4, 60)
-                 ON CONFLICT (company_id, agent_name, memory_key)
-                 DO UPDATE SET value = EXCLUDED.value,
-                               confidence_bps = EXCLUDED.confidence_bps,
-                               importance = EXCLUDED.importance,
-                               expires_at = NULL",
-                &[
-                    &company_id,
-                    &result.agent.as_str(),
-                    &serde_json::json!({
-                        "action": format!("{:?}", proposal.action),
-                        "decision": decision,
-                        "reason": reason,
-                        "cost_minor": proposal.cost_minor,
-                        "expected_revenue_minor": proposal.expected_revenue_minor,
-                    }),
-                    &(proposal.confidence_bps as i32),
-                ],
-            )
-            .await?;
-
-            tx.execute(
                 "INSERT INTO decision_journal
                  (company_id, idempotency_key, agent_name, action,
                   governor_decision, reason, proposal, execution, executed)
@@ -387,7 +362,7 @@ impl CompanyStore {
                 &tx,
                 company_id,
                 result.agent,
-                "last_cycle_decision",
+                "last_decision",
                 &serde_json::json!({
                     "cycle_id": cycle_id,
                     "action": format!("{:?}", proposal.action),
