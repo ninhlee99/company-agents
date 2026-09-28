@@ -1,0 +1,24 @@
+name: web-bridge
+on:
+  push:
+    branches:
+      - main
+      - feature/company-os-completion
+    paths:
+      - "apps/llm-web-bridge/**"
+permissions:
+  contents: read
+jobs:
+  python-contract:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/llm-web-bridge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements.txt
+      - run: python -m py_compile bridge.py test_bridge.py
+      - run: python -m unittest -v test_bridge.py
