@@ -2435,23 +2435,5 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             ))
         }
     }
-
-    async fn remember(
-        &self,
-        company_id: &str,
-        agent: agent_runtime::types::AgentRole,
-        memory: agent_runtime::types::AgentMemory,
-    ) -> Result<(), String> {
-        self.upsert_agent_memory(
-            company_id,
-            agent,
-            &memory.key,
-            &memory.value,
-            memory.confidence_bps,
-            memory.importance,
-        )
-        .await
-        .map_err(|error| error.to_string())
-    }
 }
 
