@@ -1,0 +1,35 @@
+name: ci-diagnostic
+on:
+  push:
+    branches:
+      - feature/company-os-completion
+    paths-ignore:
+      - ci-debug.txt
+permissions:
+  contents: write
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Collect Rust diagnostics
+        shell: bash
+        run: |
+          set +e
+          : > ci-debug.txt
+          echo "RUST_VERSION" >> ci-debug.txt
+          rustc --version --verbose >> ci-debug.txt 2>&1
+          echo "FMT" >> ci-debug.txt
+          cargo fmt --all -- --check >> ci-debug.txt 2>&1
+          echo "CHECK" >> ci-debug.txt
+          cargo check --workspace >> ci-debug.txt 2>&1
+          echo "TEST" >> ci-debug.txt
+          cargo test --workspace --all-targets >> ci-debug.txt 2>&1
+          echo "CLIPPY" >> ci-debug.txt
+          cargo clippy --workspace --all-targets --all-features -- -D warnings >> ci-debug.txt 2>&1
+          git add ci-debug.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: update CI diagnostic report [skip ci]" || true
+          git push || true
