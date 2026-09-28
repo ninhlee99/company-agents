@@ -9,6 +9,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
       - run: bash scripts/verify.sh
 
   postgres-integration:

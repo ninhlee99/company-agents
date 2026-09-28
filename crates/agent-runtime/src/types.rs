@@ -44,14 +44,30 @@ impl AgentRole {
     pub fn allowed_actions(self) -> &'static [ActionKind] {
         match self {
             Self::Governor => &[],
-            Self::CEO => &[ActionKind::AllocateExperimentBudget, ActionKind::ReduceBudget, ActionKind::ProduceReport],
+            Self::CEO => &[
+                ActionKind::AllocateExperimentBudget,
+                ActionKind::ReduceBudget,
+                ActionKind::ProduceReport,
+            ],
             Self::CFO => &[ActionKind::ReduceBudget, ActionKind::ProduceReport],
             Self::COO => &[ActionKind::RebalanceOperations, ActionKind::ProduceReport],
-            Self::Growth => &[ActionKind::CreateExperiment, ActionKind::ResearchOpportunity, ActionKind::ProduceReport],
-            Self::Content => &[ActionKind::CreateExperiment, ActionKind::ResearchOpportunity, ActionKind::ProduceReport],
+            Self::Growth => &[
+                ActionKind::CreateExperiment,
+                ActionKind::ResearchOpportunity,
+                ActionKind::ProduceReport,
+            ],
+            Self::Content => &[
+                ActionKind::CreateExperiment,
+                ActionKind::ResearchOpportunity,
+                ActionKind::ProduceReport,
+            ],
             Self::Recruiter => &[ActionKind::ProposeHire, ActionKind::ProduceReport],
             Self::Analyst => &[ActionKind::ProduceReport],
-            Self::Experiment => &[ActionKind::CreateExperiment, ActionKind::ResearchOpportunity, ActionKind::ProduceReport],
+            Self::Experiment => &[
+                ActionKind::CreateExperiment,
+                ActionKind::ResearchOpportunity,
+                ActionKind::ProduceReport,
+            ],
         }
     }
 
@@ -164,7 +180,9 @@ impl ActionKind {
     pub fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
             "createexperiment" | "create_experiment" => Some(Self::CreateExperiment),
-            "allocateexperimentbudget" | "allocate_experiment_budget" => Some(Self::AllocateExperimentBudget),
+            "allocateexperimentbudget" | "allocate_experiment_budget" => {
+                Some(Self::AllocateExperimentBudget)
+            }
             "reducebudget" | "reduce_budget" => Some(Self::ReduceBudget),
             "rebalanceoperations" | "rebalance_operations" => Some(Self::RebalanceOperations),
             "researchopportunity" | "research_opportunity" => Some(Self::ResearchOpportunity),
@@ -179,7 +197,9 @@ impl ActionKind {
 
     pub fn max_cost_minor(self) -> i128 {
         match self {
-            Self::CreateExperiment | Self::AllocateExperimentBudget | Self::ResearchOpportunity => 500,
+            Self::CreateExperiment | Self::AllocateExperimentBudget | Self::ResearchOpportunity => {
+                500
+            }
             Self::ProposeHire => 1_000,
             Self::PublishContent
             | Self::ProduceReport
@@ -221,7 +241,11 @@ impl RiskTier {
     }
 
     pub fn max(self, other: Self) -> Self {
-        if self.rank() >= other.rank() { self } else { other }
+        if self.rank() >= other.rank() {
+            self
+        } else {
+            other
+        }
     }
 
     pub fn parse(value: &str) -> Option<Self> {
@@ -262,7 +286,11 @@ impl Proposal {
             return Err("agent proposals may request Propose permission only".into());
         }
         if !self.agent.may_propose(self.action) {
-            return Err(format!("agent {} is not allowed to propose {:?}", self.agent.as_str(), self.action));
+            return Err(format!(
+                "agent {} is not allowed to propose {:?}",
+                self.agent.as_str(),
+                self.action
+            ));
         }
         if self.risk.rank() < self.action.minimum_risk().rank() {
             return Err("proposal risk is below the action minimum".into());

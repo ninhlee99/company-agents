@@ -5,5 +5,10 @@ members = [
   "crates/economic-core",
   "crates/agent-runtime",
   "crates/company-simulator",
-  "crates/company-store"
+  "crates/company-store",
+  "crates/company-domain",
+  "crates/affiliate-intelligence",
+  "crates/affiliate-attribution",
+  "crates/media-pipeline",
+  "crates/social-publishing"
 ]

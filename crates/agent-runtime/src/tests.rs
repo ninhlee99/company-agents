@@ -1,9 +1,14 @@
 use crate::{
     agent::{Agent, AgentContext},
-    model::{Model, MockModel, ModelError},
-    roles::{AnalystAgent, CeoAgent, CfoAgent, ContentAgent, CooAgent, ExperimentAgent, GrowthAgent, RecruiterAgent},
+    model::{MockModel, Model, ModelError},
+    roles::{
+        AnalystAgent, CeoAgent, CfoAgent, ContentAgent, CooAgent, ExperimentAgent, GrowthAgent,
+        RecruiterAgent,
+    },
     runtime::AgentRuntime,
-    types::{ActionKind, AgentRole, CompanySnapshot, GovernorDecision, Permission, Proposal, RiskTier},
+    types::{
+        ActionKind, AgentRole, CompanySnapshot, GovernorDecision, Permission, Proposal, RiskTier,
+    },
 };
 use async_trait::async_trait;
 use economic_core::CompanyStatus;
@@ -33,24 +38,42 @@ fn healthy_company() -> CompanySnapshot {
 
 #[tokio::test]
 async fn every_operating_agent_has_a_valid_contract() {
-    let ctx = AgentContext { company: healthy_company(), model_timeout: std::time::Duration::from_secs(5) };
+    let ctx = AgentContext {
+        company: healthy_company(),
+        model_timeout: std::time::Duration::from_secs(5),
+    };
     let model: Arc<dyn Model> = Arc::new(MockModel);
     let agents: Vec<Arc<dyn Agent>> = vec![
-        Arc::new(CeoAgent), Arc::new(CfoAgent), Arc::new(CooAgent), Arc::new(GrowthAgent),
-        Arc::new(ContentAgent), Arc::new(RecruiterAgent), Arc::new(AnalystAgent), Arc::new(ExperimentAgent),
+        Arc::new(CeoAgent),
+        Arc::new(CfoAgent),
+        Arc::new(CooAgent),
+        Arc::new(GrowthAgent),
+        Arc::new(ContentAgent),
+        Arc::new(RecruiterAgent),
+        Arc::new(AnalystAgent),
+        Arc::new(ExperimentAgent),
     ];
 
     let roles: Vec<AgentRole> = agents.iter().map(|a| a.role()).collect();
     assert_eq!(
         roles,
         vec![
-            AgentRole::CEO, AgentRole::CFO, AgentRole::COO, AgentRole::Growth,
-            AgentRole::Content, AgentRole::Recruiter, AgentRole::Analyst, AgentRole::Experiment
+            AgentRole::CEO,
+            AgentRole::CFO,
+            AgentRole::COO,
+            AgentRole::Growth,
+            AgentRole::Content,
+            AgentRole::Recruiter,
+            AgentRole::Analyst,
+            AgentRole::Experiment
         ]
     );
 
     for agent in agents {
-        let proposal = agent.propose(&ctx, model.clone()).await.expect("agent contract should produce a proposal");
+        let proposal = agent
+            .propose(&ctx, model.clone())
+            .await
+            .expect("agent contract should produce a proposal");
         assert_eq!(proposal.agent, agent.role());
         assert!(!proposal.objective.trim().is_empty());
         assert!(!proposal.rationale.trim().is_empty());
@@ -72,11 +95,16 @@ async fn model_outage_fails_closed() {
     }
 
     let runtime = AgentRuntime::new_with_concurrency(Box::new(FailingModel), 4);
-    let results = runtime.run_all_with_timeout(healthy_company(), std::time::Duration::from_secs(1)).await;
+    let results = runtime
+        .run_all_with_timeout(healthy_company(), std::time::Duration::from_secs(1))
+        .await;
     assert_eq!(results.len(), 8);
     for result in results {
         assert_eq!(result.proposal.action, ActionKind::EscalateIncident);
-        assert_eq!(result.governance.unwrap().decision, GovernorDecision::Escalate);
+        assert_eq!(
+            result.governance.unwrap().decision,
+            GovernorDecision::Escalate
+        );
     }
 }
 
@@ -93,7 +121,10 @@ async fn bankrupt_company_blocks_discretionary_actions() {
 
     for result in runtime.run_all(company).await {
         let decision = result.governance.unwrap().decision;
-        if !matches!(result.proposal.action, ActionKind::ProduceReport | ActionKind::EscalateIncident) {
+        if !matches!(
+            result.proposal.action,
+            ActionKind::ProduceReport | ActionKind::EscalateIncident
+        ) {
             assert_eq!(decision, GovernorDecision::Reject);
         }
     }
@@ -110,7 +141,10 @@ async fn stress_256_cycles_remain_bounded_and_deterministic() {
         for result in results {
             assert!(matches!(
                 result.governance.unwrap().decision,
-                GovernorDecision::Approve | GovernorDecision::Escalate | GovernorDecision::Reject | GovernorDecision::RequestRevision
+                GovernorDecision::Approve
+                    | GovernorDecision::Escalate
+                    | GovernorDecision::Reject
+                    | GovernorDecision::RequestRevision
             ));
         }
     }
@@ -132,10 +166,10 @@ async fn permission_escalation_is_rejected() {
         requested_permission: Permission::ExecuteMaterial,
     };
 
-    let decision = crate::governor::Governor.evaluate(&crate::governor::Governor, p, &healthy_company());
+    let decision =
+        crate::governor::Governor.evaluate(&crate::governor::Governor, p, &healthy_company());
     assert_eq!(decision.decision, GovernorDecision::Reject);
 }
-
 
 #[tokio::test]
 async fn slow_model_times_out_and_fails_closed() {
@@ -157,7 +191,10 @@ async fn slow_model_times_out_and_fails_closed() {
     assert_eq!(results.len(), 8);
     for result in results {
         assert_eq!(result.proposal.action, ActionKind::EscalateIncident);
-        assert_eq!(result.governance.unwrap().decision, GovernorDecision::Escalate);
+        assert_eq!(
+            result.governance.unwrap().decision,
+            GovernorDecision::Escalate
+        );
     }
 }
 
@@ -265,11 +302,7 @@ async fn randomized_snapshots_preserve_proposal_invariants() {
     }
 }
 
-
-async fn proposal_for(
-    agent: Arc<dyn Agent>,
-    company: CompanySnapshot,
-) -> Proposal {
+async fn proposal_for(agent: Arc<dyn Agent>, company: CompanySnapshot) -> Proposal {
     agent
         .propose(
             &AgentContext {
@@ -435,15 +468,23 @@ fn governor_firewall_covers_all_agent_action_status_combinations() {
                     reversible: !action.inherently_material(),
                     requested_permission: Permission::Propose,
                 };
-                let company = CompanySnapshot { status, ..healthy_company() };
+                let company = CompanySnapshot {
+                    status,
+                    ..healthy_company()
+                };
                 let governed = governor.evaluate(proposal, &company);
 
                 if role == AgentRole::Governor || !role.may_propose(action) {
                     assert_ne!(governed.decision, GovernorDecision::Approve);
                 }
 
-                if matches!(status, CompanyStatus::Distress | CompanyStatus::Emergency | CompanyStatus::Liquidation | CompanyStatus::Bankrupt)
-                    && cost > 0
+                if matches!(
+                    status,
+                    CompanyStatus::Distress
+                        | CompanyStatus::Emergency
+                        | CompanyStatus::Liquidation
+                        | CompanyStatus::Bankrupt
+                ) && cost > 0
                 {
                     assert_eq!(governed.decision, GovernorDecision::Reject);
                 }
@@ -462,5 +503,8 @@ async fn runtime_replay_is_deterministic() {
     let company = healthy_company();
     let a = runtime.run_all(company.clone()).await;
     let b = runtime.run_all(company).await;
-    assert_eq!(serde_json::to_string(&a).unwrap(), serde_json::to_string(&b).unwrap());
+    assert_eq!(
+        serde_json::to_string(&a).unwrap(),
+        serde_json::to_string(&b).unwrap()
+    );
 }
