@@ -148,6 +148,19 @@ fn validate_backend(backend: &str) -> bool {
     matches!(backend, "gemini-web" | "chatgpt-web" | "claude-web")
 }
 
+fn request_hash(request: &GenerateRequest) -> String {
+    let canonical = format!(
+        "{}\0{}\0{}\0{}\0{}\0{}",
+        request.backend,
+        request.model,
+        request.system,
+        request.user,
+        request.response_format,
+        request.allow_tools
+    );
+    format!("sha256:{:x}", Sha256::digest(canonical.as_bytes()))
+}
+
 fn validate_request(request: &GenerateRequest) -> Result<(), ApiError> {
     if request.protocol_version != 1
         || !validate_backend(request.backend.as_str())
