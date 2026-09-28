@@ -35,6 +35,15 @@ impl AgentRuntime {
         }
     }
 
+    #[test]
+    fn web_provider_uses_longer_default_timeout() {
+        std::env::remove_var("LLM_PROVIDER");
+        assert_eq!(AgentRuntime::default_timeout_ms(), 15_000);
+        std::env::set_var("LLM_PROVIDER", "chatgpt-subscription");
+        assert_eq!(AgentRuntime::default_timeout_ms(), 90_000);
+        std::env::remove_var("LLM_PROVIDER");
+    }
+
     pub fn agent_roles(&self) -> Vec<AgentRole> {
         self.agents.iter().map(|agent| agent.role()).collect()
     }
