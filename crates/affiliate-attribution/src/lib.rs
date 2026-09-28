@@ -379,7 +379,7 @@ mod tests {
 
         c.cancelled = true;
         let result =
-            attribute_conversion(&c, &[click("c1", "a", "t")], AttributionModel::LastClick)
+            attribute_conversion(&c, &[click("c1", "a", "2026-09-27T09:00:00Z")], AttributionModel::LastClick)
                 .unwrap();
         assert_eq!(result.net_commission_minor, 0);
     }
