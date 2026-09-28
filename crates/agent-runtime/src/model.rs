@@ -238,19 +238,16 @@ impl OpenAiCompatibleModel {
         base_url: String,
         api_key: Option<String>,
         model: String,
-    ) -> Self {
-        let client = build_client(
-            "company-agents-compatible/0.5",
-            Duration::from_secs(30),
-        )
-        .unwrap_or_else(|_| Client::new());
+    ) -> Result<Self, ModelError> {
+        let client =
+            build_client("company-agents-compatible/0.5", Duration::from_secs(30))?;
 
-        Self {
+        Ok(Self {
             client,
             base_url: base_url.trim_end_matches('/').to_owned(),
             api_key,
             model,
-        }
+        })
     }
 }
 
@@ -329,13 +326,13 @@ impl Model for OpenAiCompatibleModel {
 pub struct OllamaModel(OpenAiCompatibleModel);
 
 impl OllamaModel {
-    pub fn from_env() -> Self {
-        Self(OpenAiCompatibleModel::new(
+    pub fn from_env() -> Result<Self, ModelError> {
+        Ok(Self(OpenAiCompatibleModel::new(
             env::var("OLLAMA_BASE_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:11434/v1".into()),
             Some("ollama".into()),
             env::var("OLLAMA_MODEL").unwrap_or_else(|_| "qwen3:4b".into()),
-        ))
+        )?))
     }
 }
 
@@ -833,7 +830,7 @@ impl Model for FallbackModel {
 fn build_provider(name: &str) -> Result<Arc<dyn Model>, ModelError> {
     match name.trim().to_ascii_lowercase().as_str() {
         "mock" => Ok(Arc::new(MockModel)),
-        "ollama" | "local" => Ok(Arc::new(OllamaModel::from_env())),
+        "ollama" | "local" => Ok(Arc::new(OllamaModel::from_env()?)),
         "gemini" => Ok(Arc::new(GeminiInteractionsModel::from_env()?)),
         "openai" | "chatgpt" => Ok(Arc::new(OpenAiResponsesModel::from_env()?)),
         "anthropic" | "claude" => Ok(Arc::new(AnthropicMessagesModel::from_env()?)),
@@ -862,7 +859,7 @@ fn build_provider(name: &str) -> Result<Arc<dyn Model>, ModelError> {
                 base_url,
                 secret_from_env("LLM_API_KEY").ok(),
                 model,
-            )))
+            )?))
         }
         other => Err(ModelError::Transport(format!(
             "unknown LLM provider '{other}'"
