@@ -1,20 +1,16 @@
 [package]
 name = "company-store"
-version = "0.2.0"
+version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 agent-runtime = { path = "../agent-runtime" }
-async-trait = "0.1"
-company-execution = { path = "../company-execution" }
-company-organization = { path = "../company-organization" }
-affiliate-attribution = { path = "../affiliate-attribution" }
+affiliate-intelligence = { path = "../affiliate-intelligence" }
+company-domain = { path = "../company-domain" }
 media-pipeline = { path = "../media-pipeline" }
-economic-core = { path = "../economic-core" }
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
+affiliate-attribution = { path = "../affiliate-attribution" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
 tokio-postgres = { version = "0.7", features = ["with-serde_json-1", "with-uuid-1"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
-time = { version = "0.3", features = ["parsing", "formatting"] }
 uuid = { version = "1", features = ["v4"] }

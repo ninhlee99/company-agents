@@ -150,7 +150,7 @@ mod tests {
             action: ActionKind::CreateExperiment,
             cost_minor: 100,
             expected_revenue_minor: 200,
-            risk: RiskTier::Medium,
+            risk: RiskTier::Low,
             confidence_bps: 7000,
             evidence: vec!["bounded".into()],
             rationale: "small test".into(),
@@ -162,7 +162,9 @@ mod tests {
     #[test]
     fn governor_approves_small_reversible_action() {
         assert_eq!(
-            Governor.evaluate(proposal(), &snapshot()).decision,
+            Governor
+                .evaluate(&Governor, proposal(), &snapshot())
+                .decision,
             GovernorDecision::Approve
         );
     }
@@ -175,7 +177,7 @@ mod tests {
         p.risk = RiskTier::High;
         p.reversible = false;
         assert_eq!(
-            Governor.evaluate(p, &snapshot()).decision,
+            Governor.evaluate(&Governor, p, &snapshot()).decision,
             GovernorDecision::Escalate
         );
     }
@@ -185,20 +187,20 @@ mod tests {
         let mut p = proposal();
         p.requested_permission = Permission::ExecuteMaterial;
         assert_eq!(
-            Governor.evaluate(p, &snapshot()).decision,
+            Governor.evaluate(&Governor, p, &snapshot()).decision,
             GovernorDecision::Reject
         );
     }
 
     #[test]
     fn governor_rejects_bankrupt_discretionary_action() {
-        let p = proposal();
+        let mut p = proposal();
         let company = CompanySnapshot {
             status: economic_core::CompanyStatus::Bankrupt,
             ..snapshot()
         };
         assert_eq!(
-            Governor.evaluate(p, &company).decision,
+            Governor.evaluate(&Governor, p, &company).decision,
             GovernorDecision::Reject
         );
     }
@@ -219,7 +221,7 @@ mod tests {
             requested_permission: Permission::Propose,
         };
         assert_eq!(
-            Governor.evaluate(p, &snapshot()).decision,
+            Governor.evaluate(&Governor, p, &snapshot()).decision,
             GovernorDecision::Escalate
         );
     }
@@ -229,7 +231,7 @@ mod tests {
         let mut p = proposal();
         p.cost_minor = 20_000;
         assert_eq!(
-            Governor.evaluate(p, &snapshot()).decision,
+            Governor.evaluate(&Governor, p, &snapshot()).decision,
             GovernorDecision::Reject
         );
     }

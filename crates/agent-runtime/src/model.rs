@@ -3,7 +3,6 @@
 use async_trait::async_trait;
 use reqwest::{Client, StatusCode, Url};
 use serde_json::{json, Value};
-use uuid::Uuid;
 use std::{
     env,
     fmt,
@@ -162,10 +161,6 @@ fn bounded_provider_error(
     ModelError::Transport(format!("HTTP {status}: {text}"))
 }
 
-fn web_relay_request_id() -> String {
-    format!("llm-web:{}", Uuid::new_v4())
-}
-
 fn parse_json_text(value: &str) -> Result<Value, ModelError> {
     let trimmed = value.trim();
     let normalized = trimmed
@@ -244,8 +239,16 @@ impl OpenAiCompatibleModel {
         api_key: Option<String>,
         model: String,
     ) -> Result<Self, ModelError> {
-        let client =
-            build_client("company-agents-compatible/0.5", Duration::from_secs(30))?;
+        let client = build_client(
+            "company-agents-compatible/0.6",
+            Duration::from_secs(30),
+        )?;
+
+        let parsed = Url::parse(&base_url)
+            .map_err(|_| ModelError::MissingConfiguration)?;
+        if !matches!(parsed.scheme(), "https" | "http") {
+            return Err(ModelError::MissingConfiguration);
+        }
 
         Ok(Self {
             client,
@@ -285,6 +288,13 @@ impl Model for OpenAiCompatibleModel {
             .client
             .post(format!("{}/chat/completions", self.base_url))
             .json(&body);
+
+        if self
+            .base_url
+            .contains("generativelanguage.googleapis.com")
+        {
+            request = request.header("x-goog-api-client", "company-agents/0.6");
+        }
 
         if let Some(api_key) = self.api_key.as_deref().filter(|value| !value.is_empty()) {
             request = request.bearer_auth(api_key);
@@ -352,110 +362,6 @@ impl Model for OllamaModel {
     }
 }
 
-pub struct GeminiInteractionsModel {
-    client: Client,
-    api_key: String,
-    model: String,
-}
-
-impl GeminiInteractionsModel {
-    pub fn from_env() -> Result<Self, ModelError> {
-        Ok(Self {
-            client: build_client(
-                "company-agents-gemini/0.5",
-                DEFAULT_TIMEOUT,
-            )?,
-            api_key: secret_from_env("GEMINI_API_KEY")
-                .or_else(|_| secret_from_env("LLM_API_KEY"))?,
-            model: env::var("GEMINI_MODEL")
-                .unwrap_or_else(|_| "gemini-3.8-flash".into()),
-        })
-    }
-}
-
-#[async_trait]
-impl Model for GeminiInteractionsModel {
-    async fn propose_json(
-        &self,
-        system: &str,
-        user: &str,
-    ) -> Result<Value, ModelError> {
-        let body = json!({
-            "model": self.model,
-            "input": user,
-            "system_instruction": system,
-            "generation_config": {
-                "temperature": 0,
-                "max_output_tokens": 4096
-            },
-            "response_format": {
-                "type": "text",
-                "mime_type": "application/json"
-            }
-        });
-
-        let response = self
-            .client
-            .post("https://generativelanguage.googleapis.com/v1beta/interactions")
-            .header("x-goog-api-key", &self.api_key)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|error| ModelError::Transport(error.to_string()))?;
-
-        let status = response.status();
-        let raw = bounded_body(response).await?;
-
-        if !status.is_success() {
-            return Err(bounded_provider_error(
-                status,
-                &raw,
-                &[self.api_key.as_str()],
-            ));
-        }
-
-        let envelope: Value = serde_json::from_slice(&raw).map_err(|error| {
-            ModelError::InvalidResponse(format!(
-                "Gemini response is not JSON: {error}"
-            ))
-        })?;
-
-        let content = envelope
-            .get("output_text")
-            .and_then(Value::as_str)
-            .or_else(|| {
-                envelope
-                    .get("steps")
-                    .and_then(Value::as_array)
-                    .and_then(|steps| {
-                        steps.iter().rev().find_map(|step| {
-                            if step.get("type").and_then(Value::as_str)
-                                == Some("model_output")
-                            {
-                                step.get("content")
-                                    .and_then(Value::as_array)
-                                    .and_then(|items| {
-                                        items.iter().rev().find_map(|item| {
-                                            item.get("text")
-                                                .and_then(Value::as_str)
-                                        })
-                                    })
-                            } else {
-                                None
-                            }
-                        })
-                    })
-            })
-            .ok_or_else(|| {
-                ModelError::InvalidResponse(
-                    "missing Gemini Interactions output".into(),
-                )
-            })?;
-
-        parse_json_text(content)
-    }
-}
-
 pub struct OpenAiResponsesModel {
     client: Client,
     api_key: String,
@@ -471,7 +377,7 @@ impl OpenAiResponsesModel {
             )?,
             api_key: secret_from_env("OPENAI_API_KEY")
                 .or_else(|_| secret_from_env("LLM_API_KEY"))?,
-            model: env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-5".into()),
+            model: env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.6-luna".into()),
         })
     }
 }
@@ -667,21 +573,25 @@ impl WebRelayModel {
 
         validate_web_relay_url(&url)?;
 
-        let configured_backend_raw = env::var("LLM_WEB_RELAY_BACKEND")
+        let configured_backend = env::var("LLM_WEB_RELAY_BACKEND")
             .ok()
-            .filter(|value| !value.trim().is_empty());
-        let configured_backend = configured_backend_raw
-            .as_deref()
-            .and_then(WebBackend::parse);
-
-        if configured_backend_raw.is_some() && configured_backend.is_none() {
-            return Err(ModelError::MissingConfiguration);
-        }
+            .filter(|value| !value.trim().is_empty())
+            .and_then(|value| WebBackend::parse(&value));
 
         let backend = match default_backend {
             Some(forced) => forced,
             None => configured_backend.unwrap_or(WebBackend::Gemini),
         };
+
+        if configured_backend.is_none()
+            && env::var("LLM_WEB_RELAY_BACKEND")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .is_some()
+            && default_backend.is_none()
+        {
+            return Err(ModelError::MissingConfiguration);
+        }
 
         Ok(Self {
             client: build_client(
@@ -704,7 +614,6 @@ impl Model for WebRelayModel {
         system: &str,
         user: &str,
     ) -> Result<Value, ModelError> {
-        let request_id = web_relay_request_id();
         let body = json!({
             "protocol_version": 1,
             "backend": self.backend.as_str(),
@@ -712,8 +621,7 @@ impl Model for WebRelayModel {
             "system": system,
             "user": user,
             "response_format": "json_object",
-            "allow_tools": false,
-            "idempotency_key": request_id
+            "allow_tools": false
         });
 
         let encoded = serde_json::to_vec(&body)
@@ -724,39 +632,14 @@ impl Model for WebRelayModel {
             ));
         }
 
-        let mut response = None;
-        for attempt in 0..3_u32 {
-            let candidate = self
-                .client
-                .post(&self.url)
-                .bearer_auth(&self.token)
-                .json(&body)
-                .send()
-                .await
-                .map_err(|error| ModelError::Transport(error.to_string()))?;
-            if (candidate.status() == StatusCode::TOO_MANY_REQUESTS
-                || candidate.status().is_server_error())
-                && attempt < 2
-            {
-                let retry_after_ms = candidate
-                    .headers()
-                    .get("retry-after")
-                    .and_then(|value| value.to_str().ok())
-                    .and_then(|value| value.parse::<u64>().ok())
-                    .map(|seconds| seconds.saturating_mul(1_000))
-                    .unwrap_or(250 * (1_u64 << attempt));
-                tokio::time::sleep(Duration::from_millis(
-                    retry_after_ms.clamp(100, 5_000),
-                ))
-                .await;
-                continue;
-            }
-            response = Some(candidate);
-            break;
-        }
-        let response = response.ok_or_else(|| {
-            ModelError::Transport("web relay retry loop exhausted".into())
-        })?;
+        let response = self
+            .client
+            .post(&self.url)
+            .bearer_auth(&self.token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|error| ModelError::Transport(error.to_string()))?;
 
         let status = response.status();
         let raw = bounded_body(response).await?;
@@ -834,16 +717,20 @@ fn build_provider(name: &str) -> Result<Arc<dyn Model>, ModelError> {
     match name.trim().to_ascii_lowercase().as_str() {
         "mock" => Ok(Arc::new(MockModel)),
         "ollama" | "local" => Ok(Arc::new(OllamaModel::from_env()?)),
-        "gemini" => Ok(Arc::new(GeminiInteractionsModel::from_env()?)),
+        "gemini" => {
+            let api_key = secret_from_env("GEMINI_API_KEY")
+                .or_else(|_| secret_from_env("LLM_API_KEY"))?;
+            let model =
+                env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.8-flash".into());
+            Ok(Arc::new(OpenAiCompatibleModel::new(
+                "https://generativelanguage.googleapis.com/v1beta/openai/".into(),
+                Some(api_key),
+                model,
+            )?))
+        },
         "openai" | "chatgpt" => Ok(Arc::new(OpenAiResponsesModel::from_env()?)),
         "anthropic" | "claude" => Ok(Arc::new(AnthropicMessagesModel::from_env()?)),
         "web" | "web-relay" => Ok(Arc::new(WebRelayModel::from_env()?)),
-        "chatgpt-subscription" | "chatgpt-cli" => Ok(Arc::new(
-            WebRelayModel::from_env_with_backend(Some(WebBackend::ChatGpt))?
-        )),
-        "claude-subscription" | "claude-code" => Ok(Arc::new(
-            WebRelayModel::from_env_with_backend(Some(WebBackend::Claude))?
-        )),
         "gemini-web" => Ok(Arc::new(
             WebRelayModel::from_env_with_backend(Some(WebBackend::Gemini))?
         )),
@@ -940,15 +827,6 @@ mod tests {
     }
 
     #[test]
-    fn provider_aliases_cover_subscription_and_web_routes() {
-        assert_eq!(WebBackend::parse("chatgpt-subscription"), None);
-        assert_eq!(WebBackend::parse("chatgpt-web"), Some(WebBackend::ChatGpt));
-        assert_eq!(WebBackend::parse("claude-subscription"), None);
-        assert_eq!(WebBackend::parse("claude-web"), Some(WebBackend::Claude));
-        assert_eq!(WebBackend::parse("gemini-web"), Some(WebBackend::Gemini));
-    }
-
-    #[test]
     fn web_relay_url_requires_tls_unless_loopback_or_allowlisted() {
         assert!(validate_web_relay_url(
             "https://relay.example.internal/v1/generate"
@@ -962,15 +840,6 @@ mod tests {
             "http://relay.example.internal/v1/generate"
         )
         .is_err());
-    }
-
-    #[test]
-    fn web_relay_request_ids_are_unique() {
-        let a = web_relay_request_id();
-        let b = web_relay_request_id();
-        assert_ne!(a, b);
-        assert!(a.starts_with("llm-web:"));
-        assert!(b.starts_with("llm-web:"));
     }
 
     #[test]

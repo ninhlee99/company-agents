@@ -1,103 +1,68 @@
+#![forbid(unsafe_code)]
+
 use company_store::CompanyStore;
-use media_pipeline::{FfmpegExecutor, MediaExecutor, MediaJob, MediaQaPolicy};
-use std::{sync::Arc, time::Duration};
+use media_pipeline::{FfmpegRunner, MediaExecutor};
+use std::{env, sync::Arc, time::Duration};
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let database_url = std::env::var("DATABASE_URL")?;
-    let company_id = std::env::var("COMPANY_ID")?;
-    let poll_seconds = std::env::var("MEDIA_WORKER_POLL_SECONDS")
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let database_url = env::var("DATABASE_URL")?;
+    let company_id = env::var("COMPANY_ID")?;
+    let poll_seconds = env::var("MEDIA_WORKER_POLL_SECONDS")
         .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .map(|v| v.max(1))
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| (1..=300).contains(value))
         .unwrap_or(5);
+
+    let ffmpeg_bin = env::var("FFMPEG_BIN").unwrap_or_else(|_| "ffmpeg".into());
+    let timeout_seconds = env::var("FFMPEG_TIMEOUT_SECONDS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| (1..=86_400).contains(value))
+        .unwrap_or(900);
 
     let store = Arc::new(CompanyStore::connect(&database_url).await?);
     store.migrate().await?;
-    let executor = Arc::new(FfmpegExecutor::from_env()?);
+    let runner = Arc::new(FfmpegRunner::new(
+        ffmpeg_bin,
+        Duration::from_secs(timeout_seconds),
+    ));
 
     let mut ticker = tokio::time::interval(Duration::from_secs(poll_seconds));
     loop {
         ticker.tick().await;
+
         let Some(job) = store.claim_media_job(&company_id).await? else {
             continue;
         };
 
-        let worker = executor.clone();
-        let result = tokio::task::spawn_blocking(move || worker.execute(&job)).await;
+        let worker = Arc::clone(&runner);
+        let job_for_execution = job.clone();
+        let job_id = job.id.clone();
+
+        let result = tokio::task::spawn_blocking(move || {
+            worker.execute(&job_for_execution)
+        })
+        .await;
+
         match result {
             Ok(Ok(())) => {
-                let probe = executor.probe(&job.output_path);
-                match probe {
-                    Ok(probe) => {
-                        let policy = media_policy(&job);
-                        let qa = media_pipeline::qa(&probe, &policy);
-                        if qa.passed {
-                            store.finish_media_job(&job.id, "SUCCEEDED", None).await?;
-                        } else {
-                            let reason = qa.failures.join("; ");
-                            store
-                                .finish_media_job(&job.id, "QA_FAILED", Some(&reason))
-                                .await?;
-                        }
-                    }
-                    Err(error) => {
-                        store
-                            .finish_media_job(&job.id, "QA_FAILED", Some(&error.to_string()))
-                            .await?;
-                    }
-                }
+                store.finish_media_job(&job_id, "SUCCEEDED", None).await?;
             }
             Ok(Err(error)) => {
                 store
-                    .finish_media_job(&job.id, "FAILED", Some(&error.to_string()))
+                    .finish_media_job(&job_id, "FAILED", Some(&error.to_string()))
                     .await?;
             }
-            Err(join_error) => {
+            Err(error) => {
                 store
                     .finish_media_job(
-                        &job.id,
+                        &job_id,
                         "FAILED",
-                        Some(&format!("worker task failed: {join_error}")),
+                        Some(&format!("media worker task failed: {error}")),
                     )
                     .await?;
             }
         }
-    }
-}
-
-fn media_policy(job: &MediaJob) -> MediaQaPolicy {
-    let max_file_size_bytes = std::env::var("MEDIA_MAX_FILE_SIZE_BYTES")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(50 * 1024 * 1024);
-    let min_duration_millis = std::env::var("MEDIA_MIN_DURATION_MS")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(1_000);
-    let configured_max = std::env::var("MEDIA_MAX_DURATION_MS")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(job.max_duration_seconds as u64 * 1_000);
-    let max_duration_millis = configured_max.min(job.max_duration_seconds as u64 * 1_000);
-    let allowed_codecs = std::env::var("MEDIA_ALLOWED_CODECS")
-        .unwrap_or_else(|_| "h264,vp9".into())
-        .split(',')
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .take(16)
-        .map(ToOwned::to_owned)
-        .collect();
-    let require_audio = std::env::var("MEDIA_REQUIRE_AUDIO")
-        .ok()
-        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-        .unwrap_or(false);
-
-    MediaQaPolicy {
-        max_file_size_bytes,
-        min_duration_millis,
-        max_duration_millis,
-        allowed_codecs,
-        require_audio,
     }
 }
