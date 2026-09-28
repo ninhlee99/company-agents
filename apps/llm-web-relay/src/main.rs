@@ -206,6 +206,7 @@ async fn generate(
     authorize(&headers, &state.api_token)?;
     validate_request(&request)?;
 
+    let request_hash = request_hash(&request);
     let idempotency_key = request
         .idempotency_key
         .unwrap_or_else(|| format!("web-relay:{}", Uuid::new_v4()));
@@ -215,7 +216,7 @@ async fn generate(
         let client = state.db.lock().await;
         if let Some(row) = client
             .query_opt(
-                "SELECT id, status, output_json, expires_at <= now()
+                "SELECT id, status, output_json, expires_at <= now(), request_hash
                    FROM llm_web_relay_jobs
                   WHERE idempotency_key = $1",
                 &[&idempotency_key],
@@ -227,7 +228,12 @@ async fn generate(
             let status: String = row.get(1);
             let output: Option<String> = row.get(2);
             let expired: bool = row.get(3);
+            let stored_hash: Option<String> = row.get(4);
             drop(client);
+
+            if stored_hash.as_deref() != Some(request_hash.as_str()) {
+                return Err(ApiError::Conflict);
+            }
 
             if status == "SUCCEEDED" {
                 return Ok(Json(GenerateResponse {
