@@ -17,6 +17,7 @@ services:
     restart: unless-stopped
 
   ollama:
+    profiles: ["local-llm"]
     image: ollama/ollama:latest
     ports:
       - "127.0.0.1:11434:11434"
@@ -30,6 +31,7 @@ services:
     restart: unless-stopped
 
   ollama-init:
+    profiles: ["local-llm"]
     image: ollama/ollama:latest
     environment:
       OLLAMA_HOST: http://ollama:11434
@@ -104,10 +106,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ollama:
-        condition: service_healthy
-      ollama-init:
-        condition: service_completed_successfully
     restart: unless-stopped
 
   llm-web-relay:
