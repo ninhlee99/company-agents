@@ -15,6 +15,17 @@ pub struct CompanyStore {
     client: Mutex<Client>,
 }
 
+#[derive(Debug, Clone)]
+pub struct OutboxEvent {
+    pub id: i64,
+    pub company_id: String,
+    pub event_type: String,
+    pub aggregate_id: Option<String>,
+    pub schema_version: i32,
+    pub payload: serde_json::Value,
+    pub attempts: i32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PersistedCycle {
     pub snapshot: CompanySnapshot,
