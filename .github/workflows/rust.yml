@@ -9,9 +9,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Check Rust formatting
-        run: cargo fmt --all -- --check
+      - run: bash scripts/lint_infra.sh
+      - run: bash scripts/secret_hygiene.sh
       - run: bash scripts/verify.sh
+
+  package-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - economic-core
+          - agent-runtime
+          - company-execution
+          - affiliate-intelligence
+          - affiliate-attribution
+          - media-pipeline
+          - company-organization
+          - publishing-contract
+          - company-store
+          - company-simulator
+          - company-os
+          - media-worker
+          - llm-web-relay
+          - llm-web-worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test -p ${{ matrix.package }} -- --nocapture
 
   postgres-integration:
     runs-on: ubuntu-latest
@@ -35,3 +60,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test -p company-store -- --nocapture
+
+  browser-bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Python browser bridge
+        run: python -m compileall -q apps/llm-web-bridge
+      - name: Run offline browser bridge self-test
+        env:
+          LLM_WEB_BRIDGE_SELF_TEST: "1"
+        run: |
+          python -m pip install -r apps/llm-web-bridge/requirements.txt
+          python apps/llm-web-bridge/bridge.py

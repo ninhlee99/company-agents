@@ -9,6 +9,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::{env, sync::Arc, time::{Duration, Instant}};
 use tokio::sync::Mutex;
 use tokio_postgres::{Client, NoTls};
@@ -27,7 +28,6 @@ struct AppState {
     job_ttl: Duration,
     lease: Duration,
     max_attempts: i32,
-    retention: Duration,
 }
 
 #[derive(Debug, Deserialize)]
@@ -148,6 +148,19 @@ fn validate_backend(backend: &str) -> bool {
     matches!(backend, "gemini-web" | "chatgpt-web" | "claude-web")
 }
 
+fn request_hash(request: &GenerateRequest) -> String {
+    let canonical = format!(
+        "{}\0{}\0{}\0{}\0{}\0{}",
+        request.backend,
+        request.model,
+        request.system,
+        request.user,
+        request.response_format,
+        request.allow_tools
+    );
+    format!("sha256:{:x}", Sha256::digest(canonical.as_bytes()))
+}
+
 fn validate_request(request: &GenerateRequest) -> Result<(), ApiError> {
     if request.protocol_version != 1
         || !validate_backend(request.backend.as_str())
@@ -193,6 +206,7 @@ async fn generate(
     authorize(&headers, &state.api_token)?;
     validate_request(&request)?;
 
+    let request_hash = request_hash(&request);
     let idempotency_key = request
         .idempotency_key
         .unwrap_or_else(|| format!("web-relay:{}", Uuid::new_v4()));
@@ -202,7 +216,7 @@ async fn generate(
         let client = state.db.lock().await;
         if let Some(row) = client
             .query_opt(
-                "SELECT id, status, output_json, expires_at <= now()
+                "SELECT id, status, output_json, expires_at <= now(), request_hash
                    FROM llm_web_relay_jobs
                   WHERE idempotency_key = $1",
                 &[&idempotency_key],
@@ -214,7 +228,12 @@ async fn generate(
             let status: String = row.get(1);
             let output: Option<String> = row.get(2);
             let expired: bool = row.get(3);
+            let stored_hash: Option<String> = row.get(4);
             drop(client);
+
+            if stored_hash.as_deref() != Some(request_hash.as_str()) {
+                return Err(ApiError::Conflict);
+            }
 
             if status == "SUCCEEDED" {
                 return Ok(Json(GenerateResponse {
@@ -234,14 +253,15 @@ async fn generate(
         let inserted = client
             .execute(
                 "INSERT INTO llm_web_relay_jobs
-                 (id, idempotency_key, backend, model, system_prompt, user_prompt,
+                 (id, idempotency_key, request_hash, backend, model, system_prompt, user_prompt,
                   response_format, allow_tools, status, attempt, max_attempts,
                   expires_at)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'QUEUED',0,$9,
-                         now() + ($10::double precision * interval '1 second'))",
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'QUEUED',0,$10,
+                         now() + ($11::double precision * interval '1 second'))",
                 &[
                     &job_id,
                     &idempotency_key,
+                    &request_hash,
                     &request.backend,
                     &request.model,
                     &request.system,
@@ -257,7 +277,7 @@ async fn generate(
         if inserted.is_err() {
             if let Some(row) = client
                 .query_opt(
-                    "SELECT id, status, output_json, expires_at <= now()
+                    "SELECT id, status, output_json, expires_at <= now(), request_hash
                        FROM llm_web_relay_jobs
                       WHERE idempotency_key = $1",
                     &[&idempotency_key],
@@ -269,6 +289,10 @@ async fn generate(
                 let status: String = row.get(1);
                 let output: Option<String> = row.get(2);
                 let expired: bool = row.get(3);
+                let stored_hash: Option<String> = row.get(4);
+                if stored_hash.as_deref() != Some(request_hash.as_str()) {
+                    return Err(ApiError::Conflict);
+                }
 
                 if status == "SUCCEEDED" {
                     return Ok(Json(GenerateResponse {
@@ -346,15 +370,6 @@ async fn claim(
     let tx = client.transaction().await.map_err(|_| ApiError::Internal)?;
 
     tx.execute(
-        "DELETE FROM llm_web_relay_jobs
-          WHERE status IN ('SUCCEEDED','FAILED','EXPIRED','CANCELLED')
-            AND updated_at < now() - ($1::double precision * interval '1 second')",
-        &[&state.retention.as_secs_f64()],
-    )
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    tx.execute(
         "UPDATE llm_web_relay_jobs
             SET status='EXPIRED', lease_token=NULL, locked_until=NULL,
                 error_message='job expired before completion'
@@ -396,6 +411,7 @@ async fn claim(
     let user: String = row.get(4);
     let response_format: String = row.get(5);
     let allow_tools: bool = row.get(6);
+    let attempt: i32 = row.get(7);
     let lease_token = Uuid::new_v4();
 
     let row = tx
@@ -605,10 +621,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let client = connect(&database_url).await?;
     client
+        .batch_execute(include_str!("../../../infra/db/migrations/001_economic_kernel.sql"))
+        .await?;
+    client
+        .batch_execute(include_str!("../../../infra/db/migrations/002_company_execution.sql"))
+        .await?;
+    client
+        .batch_execute(include_str!("../../../infra/db/migrations/003_agent_memory_and_rate_limits.sql"))
+        .await?;
+    client
+        .batch_execute(include_str!("../../../infra/db/migrations/004_affiliate_attribution.sql"))
+        .await?;
+    client
+        .batch_execute(include_str!("../../../infra/db/migrations/005_media_jobs.sql"))
+        .await?;
+    client
+        .batch_execute(include_str!("../../../infra/db/migrations/006_affiliate_reconciliation_state.sql"))
+        .await?;
+    client
+        .batch_execute(include_str!("../../../infra/db/migrations/007_organization_payroll.sql"))
+        .await?;
+    client
+        .batch_execute(include_str!("../../../infra/db/migrations/008_affiliate_revenue_accounting.sql"))
+        .await?;
+    client
+.batch_execute(include_str!("../../../infra/db/migrations/009_llm_web_relay.sql"))
+        .await?;
+    client
         .batch_execute(include_str!(
-            "../../../infra/db/migrations/011_llm_web_relay.sql"
+            "../../../infra/db/migrations/010_llm_relay_request_fingerprint.sql"
         ))
         .await?;
+
     drop(client);
 
     let state = AppState {
@@ -618,7 +662,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         wait_timeout: parse_duration_env("LLM_RELAY_WAIT_TIMEOUT_SECONDS", 55, 5, 90),
         job_ttl: parse_duration_env("LLM_RELAY_JOB_TTL_SECONDS", 120, 30, 900),
         lease: parse_duration_env("LLM_RELAY_LEASE_SECONDS", 60, 15, 300),
-        retention: parse_duration_env("LLM_RELAY_RETENTION_SECONDS", 3600, 300, 86_400),
         max_attempts: env::var("LLM_RELAY_MAX_ATTEMPTS")
             .ok()
             .and_then(|v| v.parse::<i32>().ok())
@@ -655,6 +698,24 @@ mod tests {
         assert!(validate_backend("chatgpt-web"));
         assert!(validate_backend("claude-web"));
         assert!(!validate_backend("openai"));
+    }
+
+    #[test]
+    fn request_fingerprint_changes_when_payload_changes() {
+        let mut first = GenerateRequest {
+            protocol_version: 1,
+            backend: "gemini-web".into(),
+            model: "web-session".into(),
+            system: "system".into(),
+            user: "hello".into(),
+            response_format: "json_object".into(),
+            allow_tools: false,
+            idempotency_key: Some("stable-key".into()),
+        };
+        let a = request_hash(&first);
+        first.user = "different".into();
+        let b = request_hash(&first);
+        assert_ne!(a, b);
     }
 
     #[test]

@@ -12,13 +12,12 @@ pub enum Tool {
     ProposeHire,
     ProduceReport,
     PublishContent,
-    EscalateIncident,
     SendExternalMessage,
     InitiatePayment,
 }
 
 impl Tool {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 12] = [
         Self::ReadCompany,
         Self::ReadMetrics,
         Self::ResearchOpportunity,
@@ -29,7 +28,6 @@ impl Tool {
         Self::ProposeHire,
         Self::ProduceReport,
         Self::PublishContent,
-        Self::EscalateIncident,
         Self::SendExternalMessage,
         Self::InitiatePayment,
     ];
@@ -38,28 +36,9 @@ impl Tool {
 pub struct ToolRegistry;
 
 impl ToolRegistry {
-    pub fn for_action(action: crate::types::ActionKind) -> Option<Tool> {
-        use crate::types::ActionKind;
-        Some(match action {
-            ActionKind::CreateExperiment => Tool::CreateExperiment,
-            ActionKind::AllocateExperimentBudget => Tool::AllocateExperimentBudget,
-            ActionKind::ReduceBudget => Tool::ReduceBudget,
-            ActionKind::RebalanceOperations => Tool::RebalanceOperations,
-            ActionKind::ResearchOpportunity => Tool::ResearchOpportunity,
-            ActionKind::PublishContent => Tool::PublishContent,
-            ActionKind::ProposeHire => Tool::ProposeHire,
-            ActionKind::ProduceReport => Tool::ProduceReport,
-            ActionKind::EscalateIncident => Tool::EscalateIncident,
-            ActionKind::None => return None,
-        })
-    }
-
     pub fn allowed(role: AgentRole, tool: Tool) -> bool {
         match role {
-            AgentRole::Governor => matches!(
-                tool,
-                Tool::ReadCompany | Tool::ReadMetrics | Tool::EscalateIncident
-            ),
+            AgentRole::Governor => matches!(tool, Tool::ReadCompany | Tool::ReadMetrics),
             AgentRole::CEO => matches!(
                 tool,
                 Tool::ReadCompany
@@ -68,15 +47,10 @@ impl ToolRegistry {
                     | Tool::AllocateExperimentBudget
                     | Tool::ReduceBudget
                     | Tool::ProduceReport
-                    | Tool::EscalateIncident
             ),
             AgentRole::CFO => matches!(
                 tool,
-                Tool::ReadCompany
-                    | Tool::ReadMetrics
-                    | Tool::ReduceBudget
-                    | Tool::ProduceReport
-                    | Tool::EscalateIncident
+                Tool::ReadCompany | Tool::ReadMetrics | Tool::ReduceBudget | Tool::ProduceReport
             ),
             AgentRole::COO => matches!(
                 tool,
@@ -84,7 +58,6 @@ impl ToolRegistry {
                     | Tool::ReadMetrics
                     | Tool::RebalanceOperations
                     | Tool::ProduceReport
-                    | Tool::EscalateIncident
             ),
             AgentRole::Growth => matches!(
                 tool,
@@ -93,7 +66,6 @@ impl ToolRegistry {
                     | Tool::ResearchOpportunity
                     | Tool::CreateExperiment
                     | Tool::ProduceReport
-                    | Tool::EscalateIncident
             ),
             AgentRole::Content => matches!(
                 tool,
@@ -103,22 +75,14 @@ impl ToolRegistry {
                     | Tool::CreateExperiment
                     | Tool::PublishContent
                     | Tool::ProduceReport
-                    | Tool::EscalateIncident
             ),
             AgentRole::Recruiter => matches!(
                 tool,
-                Tool::ReadCompany
-                    | Tool::ReadMetrics
-                    | Tool::ProposeHire
-                    | Tool::ProduceReport
-                    | Tool::EscalateIncident
+                Tool::ReadCompany | Tool::ReadMetrics | Tool::ProposeHire | Tool::ProduceReport
             ),
             AgentRole::Analyst => matches!(
                 tool,
-                Tool::ReadCompany
-                    | Tool::ReadMetrics
-                    | Tool::ProduceReport
-                    | Tool::EscalateIncident
+                Tool::ReadCompany | Tool::ReadMetrics | Tool::ProduceReport
             ),
             AgentRole::Experiment => matches!(
                 tool,
@@ -127,7 +91,6 @@ impl ToolRegistry {
                     | Tool::ResearchOpportunity
                     | Tool::CreateExperiment
                     | Tool::ProduceReport
-                    | Tool::EscalateIncident
             ),
         }
     }
@@ -143,24 +106,6 @@ mod tests {
             assert!(!ToolRegistry::allowed(role, Tool::InitiatePayment));
             assert!(!ToolRegistry::allowed(role, Tool::SendExternalMessage));
         }
-    }
-
-    #[test]
-    fn action_tool_bindings_exist_for_executable_actions() {
-        for action in [
-            ActionKind::CreateExperiment,
-            ActionKind::AllocateExperimentBudget,
-            ActionKind::ReduceBudget,
-            ActionKind::RebalanceOperations,
-            ActionKind::ResearchOpportunity,
-            ActionKind::PublishContent,
-            ActionKind::ProposeHire,
-            ActionKind::ProduceReport,
-            ActionKind::EscalateIncident,
-        ] {
-            assert!(ToolRegistry::for_action(action).is_some());
-        }
-        assert!(ToolRegistry::for_action(ActionKind::None).is_none());
     }
 
     #[test]

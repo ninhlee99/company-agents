@@ -2,15 +2,19 @@
 resolver = "2"
 members = [
   "apps/company-os",
+  "apps/media-worker",
   "crates/economic-core",
   "crates/agent-runtime",
   "crates/company-simulator",
   "crates/company-store",
   "crates/company-domain",
+  "crates/company-execution",
   "crates/affiliate-intelligence",
   "crates/affiliate-attribution",
   "crates/media-pipeline",
+  "crates/company-organization",
+  "crates/publishing-contract",
   "crates/social-publishing",
   "apps/llm-web-relay",
-  "apps/media-worker"
+  "apps/llm-web-worker"
 ]
