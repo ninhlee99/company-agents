@@ -43,6 +43,26 @@ impl AgentRuntime {
         self.run_all_with_state(company, None).await
     }
 
+    fn default_timeout_ms() -> u64 {
+        let provider = std::env::var("LLM_PROVIDER").unwrap_or_default();
+        if matches!(
+            provider.to_ascii_lowercase().as_str(),
+            "web"
+                | "web-relay"
+                | "gemini-web"
+                | "chatgpt-web"
+                | "claude-web"
+                | "chatgpt-subscription"
+                | "chatgpt-cli"
+                | "claude-subscription"
+                | "claude-code"
+        ) {
+            90_000
+        } else {
+            15_000
+        }
+    }
+
     pub async fn run_all_with_state(
         &self,
         company: CompanySnapshot,
@@ -52,7 +72,7 @@ impl AgentRuntime {
             .ok()
             .and_then(|value| value.parse::<u64>().ok())
             .filter(|value| (250..=120_000).contains(value))
-            .unwrap_or(15_000);
+            .unwrap_or_else(Self::default_timeout_ms);
 
         self.run_roles_with_state(
             company,
