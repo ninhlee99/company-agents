@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Tests
+        run: cargo test --workspace
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  infrastructure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: |
+          bash -n scripts/verify.sh
+          bash -n scripts/check_migrations.sh
+          bash -n scripts/check_secret_hygiene.sh
+          bash -n scripts/postgres_backup_restore_drill.sh
+      - name: Migration lint
+        run: bash scripts/check_migrations.sh
+      - name: Secret hygiene
+        run: bash scripts/check_secret_hygiene.sh
+      - name: Python bridge contract
+        run: |
+          if [ -f apps/llm-web-bridge/bridge.py ]; then
+            python3 -m py_compile apps/llm-web-bridge/bridge.py
+          fi
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production images
+        run: docker build --target company-runtime -t company-os:ci .
+      - name: Build worker images
+        run: |
+          docker build --target media-runtime -t media-worker:ci .
+          docker build --target outbox-worker-runtime -t outbox-worker:ci .
