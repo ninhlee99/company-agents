@@ -17,6 +17,7 @@ Implemented in this baseline:
 - persisted state transitions
 - idempotent cycle and ledger commands
 - lease-based scheduler recovery
+- durable outbox dispatcher with leased delivery, bounded retries and HMAC-signed webhook delivery
 
 Still required for full production acceptance:
 - automated backup/restore drill
@@ -38,7 +39,7 @@ Remaining before Phase 2 acceptance:
 - multi-run statistical evaluation with confidence intervals
 
 ## Phase 3 — Agent Harness
-**Status: safety-focused runtime + execution-bound tooling + durable scheduler/journal implemented**
+**Status: safety-focused runtime + execution-bound tooling + durable scheduler/journal/outbox dispatch implemented**
 - typed Agent contract
 - local Ollama + Gemini/OpenAI-compatible model adapters
 - bounded concurrent Agent Runtime
@@ -51,7 +52,7 @@ Remaining before Phase 2 acceptance:
 - stress/adversarial/randomized tests
 
 Remaining before Phase 3 acceptance:
-- distributed tracing/metrics
+- distributed tracing across workers
 - secret-rotation operations
 
 ## Phase 4 — Agents
