@@ -1,80 +1,62 @@
 # Implementation Plan
 
 ## Phase 1 — Economic Kernel
-**Status: core + durable execution implemented; production acceptance pending operational drills**
-
-Implemented:
+**Status: implemented baseline + durable execution layer**
 - Rust deterministic economic core
 - immutable double-entry ledger validation
 - company state, runway and budget guards
-- checked/saturating arithmetic and overflow rejection
-- PostgreSQL ledger, budgets, idempotency, outbox and audit schema
-- deferred database-side ledger completeness/balance checks
-- transactional, idempotent ledger posting
-- transactional decision-cycle persistence
-- persisted state revisioning
-- economic delta → ledger reconciliation
-- restart recovery for stale control-plane records
+- checked arithmetic / overflow protection
+- PostgreSQL schema with ledger, budget, idempotency, outbox and audit tables
+- database-side ledger balance/dependency checks
 - bankruptcy/liquidation spending guards
-- invariant and adversarial tests
+- invariant tests
 
-Remaining:
-- automated backup/restore verification
-- live load/concurrency test against PostgreSQL
-- production secret manager integration
-- operational alerting/SLOs
+Implemented in this baseline:
+- transactional repository/service layer
+- atomic Company cycle + execution + journal/outbox persistence
+- persisted state transitions
+- idempotent cycle and ledger commands
+- lease-based scheduler recovery
+
+Still required for full production acceptance:
+- automated backup/restore drill
+- disaster recovery rehearsal
 
 ## Phase 2 — Simulator
-**Status: deterministic simulator + execution integration + Monte Carlo implemented**
-
-Implemented:
+**Status: deterministic simulator with shared production execution path implemented**
 - seeded/replayable company world
 - daily revenue/cost/cash model
 - content, affiliate and sponsor signals
-- Agent Runtime + Governor + Execution Engine inside simulation
-- bankruptcy/cash-shock scenarios
-- deterministic replay
-- Monte Carlo summary across bounded trials
+- Agent Runtime + Governor inside simulation
+- bankruptcy/cash shock scenarios
+- deterministic simulation tests
 
-Remaining:
+Remaining before Phase 2 acceptance:
 - richer creator/business-unit economics
 - payroll/contract liabilities
-- calibrated real-world distributions
-- attribution-based revenue curves
-- long-horizon portfolio simulation
+- traffic/campaign distributions calibrated from real observations
+- multi-run statistical evaluation with confidence intervals
 
 ## Phase 3 — Agent Harness
-**Status: governed execution implemented; durable operations mostly implemented**
-
-Implemented:
+**Status: safety-focused runtime + execution-bound tooling + durable scheduler/journal implemented**
 - typed Agent contract
 - local Ollama + Gemini/OpenAI-compatible model adapters
 - bounded concurrent Agent Runtime
-- model timeout and response limits
+- model timeout
 - fail-closed model error handling
 - per-Agent action capability matrix
 - context-aware action envelope
 - proposal validation
-- execution-bound least-privilege Tool Registry
-- deterministic Execution Engine with re-govern before each action
-- persistent decision journal
-- durable idempotency
-- transactional outbox
-- restart recovery of stale cycles
-- idempotent API cycle execution
+- least-privilege Tool Registry
+- stress/adversarial/randomized tests
 
-Remaining:
-- per-Agent persistent budget/rate-limit ledgers
-- distributed scheduler/lease semantics
-- OpenTelemetry tracing
-- durable Agent memory/knowledge store
-- outbox worker with delivery/retry policy
+Remaining before Phase 3 acceptance:
+- distributed tracing/metrics
+- secret-rotation operations
 
 ## Phase 4 — Agents
-**Status: operating Agents implemented and adversarially tested**
-
-Implemented:
-- Governor
+**Status: operating Agents implemented and safety-tested**
+- Governor policy engine
 - CEO
 - CFO
 - COO
@@ -83,83 +65,39 @@ Implemented:
 - Recruiter
 - Analyst
 - Experiment
-- deterministic baseline policies
-- bounded LLM reasoning layer
-- 720 capability/status firewall combinations
-- randomized snapshot tests
-- multi-cycle stress tests
-- model outage/timeout containment
+
+Every operating Agent has:
+- role prompt
+- deterministic baseline policy
+- bounded model suggestion layer
+- typed proposal validation
+- Governor review
+- model-outage and timeout fail-closed behavior
+- scenario and adversarial tests
 
 ## Phase 5 — Media Factory
-**Status: foundation not yet implemented**
-
-Target:
-Research → planning → scripting → production → media QA → publishing → analytics → attribution.
+**Status: production pipeline foundation implemented**
+Research → planning → scripting → production → QA → publishing → analytics → attribution remains the operating flow. Durable media jobs, sandboxed FFmpeg execution, FFprobe inspection and post-render QA are now implemented; bounded publishing adapters remain gated.
 
 ## Phase 6 — Monetization
-**Status: affiliate intelligence + attribution implemented; broader monetization pending**
-
-Implemented:
-- provider-neutral affiliate product model
-- category/keyword/currency/commission/price/stock/quality filters
-- coupon validation and expiry handling
-- product quality scoring with confidence
-- commercial scoring and expected contribution estimate
-- GTIN/product deduplication
-- deterministic ranking
-- provider outage isolation when at least one provider succeeds
-- Awin CSV product-feed adapter
-- Awin promotion/coupon feed adapter
-- TikTok Shop open-collaboration search adapter with pagination
-- durable affiliate research records
-- Company OS affiliate search APIs
-
-External authorization remains required. Awin/TikTok data is never invented when the provider has not supplied it.
-
-Remaining:
-- verified payout/revenue ingestion
-- click/conversion tracking
-- sponsorship CRM
-- service proposal/invoicing
-- verified payout/revenue ingestion
+**Status: affiliate discovery + attribution implemented; monetization expansion next**
+Affiliate product discovery, deterministic ranking, coupon validation, Awin feed/commission adapters, click/conversion attribution and content-level performance are implemented. Sponsorship CRM, service proposals, invoicing and verified revenue ingestion remain next.
 
 ## Phase 7 — Human Organization
-**Status: planned**
-
-Target:
-employees, payroll abstractions, contractors, hiring workflow, performance review, termination.
+**Status: governance primitives implemented; HR economics next**
+Hiring proposals and governance exist; payroll, contractor liabilities and performance economics remain next.
 
 ## Phase 8 — Controlled Autonomy
-**Status: partially prepared, not enabled for material external side effects**
-
-Current:
-- shadow/advisory LLM reasoning
-- Governor escalation for material/irreversible actions
-- internal bounded execution
-
-Not yet enabled:
-- autonomous publishing
-- autonomous external messaging
-- autonomous payments
-- autonomous hiring
-- unrestricted capital allocation
+**Status: controlled runtime implemented; autonomy expansion gated**
+The system currently supports proposal → Governor → bounded execution for safe actions. External/material side effects remain explicitly gated.
 
 ## Phase 9 — Portfolio Company
 **Status: planned**
-
-Target:
-multiple creators/business units, independent P&L, capital allocation, reinvestment and shutdown/restructuring.
+Multiple creators/business units, capital allocation and automated shutdown/reinvestment.
 
 ## Phase 10 — Self-sustaining operation
 **Status: planned**
-
-Target:
-continuous economic loop with verified revenue attribution, payroll, reinvestment, hiring, portfolio management and orderly liquidation/bankruptcy.
+Recurring autonomous operating cycles with human oversight focused on governance, exceptions and strategic review.
 
 ## Release rule
-Do not advance a phase until its predecessor passes unit → contract → scenario → adversarial → economic → security → load → recovery → chaos gates.
-
-
-## Engineering rule
-
-All generated LLM text remains untrusted data. Money, permissions, approvals, state transitions, external side effects, and durable accounting are owned by deterministic Rust code and transactional persistence.
+Do not advance a phase until its previous phase passes tests and operational acceptance criteria.
