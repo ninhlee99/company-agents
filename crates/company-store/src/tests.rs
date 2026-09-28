@@ -144,6 +144,37 @@ async fn approved_experiment_changes_persisted_company_state() {
 }
 
 #[tokio::test]
+async fn cycle_persists_last_decision_memory_atomically() {
+    let Some(store) = connect_store().await else {
+        return;
+    };
+
+    let company_id = uuid::Uuid::new_v4().to_string();
+    store
+        .ensure_company(&company_id, "Memory Test", "USD")
+        .await
+        .unwrap();
+
+    let initial = snapshot(&company_id);
+    let result = report_result();
+
+    store
+        .persist_and_execute_cycle_with_id(&initial, &[result], "memory-cycle")
+        .await
+        .unwrap();
+
+    let memory = store.load_agent_memory(
+        &company_id,
+        AgentRole::Analyst,
+        20,
+    ).await.unwrap();
+
+    assert_eq!(memory.len(), 1);
+    assert_eq!(memory[0].key, "last_decision");
+    assert_eq!(memory[0].value["action"], "ProduceReport");
+}
+
+#[tokio::test]
 async fn cost_control_status_uses_canonical_database_value() {
     let Some(store) = connect_store().await else {
         return;
