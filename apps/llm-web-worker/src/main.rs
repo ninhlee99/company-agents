@@ -100,6 +100,52 @@ fn validate_job(job: &WorkerJob) -> Result<(), String> {
     Ok(())
 }
 
+fn cli_model(env_name: &str, requested: &str) -> Option<String> {
+    if !requested.trim().is_empty() && requested.trim() != "web-session" {
+        return Some(requested.trim().to_owned());
+    }
+    env::var(env_name)
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+fn codex_args(job: &WorkerJob) -> Vec<String> {
+    let mut args = vec![
+        "exec".into(),
+        "--json".into(),
+        "--sandbox".into(),
+        "read-only".into(),
+    ];
+    if let Some(model) = cli_model("CODEX_MODEL", &job.model) {
+        args.extend(["--model".into(), model]);
+    }
+    args.push(format!(
+        "{}\n\nReturn exactly one JSON object and no prose. Do not use tools.\n\nUSER REQUEST:\n{}",
+        job.system, job.user
+    ));
+    args
+}
+
+fn claude_args(job: &WorkerJob) -> Vec<String> {
+    let mut args = vec![
+        "-p".into(),
+        job.user.clone(),
+        "--output-format".into(),
+        "json".into(),
+        "--max-turns".into(),
+        "1".into(),
+        "--permission-mode".into(),
+        "plan".into(),
+        "--system-prompt".into(),
+        job.system.clone(),
+    ];
+    if let Some(model) = cli_model("CLAUDE_MODEL", &job.model) {
+        args.extend(["--model".into(), model]);
+    }
+    args
+}
+
 async fn run_adapter(
     adapter_kind: &str,
     command_path: Option<&str>,
@@ -132,21 +178,9 @@ async fn run_adapter(
             if job.backend != "chatgpt-web" {
                 return Err("codex-chatgpt adapter only accepts chatgpt-web jobs".into());
             }
-            let prompt = format!(
-                "{}\n\nReturn exactly one JSON object and no prose. Do not use tools.\n\nUSER REQUEST:\n{}",
-                job.system, job.user
-            );
             (
                 env::var("CODEX_BIN").unwrap_or_else(|_| "codex".into()),
-                vec![
-                    "exec".into(),
-                    "--json".into(),
-                    "--sandbox".into(),
-                    "read-only".into(),
-                    "--model".into(),
-                    job.model.clone(),
-                    prompt,
-                ],
+                codex_args(job),
                 None,
             )
         }
@@ -156,20 +190,7 @@ async fn run_adapter(
             }
             (
                 env::var("CLAUDE_BIN").unwrap_or_else(|_| "claude".into()),
-                vec![
-                    "-p".into(),
-                    job.user.clone(),
-                    "--output-format".into(),
-                    "json".into(),
-                    "--max-turns".into(),
-                    "1".into(),
-                    "--permission-mode".into(),
-                    "plan".into(),
-                    "--system-prompt".into(),
-                    job.system.clone(),
-                    "--model".into(),
-                    job.model.clone(),
-                ],
+                claude_args(job),
                 None,
             )
         }
@@ -442,6 +463,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn web_session_model_delegates_to_cli_default() {
+        let job = WorkerJob {
+            job_id: Uuid::nil(),
+            protocol_version: 1,
+            backend: "chatgpt-web".into(),
+            model: "web-session".into(),
+            system: "system".into(),
+            user: "user".into(),
+            response_format: "json_object".into(),
+            allow_tools: false,
+            attempt: 1,
+            lease_token: Uuid::nil(),
+            lease_expires_in_ms: 10_000,
+            expires_in_ms: 10_000,
+        };
+        let args = codex_args(&job);
+        assert!(!args.contains(&"--model".to_owned()));
+        let claude_job = WorkerJob { backend: "claude-web".into(), ..job };
+        let args = claude_args(&claude_job);
+        assert!(!args.contains(&"--model".to_owned()));
+    }
 
     #[test]
     fn backend_restrictions_are_enforced() {
