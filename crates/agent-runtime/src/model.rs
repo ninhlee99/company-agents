@@ -466,20 +466,7 @@ impl WebRelayModel {
             env::var("LLM_WEB_RELAY_URL").map_err(|_| ModelError::MissingConfiguration)?;
         let token = secret_from_env("LLM_WEB_RELAY_TOKEN")
             .or_else(|_| secret_from_env("LLM_WEB_RELAY_SECRET"))?;
-        let parsed = reqwest::Url::parse(&url).map_err(|_| ModelError::MissingConfiguration)?;
-        let host = parsed.host_str().unwrap_or_default();
-        if parsed.scheme() != "https" {
-            let allowed_hosts = env::var("LLM_WEB_RELAY_ALLOW_HTTP_HOSTS")
-                .unwrap_or_default()
-                .split(',')
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .collect::<Vec<_>>();
-            let loopback = matches!(host, "127.0.0.1" | "localhost" | "::1");
-            if !loopback && !allowed_hosts.iter().any(|allowed| *allowed == host) {
-                return Err(ModelError::MissingConfiguration);
-            }
-        }
+        validate_web_relay_url(&url)?;
 
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(60))
@@ -553,6 +540,47 @@ impl Model for WebRelayModel {
     }
 }
 
+
+fn validate_web_relay_url(value: &str) -> Result<(), ModelError> {
+    let parsed = reqwest::Url::parse(value)
+        .map_err(|_| ModelError::MissingConfiguration)?;
+    let host = parsed.host_str().unwrap_or_default();
+
+    if parsed.scheme() == "https"
+        || matches!(host, "127.0.0.1" | "localhost" | "::1")
+    {
+        return Ok(());
+    }
+
+    let allowed_hosts = env::var("LLM_WEB_RELAY_ALLOW_HTTP_HOSTS")
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    if parsed.scheme() == "http" && allowed_hosts.any(|allowed| allowed == host) {
+        Ok(())
+    } else {
+        Err(ModelError::MissingConfiguration)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WebBackend {
+    Gemini,
+    ChatGpt,
+    Claude,
+}
+
+impl WebBackend {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Gemini => "gemini-web",
+            Self::ChatGpt => "chatgpt-web",
+            Self::Claude => "claude-web",
+        }
+    }
+}
 
 pub struct GeminiInteractionsModel {
     client: reqwest::Client,
@@ -694,9 +722,9 @@ fn build_llm_provider(name: &str) -> Result<Arc<dyn Model>, ModelError> {
         "openai" | "chatgpt" => Ok(Arc::new(OpenAiResponsesModel::from_env()?)),
         "anthropic" | "claude" => Ok(Arc::new(AnthropicMessagesModel::from_env()?)),
         "web" | "web-relay" => Ok(Arc::new(WebRelayModel::from_env()?)),
-        "gemini-web" => Ok(Arc::new(WebRelayModel::from_env_with_backend(Some("gemini-web"))?)),
-        "chatgpt-web" => Ok(Arc::new(WebRelayModel::from_env_with_backend(Some("chatgpt-web"))?)),
-        "claude-web" => Ok(Arc::new(WebRelayModel::from_env_with_backend(Some("claude-web"))?)),
+        "gemini-web" => Ok(Arc::new(WebRelayModel::from_env_with_backend(Some(WebBackend::Gemini.as_str()))?)),
+        "chatgpt-web" => Ok(Arc::new(WebRelayModel::from_env_with_backend(Some(WebBackend::ChatGpt.as_str()))?)),
+        "claude-web" => Ok(Arc::new(WebRelayModel::from_env_with_backend(Some(WebBackend::Claude.as_str()))?)),
         "openai-compatible" => {
             let base_url =
                 env::var("LLM_BASE_URL").map_err(|_| ModelError::MissingConfiguration)?;
@@ -746,5 +774,80 @@ pub fn model_from_env() -> Box<dyn Model> {
         Err(error) => Box::new(FailClosedModel {
             reason: error.to_string(),
         }),
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn mock_model_is_available_without_external_services() {
+        let value = MockModel.propose_json("CEO", "{}").await.unwrap();
+        assert_eq!(value["confidence"], 0.5);
+    }
+
+    #[test]
+    fn web_backends_are_explicit_and_stable() {
+        assert_eq!(WebBackend::Gemini.as_str(), "gemini-web");
+        assert_eq!(WebBackend::ChatGpt.as_str(), "chatgpt-web");
+        assert_eq!(WebBackend::Claude.as_str(), "claude-web");
+    }
+
+    #[test]
+    fn web_relay_requires_tls_unless_loopback_or_explicit_allowlist() {
+        assert!(validate_web_relay_url("https://relay.example.com/v1/generate").is_ok());
+        assert!(validate_web_relay_url("http://127.0.0.1:9010/v1/generate").is_ok());
+        assert!(validate_web_relay_url("http://relay.example.com/v1/generate").is_err());
+    }
+
+    #[tokio::test]
+    async fn fallback_uses_the_first_healthy_provider() {
+        struct Bad;
+
+        #[async_trait]
+        impl Model for Bad {
+            async fn propose_json(&self, _: &str, _: &str) -> Result<Value, ModelError> {
+                Err(ModelError::Transport("down".into()))
+            }
+        }
+
+        struct Good;
+
+        #[async_trait]
+        impl Model for Good {
+            async fn propose_json(&self, _: &str, _: &str) -> Result<Value, ModelError> {
+                Ok(json!({"confidence": 0.9}))
+            }
+        }
+
+        let fallback = FallbackModel::new(vec![
+            ("bad".into(), Arc::new(Bad)),
+            ("good".into(), Arc::new(Good)),
+        ])
+        .unwrap();
+
+        let result = fallback.propose_json("x", "y").await.unwrap();
+        assert_eq!(result["confidence"], 0.9);
+        assert_eq!(fallback.provider_names(), vec!["bad", "good"]);
+    }
+
+    #[tokio::test]
+    async fn fallback_fails_closed_when_all_providers_fail() {
+        struct Bad;
+
+        #[async_trait]
+        impl Model for Bad {
+            async fn propose_json(&self, _: &str, _: &str) -> Result<Value, ModelError> {
+                Err(ModelError::InvalidResponse("bad".into()))
+            }
+        }
+
+        let fallback = FallbackModel::new(vec![("bad".into(), Arc::new(Bad))]).unwrap();
+        assert!(matches!(
+            fallback.propose_json("x", "y").await,
+            Err(ModelError::Transport(_))
+        ));
     }
 }
