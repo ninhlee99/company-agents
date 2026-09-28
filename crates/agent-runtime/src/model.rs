@@ -3,6 +3,8 @@
 use async_trait::async_trait;
 use reqwest::{Client, StatusCode, Url};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use uuid::Uuid;
 use std::{
     env,
     fmt,
@@ -159,6 +161,10 @@ fn bounded_provider_error(
     }
 
     ModelError::Transport(format!("HTTP {status}: {text}"))
+}
+
+fn web_relay_request_id() -> String {
+    format!("llm-web:{}", Uuid::new_v4())
 }
 
 fn parse_json_text(value: &str) -> Result<Value, ModelError> {
@@ -703,6 +709,7 @@ impl Model for WebRelayModel {
         system: &str,
         user: &str,
     ) -> Result<Value, ModelError> {
+        let request_id = web_relay_request_id();
         let body = json!({
             "protocol_version": 1,
             "backend": self.backend.as_str(),
@@ -710,7 +717,8 @@ impl Model for WebRelayModel {
             "system": system,
             "user": user,
             "response_format": "json_object",
-            "allow_tools": false
+            "allow_tools": false,
+            "idempotency_key": request_id
         });
 
         let encoded = serde_json::to_vec(&body)
@@ -959,6 +967,15 @@ mod tests {
             "http://relay.example.internal/v1/generate"
         )
         .is_err());
+    }
+
+    #[test]
+    fn web_relay_request_ids_are_unique() {
+        let a = web_relay_request_id();
+        let b = web_relay_request_id();
+        assert_ne!(a, b);
+        assert!(a.starts_with("llm-web:"));
+        assert!(b.starts_with("llm-web:"));
     }
 
     #[test]
