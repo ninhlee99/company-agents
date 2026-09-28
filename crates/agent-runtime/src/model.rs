@@ -937,6 +937,15 @@ mod tests {
     }
 
     #[test]
+    fn provider_aliases_cover_subscription_and_web_routes() {
+        assert_eq!(WebBackend::parse("chatgpt-subscription"), None);
+        assert_eq!(WebBackend::parse("chatgpt-web"), Some(WebBackend::ChatGpt));
+        assert_eq!(WebBackend::parse("claude-subscription"), None);
+        assert_eq!(WebBackend::parse("claude-web"), Some(WebBackend::Claude));
+        assert_eq!(WebBackend::parse("gemini-web"), Some(WebBackend::Gemini));
+    }
+
+    #[test]
     fn web_relay_url_requires_tls_unless_loopback_or_allowlisted() {
         assert!(validate_web_relay_url(
             "https://relay.example.internal/v1/generate"
