@@ -77,7 +77,8 @@ services:
       LLM_API_KEY_FILE: ${LLM_API_KEY_FILE:-}
       LLM_FALLBACKS: ${LLM_FALLBACKS:-}
       LLM_STRICT_CONFIG: ${LLM_STRICT_CONFIG:-true}
-      LLM_WEB_RELAY_URL: ${LLM_WEB_RELAY_URL:-}
+      LLM_WEB_RELAY_URL: ${LLM_WEB_RELAY_URL:-http://llm-web-relay:9010/v1/generate}
+      LLM_WEB_RELAY_ALLOW_HTTP_HOSTS: ${LLM_WEB_RELAY_ALLOW_HTTP_HOSTS:-llm-web-relay}
       LLM_WEB_RELAY_TOKEN: ${LLM_WEB_RELAY_TOKEN:-}
       LLM_WEB_RELAY_TOKEN_FILE: ${LLM_WEB_RELAY_TOKEN_FILE:-}
       LLM_WEB_RELAY_BACKEND: ${LLM_WEB_RELAY_BACKEND:-gemini-web}
@@ -107,6 +108,30 @@ services:
         condition: service_healthy
       ollama-init:
         condition: service_completed_successfully
+    restart: unless-stopped
+
+  llm-web-relay:
+    profiles: ["web-relay"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: llm-web-relay-runtime
+    ports:
+      - "127.0.0.1:9010:9010"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/company_agents
+      LLM_RELAY_BIND_ADDR: 0.0.0.0:9010
+      LLM_RELAY_API_TOKEN: ${LLM_RELAY_API_TOKEN:-}
+      LLM_RELAY_API_TOKEN_FILE: ${LLM_RELAY_API_TOKEN_FILE:-}
+      LLM_RELAY_WORKER_TOKEN: ${LLM_RELAY_WORKER_TOKEN:-}
+      LLM_RELAY_WORKER_TOKEN_FILE: ${LLM_RELAY_WORKER_TOKEN_FILE:-}
+      LLM_RELAY_WAIT_TIMEOUT_SECONDS: ${LLM_RELAY_WAIT_TIMEOUT_SECONDS:-55}
+      LLM_RELAY_JOB_TTL_SECONDS: ${LLM_RELAY_JOB_TTL_SECONDS:-120}
+      LLM_RELAY_LEASE_SECONDS: ${LLM_RELAY_LEASE_SECONDS:-60}
+      LLM_RELAY_MAX_ATTEMPTS: ${LLM_RELAY_MAX_ATTEMPTS:-3}
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   media-worker:
