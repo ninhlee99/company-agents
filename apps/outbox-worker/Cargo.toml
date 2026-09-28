@@ -1,0 +1,15 @@
+[package]
+name = "outbox-worker"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+company-store = { path = "../../crates/company-store" }
+hex = "0.4"
+hmac = "0.12"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+uuid = { version = "1", features = ["v4"] }
