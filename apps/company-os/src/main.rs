@@ -2,6 +2,7 @@ use affiliate_intelligence::{
     now_epoch, AffiliateIntelligence, AffiliateSearchResult, AwinCsvProvider, ProductSearchQuery,
     ProviderError, TikTokShopOpenCollaborationProvider,
 };
+use affiliate_attribution::{AttributionModel, ClickTouch, OrderEvent};
 use agent_runtime::{
     model_from_env, AgentRunResult, AgentRuntime, CompanySnapshot, ExecutionEngine,
     ExecutionOutcome,
@@ -72,6 +73,13 @@ struct AppState {
 }
 
 #[derive(Debug, Deserialize)]
+struct AffiliateAttributionRequest {
+    model: AttributionModel,
+    window_secs: i64,
+    since_epoch: i64,
+}
+
+
 struct AffiliateQueryParams {
     category: Option<String>,
     keywords: Option<String>,
@@ -620,6 +628,80 @@ async fn affiliate_providers(State(state): State<AppState>) -> Json<Vec<String>>
     )
 }
 
+async fn affiliate_click(
+    State(state): State<AppState>,
+    Json(click): Json<ClickTouch>,
+) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
+    let company_id = state.company.read().await.company_id.clone();
+    state
+        .store
+        .record_affiliate_click(&company_id, &click)
+        .await
+        .map(|_| StatusCode::ACCEPTED)
+        .map_err(|error| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ValueError {
+                    error: error.to_string(),
+                }),
+            )
+        })
+}
+
+async fn affiliate_order(
+    State(state): State<AppState>,
+    Json(order): Json<OrderEvent>,
+) -> Result<StatusCode, (StatusCode, Json<ValueError>)> {
+    let company_id = state.company.read().await.company_id.clone();
+    state
+        .store
+        .record_affiliate_order(&company_id, &order)
+        .await
+        .map(|_| StatusCode::ACCEPTED)
+        .map_err(|error| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ValueError {
+                    error: error.to_string(),
+                }),
+            )
+        })
+}
+
+async fn affiliate_attribution_rebuild(
+    State(state): State<AppState>,
+    Json(request): Json<AffiliateAttributionRequest>,
+) -> Result<Json<affiliate_attribution::AttributionResult>, (StatusCode, Json<ValueError>)> {
+    if request.window_secs <= 0 || request.since_epoch <= 0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ValueError {
+                error: "invalid attribution window or timestamp".into(),
+            }),
+        ));
+    }
+
+    let company_id = state.company.read().await.company_id.clone();
+    state
+        .store
+        .rebuild_affiliate_attribution(
+            &company_id,
+            request.model,
+            request.window_secs,
+            request.since_epoch,
+        )
+        .await
+        .map(Json)
+        .map_err(|error| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ValueError {
+                    error: error.to_string(),
+                }),
+            )
+        })
+}
+
 async fn affiliate_payout(
     State(state): State<AppState>,
     Json(request): Json<AffiliatePayoutRequest>,
@@ -839,6 +921,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/tasks", post(save_task))
         .route("/api/affiliate/search", get(affiliate_search))
         .route("/api/affiliate/providers", get(affiliate_providers))
+        .route("/api/affiliate/click", post(affiliate_click))
+        .route("/api/affiliate/order", post(affiliate_order))
+        .route("/api/affiliate/attribution/rebuild", post(affiliate_attribution_rebuild))
         .route("/api/affiliate/payout", post(affiliate_payout))
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
