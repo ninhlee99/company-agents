@@ -1100,6 +1100,203 @@ impl CompanyStore {
             .map_err(|error| error.to_string().into())
     }
 
+    pub async fn load_portfolio(
+        &self,
+        company_id: &str,
+    ) -> Result<Option<business_economics::CompanyPortfolio>, Box<dyn std::error::Error + Send + Sync>> {
+        let id = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "SELECT state FROM company_portfolio_snapshots WHERE company_id = $1",
+                &[&id],
+            )
+            .await?;
+        match row {
+            Some(row) => {
+                let state: serde_json::Value = row.get(0);
+                let portfolio: business_economics::CompanyPortfolio =
+                    serde_json::from_value(state)?;
+                portfolio.validate().map_err(|error| error.to_string())?;
+                Ok(Some(portfolio))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub async fn save_portfolio(
+        &self,
+        company_id: &str,
+        portfolio: &business_economics::CompanyPortfolio,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        portfolio.validate().map_err(|error| error.to_string())?;
+        let id = Uuid::parse_str(company_id)?;
+        let state = serde_json::to_value(portfolio)?;
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "INSERT INTO company_portfolio_snapshots
+                 (company_id, schema_version, state)
+                 VALUES ($1, 1, $2)
+                 ON CONFLICT (company_id) DO UPDATE
+                 SET schema_version = 1, state = EXCLUDED.state, updated_at = now()",
+                &[&id, &state],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn claim_outbox_events(
+        &self,
+        company_id: &str,
+        limit: i64,
+        lease_seconds: i64,
+    ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=200).contains(&limit) || !(5..=900).contains(&lease_seconds) {
+            return Err("outbox claim bounds are invalid".into());
+        }
+        let id = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let rows = tx
+            .query(
+                "WITH candidates AS (
+                    SELECT id
+                      FROM outbox_events
+                     WHERE company_id = $1
+                       AND published_at IS NULL
+                       AND (locked_until IS NULL OR locked_until <= now())
+                     ORDER BY created_at ASC
+                     FOR UPDATE SKIP LOCKED
+                     LIMIT $2
+                )
+                UPDATE outbox_events event
+                   SET locked_until = now() + make_interval(secs => $3),
+                       lease_token = gen_random_uuid(),
+                       attempt_count = event.attempt_count + 1
+                  FROM candidates
+                 WHERE event.id = candidates.id
+             RETURNING event.id, event.event_type, event.aggregate_id,
+                       event.idempotency_key, event.schema_version,
+                       event.payload, event.attempt_count, event.lease_token",
+                &[&id, &limit, &lease_seconds],
+            )
+            .await?;
+
+        let events = rows
+            .into_iter()
+            .map(|row| {
+                serde_json::json!({
+                    "id": row.get::<_, i64>(0),
+                    "event_type": row.get::<_, String>(1),
+                    "aggregate_id": row.get::<_, Option<String>>(2),
+                    "idempotency_key": row.get::<_, String>(3),
+                    "schema_version": row.get::<_, i32>(4),
+                    "payload": row.get::<_, serde_json::Value>(5),
+                    "attempt_count": row.get::<_, i32>(6),
+                    "lease_token": row.get::<_, Option<Uuid>>(7).map(|value| value.to_string()),
+                })
+            })
+            .collect::<Vec<_>>();
+        tx.commit().await?;
+        Ok(events)
+    }
+
+    pub async fn mark_outbox_published(
+        &self,
+        company_id: &str,
+        event_id: i64,
+        lease_token: Uuid,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let id = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let updated = client
+            .execute(
+                "UPDATE outbox_events
+                    SET published_at = now(), locked_until = NULL,
+                        lease_token = NULL, last_error = NULL
+                  WHERE company_id = $1
+                    AND id = $2
+                    AND published_at IS NULL
+                    AND lease_token = $3
+                    AND locked_until > now()",
+                &[&id, &event_id, &lease_token],
+            )
+            .await?;
+        if updated != 1 {
+            return Err("outbox publish acknowledgement rejected".into());
+        }
+        Ok(())
+    }
+
+    pub async fn mark_outbox_failed(
+        &self,
+        company_id: &str,
+        event_id: i64,
+        lease_token: Uuid,
+        error: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let id = Uuid::parse_str(company_id)?;
+        let bounded = error.chars().take(4096).collect::<String>();
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "UPDATE outbox_events
+                    SET locked_until = now() +
+                          CASE
+                            WHEN attempt_count >= 8 THEN interval '1 hour'
+                            ELSE make_interval(secs => LEAST(900, GREATEST(5, attempt_count * 15)))
+                          END,
+                        last_error = $4
+                  WHERE company_id = $1
+                    AND id = $2
+                    AND published_at IS NULL
+                    AND lease_token = $3",
+                &[&id, &event_id, &lease_token, &bounded],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn readiness_check(
+        &self,
+        company_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let id = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_one(
+                "SELECT state FROM company_state_snapshots WHERE company_id = $1",
+                &[&id],
+            )
+            .await?;
+        let state: CompanySnapshot = serde_json::from_value(row.get(0))?;
+        state
+            .validate()
+            .map_err(|error| format!("authoritative company snapshot invalid: {error}"))?;
+        let status: String = client
+            .query_one("SELECT status FROM companies WHERE id = $1", &[&id])
+            .await?
+            .get(0);
+        let canonical = match state.status {
+            economic_core::CompanyStatus::Active => "ACTIVE",
+            economic_core::CompanyStatus::Growth => "GROWTH",
+            economic_core::CompanyStatus::Warning => "WARNING",
+            economic_core::CompanyStatus::CostControl => "COST_CONTROL",
+            economic_core::CompanyStatus::Distress => "DISTRESS",
+            economic_core::CompanyStatus::Emergency => "EMERGENCY",
+            economic_core::CompanyStatus::Liquidation => "LIQUIDATION",
+            economic_core::CompanyStatus::Bankrupt => "BANKRUPT",
+        };
+        if status != canonical {
+            return Err(format!(
+                "company status mismatch: snapshot={canonical}, companies.status={status}"
+            )
+            .into());
+        }
+        Ok(())
+    }
+
     pub async fn ensure_recurring_job(
         &self,
         company_id: &str,
@@ -2037,28 +2234,7 @@ impl CompanyStore {
         &self,
         company_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let id = Uuid::parse_str(company_id)?;
-        let client = self.client.lock().await;
-        client.query_one("SELECT 1", &[]).await?;
-        client
-            .query_opt(
-                "SELECT 1
-                   FROM companies
-                  WHERE id=$1",
-                &[&id],
-            )
-            .await?
-            .ok_or("company is not registered")?;
-        client
-            .query_opt(
-                "SELECT 1
-                   FROM company_state_snapshots
-                  WHERE company_id=$1",
-                &[&id],
-            )
-            .await?
-            .ok_or("company state snapshot is unavailable")?;
-        Ok(())
+        self.readiness_check(company_id).await
     }
 
     pub async fn recent_journal(
