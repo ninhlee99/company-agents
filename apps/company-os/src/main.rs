@@ -426,6 +426,126 @@ async fn affiliate_conversion_api(
         .map_err(|_| StatusCode::BAD_REQUEST)
 }
 
+async fn affiliate_verify_api(
+    State(state): State<AppState>,
+    Json(request): Json<AffiliateProviderVerificationRequest>,
+) -> Result<Json<affiliate_attribution::ReconciledConversion>, StatusCode> {
+    if request.conversion_id.trim().is_empty() || request.verification_source.trim().is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    state
+        .store
+        .verify_affiliate_conversion(
+            &state.company_id,
+            &request.conversion_id,
+            request.status,
+            request.verified_commission_minor,
+            request.verified_at.as_deref(),
+            &request.verification_source,
+        )
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn affiliate_payout_api(
+    State(state): State<AppState>,
+    Json(request): Json<AffiliatePayoutRequest>,
+) -> Result<StatusCode, StatusCode> {
+    state
+        .store
+        .record_affiliate_payout(
+            &state.company_id,
+            &request.payout_id,
+            request.amount_minor,
+            &request.currency,
+            &request.occurred_at,
+        )
+        .await
+        .map(|_| StatusCode::ACCEPTED)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn publish_intent_api(
+    State(state): State<AppState>,
+    Json(intent): Json<publishing_contract::PublishIntent>,
+) -> Result<StatusCode, StatusCode> {
+    if intent.company_id != state.company_id {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    state
+        .store
+        .create_publish_intent(&intent)
+        .await
+        .map(|_| StatusCode::CREATED)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn publish_approve_api(
+    State(state): State<AppState>,
+    Json(request): Json<PublishApproveRequest>,
+) -> Result<Json<publishing_contract::PublishApproval>, StatusCode> {
+    state
+        .store
+        .approve_publish_intent(
+            &state.company_id,
+            &request.intent_id,
+            &request.approved_by,
+            request.ttl_seconds,
+        )
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn publish_claim_api(
+    State(state): State<AppState>,
+    Json(request): Json<PublishClaimRequest>,
+) -> Result<Json<Option<publishing_contract::PublishJob>>, StatusCode> {
+    state
+        .store
+        .claim_publish_intent(
+            &state.company_id,
+            &request.intent_id,
+            &request.approval_token,
+            request.lease_seconds,
+        )
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn publish_complete_api(
+    State(state): State<AppState>,
+    Json(request): Json<PublishCompleteRequest>,
+) -> Result<StatusCode, StatusCode> {
+    state
+        .store
+        .complete_publish_intent(
+            &state.company_id,
+            &request.intent_id,
+            &request.execution_token,
+            request.success,
+            request.external_reference.as_deref(),
+            request.error_message.as_deref(),
+        )
+        .await
+        .map(|_| StatusCode::ACCEPTED)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn publish_revoke_api(
+    State(state): State<AppState>,
+    Json(request): Json<PublishRevokeRequest>,
+) -> Result<StatusCode, StatusCode> {
+    state
+        .store
+        .revoke_publish_intent(&state.company_id, &request.intent_id)
+        .await
+        .map(|_| StatusCode::ACCEPTED)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
 async fn affiliate_performance_api(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
@@ -671,7 +791,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/affiliate/search", get(affiliate_search_api))
         .route("/api/affiliate/click", post(affiliate_click_api))
         .route("/api/affiliate/conversion", post(affiliate_conversion_api))
+        .route("/api/affiliate/verify", post(affiliate_verify_api))
+        .route("/api/affiliate/payout", post(affiliate_payout_api))
         .route("/api/affiliate/performance", get(affiliate_performance_api))
+        .route("/api/publishing/intents", post(publish_intent_api))
+        .route("/api/publishing/intents/approve", post(publish_approve_api))
+        .route("/api/publishing/intents/claim", post(publish_claim_api))
+        .route("/api/publishing/intents/complete", post(publish_complete_api))
+        .route("/api/publishing/intents/revoke", post(publish_revoke_api))
         .route("/api/employees", get(employees_api))
         .route("/api/payroll/due", get(payroll_due_api))
         .route("/api/business-units", get(business_units_api))
