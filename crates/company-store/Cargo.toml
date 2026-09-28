@@ -4,6 +4,7 @@ version = "0.2.0"
 edition = "2021"
 
 [dependencies]
+business-economics = { path = "../business-economics" }
 agent-runtime = { path = "../agent-runtime" }
 async-trait = "0.1"
 company-execution = { path = "../company-execution" }
