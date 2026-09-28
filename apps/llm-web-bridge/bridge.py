@@ -1,5 +1,6 @@
 import asyncio, json, os
 from pathlib import Path
+from urllib.parse import urlparse
 import httpx
 from playwright.async_api import async_playwright
 
@@ -34,6 +35,19 @@ async def first_visible(page, selectors, timeout_ms=15000):
         await asyncio.sleep(0.2)
     raise TimeoutError("no visible browser selector matched")
 
+def backend_profile(backend):
+    profile = S.get(backend)
+    if profile is None:
+        raise ValueError("unsupported backend")
+    return profile
+
+def env_selectors(prefix, defaults):
+    raw = os.getenv(prefix, "").strip()
+    if not raw:
+        return defaults
+    values = [item.strip() for item in raw.split("||") if item.strip()]
+    return values or defaults
+
 def make_prompt(job):
     return (
         "COMPANY AGENT SYSTEM INSTRUCTIONS\n"
@@ -55,19 +69,31 @@ def normalize(text):
     return encoded
 
 async def run_job(page, job):
-    spec = S[job["backend"]]
+    spec = backend_profile(job["backend"])
     if job["protocol_version"] != 1 or job["allow_tools"] or job["response_format"] != "json_object":
         raise ValueError("unsafe or unsupported relay job")
 
     await page.goto(spec["url"], wait_until="domcontentloaded")
-    before = {s: await page.locator(s).count() for s in spec["reply"]}
-    editor = await first_visible(page, spec["input"], min(120000, max(5000, job["expires_in_ms"])))
+    input_selectors = env_selectors(
+        f"LLM_WEB_BRIDGE_{job['backend'].split('-')[0].upper()}_INPUT_SELECTORS",
+        spec["input"],
+    )
+    send_selectors = env_selectors(
+        f"LLM_WEB_BRIDGE_{job['backend'].split('-')[0].upper()}_SEND_SELECTORS",
+        spec["send"],
+    )
+    reply_selectors = env_selectors(
+        f"LLM_WEB_BRIDGE_{job['backend'].split('-')[0].upper()}_REPLY_SELECTORS",
+        spec["reply"],
+    )
+    before = {s: await page.locator(s).count() for s in reply_selectors}
+    editor = await first_visible(page, input_selectors, min(120000, max(5000, job["expires_in_ms"])))
     await editor.fill(make_prompt(job))
-    await (await first_visible(page, spec["send"])).click()
+    await (await first_visible(page, send_selectors)).click()
 
     deadline = asyncio.get_running_loop().time() + min(120000, max(5000, job["expires_in_ms"])) / 1000
     while asyncio.get_running_loop().time() < deadline:
-        for selector in spec["reply"]:
+        for selector in reply_selectors:
             try:
                 loc = page.locator(selector)
                 if await loc.count() > before.get(selector, 0):
@@ -81,15 +107,24 @@ async def run_job(page, job):
 
 async def main():
     relay = os.getenv("LLM_RELAY_URL", "http://127.0.0.1:9010").rstrip("/")
+    parsed = urlparse(relay)
+    if parsed.scheme not in {"http", "https"}:
+        raise RuntimeError("LLM_RELAY_URL must use http or https")
+    if parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+        if os.getenv("LLM_RELAY_ALLOW_HTTP_REMOTE", "").lower() not in {"1","true","yes","on"}:
+            raise RuntimeError("remote relay requires HTTPS")
     token = os.getenv("LLM_RELAY_WORKER_TOKEN", "").strip()
-    profile = Path(os.getenv("LLM_WEB_BROWSER_PROFILE", str(Path.home()/".company-agents-web-profile"))).expanduser()
-    backend = os.getenv("LLM_WEB_BRIDGE_BACKEND", "").strip() or None
+    backend = os.getenv("LLM_WEB_BRIDGE_BACKEND", "").strip().lower() or None
+    base_profile = Path(os.getenv("LLM_WEB_BROWSER_PROFILE", str(Path.home()/".company-agents-web-profile"))).expanduser()
     if len(token) < 16:
         raise RuntimeError("LLM_RELAY_WORKER_TOKEN must be at least 16 characters")
-    profile.mkdir(parents=True, exist_ok=True)
+    if backend and backend not in S:
+        raise RuntimeError("LLM_WEB_BRIDGE_BACKEND is unsupported")
 
     async with httpx.AsyncClient(base_url=relay, headers={"Authorization": f"Bearer {token}"}, timeout=30) as client:
         async with async_playwright() as p:
+            profile = base_profile / (backend or "multi-backend")
+            profile.mkdir(parents=True, exist_ok=True)
             ctx = await p.chromium.launch_persistent_context(
                 user_data_dir=str(profile),
                 headless=os.getenv("LLM_WEB_BRIDGE_HEADLESS", "false").lower() in {"1","true","yes","on"},
