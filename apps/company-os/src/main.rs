@@ -8,7 +8,6 @@ use agent_runtime::{
 };
 use axum::{
     extract::{Query, State},
-    http::HeaderMap,
     http::StatusCode,
     response::Html,
     routing::{get, post},
