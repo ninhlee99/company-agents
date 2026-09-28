@@ -41,6 +41,7 @@ async fn every_operating_agent_has_a_valid_contract() {
     let ctx = AgentContext {
         company: healthy_company(),
         model_timeout: std::time::Duration::from_secs(5),
+        memory: Vec::new(),
     };
     let model: Arc<dyn Model> = Arc::new(MockModel);
     let agents: Vec<Arc<dyn Agent>> = vec![
@@ -308,6 +309,7 @@ async fn proposal_for(agent: Arc<dyn Agent>, company: CompanySnapshot) -> Propos
             &AgentContext {
                 company,
                 model_timeout: std::time::Duration::from_secs(5),
+                memory: Vec::new(),
             },
             Arc::new(MockModel),
         )

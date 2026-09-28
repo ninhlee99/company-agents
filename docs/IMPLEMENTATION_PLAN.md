@@ -63,12 +63,20 @@ Implemented:
 - restart recovery of stale cycles
 - idempotent API cycle execution
 
+Implemented since initial plan:
+- per-Agent persistent rate limiting in PostgreSQL
+- durable Agent memory store with bounded, untrusted replay context
+- company-scoped scheduler claiming with row locking / skip-locked semantics
+- operational readiness and Prometheus metrics endpoints
+- durable affiliate payout ingestion with ledger idempotency
+- affiliate click/order ingestion and deterministic attribution rebuild API
+
 Remaining:
-- per-Agent persistent budget/rate-limit ledgers
-- distributed scheduler/lease semantics
-- OpenTelemetry tracing
-- durable Agent memory/knowledge store
-- outbox worker with delivery/retry policy
+- per-Agent persistent spending/budget ledgers
+- full distributed lease tokens/heartbeats for long-running jobs
+- OpenTelemetry tracing/export
+- production secret manager integration
+- operational alerting/SLOs
 
 ## Phase 4 — Agents
 **Status: operating Agents implemented and adversarially tested**
@@ -91,7 +99,16 @@ Implemented:
 - model outage/timeout containment
 
 ## Phase 5 — Media Factory
-**Status: foundation not yet implemented**
+**Status: production foundation implemented; external publishing/analytics integrations remain gated**
+
+Implemented:
+- media job model and FFmpeg-based processing/QA
+- durable media worker with bounded execution
+- social publishing adapter with approval/HMAC gate
+
+Remaining:
+- platform metrics ingestion
+- closed-loop analytics → experiment attribution automation
 
 Target:
 Research → planning → scripting → production → media QA → publishing → analytics → attribution.
@@ -116,12 +133,15 @@ Implemented:
 
 External authorization remains required. Awin/TikTok data is never invented when the provider has not supplied it.
 
+Implemented since initial plan:
+- verified affiliate payout ingestion
+- click/conversion event ingestion
+- deterministic attribution rebuild API
+
 Remaining:
-- verified payout/revenue ingestion
-- click/conversion tracking
 - sponsorship CRM
 - service proposal/invoicing
-- verified payout/revenue ingestion
+- verified accrued-revenue recognition against receivables (payout cash path is implemented)
 
 ## Phase 7 — Human Organization
 **Status: planned**

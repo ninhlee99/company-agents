@@ -5,6 +5,7 @@ use affiliate_attribution::{
 };
 use affiliate_intelligence::{AffiliateSearchResult, ProductSearchQuery};
 use agent_runtime::{AgentRunResult, CompanySnapshot, ExecutionEngine, ExecutionOutcome};
+use agent_runtime::agent::{AgentMemory, AgentRuntimeStore};
 use company_domain::{
     BusinessUnit, ContentAsset, Contract, CreatorUnit, Customer, Employee, Experiment, PayrollRun,
     Product, Task,
@@ -105,6 +106,11 @@ impl CompanyStore {
         client
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/011_llm_web_relay.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/012_runtime_controls.sql"
             ))
             .await
     }
@@ -1067,6 +1073,22 @@ impl CompanyStore {
         Ok(search_id)
     }
 
+    pub async fn ready(&self, company_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let exists: bool = client
+            .query_one(
+                "SELECT EXISTS(SELECT 1 FROM companies WHERE id=$1)",
+                &[&company_uuid],
+            )
+            .await?
+            .get(0);
+        if !exists {
+            return Err("company readiness check failed".into());
+        }
+        Ok(())
+    }
+
     pub async fn account_id_by_code(
         &self,
         company_id: &str,
@@ -1517,6 +1539,37 @@ impl CompanyStore {
         Ok(row.get(0))
     }
 
+    pub async fn claim_due_cycle_for(
+        &self,
+        company_id: &str,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "WITH due AS (
+                    SELECT id
+                    FROM company_schedules
+                    WHERE company_id=$1
+                      AND enabled=true
+                      AND job_type='AGENT_CYCLE'
+                      AND next_run_at <= now()
+                    ORDER BY next_run_at
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT 1
+                 )
+                 UPDATE company_schedules s
+                    SET next_run_at=now() + (s.interval_seconds * interval '1 second'),
+                        updated_at=now()
+                   FROM due
+                  WHERE s.id=due.id
+                RETURNING s.id",
+                &[&company_uuid],
+            )
+            .await?;
+        Ok(row.is_some())
+    }
+
     pub async fn claim_due_cycle(&self) -> Result<Option<Uuid>, tokio_postgres::Error> {
         let client = self.client.lock().await;
         let row = client
@@ -1767,6 +1820,247 @@ impl CompanyStore {
             )
             .await?
             == 1)
+    }
+}
+
+impl CompanyStore {
+    pub async fn record_affiliate_payout(
+        &self,
+        company_id: &str,
+        payout_id: &str,
+        currency: &str,
+        amount_minor: i128,
+        occurred_at_epoch: i64,
+    ) -> Result<Uuid, Box<dyn std::error::Error + Send + Sync>> {
+        if payout_id.trim().is_empty() || payout_id.len() > 200 {
+            return Err("affiliate payout id is required and must be <= 200 characters".into());
+        }
+        if amount_minor <= 0 {
+            return Err("affiliate payout amount must be positive".into());
+        }
+
+        let company_uuid = Uuid::parse_str(company_id)?;
+        {
+            let client = self.client.lock().await;
+            let base_currency: String = client
+                .query_one(
+                    "SELECT base_currency FROM companies WHERE id=$1",
+                    &[&company_uuid],
+                )
+                .await?
+                .get(0);
+            if currency != base_currency {
+                return Err("affiliate payout currency must match company base currency".into());
+            }
+
+            let existing = client
+                .query_opt(
+                    "SELECT ledger_transaction_id
+                     FROM affiliate_payouts
+                     WHERE company_id=$1 AND payout_id=$2",
+                    &[&company_uuid, &payout_id],
+                )
+                .await?;
+            if let Some(row) = existing {
+                if let Some(transaction_id) = row.get::<_, Option<Uuid>>(0) {
+                    return Ok(transaction_id);
+                }
+            } else {
+                client
+                    .execute(
+                        "INSERT INTO affiliate_payouts
+                         (company_id,payout_id,currency,amount_minor,occurred_at)
+                         VALUES ($1,$2,$3,$4::numeric,to_timestamp($5))
+                         ON CONFLICT (company_id,payout_id) DO NOTHING",
+                        &[
+                            &company_uuid,
+                            &payout_id,
+                            &currency,
+                            &amount_minor.to_string(),
+                            &occurred_at_epoch,
+                        ],
+                    )
+                    .await?;
+            }
+        }
+
+        let transaction_id = self
+            .record_cash_revenue(
+                company_id,
+                amount_minor,
+                &format!("affiliate payout {payout_id}"),
+                &format!("AFFILIATE_PAYOUT:{payout_id}"),
+            )
+            .await?;
+
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "UPDATE affiliate_payouts
+                 SET ledger_transaction_id=$3
+                 WHERE company_id=$1 AND payout_id=$2 AND ledger_transaction_id IS NULL",
+                &[&company_uuid, &payout_id, &transaction_id],
+            )
+            .await?;
+        Ok(transaction_id)
+    }
+}
+
+#[async_trait::async_trait]
+impl AgentRuntimeStore for CompanyStore {
+    async fn load_agent_memory(
+        &self,
+        company_id: &str,
+        agent_name: &str,
+        limit: usize,
+    ) -> Result<Vec<AgentMemory>, String> {
+        let company_uuid = Uuid::parse_str(company_id).map_err(|e| e.to_string())?;
+        if agent_name.trim().is_empty() || agent_name.len() > 100 {
+            return Err("agent name is invalid".into());
+        }
+        let limit = limit.clamp(1, 50) as i64;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT memory_key,value,confidence_bps,importance
+                   FROM agent_memory
+                  WHERE company_id=$1
+                    AND agent_name=$2
+                    AND (expires_at IS NULL OR expires_at > now())
+                  ORDER BY importance DESC, updated_at DESC
+                  LIMIT $3",
+                &[&company_uuid, &agent_name, &limit],
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+
+        rows.into_iter()
+            .map(|row| {
+                Ok(AgentMemory {
+                    memory_key: row.get(0),
+                    value: row.get(1),
+                    confidence_bps: row.get::<_, i32>(2).clamp(0, 10_000) as u16,
+                    importance: row.get::<_, i16>(3).clamp(0, 100) as u8,
+                })
+            })
+            .collect()
+    }
+
+    async fn save_agent_memory(
+        &self,
+        company_id: &str,
+        agent_name: &str,
+        memory: AgentMemory,
+    ) -> Result<(), String> {
+        let company_uuid = Uuid::parse_str(company_id).map_err(|e| e.to_string())?;
+        if agent_name.trim().is_empty() || agent_name.len() > 100 {
+            return Err("agent name is invalid".into());
+        }
+        if memory.memory_key.trim().is_empty() || memory.memory_key.len() > 200 {
+            return Err("memory key is invalid".into());
+        }
+        if memory.confidence_bps > 10_000 || memory.importance > 100 {
+            return Err("memory confidence/importance out of range".into());
+        }
+        let serialized = serde_json::to_string(&memory.value).map_err(|e| e.to_string())?;
+        if serialized.len() > 64 * 1024 {
+            return Err("agent memory value exceeds 64 KiB".into());
+        }
+
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "INSERT INTO agent_memory
+                 (company_id,agent_name,memory_key,value,confidence_bps,importance)
+                 VALUES ($1,$2,$3,$4,$5,$6)
+                 ON CONFLICT (company_id,agent_name,memory_key) DO UPDATE SET
+                   value=EXCLUDED.value,
+                   confidence_bps=EXCLUDED.confidence_bps,
+                   importance=EXCLUDED.importance,
+                   updated_at=now()",
+                &[
+                    &company_uuid,
+                    &agent_name,
+                    &memory.memory_key,
+                    &memory.value,
+                    &(memory.confidence_bps as i32),
+                    &(memory.importance as i16),
+                ],
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    async fn try_acquire_agent_rate(
+        &self,
+        company_id: &str,
+        agent_name: &str,
+        window_seconds: i64,
+        max_calls: i32,
+    ) -> Result<bool, String> {
+        if window_seconds <= 0 || max_calls <= 0 {
+            return Err("agent rate limit configuration must be positive".into());
+        }
+        let company_uuid = Uuid::parse_str(company_id).map_err(|e| e.to_string())?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await.map_err(|e| e.to_string())?;
+
+        let row = tx
+            .query_opt(
+                "SELECT call_count,max_calls,
+                        (window_started_at <= now() - ($3 * interval '1 second')) AS reset_window
+                   FROM agent_rate_windows
+                  WHERE company_id=$1 AND agent_name=$2
+                  FOR UPDATE",
+                &[&company_uuid, &agent_name, &window_seconds],
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let allowed = match row {
+            None => {
+                tx.execute(
+                    "INSERT INTO agent_rate_windows
+                     (company_id,agent_name,window_started_at,call_count,max_calls)
+                     VALUES ($1,$2,now(),1,$3)",
+                    &[&company_uuid, &agent_name, &max_calls],
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+                true
+            }
+            Some(row) => {
+                let call_count: i32 = row.get(0);
+                let reset_window: bool = row.get(2);
+                if reset_window {
+                    tx.execute(
+                        "UPDATE agent_rate_windows
+                            SET window_started_at=now(),call_count=1,max_calls=$3,updated_at=now()
+                          WHERE company_id=$1 AND agent_name=$2",
+                        &[&company_uuid, &agent_name, &max_calls],
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                    true
+                } else if call_count >= max_calls {
+                    false
+                } else {
+                    tx.execute(
+                        "UPDATE agent_rate_windows
+                            SET call_count=call_count+1,max_calls=$3,updated_at=now()
+                          WHERE company_id=$1 AND agent_name=$2",
+                        &[&company_uuid, &agent_name, &max_calls],
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                    true
+                }
+            }
+        };
+
+        tx.commit().await.map_err(|e| e.to_string())?;
+        Ok(allowed)
     }
 }
 

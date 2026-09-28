@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 agent-runtime = { path = "../../crates/agent-runtime" }
 affiliate-intelligence = { path = "../../crates/affiliate-intelligence" }
+affiliate-attribution = { path = "../../crates/affiliate-attribution" }
 company-store = { path = "../../crates/company-store" }
 company-domain = { path = "../../crates/company-domain" }
 axum = "0.8"
@@ -14,5 +15,4 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
-uuid = { version = "1", features = ["v4"] }
 uuid = { version = "1", features = ["v4"] }
