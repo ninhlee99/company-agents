@@ -2385,55 +2385,6 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
     async fn load_memory(
         &self,
         company_id: &str,
-        agent: AgentRole,
-    ) -> Result<serde_json::Value, String> {
-        self.load_agent_memory(company_id, agent, 20)
-            .await
-            .map(|items| serde_json::json!({ "items": items }))
-            .map_err(|error| error.to_string())
-    }
-
-    async fn admit_model_call(
-        &self,
-        company_id: &str,
-        agent: AgentRole,
-    ) -> Result<(), String> {
-        let window_seconds = std::env::var("AGENT_RATE_WINDOW_SECONDS")
-            .ok()
-            .and_then(|value| value.parse::<i64>().ok())
-            .filter(|value| (15..=86_400).contains(value))
-            .unwrap_or(60);
-
-        let max_calls = std::env::var("AGENT_MAX_CALLS_PER_WINDOW")
-            .ok()
-            .and_then(|value| value.parse::<i32>().ok())
-            .filter(|value| (1..=100).contains(value))
-            .unwrap_or(1);
-
-        let allowed = self
-            .claim_agent_run_slots(company_id, &[agent], window_seconds, max_calls)
-            .await
-            .map_err(|error| error.to_string())?;
-
-        if allowed.contains(&agent) {
-            Ok(())
-        } else {
-            Err(format!(
-                "agent {} exceeded durable model-call rate limit",
-                agent.as_str()
-            ))
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests;
-
-#[async_trait::async_trait]
-impl agent_runtime::agent::AgentStateProvider for CompanyStore {
-    async fn load_memory(
-        &self,
-        company_id: &str,
         agent: agent_runtime::types::AgentRole,
     ) -> Result<serde_json::Value, String> {
         let records = self
@@ -2475,8 +2426,73 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
     }
 }
 
-fn parse_i128_numeric(value: &str) -> Result<i128, Box<dyn std::error::Error + Send + Sync>> {
-    value
-        .parse::<i128>()
-        .map_err(|error| format!("numeric value out of i128 range: {error}").into())
+#[async_trait::async_trait]
+impl agent_runtime::agent::AgentStateProvider for CompanyStore {
+    async fn load_memory(
+        &self,
+        company_id: &str,
+        agent: agent_runtime::types::AgentRole,
+    ) -> Result<serde_json::Value, String> {
+        let limit = std::env::var("AGENT_MEMORY_LIMIT")
+            .ok()
+            .and_then(|v| v.parse::<i64>().ok())
+            .filter(|v| (1..=100).contains(v))
+            .unwrap_or(20);
+
+        self.load_agent_memory(company_id, agent, limit)
+            .await
+            .map(|items| serde_json::json!({ "items": items }))
+            .map_err(|error| error.to_string())
+    }
+
+    async fn admit_model_call(
+        &self,
+        company_id: &str,
+        agent: agent_runtime::types::AgentRole,
+    ) -> Result<(), String> {
+        let window_seconds = std::env::var("AGENT_RATE_WINDOW_SECONDS")
+            .ok()
+            .and_then(|v| v.parse::<i64>().ok())
+            .filter(|v| (15..=86_400).contains(v))
+            .unwrap_or(300);
+        let max_calls = std::env::var("AGENT_MAX_CALLS_PER_WINDOW")
+            .or_else(|_| std::env::var("AGENT_MAX_MODEL_CALLS_PER_WINDOW"))
+            .ok()
+            .and_then(|v| v.parse::<i32>().ok())
+            .filter(|v| (1..=100).contains(v))
+            .unwrap_or(1);
+
+        let allowed = self
+            .claim_agent_run_slots(company_id, &[agent], window_seconds, max_calls)
+            .await
+            .map_err(|error| error.to_string())?;
+
+        if allowed.contains(&agent) {
+            Ok(())
+        } else {
+            Err(format!(
+                "durable model-call rate limit exceeded for {} ({max_calls} calls/{window_seconds}s)",
+                agent.as_str()
+            ))
+        }
+    }
+
+    async fn remember(
+        &self,
+        company_id: &str,
+        agent: agent_runtime::types::AgentRole,
+        memory: agent_runtime::types::AgentMemory,
+    ) -> Result<(), String> {
+        self.upsert_agent_memory(
+            company_id,
+            agent,
+            &memory.key,
+            &memory.value,
+            memory.confidence_bps,
+            memory.importance,
+        )
+        .await
+        .map_err(|error| error.to_string())
+    }
 }
+
