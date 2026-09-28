@@ -100,7 +100,8 @@ fn validate_job(job: &WorkerJob) -> Result<(), String> {
 }
 
 async fn run_adapter(
-    command_path: &str,
+    adapter_kind: &str,
+    command_path: Option<&str>,
     job: &WorkerJob,
     timeout_duration: Duration,
 ) -> Result<String, String> {
@@ -116,18 +117,83 @@ async fn run_adapter(
     })
     .map_err(|error| error.to_string())?;
 
-    let mut child = Command::new(command_path)
-        .stdin(Stdio::piped())
+    let (program, args, stdin_payload) = match adapter_kind {
+        "command" | "browser-command" => {
+            let command_path = command_path.ok_or("WEB_SESSION_ADAPTER_COMMAND is required")?;
+            (
+                command_path.to_owned(),
+                Vec::new(),
+                Some(input.clone()),
+            )
+        }
+        "codex-chatgpt" => {
+            if job.backend != "chatgpt-web" {
+                return Err("codex-chatgpt adapter only accepts chatgpt-web jobs".into());
+            }
+            let prompt = format!(
+                "{}\n\nReturn exactly one JSON object and no prose. Do not use tools.\n\nUSER REQUEST:\n{}",
+                job.system, job.user
+            );
+            (
+                env::var("CODEX_BIN").unwrap_or_else(|_| "codex".into()),
+                vec![
+                    "exec".into(),
+                    "--json".into(),
+                    "--sandbox".into(),
+                    "read-only".into(),
+                    "--model".into(),
+                    job.model.clone(),
+                    prompt,
+                ],
+                None,
+            )
+        }
+        "claude-code" => {
+            if job.backend != "claude-web" {
+                return Err("claude-code adapter only accepts claude-web jobs".into());
+            }
+            (
+                env::var("CLAUDE_BIN").unwrap_or_else(|_| "claude".into()),
+                vec![
+                    "-p".into(),
+                    job.user.clone(),
+                    "--output-format".into(),
+                    "json".into(),
+                    "--max-turns".into(),
+                    "1".into(),
+                    "--permission-mode".into(),
+                    "plan".into(),
+                    "--system-prompt".into(),
+                    job.system.clone(),
+                    "--model".into(),
+                    job.model.clone(),
+                ],
+                None,
+            )
+        }
+        other => return Err(format!("unknown WEB_SESSION_ADAPTER_KIND={other}")),
+    };
+
+    let mut command = Command::new(program);
+    command
+        .args(args)
+        .stdin(if stdin_payload.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .env("WEB_RELAY_BACKEND", &job.backend)
-        .env("WEB_RELAY_MODEL", &job.model)
+        .env("WEB_RELAY_MODEL", &job.model);
+
+    let mut child = command
         .spawn()
         .map_err(|error| format!("adapter spawn failed: {error}"))?;
 
-    if let Some(mut stdin) = child.stdin.take() {
+    if let (Some(payload), Some(mut stdin)) = (stdin_payload, child.stdin.take()) {
         stdin
-            .write_all(&input)
+            .write_all(&payload)
             .await
             .map_err(|error| format!("adapter stdin failed: {error}"))?;
     }
@@ -149,27 +215,83 @@ async fn run_adapter(
             return Err("adapter output exceeds 1 MiB".into());
         }
 
-        let output = String::from_utf8(output.stdout)
-            .map_err(|_| "adapter output is not UTF-8".to_owned())?
-            .trim()
-            .to_owned();
-
-        if output.is_empty() {
-            return Err("adapter returned empty output".into());
-        }
-
-        let value: serde_json::Value = serde_json::from_str(&output)
-            .map_err(|_| "adapter output is not one JSON object".to_owned())?;
-        if !value.is_object() {
-            return Err("adapter output must be a JSON object".into());
-        }
-
-        Ok(output)
+        let raw = String::from_utf8(output.stdout)
+            .map_err(|_| "adapter output is not UTF-8".to_owned())?;
+        extract_json_object(adapter_kind, &raw)
     })
     .await
     .map_err(|_| "adapter execution timed out".to_owned())??;
 
     Ok(result)
+}
+
+fn extract_json_object(adapter_kind: &str, raw: &str) -> Result<String, String> {
+    match adapter_kind {
+        "command" | "browser-command" => validate_json_object(raw),
+        "claude-code" => {
+            let envelope: serde_json::Value = serde_json::from_str(raw.trim())
+                .map_err(|_| "Claude Code output is not JSON".to_owned())?;
+            let candidate = envelope
+                .get("result")
+                .or_else(|| envelope.get("output_text"))
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "Claude Code JSON output has no result text".to_owned())?;
+            validate_json_object(candidate)
+        }
+        "codex-chatgpt" => {
+            let mut candidate = None;
+            for line in raw.lines().rev() {
+                let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+                    continue;
+                };
+                if let Some(text) = find_agent_text(&value) {
+                    candidate = Some(text.to_owned());
+                    break;
+                }
+            }
+            let candidate = candidate.ok_or_else(|| "Codex JSONL output has no final agent text".to_owned())?;
+            validate_json_object(&candidate)
+        }
+        other => Err(format!("unknown adapter kind {other}")),
+    }
+}
+
+fn validate_json_object(raw: &str) -> Result<String, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(raw.trim()).map_err(|_| "adapter output is not valid JSON".to_owned())?;
+    if !value.is_object() {
+        return Err("adapter output must be exactly one JSON object".into());
+    }
+    Ok(value.to_string())
+}
+
+fn find_agent_text(value: &serde_json::Value) -> Option<&str> {
+    if value.get("type").and_then(serde_json::Value::as_str)
+        .is_some_and(|kind| kind == "agent_message" || kind == "output_text")
+    {
+        if let Some(text) = value.get("text").and_then(serde_json::Value::as_str) {
+            return Some(text);
+        }
+    }
+
+    if let Some(item) = value.get("item") {
+        if let Some(text) = find_agent_text(item) {
+            return Some(text);
+        }
+    }
+
+    if let Some(content) = value.get("content").and_then(serde_json::Value::as_array) {
+        for block in content.iter().rev() {
+            if let Some(text) = find_agent_text(block) {
+                return Some(text);
+            }
+            if let Some(text) = block.get("text").and_then(serde_json::Value::as_str) {
+                return Some(text);
+            }
+        }
+    }
+
+    None
 }
 
 async fn claim(client: &Client, relay_url: &str, token: &str, backend: Option<&str>) -> Result<Option<WorkerJob>, String> {
@@ -239,7 +361,24 @@ async fn fail(client: &Client, relay_url: &str, token: &str, job: &WorkerJob, er
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let relay_url = required("LLM_RELAY_URL")?.trim_end_matches('/').to_owned();
     let worker_token = required("LLM_RELAY_WORKER_TOKEN")?;
-    let adapter_command = required("WEB_SESSION_ADAPTER_COMMAND")?;
+    let adapter_kind = env::var("WEB_SESSION_ADAPTER_KIND")
+        .unwrap_or_else(|_| "browser-command".into())
+        .to_ascii_lowercase();
+    if !matches!(
+        adapter_kind.as_str(),
+        "browser-command" | "command" | "codex-chatgpt" | "claude-code"
+    ) {
+        return Err("unsupported WEB_SESSION_ADAPTER_KIND".into());
+    }
+    let adapter_command = env::var("WEB_SESSION_ADAPTER_COMMAND")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    if matches!(adapter_kind.as_str(), "browser-command" | "command")
+        && adapter_command.is_none()
+    {
+        return Err("WEB_SESSION_ADAPTER_COMMAND is required for command adapters".into());
+    }
+
     let backend_filter = env::var("WEB_SESSION_BACKEND").ok().filter(|v| !v.trim().is_empty());
     let idle_sleep = env_duration("WEB_SESSION_IDLE_SLEEP_SECONDS", 2, 1, 15);
     let adapter_timeout = env_duration("WEB_SESSION_ADAPTER_TIMEOUT_SECONDS", 45, 5, 120);
@@ -268,7 +407,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             continue;
         }
 
-        match run_adapter(&adapter_command, &job, adapter_timeout).await {
+        match run_adapter(
+            &adapter_kind,
+            adapter_command.as_deref(),
+            &job,
+            adapter_timeout,
+        )
+        .await {
             Ok(output) => {
                 if let Err(error) = complete(&client, &relay_url, &worker_token, &job, &output).await {
                     eprintln!("complete error for {}: {error}", job.job_id);
