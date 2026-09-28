@@ -130,3 +130,46 @@ An old browser worker cannot complete a job after another worker has reclaimed i
 ## Important limitation
 
 Consumer web UIs are not stable backend APIs. The selectors in `apps/llm-web-bridge/bridge.py` are intentionally isolated from Rust so UI changes can be fixed without changing Company OS. Production environments should run selector contract tests against the current web UI and keep official provider APIs as fallback.
+
+
+## Subscription-backed configuration
+
+### ChatGPT subscription via Codex
+
+Set:
+
+```
+LLM_PROVIDER=chatgpt-subscription
+LLM_WEB_RELAY_BACKEND=chatgpt-web
+WEB_SESSION_ADAPTER_KIND=codex-chatgpt
+WEB_SESSION_BACKEND=chatgpt-web
+```
+
+Authenticate the Codex CLI on the browser/worker machine with the user's ChatGPT account. The worker runs one read-only `codex exec --json` job at a time.
+
+### Claude Pro/Max via Claude Code
+
+Set:
+
+```
+LLM_PROVIDER=claude-subscription
+LLM_WEB_RELAY_BACKEND=claude-web
+WEB_SESSION_ADAPTER_KIND=claude-code
+WEB_SESSION_BACKEND=claude-web
+```
+
+Authenticate Claude Code with the user's Claude account. The worker uses one non-interactive `claude -p` job with a single turn and plan permissions.
+
+### Gemini consumer web
+
+Gemini consumer-web access remains a browser-session adapter:
+
+```
+LLM_PROVIDER=gemini-web
+LLM_WEB_RELAY_BACKEND=gemini-web
+WEB_SESSION_ADAPTER_KIND=browser-command
+WEB_SESSION_BACKEND=gemini-web
+WEB_SESSION_ADAPTER_COMMAND=/absolute/path/to/browser-adapter
+```
+
+There is deliberately no "Gemini subscription API" shortcut in the Company OS. Consumer web sessions stay inside the user-controlled browser profile.
