@@ -4,6 +4,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::{
     env,
+    fs,
     process::Stdio,
     time::Duration,
 };
@@ -185,7 +186,8 @@ async fn run_adapter(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .env("WEB_RELAY_BACKEND", &job.backend)
-        .env("WEB_RELAY_MODEL", &job.model);
+        .env("WEB_RELAY_MODEL", &job.model)
+        .current_dir(&workdir);
 
     let mut child = command
         .spawn()
@@ -382,6 +384,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let backend_filter = env::var("WEB_SESSION_BACKEND").ok().filter(|v| !v.trim().is_empty());
     let idle_sleep = env_duration("WEB_SESSION_IDLE_SLEEP_SECONDS", 2, 1, 15);
     let adapter_timeout = env_duration("WEB_SESSION_ADAPTER_TIMEOUT_SECONDS", 45, 5, 120);
+    let workdir = env::var("WEB_SESSION_WORKDIR")
+        .unwrap_or_else(|_| "/tmp/company-agents-llm".into());
+    fs::create_dir_all(&workdir)
+        .map_err(|error| format!("cannot create isolated web session workdir: {error}"))?;
 
     let client = Client::builder()
         .timeout(Duration::from_secs(20))
