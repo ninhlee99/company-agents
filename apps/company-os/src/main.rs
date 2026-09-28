@@ -3,6 +3,7 @@ use affiliate_intelligence::{
     MockProvider, ProductSearchQuery, SearchResponse, TikTokShopProvider,
 };
 use agent_runtime::{model_from_env, AgentRunResult, AgentRuntime, CompanySnapshot};
+use business_economics::CompanyPortfolio;
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -76,6 +77,9 @@ struct AppState {
     company_id: String,
     currency: String,
     metrics: Arc<RuntimeMetrics>,
+    portfolio: Arc<RwLock<CompanyPortfolio>>,
+    mutation_token: Option<String>,
+    production: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -106,6 +110,9 @@ struct AffiliateSearchParams {
     in_stock_only: Option<bool>,
     max_results: Option<usize>,
     as_of_date: Option<String>,
+    min_quality_bps: Option<u32>,
+    require_attributable_coupon: Option<bool>,
+    max_source_age_seconds: Option<u64>,
 }
 
 fn format_minor(value: i128, currency: &str) -> String {
@@ -227,6 +234,9 @@ fn affiliate_query(params: AffiliateSearchParams) -> ProductSearchQuery {
         as_of_date: params
             .as_of_date
             .or_else(|| Some(time::OffsetDateTime::now_utc().date().to_string())),
+        min_quality_bps: params.min_quality_bps,
+        require_attributable_coupon: params.require_attributable_coupon.unwrap_or(false),
+        max_source_age_seconds: params.max_source_age_seconds,
     }
 }
 
@@ -437,6 +447,50 @@ async fn affiliate_performance_api(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
+async fn portfolio_api(
+    State(state): State<AppState>,
+) -> Result<Json<CompanyPortfolio>, StatusCode> {
+    Ok(Json(state.portfolio.read().await.clone()))
+}
+
+fn mutation_authorized(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+) -> bool {
+    let Some(expected) = state.mutation_token.as_deref() else {
+        return !state.production;
+    };
+    headers
+        .get("x-company-os-token")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value == expected)
+}
+
+fn read_secret_env(name: &str) -> Option<String> {
+    let direct = std::env::var(name)
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let file = std::env::var(format!("{name}_FILE"))
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    if direct.is_some() && file.is_some() {
+        return None;
+    }
+    match (direct, file) {
+        (Some(value), None) => Some(value.trim().to_owned()),
+        (None, Some(path)) => {
+            let metadata = std::fs::metadata(&path).ok()?;
+            if metadata.metadata().len() > 16 * 1024 || metadata.is_dir() {
+                return None;
+            }
+            let value = std::fs::read_to_string(path).ok()?;
+            let value = value.trim().to_owned();
+            (!value.is_empty()).then_some(value)
+        }
+        _ => None,
+    }
+}
+
 async fn journal_api(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
@@ -526,6 +580,13 @@ async fn metrics(
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let database_url = std::env::var("DATABASE_URL")?;
+    let production = std::env::var("COMPANY_ENV")
+        .map(|value| value.eq_ignore_ascii_case("production"))
+        .unwrap_or(false);
+    let mutation_token = read_secret_env("COMPANY_OS_MUTATION_TOKEN");
+    if production && mutation_token.is_none() {
+        return Err("COMPANY_OS_MUTATION_TOKEN is required in production".into());
+    }
     let company_id = std::env::var("COMPANY_ID")
         .unwrap_or_else(|_| "00000000-0000-0000-0000-000000000001".into());
     let company_name = std::env::var("COMPANY_NAME").unwrap_or_else(|_| "Demo Company".into());
@@ -598,6 +659,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .try_init()
         .ok();
 
+    let portfolio = match store.load_portfolio(&company_id).await? {
+        Some(value) => value,
+        None => {
+            let value = CompanyPortfolio::startup_default(company.cash_minor)
+                .map_err(|error| error.to_string())?;
+            store.save_portfolio(&company_id, &value).await?;
+            value
+        }
+    };
+
     let runtime = Arc::new(AgentRuntime::new(model_from_env()));
     let state = AppState {
         runtime,
@@ -610,6 +681,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         company_id: company_id.clone(),
         currency: currency.clone(),
         metrics: Arc::new(RuntimeMetrics::default()),
+        portfolio: Arc::new(RwLock::new(portfolio)),
+        mutation_token,
+        production,
     };
 
     let interval_secs = std::env::var("AGENT_CYCLE_SECONDS")
@@ -620,6 +694,62 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     store
         .ensure_recurring_job(&company_id, "agent_cycle", interval_secs as i64)
         .await?;
+
+    let outbox_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(Duration::from_secs(2));
+        loop {
+            ticker.tick().await;
+            let events = match outbox_state
+                .store
+                .claim_outbox_events(&outbox_state.company_id, 50, 30)
+                .await
+            {
+                Ok(events) => events,
+                Err(error) => {
+                    tracing::warn!(error = %error, "outbox claim failed");
+                    continue;
+                }
+            };
+
+            for event in events {
+                let Some(id) = event.get("id").and_then(|value| value.as_i64()) else {
+                    continue;
+                };
+                let Some(lease_token) = event
+                    .get("lease_token")
+                    .and_then(|value| value.as_str())
+                    .and_then(|value| uuid::Uuid::parse_str(value).ok())
+                else {
+                    tracing::error!(outbox_id = id, "outbox event missing lease token");
+                    continue;
+                };
+                let success = event
+                    .get("event_type")
+                    .and_then(|value| value.as_str())
+                    .is_some();
+                if success {
+                    if let Err(error) = outbox_state
+                        .store
+                        .mark_outbox_published(&outbox_state.company_id, id, lease_token)
+                        .await
+                    {
+                        tracing::warn!(outbox_id = id, error = %error, "outbox acknowledgement failed");
+                    }
+                } else {
+                    let _ = outbox_state
+                        .store
+                        .mark_outbox_failed(
+                            &outbox_state.company_id,
+                            id,
+                            lease_token,
+                            "invalid outbox event payload",
+                        )
+                        .await;
+                }
+            }
+        }
+    });
 
     let background = state.clone();
     tokio::spawn(async move {
@@ -668,6 +798,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/run", post(run_html))
         .route("/api/run", post(run_api))
         .route("/api/agents", get(agents_api))
+        .route("/api/portfolio", get(portfolio_api))
         .route("/api/affiliate/search", get(affiliate_search_api))
         .route("/api/affiliate/click", post(affiliate_click_api))
         .route("/api/affiliate/conversion", post(affiliate_conversion_api))
