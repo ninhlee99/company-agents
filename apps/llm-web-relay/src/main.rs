@@ -101,7 +101,6 @@ impl ApiError {
         ErrorBody {
             error: match self {
                 Self::Unauthorized => "unauthorized",
-                Self::Forbidden => "forbidden",
                 Self::BadRequest => "bad_request",
                 Self::NotFound => "not_found",
                 Self::Conflict => "conflict",
@@ -115,7 +114,6 @@ impl ApiError {
     fn status(&self) -> StatusCode {
         match self {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
-            Self::Forbidden => StatusCode::FORBIDDEN,
             Self::BadRequest => StatusCode::BAD_REQUEST,
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::Conflict => StatusCode::CONFLICT,
