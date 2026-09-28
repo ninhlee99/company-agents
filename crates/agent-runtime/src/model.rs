@@ -468,10 +468,17 @@ impl WebRelayModel {
             .or_else(|_| secret_from_env("LLM_WEB_RELAY_SECRET"))?;
         let parsed = reqwest::Url::parse(&url).map_err(|_| ModelError::MissingConfiguration)?;
         let host = parsed.host_str().unwrap_or_default();
-        if parsed.scheme() != "https"
-            && !matches!(host, "127.0.0.1" | "localhost" | "::1")
-        {
-            return Err(ModelError::MissingConfiguration);
+        if parsed.scheme() != "https" {
+            let allowed_hosts = env::var("LLM_WEB_RELAY_ALLOW_HTTP_HOSTS")
+                .unwrap_or_default()
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>();
+            let loopback = matches!(host, "127.0.0.1" | "localhost" | "::1");
+            if !loopback && !allowed_hosts.iter().any(|allowed| *allowed == host) {
+                return Err(ModelError::MissingConfiguration);
+            }
         }
 
         let client = reqwest::Client::builder()
