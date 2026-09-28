@@ -854,25 +854,24 @@ pub fn model_from_env() -> Box<dyn Model> {
         );
     }
 
+    let strict_primary = env::var("LLM_STRICT_CONFIG")
+        .ok()
+        .is_some_and(|value| {
+            matches!(
+                value.to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            )
+        });
+
     let mut providers = Vec::new();
 
-    for name in names {
+    for (index, name) in names.into_iter().enumerate() {
         match build_provider(&name) {
             Ok(provider) => providers.push((name, provider)),
-            Err(error) => {
-                let strict = env::var("LLM_STRICT_CONFIG")
-                    .ok()
-                    .is_some_and(|value| {
-                        matches!(
-                            value.to_ascii_lowercase().as_str(),
-                            "1" | "true" | "yes"
-                        )
-                    });
-
-                if strict {
-                    return Box::new(FailClosedModel::new(error.to_string()));
-                }
+            Err(error) if index == 0 && strict_primary => {
+                return Box::new(FailClosedModel::new(error.to_string()));
             }
+            Err(_error) => {}
         }
     }
 
