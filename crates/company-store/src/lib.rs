@@ -2387,52 +2387,6 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         company_id: &str,
         agent: agent_runtime::types::AgentRole,
     ) -> Result<serde_json::Value, String> {
-        let records = self
-            .load_agent_memory(company_id, agent, 50)
-            .await
-            .map_err(|error| error.to_string())?;
-        Ok(serde_json::json!({
-            "items": records,
-        }))
-    }
-
-    async fn admit_model_call(
-        &self,
-        company_id: &str,
-        agent: agent_runtime::types::AgentRole,
-    ) -> Result<(), String> {
-        let window_seconds = std::env::var("AGENT_RATE_WINDOW_SECONDS")
-            .ok()
-            .and_then(|v| v.parse::<i64>().ok())
-            .filter(|v| (15..=86_400).contains(v))
-            .unwrap_or(60);
-        let max_calls = std::env::var("AGENT_MAX_MODEL_CALLS_PER_WINDOW")
-            .ok()
-            .and_then(|v| v.parse::<i32>().ok())
-            .filter(|v| (1..=100).contains(v))
-            .unwrap_or(60);
-        let allowed = self
-            .claim_agent_run_slots(company_id, &[agent], window_seconds, max_calls)
-            .await
-            .map_err(|error| error.to_string())?;
-        if allowed.contains(&agent) {
-            Ok(())
-        } else {
-            Err(format!(
-                "durable model-call rate limit exceeded for {} ({max_calls} calls/{window_seconds}s)",
-                agent.as_str()
-            ))
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl agent_runtime::agent::AgentStateProvider for CompanyStore {
-    async fn load_memory(
-        &self,
-        company_id: &str,
-        agent: agent_runtime::types::AgentRole,
-    ) -> Result<serde_json::Value, String> {
         let limit = std::env::var("AGENT_MEMORY_LIMIT")
             .ok()
             .and_then(|v| v.parse::<i64>().ok())
