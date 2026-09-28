@@ -85,15 +85,19 @@ def check_blocked_page_text(text):
         "two-factor",
         "multi-factor",
         "enter your verification code",
-        "sign in",
-        "log in",
     )
     if any(marker in lowered for marker in blocked_markers):
-        raise RuntimeError("provider authentication or anti-bot challenge detected; no bypass attempted")
+        raise RuntimeError(
+            "provider authentication or anti-bot challenge detected; no bypass attempted"
+        )
 
 async def run_job(context, job):
     spec = backend_profile(job["backend"])
-    if job["protocol_version"] != 1 or job["allow_tools"] or job["response_format"] != "json_object":
+    if (
+        job["protocol_version"] != 1
+        or job["allow_tools"]
+        or job["response_format"] != "json_object"
+    ):
         raise ValueError("unsafe or unsupported relay job")
 
     page = await context.new_page()
@@ -101,26 +105,40 @@ async def run_job(context, job):
         await page.goto(spec["url"], wait_until="domcontentloaded")
         if urlparse(page.url).hostname != expected_host(spec):
             raise RuntimeError("provider redirected to an unexpected origin")
+
         body_text = (await page.locator("body").inner_text())[:20000]
         check_blocked_page_text(body_text)
+
+        prefix = job["backend"].split("-")[0].upper()
         input_selectors = env_selectors(
-        f"LLM_WEB_BRIDGE_{job['backend'].split('-')[0].upper()}_INPUT_SELECTORS",
-        spec["input"],
-    )
-    send_selectors = env_selectors(
-        f"LLM_WEB_BRIDGE_{job['backend'].split('-')[0].upper()}_SEND_SELECTORS",
-        spec["send"],
-    )
-    reply_selectors = env_selectors(
-        f"LLM_WEB_BRIDGE_{job['backend'].split('-')[0].upper()}_REPLY_SELECTORS",
-        spec["reply"],
-    )
-    before = {s: await page.locator(s).count() for s in reply_selectors}
-    editor = await first_visible(page, input_selectors, min(120000, max(5000, job["expires_in_ms"])))
+            f"LLM_WEB_BRIDGE_{prefix}_INPUT_SELECTORS",
+            spec["input"],
+        )
+        send_selectors = env_selectors(
+            f"LLM_WEB_BRIDGE_{prefix}_SEND_SELECTORS",
+            spec["send"],
+        )
+        reply_selectors = env_selectors(
+            f"LLM_WEB_BRIDGE_{prefix}_REPLY_SELECTORS",
+            spec["reply"],
+        )
+
+        before = {
+            selector: await page.locator(selector).count()
+            for selector in reply_selectors
+        }
+        editor = await first_visible(
+            page,
+            input_selectors,
+            min(120000, max(5000, job["expires_in_ms"])),
+        )
         await editor.fill(make_prompt(job))
         await (await first_visible(page, send_selectors)).click()
 
-        deadline = asyncio.get_running_loop().time() + min(120000, max(5000, job["expires_in_ms"])) / 1000
+        deadline = (
+            asyncio.get_running_loop().time()
+            + min(120000, max(5000, job["expires_in_ms"])) / 1000
+        )
         last_text = ""
         while asyncio.get_running_loop().time() < deadline:
             current_body = (await page.locator("body").inner_text())[:20000]
@@ -140,6 +158,7 @@ async def run_job(context, job):
                 except Exception:
                     pass
             await asyncio.sleep(0.5)
+
         raise TimeoutError("web model response timeout")
     finally:
         await page.close()
@@ -168,7 +187,6 @@ async def main():
                 user_data_dir=str(profile),
                 headless=os.getenv("LLM_WEB_BRIDGE_HEADLESS", "false").lower() in {"1","true","yes","on"},
                 accept_downloads=False)
-            page = ctx.pages[0] if ctx.pages else await ctx.new_page()
             try:
                 while True:
                     response = await client.post("/v1/jobs/claim", json={"backend": backend})
@@ -178,7 +196,7 @@ async def main():
                         await asyncio.sleep(float(os.getenv("LLM_WEB_BRIDGE_POLL_SECONDS", "1")))
                         continue
                     try:
-                        output = await run_job(page, job)
+                        output = await run_job(ctx, job)
                         done = await client.post(
                             f"/v1/jobs/{job['job_id']}/complete",
                             json={"lease_token":job["lease_token"],"output":output})
