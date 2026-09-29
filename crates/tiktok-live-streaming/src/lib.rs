@@ -205,7 +205,11 @@ fn write_overlay(path: &Path, text: &str) -> Result<(), String> {
         fs::create_dir_all(parent)
             .map_err(|error| format!("cannot create overlay directory: {error}"))?;
     }
-    let tmp = path.with_extension("tmp");
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| format!("system clock error: {error}"))?
+        .as_nanos();
+    let tmp = path.with_extension(format!("tmp-{}-{nonce}", std::process::id()));
     let mut file = OpenOptions::new()
         .create(true)
         .truncate(true)
