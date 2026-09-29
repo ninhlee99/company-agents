@@ -183,6 +183,16 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/017_payment_reconciliation_evidence.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/020_customer_success_tasks.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/021_procurement_vendor_lifecycle.sql"
+            ))
             .await
     }
 
@@ -3890,21 +3900,254 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         Ok(())
     }
 
-    pub async fn record_control_plane_audit(
-        &self, company_id:&str, actor_id:&str, actor_role:&str, method:&str,
-        path:&str, action:&str, outcome:&str, request_id:Option<&str>
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let company=Uuid::parse_str(company_id)?;
-        if actor_id.trim().is_empty() || actor_role.trim().is_empty() || path.trim().is_empty() {
-            return Err("invalid audit actor".into());
-        }
+    pub async fn create_customer_success_task(
+        &self, company_id:&str, task_id:Uuid, customer_id:&str, task_type:&str,
+        due_at_epoch:i64, owner:Option<&str>, notes:Option<&str>, idempotency_key:&str
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let customer=Uuid::parse_str(customer_id)?;
+        if !matches!(task_type,"ONBOARDING"|"HEALTH_REVIEW"|"RENEWAL"|"EXPANSION"|"RISK_REVIEW")
+            || idempotency_key.trim().is_empty() { return Err("invalid customer success task".into()); }
         let client=self.client.lock().await;
-        client.execute(
-            "INSERT INTO control_plane_audit_log
-             (company_id,actor_id,actor_role,method,path,action,outcome,request_id)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
-            &[&company,&actor_id,&actor_role,&method,&path,&action,&outcome,&request_id]
+        let row=client.query_opt(
+            "INSERT INTO customer_success_tasks
+             (id,company_id,customer_id,task_type,due_at_epoch,owner,status,notes,idempotency_key)
+             VALUES ($1,$2,$3,$4,$5,$6,'OPEN',$7,$8)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING
+             RETURNING id,status,due_at_epoch",
+            &[&task_id,&company,&customer,&task_type,&due_at_epoch,&owner,&notes,&idempotency_key]
         ).await?;
+        let row=match row { Some(r)=>r, None=>client.query_one(
+            "SELECT id,status,due_at_epoch FROM customer_success_tasks WHERE company_id=$1 AND idempotency_key=$2",
+            &[&company,&idempotency_key]).await? };
+        Ok(serde_json::json!({"id":row.get::<_,Uuid>(0),"status":row.get::<_,String>(1),"due_at_epoch":row.get::<_,i64>(2)}))
+    }
+
+    pub async fn list_due_customer_success_tasks(
+        &self, company_id:&str, now_epoch:i64, limit:i64
+    ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let client=self.client.lock().await;
+        let rows=client.query(
+            "SELECT id,customer_id,task_type,due_at_epoch,owner,status,notes,outcome
+             FROM customer_success_tasks
+             WHERE company_id=$1 AND status IN ('OPEN','IN_PROGRESS') AND due_at_epoch <= $2
+             ORDER BY due_at_epoch ASC LIMIT $3",
+            &[&company,&now_epoch,&limit.max(1).min(500)]
+        ).await?;
+        Ok(rows.into_iter().map(|r| serde_json::json!({
+            "id":r.get::<_,Uuid>(0),"customer_id":r.get::<_,Uuid>(1),"task_type":r.get::<_,String>(2),
+            "due_at_epoch":r.get::<_,i64>(3),"owner":r.get::<_,Option<String>>(4),
+            "status":r.get::<_,String>(5),"notes":r.get::<_,Option<String>>(6),"outcome":r.get::<_,Option<String>>(7)
+        })).collect())
+    }
+
+    pub async fn complete_customer_success_task(
+        &self, company_id:&str, task_id:&str, outcome:&str
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let task=Uuid::parse_str(task_id)?;
+        if outcome.trim().is_empty() { return Err("task outcome is required".into()); }
+        let client=self.client.lock().await;
+        let changed=client.execute(
+            "UPDATE customer_success_tasks SET status='COMPLETED',outcome=$3,updated_at=now()
+             WHERE company_id=$1 AND id=$2 AND status IN ('OPEN','IN_PROGRESS')",
+            &[&company,&task,&outcome]
+        ).await?;
+        if changed!=1 { return Err("customer success task not found or already terminal".into()); }
+        Ok(())
+    }
+
+    pub async fn create_vendor(
+        &self,
+        company_id: &str,
+        vendor_id: Uuid,
+        legal_name: &str,
+        contact_email: Option<&str>,
+        currency: &str,
+        tax_ref: Option<&str>,
+        idempotency_key: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let currency = currency.trim().to_uppercase();
+        if legal_name.trim().is_empty() || legal_name.len() > 200
+            || !matches!(currency.len(), 3)
+            || idempotency_key.trim().is_empty() || idempotency_key.len() > 256 {
+            return Err("invalid vendor".into());
+        }
+        if let Some(email) = contact_email {
+            if email.len() > 320 || !email.contains('@') { return Err("invalid vendor email".into()); }
+        }
+        let client = self.client.lock().await;
+        let row = client.query_opt(
+            "INSERT INTO vendors
+             (id,company_id,legal_name,contact_email,currency,tax_ref,status,idempotency_key)
+             VALUES ($1,$2,$3,$4,$5,$6,'PROSPECT',$7)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING
+             RETURNING id,legal_name,contact_email,currency,tax_ref,status,created_at",
+            &[&vendor_id,&company,&legal_name,&contact_email,&currency,&tax_ref,&idempotency_key],
+        ).await?;
+        let row = match row {
+            Some(row) => row,
+            None => client.query_one(
+                "SELECT id,legal_name,contact_email,currency,tax_ref,status,created_at
+                 FROM vendors WHERE company_id=$1 AND idempotency_key=$2",
+                &[&company,&idempotency_key],
+            ).await?,
+        };
+        Ok(serde_json::json!({
+            "id": row.get::<_,Uuid>(0),
+            "legal_name": row.get::<_,String>(1),
+            "contact_email": row.get::<_,Option<String>>(2),
+            "currency": row.get::<_,String>(3),
+            "tax_ref": row.get::<_,Option<String>>(4),
+            "status": row.get::<_,String>(5),
+            "created_at": row.get::<_,time::OffsetDateTime>(6).to_string()
+        }))
+    }
+
+    pub async fn list_vendors(
+        &self,
+        company_id: &str,
+        limit: i64,
+    ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=200).contains(&limit) { return Err("vendor limit must be between 1 and 200".into()); }
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client.query(
+            "SELECT id,legal_name,contact_email,currency,tax_ref,status,created_at,updated_at
+             FROM vendors WHERE company_id=$1 ORDER BY created_at DESC,id DESC LIMIT $2",
+            &[&company,&limit],
+        ).await?;
+        Ok(rows.into_iter().map(|r| serde_json::json!({
+            "id":r.get::<_,Uuid>(0),"legal_name":r.get::<_,String>(1),
+            "contact_email":r.get::<_,Option<String>>(2),"currency":r.get::<_,String>(3),
+            "tax_ref":r.get::<_,Option<String>>(4),"status":r.get::<_,String>(5),
+            "created_at":r.get::<_,time::OffsetDateTime>(6).to_string(),
+            "updated_at":r.get::<_,time::OffsetDateTime>(7).to_string()
+        })).collect())
+    }
+
+    pub async fn create_purchase_request(
+        &self,
+        company_id: &str,
+        request_id: Uuid,
+        vendor_id: Uuid,
+        title: &str,
+        currency: &str,
+        amount_minor: i128,
+        requester: &str,
+        idempotency_key: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let currency = currency.trim().to_uppercase();
+        if title.trim().is_empty() || requester.trim().is_empty() || amount_minor <= 0
+            || currency.len() != 3 || idempotency_key.trim().is_empty() {
+            return Err("invalid purchase request".into());
+        }
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let vendor = tx.query_opt(
+            "SELECT currency,status FROM vendors WHERE company_id=$1 AND id=$2 FOR UPDATE",
+            &[&company,&vendor_id],
+        ).await?.ok_or("vendor not found")?;
+        let vendor_currency: String = vendor.get(0);
+        let vendor_status: String = vendor.get(1);
+        if vendor_currency != currency { return Err("purchase currency does not match vendor".into()); }
+        if !matches!(vendor_status.as_str(),"PROSPECT"|"ACTIVE") { return Err("vendor is not purchasable".into()); }
+        let row = tx.query_opt(
+            "INSERT INTO purchase_requests
+             (id,company_id,vendor_id,title,currency,amount_minor,requester,status,idempotency_key)
+             VALUES ($1,$2,$3,$4,$5,$6::numeric,$7,'PENDING_APPROVAL',$8)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING
+             RETURNING id,status",
+            &[&request_id,&company,&vendor_id,&title,&currency,&amount_minor.to_string(),&requester,&idempotency_key],
+        ).await?;
+        let row = match row {
+            Some(row) => row,
+            None => tx.query_one(
+                "SELECT id,status FROM purchase_requests WHERE company_id=$1 AND idempotency_key=$2",
+                &[&company,&idempotency_key],
+            ).await?,
+        };
+        tx.commit().await?;
+        Ok(serde_json::json!({"id":row.get::<_,Uuid>(0),"status":row.get::<_,String>(1)}))
+    }
+
+    pub async fn approve_purchase_request(
+        &self,
+        company_id: &str,
+        request_id: &str,
+        approved_by: &str,
+        approval_reference: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let request = Uuid::parse_str(request_id)?;
+        if approved_by.trim().is_empty() || approval_reference.trim().is_empty() {
+            return Err("approval identity and reference are required".into());
+        }
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let row = tx.query_opt(
+            "SELECT status FROM purchase_requests WHERE company_id=$1 AND id=$2 FOR UPDATE",
+            &[&company,&request],
+        ).await?.ok_or("purchase request not found")?;
+        let status: String = row.get(0);
+        if status != "PENDING_APPROVAL" { return Err("purchase request is not pending approval".into()); }
+        tx.execute(
+            "UPDATE purchase_requests SET status='APPROVED',approved_by=$3,approval_reference=$4,updated_at=now()
+             WHERE company_id=$1 AND id=$2",
+            &[&company,&request,&approved_by,&approval_reference],
+        ).await?;
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'PURCHASE_REQUEST_APPROVED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[&company,&request,&format!("outbox:purchase-approved:{}",request),
+              &serde_json::json!({"purchase_request_id":request,"approved_by":approved_by,"approval_reference":approval_reference})],
+        ).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn record_vendor_delivery(
+        &self,
+        company_id: &str,
+        delivery_id: Uuid,
+        purchase_request_id: &str,
+        external_ref: Option<&str>,
+        received_at_epoch: i64,
+        evidence_hash: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let request = Uuid::parse_str(purchase_request_id)?;
+        if received_at_epoch <= 0 || evidence_hash.trim().is_empty() { return Err("delivery evidence is incomplete".into()); }
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let row = tx.query_opt(
+            "SELECT status FROM purchase_requests WHERE company_id=$1 AND id=$2 FOR UPDATE",
+            &[&company,&request],
+        ).await?.ok_or("purchase request not found")?;
+        let status: String = row.get(0);
+        if !matches!(status.as_str(),"APPROVED"|"ORDERED") { return Err("purchase request is not receivable".into()); }
+        tx.execute(
+            "INSERT INTO vendor_deliveries
+             (id,company_id,purchase_request_id,external_ref,received_at_epoch,evidence_hash,status)
+             VALUES ($1,$2,$3,$4,$5,$6,'ACCEPTED')",
+            &[&delivery_id,&company,&request,&external_ref,&received_at_epoch,&evidence_hash],
+        ).await?;
+        tx.execute(
+            "UPDATE purchase_requests SET status='RECEIVED',updated_at=now()
+             WHERE company_id=$1 AND id=$2",
+            &[&company,&request],
+        ).await?;
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'VENDOR_DELIVERY_RECORDED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[&company,&request,&format!("outbox:vendor-delivery:{}:{}",request,evidence_hash),
+              &serde_json::json!({"purchase_request_id":request,"delivery_id":delivery_id,"evidence_hash":evidence_hash})],
+        ).await?;
+        tx.commit().await?;
         Ok(())
     }
 
