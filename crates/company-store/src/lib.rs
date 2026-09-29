@@ -3890,5 +3890,22 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         Ok(())
     }
 
-}
+    pub async fn record_control_plane_audit(
+        &self, company_id:&str, actor_id:&str, actor_role:&str, method:&str,
+        path:&str, action:&str, outcome:&str, request_id:Option<&str>
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?;
+        if actor_id.trim().is_empty() || actor_role.trim().is_empty() || path.trim().is_empty() {
+            return Err("invalid audit actor".into());
+        }
+        let client=self.client.lock().await;
+        client.execute(
+            "INSERT INTO control_plane_audit_log
+             (company_id,actor_id,actor_role,method,path,action,outcome,request_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+            &[&company,&actor_id,&actor_role,&method,&path,&action,&outcome,&request_id]
+        ).await?;
+        Ok(())
+    }
 
+}
