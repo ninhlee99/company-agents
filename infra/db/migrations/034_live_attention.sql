@@ -4,6 +4,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_tiktok_live_sessions_company_id
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tiktok_live_events_company_id
   ON tiktok_live_events(company_id, id);
 
+ALTER TABLE tiktok_live_events
+  ADD COLUMN IF NOT EXISTS viewer_value_bps integer
+  CHECK (viewer_value_bps BETWEEN 0 AND 10000);
+
 CREATE TABLE IF NOT EXISTS live_attention_decisions (
   id uuid PRIMARY KEY,
   company_id uuid NOT NULL REFERENCES companies(id),
