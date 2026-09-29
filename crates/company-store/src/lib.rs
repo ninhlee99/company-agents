@@ -819,7 +819,6 @@ impl CompanyStore {
         let intent_uuid = Uuid::parse_str(intent_id)?;
         let execution_uuid = Uuid::parse_str(execution_token)?;
         let client = self.client.lock().await;
-        if !session_exists { return Err("LIVE session is not owned by company".into()); }
         let changed = client
             .execute(
                 "UPDATE publish_intents
