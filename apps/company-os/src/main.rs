@@ -149,6 +149,8 @@ struct AffiliateSearchParams {
 #[derive(Debug, Deserialize)] struct CustomerRequest { name: String, email: Option<String>, external_ref: Option<String>, status: Option<String>, notes: Option<String>, idempotency_key: String }
 #[derive(Debug, Deserialize)] struct CustomerSuccessTaskRequest { customer_id: uuid::Uuid, task_type:String, due_at_epoch:i64, owner:Option<String>, notes:Option<String>, idempotency_key:String }
 #[derive(Debug, Deserialize)] struct CustomerSuccessCompleteRequest { task_id:uuid::Uuid, outcome:String }
+#[derive(Debug, Deserialize)] struct BudgetRequest { name:String, currency:String, limit_minor:i128 }
+#[derive(Debug, Deserialize)] struct BudgetSpendRequest { budget_id:uuid::Uuid, amount_minor:i128, currency:String, idempotency_key:String }
 
 fn format_minor(value: i128, currency: &str) -> String {
     let negative = value < 0;
@@ -800,6 +802,22 @@ async fn require_control_plane_auth(request: Request, next: Next) -> Result<Resp
 }
 
 
+async fn budgets_api(State(state): State<AppState>) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    state.store.list_budgets(&state.company_id).await.map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+async fn budget_api(
+    State(state): State<AppState>, Json(req): Json<BudgetRequest>
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.create_budget(&state.company_id, uuid::Uuid::new_v4(), &req.name, &req.currency, req.limit_minor)
+        .await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
+async fn budget_spend_api(
+    State(state): State<AppState>, Json(req): Json<BudgetSpendRequest>
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.record_budget_spend(&state.company_id, &req.budget_id.to_string(), req.amount_minor, &req.currency, &req.idempotency_key)
+        .await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
 async fn customer_api(
     State(state): State<AppState>,
     Json(req): Json<CustomerRequest>,
@@ -1022,6 +1040,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/publishing/tiktok/status", post(publishing::tiktok_status))
         .route("/api/publishing/tiktok/webhook", post(publishing::tiktok_webhook))
         .route("/api/customers", get(customers_api).post(customer_api))
+        .route("/api/finance/budgets", get(budgets_api).post(budget_api))
+        .route("/api/finance/budgets/spend", post(budget_spend_api))
         .route("/api/employees", get(employees_api))
         .route("/api/payroll/due", get(payroll_due_api))
         .route("/api/commercial/proposals", post(service_proposal_api))

@@ -70,3 +70,13 @@ It should not be described as an AI company that can independently operate every
 ### Commercial lifecycle hardening
 
 The commercial control plane now exposes a read-only pipeline view plus deterministic proposal and sponsorship transitions. Sponsorship delivery is bounded by the contracted value and emits durable outbox events. These APIs do not execute external contracts or payment settlement; those remain provider/reconciliation boundaries.
+
+
+## FP&A / Budget Controls
+
+- Durable company budgets: implemented
+- Atomic spend tracking with idempotency: implemented
+- Currency and limit enforcement: implemented
+- Append-only audit evidence for budget spend: implemented
+- Forecast vs actual: not yet implemented
+- Cash-flow forecasting / runway planning: not yet implemented
