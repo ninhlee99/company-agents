@@ -1,4 +1,5 @@
 mod publishing;
+mod live;
 use affiliate_intelligence::{
     search as search_affiliate, AffiliateProvider, AggregateAffiliateProvider, AwinProvider,
     MockProvider, ProductSearchQuery, SearchResponse, TikTokShopProvider,
@@ -1072,6 +1073,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/publishing/tiktok/execute", post(publishing::execute_tiktok))
         .route("/api/publishing/tiktok/status", post(publishing::tiktok_status))
         .route("/api/publishing/tiktok/webhook", post(publishing::tiktok_webhook))
+        .route("/api/live/sessions", post(live::create_session))
+        .route("/api/live/sessions/:session_id/events", post(live::record_event))
+        .route("/api/live/sessions/:session_id/summary", get(live::summary))
+        .route("/api/live/sessions/:session_id/reconcile-gifts", post(live::reconcile_gifts))
         .route("/api/customers", get(customers_api).post(customer_api))
         .route("/api/vendors", get(vendors_api).post(vendor_api))
         .route("/api/procurement/requests", post(purchase_request_api))

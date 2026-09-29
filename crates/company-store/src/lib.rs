@@ -193,6 +193,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/021_procurement_vendor_lifecycle.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/022_tiktok_live.sql"
+            ))
             .await
     }
 
@@ -3012,6 +3017,186 @@ impl CompanyStore {
         Ok(())
     }
 
+    pub async fn create_tiktok_live_session(
+        &self,
+        session: &tiktok_live_engine::LiveSession,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        session.validate().map_err(|error| error.to_string())?;
+        let company_id = session.company_id;
+        let mode = format!("{:?}", session.mode).to_ascii_uppercase();
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "INSERT INTO tiktok_live_sessions
+                 (id, company_id, room_id, title, mode, started_at_epoch,
+                  approved_for_external_publish)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7)
+                 ON CONFLICT (id) DO NOTHING",
+                &[
+                    &session.id,
+                    &company_id,
+                    &session.room_id,
+                    &session.title,
+                    &mode,
+                    &session.started_at_epoch,
+                    &session.approved_for_external_publish,
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn record_tiktok_live_event(
+        &self,
+        company_id: &str,
+        session_id: &str,
+        event: &tiktok_live_engine::LiveEvent,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        event.validate().map_err(|error| error.to_string())?;
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let session_uuid = Uuid::parse_str(session_id)?;
+        if event.gift_quantity > i64::MAX as u64 || event.pk_score.is_some_and(|value| value > i64::MAX as u64) {
+            return Err("LIVE event numeric fields exceed database range".into());
+        }
+        let kind = format!("{:?}", event.kind).to_ascii_uppercase();
+        let gift_value = event.gift_value_minor.to_string();
+        let client = self.client.lock().await;
+        let session_exists = client
+            .query_opt(
+                "SELECT 1 FROM tiktok_live_sessions WHERE id=$1 AND company_id=$2",
+                &[&session_uuid, &company_uuid],
+            )
+            .await?
+            .is_some();
+        if !session_exists {
+            return Err("LIVE session is not owned by company".into());
+        }
+        let changed = client
+            .execute(
+                "INSERT INTO tiktok_live_events
+                 (company_id, session_id, event_id, room_id, kind, user_id,
+                  display_name, event_text, gift_id, gift_name, gift_quantity,
+                  gift_value_minor, currency, pk_score, occurred_at_epoch)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::numeric,$13,$14,$15)
+                 ON CONFLICT (company_id, event_id) DO NOTHING",
+                &[
+                    &company_uuid,
+                    &session_uuid,
+                    &event.event_id,
+                    &event.room_id,
+                    &kind,
+                    &event.user_id,
+                    &event.display_name,
+                    &event.text,
+                    &event.gift_id,
+                    &event.gift_name,
+                    &(event.gift_quantity as i64),
+                    &gift_value,
+                    &event.currency,
+                    &(event.pk_score.map(|value| value as i64)),
+                    &event.occurred_at_epoch,
+                ],
+            )
+            .await?;
+        Ok(changed == 1)
+    }
+
+    pub async fn tiktok_live_summary(
+        &self,
+        company_id: &str,
+        session_id: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let session_uuid = Uuid::parse_str(session_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_one(
+                "SELECT
+                    COUNT(*)::bigint,
+                    COUNT(*) FILTER (WHERE kind='GIFT')::bigint,
+                    COALESCE(SUM(gift_quantity) FILTER (WHERE kind='GIFT'),0)::text,
+                    COALESCE(SUM(gift_value_minor) FILTER (WHERE kind='GIFT'),0)::text,
+                    COUNT(*) FILTER (WHERE kind='COMMENT')::bigint,
+                    COUNT(*) FILTER (WHERE kind='FOLLOW')::bigint,
+                    COUNT(*) FILTER (WHERE kind='SHARE')::bigint,
+                    COUNT(*) FILTER (WHERE kind='LIKE')::bigint
+                 FROM tiktok_live_events
+                 WHERE company_id=$1 AND session_id=$2",
+                &[&company_uuid, &session_uuid],
+            )
+            .await?;
+        Ok(serde_json::json!({
+            "session_id": session_id,
+            "events": row.get::<_, i64>(0),
+            "gift_events": row.get::<_, i64>(1),
+            "gift_count": row.get::<_, String>(2),
+            "gift_value_minor": row.get::<_, String>(3),
+            "comments": row.get::<_, i64>(4),
+            "follows": row.get::<_, i64>(5),
+            "shares": row.get::<_, i64>(6),
+            "likes": row.get::<_, i64>(7),
+        }))
+    }
+
+    pub async fn reconcile_tiktok_live_gifts(
+        &self,
+        company_id: &str,
+        session_id: &str,
+        statement: &tiktok_live_engine::ProviderGiftStatement,
+    ) -> Result<tiktok_live_engine::GiftReconciliation, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let session_uuid = Uuid::parse_str(session_id)?;
+        let client = self.client.lock().await;
+        let session_exists = client
+            .query_opt(
+                "SELECT 1 FROM tiktok_live_sessions WHERE id=$1 AND company_id=$2",
+                &[&session_uuid, &company_uuid],
+            )
+            .await?
+            .is_some();
+        if !session_exists {
+            return Err("LIVE session is not owned by company".into());
+        }
+        let row = client
+            .query_one(
+                "SELECT
+                    COALESCE(SUM(gift_quantity) FILTER (WHERE kind='GIFT'),0)::text,
+                    COALESCE(SUM(gift_value_minor) FILTER (WHERE kind='GIFT'),0)::text
+                 FROM tiktok_live_events
+                 WHERE company_id=$1 AND session_id=$2",
+                &[&company_uuid, &session_uuid],
+            )
+            .await?;
+        let gift_count_value = parse_i128_numeric(&row.get::<_, String>(0))?;
+        if gift_count_value < 0 {
+            return Err("stored LIVE gift count cannot be negative".into());
+        }
+        let gift_count = gift_count_value as u64;
+        let gift_value_minor = parse_i128_numeric(&row.get::<_, String>(1))?;
+        if gift_value_minor < 0 {
+            return Err("stored LIVE gift value cannot be negative".into());
+        }
+        let ledger = tiktok_live_engine::LiveLedger {
+            processed_event_ids: std::collections::HashSet::new(),
+            gift_count,
+            gift_value_minor: gift_value_minor as u128,
+            comments: 0,
+            follows: 0,
+            shares: 0,
+            likes: 0,
+        };
+        let reconciliation = tiktok_live_engine::reconcile_gifts(&ledger, statement)?;
+        tx_store_live_gift_statement(
+            &client,
+            company_uuid,
+            session_uuid,
+            &reconciliation,
+            &statement.currency,
+        )
+        .await?;
+        Ok(reconciliation)
+    }
+
     pub async fn recent_journal(
         &self,
         company_id: &str,
@@ -3046,6 +3231,43 @@ impl CompanyStore {
             .map(|row| row.get::<_, serde_json::Value>(0))
             .collect())
     }
+}
+
+async fn tx_store_live_gift_statement(
+    client: &Client,
+    company_id: Uuid,
+    session_id: Uuid,
+    reconciliation: &tiktok_live_engine::GiftReconciliation,
+    currency: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    client
+        .execute(
+            "INSERT INTO tiktok_live_gift_statements
+             (id, company_id, session_id, statement_id, gift_count,
+              gross_value_minor, currency, matched, count_delta, value_delta_minor)
+             VALUES ($1,$2,$3,$4,$5,$6::numeric,$7,$8,$9,$10::numeric)
+             ON CONFLICT (company_id, statement_id) DO UPDATE
+             SET gift_count=EXCLUDED.gift_count,
+                 gross_value_minor=EXCLUDED.gross_value_minor,
+                 currency=EXCLUDED.currency,
+                 matched=EXCLUDED.matched,
+                 count_delta=EXCLUDED.count_delta,
+                 value_delta_minor=EXCLUDED.value_delta_minor",
+            &[
+                &Uuid::new_v4(),
+                &company_id,
+                &session_id,
+                &reconciliation.statement_id,
+                &reconciliation.provider_gift_count.to_string(),
+                &reconciliation.provider_value_minor.to_string(),
+                &currency,
+                &reconciliation.matched,
+                &reconciliation.count_delta.to_string(),
+                &reconciliation.value_delta_minor.to_string(),
+            ],
+        )
+        .await?;
+    Ok(())
 }
 
 fn parse_reconciliation_status(
