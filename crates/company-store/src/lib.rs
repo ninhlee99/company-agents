@@ -3130,7 +3130,7 @@ impl CompanyStore {
             "session_id": session_id,
             "events": row.get::<_, i64>(0),
             "gift_events": row.get::<_, i64>(1),
-            "gift_count": row.get::<_, i64>(2),
+            "gift_count": row.get::<_, String>(2),
             "gift_value_minor": row.get::<_, String>(3),
             "comments": row.get::<_, i64>(4),
             "follows": row.get::<_, i64>(5),
@@ -3161,14 +3161,18 @@ impl CompanyStore {
         let row = client
             .query_one(
                 "SELECT
-                    COALESCE(SUM(gift_quantity) FILTER (WHERE kind='GIFT'),0)::bigint,
+                    COALESCE(SUM(gift_quantity) FILTER (WHERE kind='GIFT'),0)::text,
                     COALESCE(SUM(gift_value_minor) FILTER (WHERE kind='GIFT'),0)::text
                  FROM tiktok_live_events
                  WHERE company_id=$1 AND session_id=$2",
                 &[&company_uuid, &session_uuid],
             )
             .await?;
-        let gift_count = row.get::<_, i64>(0).max(0) as u64;
+        let gift_count_value = parse_i128_numeric(&row.get::<_, String>(0))?;
+        if gift_count_value < 0 {
+            return Err("stored LIVE gift count cannot be negative".into());
+        }
+        let gift_count = gift_count_value as u64;
         let gift_value_minor = parse_i128_numeric(&row.get::<_, String>(1))?;
         if gift_value_minor < 0 {
             return Err("stored LIVE gift value cannot be negative".into());
