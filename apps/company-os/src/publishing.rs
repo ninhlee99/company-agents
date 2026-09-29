@@ -26,6 +26,12 @@ pub struct TikTokExecuteRequest {
     pub is_aigc: bool,
     #[serde(default)]
     pub brand_organic_toggle: bool,
+    pub policy_snapshot_key: String,
+    pub policy_evidence_ref: String,
+    pub disclosure_present: bool,
+    pub claim_evidence_present: bool,
+    pub product_eligibility_verified: bool,
+    pub rights_evidence_present: bool,
 }
 
 #[derive(Debug, Serialize)]
