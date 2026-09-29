@@ -351,6 +351,193 @@ impl CompanyStore {
             .await
     }
 
+    pub async fn record_policy_snapshot(
+        &self,
+        snapshot: &company_compliance::PolicySnapshot,
+    ) -> Result<company_compliance::PolicySnapshot, Box<dyn std::error::Error + Send + Sync>> {
+        snapshot.validate().map_err(|error| error.to_string())?;
+        let mut client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "INSERT INTO policy_snapshots
+                 (id,company_id,policy_key,platform,jurisdiction,version,source_reference,
+                  evidence_hash,observed_at_epoch,effective_at_epoch,active,rules_json)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                 ON CONFLICT(company_id,policy_key,version) DO NOTHING
+                 RETURNING id",
+                &[
+                    &snapshot.id,
+                    &snapshot.company_id,
+                    &snapshot.policy_key,
+                    &snapshot.platform,
+                    &snapshot.jurisdiction,
+                    &snapshot.version,
+                    &snapshot.source_reference,
+                    &snapshot.evidence_hash,
+                    &snapshot.observed_at_epoch,
+                    &snapshot.effective_at_epoch,
+                    &snapshot.active,
+                    &serde_json::to_value(&snapshot.rules)?,
+                ],
+            )
+            .await?;
+
+        let row = if row.is_some() {
+            client
+                .query_one(
+                    "SELECT id,company_id,policy_key,platform,jurisdiction,version,
+                            source_reference,evidence_hash,observed_at_epoch,effective_at_epoch,
+                            active,rules_json
+                       FROM policy_snapshots
+                      WHERE company_id=$1 AND policy_key=$2 AND version=$3",
+                    &[&snapshot.company_id, &snapshot.policy_key, &snapshot.version],
+                )
+                .await?
+        } else {
+            client
+                .query_one(
+                    "SELECT id,company_id,policy_key,platform,jurisdiction,version,
+                            source_reference,evidence_hash,observed_at_epoch,effective_at_epoch,
+                            active,rules_json
+                       FROM policy_snapshots
+                      WHERE company_id=$1 AND policy_key=$2 AND version=$3",
+                    &[&snapshot.company_id, &snapshot.policy_key, &snapshot.version],
+                )
+                .await?
+        };
+        policy_snapshot_from_row(row)
+    }
+
+    pub async fn record_compliance_check(
+        &self,
+        input: &company_compliance::ComplianceInput,
+    ) -> Result<company_compliance::ComplianceCheck, Box<dyn std::error::Error + Send + Sync>> {
+        input.validate().map_err(|error| error.to_string())?;
+        let mut client = self.client.lock().await;
+        let now_epoch: i64 = client
+            .query_one("SELECT EXTRACT(EPOCH FROM now())::bigint", &[])
+            .await?
+            .get(0);
+
+        let snapshot = client
+            .query_opt(
+                "SELECT id,company_id,policy_key,platform,jurisdiction,version,
+                        source_reference,evidence_hash,observed_at_epoch,effective_at_epoch,
+                        active,rules_json
+                   FROM policy_snapshots
+                  WHERE company_id=$1 AND policy_key=$2 AND platform=$3
+                    AND jurisdiction=$4 AND active=true AND effective_at_epoch <= $5
+                  ORDER BY effective_at_epoch DESC,observed_at_epoch DESC,created_at DESC
+                  LIMIT 1",
+                &[
+                    &input.company_id,
+                    &input.policy_key,
+                    &input.platform,
+                    &input.jurisdiction,
+                    &now_epoch,
+                ],
+            )
+            .await?
+            .map(policy_snapshot_from_row)
+            .transpose()?;
+
+        let check = company_compliance::evaluate(snapshot.as_ref(), input, now_epoch)
+            .map_err(|error| error.to_string())?;
+
+        let input_hash = {
+            let encoded = serde_json::to_vec(input)?;
+            let digest = Sha256::digest(encoded);
+            format!("sha256:{}", digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>())
+        };
+
+        let inserted = client
+            .query_opt(
+                "INSERT INTO compliance_checks
+                 (id,company_id,policy_snapshot_id,surface,policy_key,policy_snapshot_key,
+                  input_hash,decision,reason,evidence_ref,requires_human,checked_at_epoch)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                 ON CONFLICT(company_id,policy_key,policy_snapshot_key,input_hash) DO NOTHING
+                 RETURNING id",
+                &[
+                    &check.id,
+                    &check.company_id,
+                    &check.policy_snapshot_id,
+                    &compliance_surface_name(input.surface),
+                    &input.policy_key,
+                    &input.policy_snapshot_key,
+                    &input_hash,
+                    &compliance_decision_name(check.decision),
+                    &compliance_reason_name(check.reason),
+                    &input.evidence_ref,
+                    &check.requires_human,
+                    &check.checked_at_epoch,
+                ],
+            )
+            .await?;
+
+        if inserted.is_none() {
+            return existing_compliance_check(
+                &client,
+                &input.company_id,
+                &input.policy_key,
+                &input.policy_snapshot_key,
+                &input_hash,
+            )
+            .await;
+        }
+
+        Ok(check)
+    }
+
+    pub async fn compliance_status(
+        &self,
+        company_id: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let latest = client
+            .query_opt(
+                "SELECT policy_key,platform,jurisdiction,version,source_reference,
+                        evidence_hash,effective_at_epoch,active
+                   FROM policy_snapshots
+                  WHERE company_id=$1
+                  ORDER BY effective_at_epoch DESC,created_at DESC
+                  LIMIT 1",
+                &[&company],
+            )
+            .await?;
+        let counts = client
+            .query_one(
+                "SELECT
+                    COUNT(*) FILTER (WHERE decision='ALLOWED')::bigint,
+                    COUNT(*) FILTER (WHERE decision='REVIEW')::bigint,
+                    COUNT(*) FILTER (WHERE decision='BLOCKED')::bigint,
+                    COUNT(*) FILTER (WHERE decision='UNKNOWN')::bigint
+                 FROM compliance_checks
+                WHERE company_id=$1 AND created_at >= now() - interval '24 hours'",
+                &[&company],
+            )
+            .await?;
+        Ok(serde_json::json!({
+            "latest_policy": latest.map(|row| serde_json::json!({
+                "policy_key": row.get::<_,String>(0),
+                "platform": row.get::<_,String>(1),
+                "jurisdiction": row.get::<_,String>(2),
+                "version": row.get::<_,String>(3),
+                "source_reference": row.get::<_,String>(4),
+                "evidence_hash": row.get::<_,String>(5),
+                "effective_at_epoch": row.get::<_,i64>(6),
+                "active": row.get::<_,bool>(7)
+            })),
+            "checks_last_24h": {
+                "allowed": counts.get::<_,i64>(0),
+                "review": counts.get::<_,i64>(1),
+                "blocked": counts.get::<_,i64>(2),
+                "unknown": counts.get::<_,i64>(3)
+            }
+        }))
+    }
+
     pub async fn ensure_company(
         &self,
         company_id: &str,
