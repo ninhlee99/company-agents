@@ -438,7 +438,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <div class="card"><small>Runway</small><div class="metric">{} days</div></div>
 </div>
 <div class="card"><small>Contribution margin MTD</small><div class="metric">{}</div><small>{}</small></div>
-<div class="card"><small>Affiliate reconciliation MTD</small><div class="metric">{}</div><small>reported · attributed · paid · variance: {} · {} · {} · {}</small></div>
+<div class="card"><small>Affiliate reconciliation MTD</small><div class="metric">{}</div><small>variance · reported · attributed · paid: {} · {} · {} · {}</small></div>
 <div class="grid"><div class="card"><small>Status</small><div class="metric">{:?}</div></div><div class="card"><small>Agent cycle</small><div class="metric">{}</div></div><div class="card"><small>Backlog / capacity</small><div class="metric">{}%</div></div><div class="card"><small>Agent results</small><div class="metric">{}</div></div></div>
 <div class="grid"><div class="card"><small>Active workforce</small><div class="metric">{}</div></div><div class="card"><small>Payroll due</small><div class="metric">{}</div></div><div class="card"><small>Business units</small><div class="metric">{}</div></div><div class="card"><small>Operating loop</small><div class="metric">observe → act → learn</div></div></div>
 <div class="card"><h2>Operate</h2>
@@ -462,11 +462,10 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         format_minor(revenue_periods.last_30_days_minor, &state.currency),
         contribution_margin_label,
         contribution_margin_detail,
-        format_minor(affiliate_reconciliation.reported_commission_mtd_minor, &state.currency),
+        format_minor(affiliate_reconciliation.variance_mtd_minor, &state.currency),
         format_minor(affiliate_reconciliation.reported_commission_mtd_minor, &state.currency),
         format_minor(affiliate_reconciliation.attributed_commission_mtd_minor, &state.currency),
         format_minor(affiliate_reconciliation.recorded_payout_mtd_minor, &state.currency),
-        format_minor(affiliate_reconciliation.variance_mtd_minor, &state.currency),
         company.runway_days,
         company.status,
         cycle_state,
