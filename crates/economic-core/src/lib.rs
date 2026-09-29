@@ -270,7 +270,9 @@ pub fn decide_portfolio_action(
         });
     }
 
-    if unit.cash_minor == 0
+    if !matches!(company_status, CompanyStatus::Active | CompanyStatus::Growth)
+        || unit.runway_days < 45
+        || unit.cash_minor == 0
         || unit.evidence_count < 3
         || unit.evidence_confidence_bps < 8_000
         || unit.allocation_cap_minor == 0
@@ -361,8 +363,8 @@ mod tests {
             allocation_cap_minor: 5_000,
         };
         let decision = decide_portfolio_action(CompanyStatus::Distress, &unit).unwrap();
-        assert_eq!(decision.action, PortfolioAction::Reinvest);
-        assert_eq!(decision.amount_minor, 500);
+        assert_eq!(decision.action, PortfolioAction::Hold);
+        assert_eq!(decision.amount_minor, 0);
     }
 
     #[test]
