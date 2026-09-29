@@ -178,6 +178,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/015_tiktok_webhook_receipts.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/017_payment_reconciliation_evidence.sql"
+            ))
             .await
     }
 
@@ -3394,6 +3399,64 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
                 &[&invoice.id,&line.description,&(line.quantity as i32),&line.unit_price_minor.to_string()]).await?;
         }
         tx.commit().await?; Ok(())
+    }
+
+    pub async fn record_payment_reconciliation_evidence(
+        &self,
+        company_id: &str,
+        invoice_id: &str,
+        provider: &str,
+        provider_event_id: &str,
+        external_ref: Option<&str>,
+        amount_minor: i128,
+        currency: &str,
+        observed_at_epoch: i64,
+        evidence_hash: &str,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        if amount_minor <= 0 || currency.len() != 3 || provider.trim().is_empty() || provider_event_id.trim().is_empty() {
+            return Err("invalid payment reconciliation evidence".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let invoice = Uuid::parse_str(invoice_id)?;
+        let mut c = self.client.lock().await;
+        let tx = c.transaction().await?;
+        if let Some(row) = tx.query_opt(
+            "SELECT status FROM payment_reconciliation_evidence WHERE company_id=$1 AND provider=$2 AND provider_event_id=$3",
+            &[&company,&provider,&provider_event_id]
+        ).await? {
+            let status: String = row.get(0);
+            tx.rollback().await?;
+            return Ok(status);
+        }
+        let inv = tx.query_opt(
+            "SELECT currency, subtotal_minor::text, paid_minor::text FROM invoices WHERE company_id=$1 AND id=$2 FOR UPDATE",
+            &[&company,&invoice]
+        ).await?.ok_or("invoice not found")?;
+        let invoice_currency: String = inv.get(0);
+        if invoice_currency != currency { return Err("payment currency does not match invoice".into()); }
+        let total = parse_i128_numeric(&inv.get::<_,String>(1))?;
+        let paid = parse_i128_numeric(&inv.get::<_,String>(2))?;
+        let remaining = total.checked_sub(paid).ok_or("invoice remaining overflow")?;
+        let status = if amount_minor <= remaining { "OBSERVED" } else { "REJECTED" };
+        let reason = if status == "REJECTED" { Some("observed payment exceeds invoice remaining balance") } else { None };
+        tx.execute(
+            "INSERT INTO payment_reconciliation_evidence
+             (id,company_id,invoice_id,provider,provider_event_id,external_ref,observed_amount_minor,currency,observed_at_epoch,evidence_hash,status,reason)
+             VALUES ($1,$2,$3,$4,$5,$6,$7::numeric,$8,$9,$10,$11,$12)",
+            &[&Uuid::new_v4(),&company,&invoice,&provider,&provider_event_id,&external_ref,&amount_minor.to_string(),&currency,&observed_at_epoch,&evidence_hash,&status,&reason]
+        ).await?;
+        if status == "OBSERVED" {
+            tx.execute(
+                "INSERT INTO outbox_events
+                 (company_id,event_type,aggregate_id,idempotency_key,payload)
+                 VALUES ($1,'PAYMENT_RECONCILIATION_OBSERVED',$2,$3,$4)
+                 ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+                &[&company,&invoice,&format!("payment-reconcile:{provider}:{provider_event_id}"),
+                  &serde_json::json!({"invoice_id":invoice_id,"provider":provider,"provider_event_id":provider_event_id,"amount_minor":amount_minor,"currency":currency})]
+            ).await?;
+        }
+        tx.commit().await?;
+        Ok(status.to_owned())
     }
 
     pub async fn record_invoice_payment(&self, company_id: &str, invoice_id: &str, payment_id: &str, amount_minor: i128, occurred_at_epoch: i64, external_ref: Option<&str>) -> Result<commercial_sales::InvoiceStatus, Box<dyn std::error::Error + Send + Sync>> {
