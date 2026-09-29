@@ -354,15 +354,15 @@ async fn index(State(state): State<AppState>) -> Html<String> {
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Company OS</title>
 <style>
-body{{font-family:system-ui,-apple-system,sans-serif;max-width:1180px;margin:0 auto;padding:24px;background:#fff;color:#111}}
-.card{{border:1px solid #ddd;padding:16px;margin:0 0 14px;background:#fff}}
+body{{font-family:Inter,system-ui,-apple-system,sans-serif;max-width:1400px;margin:0 auto;padding:28px;background:radial-gradient(900px 420px at 80% -10%,#2b1d58,transparent 60%),#070a12;color:#f8fafc}}
+.card{{border:1px solid #26304a;border-radius:16px;padding:18px;margin:0 0 14px;background:#101624;box-shadow:0 18px 50px #0004}}
 .grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}}
 .metric{{font-size:22px;font-weight:650;margin-top:6px}}
 .progress{{height:8px;background:#eee;margin-top:10px}} .progress>span{{display:block;height:8px;background:#111}}
 table{{width:100%;border-collapse:collapse}}th,td{{text-align:left;padding:9px;border-bottom:1px solid #e5e5e5;font-size:14px}}
-button{{padding:9px 12px;border:1px solid #111;background:#111;color:#fff;cursor:pointer}}
-small,.muted{{color:#666}} code{{background:#f3f3f3;padding:2px 4px}}
-nav{{display:flex;gap:14px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#111;text-decoration:none;border-bottom:1px solid #aaa;padding-bottom:2px}}
+button{{padding:10px 14px;border:0;border-radius:9px;background:linear-gradient(135deg,#8b5cf6,#6366f1);color:#fff;cursor:pointer;font-weight:700}}
+small,.muted{{color:#94a3b8}} code{{background:#f3f3f3;padding:2px 4px}}
+nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;text-decoration:none;padding:8px 10px;border-radius:8px}} nav a:hover{{background:#171e30;color:#fff}}
 @media(max-width:800px){{.grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}}} @media(max-width:520px){{.grid{{grid-template-columns:1fr}}}}
 </style></head><body>
 <header><h1>Veridara AI</h1><small>Autonomous Company OS · {}</small></header>
@@ -381,7 +381,7 @@ nav{{display:flex;gap:14px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#111;te
 <div class="card"><h2>Agents</h2>
 <table><tr><th>Agent</th><th>Governor</th><th>Execution</th><th>Action</th></tr>{}</table>
 </div>
-<div class="card"><h2>Commercial engine</h2>
+<div class="card"><h2>LIVE Command Center</h2><p><small>Choose a mode, then use the provider stream configuration.</small></p><select id="liveMode" style="padding:9px;width:100%"><option>SOLO</option><option>SHOPPING</option><option>GAME</option><option>STORY</option><option>MUSIC</option><option>PK</option></select><p><button id="liveCreate">Create session</button> <button id="liveStart">Start</button> <button id="liveStop">Stop</button> <button id="liveRefresh">Refresh</button></p><div id="liveStatus" class="metric">Checking…</div></div><div class="card"><h2>Commerce</h2>
 <p>Search live Awin feed data when <code>AFFILIATE_PROVIDER=awin</code>; local mock data is used by default.</p>
 <small>Example: <code>/api/affiliate/search?category=electronics&amp;min_commission_bps=1500&amp;require_coupon=true</code></small>
 </div>
