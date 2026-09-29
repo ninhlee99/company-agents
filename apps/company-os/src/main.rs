@@ -612,6 +612,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         format_minor(affiliate_reconciliation.attributed_commission_mtd_minor, &state.currency),
         format_minor(affiliate_reconciliation.recorded_payout_mtd_minor, &state.currency),
         growth_html,
+        compliance_html,
         company.runway_days,
         company.status,
         cycle_state,
