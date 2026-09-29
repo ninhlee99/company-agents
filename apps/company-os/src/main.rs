@@ -154,6 +154,7 @@ struct AffiliateSearchParams {
 #[derive(Debug, Deserialize)] struct ForecastRequest { name:String, currency:String, horizon_months:i32, methodology:String, idempotency_key:String }
 #[derive(Debug, Deserialize)] struct ForecastPeriodRequest { forecast_id:uuid::Uuid, period_start_epoch:i64, revenue_minor:i128, operating_inflow_minor:i128, operating_outflow_minor:i128, capex_minor:i128, financing_inflow_minor:i128, financing_outflow_minor:i128, notes:Option<String> }
 #[derive(Debug, Deserialize)] struct CashflowObservationRequest { period_start_epoch:i64, currency:String, inflow_minor:i128, outflow_minor:i128, closing_cash_minor:i128, source:String, evidence_hash:String, idempotency_key:String }
+#[derive(Debug, Deserialize)] struct AgentEvaluationRequest { cycle_id:String, agent_role:String, outcome:String, notes:Option<String> }
 
 fn format_minor(value: i128, currency: &str) -> String {
     let negative = value < 0;
@@ -221,6 +222,11 @@ async fn run_cycle(
         .store
         .persist_and_execute_cycle_with_id(&company, &results, cycle_id)
         .await?;
+    for result in &persisted.results {
+        let _ = state.store.record_agent_evaluation(
+            &state.company_id, cycle_id, result, "OBSERVED", None
+        ).await;
+    }
 
     *state.company.write().await = persisted.snapshot.clone();
     *state.latest.write().await = persisted.results.clone();
@@ -821,6 +827,17 @@ async fn budget_spend_api(
         .await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
 }
 
+async fn agent_evaluation_api(State(state): State<AppState>, Json(req): Json<AgentEvaluationRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
+    let result = state.latest.read().await.iter()
+        .find(|r| r.agent.as_str().eq_ignore_ascii_case(&req.agent_role))
+        .cloned().ok_or(StatusCode::NOT_FOUND)?;
+    state.store.record_agent_evaluation(&state.company_id, &req.cycle_id, &result, &req.outcome, req.notes.as_deref())
+        .await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
+async fn agent_evaluations_api(State(state): State<AppState>, Query(params): Query<std::collections::HashMap<String,String>>) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    state.store.list_agent_evaluations(&state.company_id, params.get("agent_role").map(String::as_str))
+        .await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
 async fn forecast_api(State(state): State<AppState>, Json(req): Json<ForecastRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
     state.store.create_financial_forecast(&state.company_id, uuid::Uuid::new_v4(), &req.name, &req.currency, req.horizon_months, &req.methodology, &req.idempotency_key)
         .await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
@@ -1064,6 +1081,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/finance/forecasts/periods", post(forecast_period_api))
         .route("/api/finance/forecasts/:forecast_id/summary", get(forecast_summary_api))
         .route("/api/finance/cashflow/observations", post(cashflow_observation_api))
+        .route("/api/agents/evaluations", get(agent_evaluations_api).post(agent_evaluation_api))
         .route("/api/finance/budgets/spend", post(budget_spend_api))
         .route("/api/employees", get(employees_api))
         .route("/api/payroll/due", get(payroll_due_api))
