@@ -3761,6 +3761,13 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         ).await?;
         let mut c = self.client.lock().await;
         c.execute(
+            "UPDATE payment_reconciliation_evidence
+                SET status='APPLIED', reason=NULL
+              WHERE company_id=$1 AND provider=$2 AND provider_event_id=$3
+                AND status='OBSERVED'",
+            &[&company, &provider, &provider_execution_ref],
+        ).await?;
+        c.execute(
             "UPDATE payment_execution_evidence SET status='RECONCILED'
               WHERE company_id=$1 AND intent_id=$2",
             &[&company,&intent],
