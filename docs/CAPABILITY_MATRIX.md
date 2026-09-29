@@ -70,3 +70,13 @@ It should not be described as an AI company that can independently operate every
 ### Commercial lifecycle hardening
 
 The commercial control plane now exposes a read-only pipeline view plus deterministic proposal and sponsorship transitions. Sponsorship delivery is bounded by the contracted value and emits durable outbox events. These APIs do not execute external contracts or payment settlement; those remain provider/reconciliation boundaries.
+
+
+## Procurement / Vendor Lifecycle
+
+- Vendor records: implemented
+- Purchase request creation: implemented
+- Explicit approval evidence: implemented
+- Delivery evidence ledger: implemented
+- Automatic vendor payment/settlement: not implemented; approval and delivery do not settle funds
+- Autonomous supplier contracting: not implemented; external contracts remain human-governed
