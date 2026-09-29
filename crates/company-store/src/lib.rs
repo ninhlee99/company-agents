@@ -32,6 +32,20 @@ pub struct ExperimentRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContentRecord {
+    pub item: company_content::ContentItem,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContentObservationRecord {
+    pub id: Uuid,
+    pub observation: company_content::ContentObservation,
+    pub decision: company_content::ContentDecision,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AffiliateReconciliationMetrics {
     pub reported_commission_mtd_minor: i128,
     pub attributed_commission_mtd_minor: i128,
@@ -295,6 +309,16 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/030_content_factory.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/031_content_performance.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/032_content_status_evidence.sql"
+            ))
             .await
     }
 
@@ -429,6 +453,114 @@ impl CompanyStore {
             &[&company, &limit],
         ).await?;
         rows.into_iter().map(content_record_from_row).collect()
+    }
+
+    pub async fn transition_content_status(
+        &self,
+        company_id: &str,
+        content_id: Uuid,
+        next: company_content::ContentStatus,
+        evidence_ref: Option<&str>,
+    ) -> Result<ContentRecord, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client.query_opt(
+            "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
+                    expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
+                    success_threshold_bps,variant_key,hook,first_frame,emotion,pacing,scene_count,
+                    text_density,voice_speed,product_placement,cta,comment_trigger,music_style,
+                    visual_style,status,decision,created_at::text
+               FROM content_items
+              WHERE company_id=$1 AND id=$2",
+            &[&company, &content_id],
+        ).await?.ok_or("content item not found")?;
+        let current = parse_content_status(row.get::<_, String>(26))?;
+        company_content::validate_status_transition(current, next, evidence_ref)
+            .map_err(|error| error.to_string())?;
+        let next_name = content_status_name(next);
+        client.execute(
+            "UPDATE content_items
+                SET status=$3, status_evidence_ref=$4
+              WHERE company_id=$1 AND id=$2",
+            &[&company, &content_id, &next_name, &evidence_ref],
+        ).await?;
+        let refreshed = client.query_one(
+            "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
+                    expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
+                    success_threshold_bps,variant_key,hook,first_frame,emotion,pacing,scene_count,
+                    text_density,voice_speed,product_placement,cta,comment_trigger,music_style,
+                    visual_style,status,decision,created_at::text
+               FROM content_items WHERE company_id=$1 AND id=$2",
+            &[&company, &content_id],
+        ).await?;
+        content_record_from_row(refreshed)
+    }
+
+    pub async fn record_content_observation(
+        &self,
+        observation: &company_content::ContentObservation,
+    ) -> Result<ContentObservationRecord, Box<dyn std::error::Error + Send + Sync>> {
+        company_content::validate_observation(observation).map_err(|error| error.to_string())?;
+        let client = self.client.lock().await;
+        let row = client.query_opt(
+            "SELECT hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
+                    expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,
+                    success_metric,success_threshold_bps,variant_key,hook,first_frame,emotion,
+                    pacing,scene_count,text_density,voice_speed,product_placement,cta,
+                    comment_trigger,music_style,visual_style,status,decision
+               FROM content_items
+              WHERE company_id=$1 AND id=$2",
+            &[&observation.company_id, &observation.content_id],
+        ).await?.ok_or("content item not found")?;
+        let status: String = row.get(26);
+        if !matches!(status.as_str(), "PUBLISHED" | "MEASURED") {
+            return Err("content must be published before performance can be recorded".into());
+        }
+        let item = content_record_from_row(row)?.item;
+        let decision = company_content::decide_from_observation(&item.brief, observation)
+            .map_err(|error| error.to_string())?;
+
+        let id = Uuid::new_v4();
+        let inserted = client.query_opt(
+            "INSERT INTO content_observations
+             (id,company_id,content_id,observation_key,source,evidence_hash,observed_at_epoch,
+              sample_count,spend_minor,metric_bps,views,clicks,conversions,commission_minor,
+              contribution_margin_minor,decision)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+             ON CONFLICT(company_id,observation_key) DO NOTHING
+             RETURNING id,created_at::text",
+            &[
+                &id, &observation.company_id, &observation.content_id, &observation.observation_key,
+                &observation.source, &observation.evidence_hash, &observation.observed_at_epoch,
+                &(observation.sample_count as i64), &observation.spend_minor.to_string(),
+                &(observation.metric_bps as i32), &(observation.views as i64), &(observation.clicks as i64),
+                &(observation.conversions as i64), &observation.commission_minor.to_string(),
+                &observation.contribution_margin_minor.to_string(), &content_decision_name(decision),
+            ],
+        ).await?;
+
+        if let Some(inserted) = inserted {
+            if matches!(decision, company_content::ContentDecision::Scale | company_content::ContentDecision::Kill) {
+                let next_status = if decision == company_content::ContentDecision::Scale {
+                    "MEASURED"
+                } else {
+                    "KILLED"
+                };
+                client.execute(
+                    "UPDATE content_items SET status=$3,decision=$4
+                     WHERE company_id=$1 AND id=$2",
+                    &[&observation.company_id,&observation.content_id,&next_status,&content_decision_name(decision)],
+                ).await?;
+            }
+            return Ok(ContentObservationRecord {
+                id: inserted.get(0),
+                observation: observation.clone(),
+                decision,
+                created_at: inserted.get(1),
+            });
+        }
+
+        content_observation_by_key(&client, &observation.company_id, &observation.observation_key).await
     }
 
     pub async fn record_experiment_observation(
@@ -4780,6 +4912,44 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         Ok(())
     }
 
+}
+
+async fn content_observation_by_key(
+    client: &tokio_postgres::Client,
+    company_id: &Uuid,
+    observation_key: &str,
+) -> Result<ContentObservationRecord, Box<dyn std::error::Error + Send + Sync>> {
+    let row = client.query_one(
+        "SELECT id,content_id,source,evidence_hash,observed_at_epoch,sample_count,
+                spend_minor::text,metric_bps,views,clicks,conversions,commission_minor::text,
+                contribution_margin_minor::text,decision,created_at::text
+           FROM content_observations
+          WHERE company_id=$1 AND observation_key=$2",
+        &[company_id, &observation_key],
+    ).await?;
+    let decision = parse_content_decision(Some(row.get::<_, String>(13)))?
+        .ok_or("content observation decision is missing")?;
+    Ok(ContentObservationRecord {
+        id: row.get(0),
+        observation: company_content::ContentObservation {
+            observation_key: observation_key.to_string(),
+            content_id: row.get(1),
+            company_id: *company_id,
+            source: row.get(2),
+            evidence_hash: row.get(3),
+            observed_at_epoch: row.get(4),
+            sample_count: row.get::<_, i64>(5) as u64,
+            spend_minor: row.get::<_, String>(6).parse()?,
+            metric_bps: row.get::<_, i32>(7) as u32,
+            views: row.get::<_, i64>(8) as u64,
+            clicks: row.get::<_, i64>(9) as u64,
+            conversions: row.get::<_, i64>(10) as u64,
+            commission_minor: row.get::<_, String>(11).parse()?,
+            contribution_margin_minor: row.get::<_, String>(12).parse()?,
+        },
+        decision,
+        created_at: row.get(14),
+    })
 }
 
 fn content_format_name(value: company_content::ContentFormat) -> &'static str {

@@ -128,6 +128,18 @@ struct ContentCreateRequest {
     variant: company_content::CreativeVariant,
 }
 
+#[derive(Debug, Deserialize)]
+struct ContentObservationRequest {
+    observation: company_content::ContentObservation,
+}
+
+#[derive(Debug, Deserialize)]
+struct ContentStatusTransitionRequest {
+    content_id: uuid::Uuid,
+    next: company_content::ContentStatus,
+    evidence_ref: Option<String>,
+}
+
 #[derive(Debug, Deserialize, Default)]
 struct AffiliateSearchParams {
     category: Option<String>,
@@ -594,6 +606,31 @@ async fn content_list_api(
         .await
         .map(Json)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn content_status_transition_api(
+    State(state): State<AppState>,
+    Json(request): Json<ContentStatusTransitionRequest>,
+) -> Result<Json<company_store::ContentRecord>, StatusCode> {
+    state.store.transition_content_status(
+        &state.company_id,
+        request.content_id,
+        request.next,
+        request.evidence_ref.as_deref(),
+    ).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn content_observation_api(
+    State(state): State<AppState>,
+    Json(request): Json<ContentObservationRequest>,
+) -> Result<Json<company_store::ContentObservationRecord>, StatusCode> {
+    if request.observation.company_id.to_string() != state.company_id {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    state.store.record_content_observation(&request.observation)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
 }
 
 async fn affiliate_search_api(
@@ -1232,6 +1269,8 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/run", post(run_api))
         .route("/api/agents", get(agents_api))
         .route("/api/content/items", get(content_list_api).post(content_create_api))
+        .route("/api/content/observations", post(content_observation_api))
+        .route("/api/content/status", post(content_status_transition_api))
         .route("/api/affiliate/search", get(affiliate_search_api))
         .route("/api/affiliate/click", post(affiliate_click_api))
         .route("/api/affiliate/conversion", post(affiliate_conversion_api))
