@@ -29,8 +29,9 @@ CREATE TABLE IF NOT EXISTS growth_experiment_observations (
   spend_minor numeric(39,0) NOT NULL CHECK (spend_minor >= 0),
   elapsed_seconds bigint NOT NULL CHECK (elapsed_seconds >= 0),
   decision text NOT NULL CHECK (decision IN ('CONTINUE','SUCCEED','KILL','EXPIRE')),
+  observation_key text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE(company_id, experiment_id, id)
+  UNIQUE(company_id, experiment_id, observation_key)
 );
 
 CREATE INDEX IF NOT EXISTS idx_growth_experiment_observations_experiment
