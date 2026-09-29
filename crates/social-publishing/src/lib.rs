@@ -666,3 +666,31 @@ mod tests {
         assert!(publisher.validate_request(&request, &creator).is_err());
     }
 }
+
+#[cfg(test)]
+mod webhook_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn webhook_signature_accepts_fresh_payload() {
+        let secret = vec![7_u8; 32];
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let body = br#"{"event":"post.publish.complete"}"#;
+        let mut mac = HmacSha256::new_from_slice(&secret).unwrap();
+        mac.update(format!("{timestamp}.{}", String::from_utf8_lossy(body)).as_bytes());
+        let header = format!("t={timestamp},s={}", hex(&mac.finalize().into_bytes()));
+        assert!(verify_tiktok_webhook_signature(&secret, &header, body, 300).is_ok());
+    }
+
+    #[test]
+    fn webhook_signature_rejects_stale_payload() {
+        let secret = vec![7_u8; 32];
+        let timestamp = epoch_now() - 301;
+        let body = br#"{}"#;
+        let mut mac = HmacSha256::new_from_slice(&secret).unwrap();
+        mac.update(format!("{timestamp}.{}", String::from_utf8_lossy(body)).as_bytes());
+        let header = format!("t={timestamp},s={}", hex(&mac.finalize().into_bytes()));
+        assert!(verify_tiktok_webhook_signature(&secret, &header, body, 300).is_err());
+    }
+}
