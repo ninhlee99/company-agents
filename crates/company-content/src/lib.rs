@@ -221,10 +221,10 @@ pub fn validate_item(item: &ContentItem) -> Result<(), String> {
     if item.company_id == Uuid::nil() || item.id == Uuid::nil() {
         return Err("content identifiers are required".into());
     }
-    if matches!(item.status, ContentStatus::Published | ContentStatus::Measured)
+    if matches!(item.status, ContentStatus::Measured)
         && item.decision.is_none()
     {
-        return Err("published or measured content requires a decision".into());
+        return Err("measured content requires a decision".into());
     }
     Ok(())
 }
@@ -309,13 +309,13 @@ mod tests {
     }
 
     #[test]
-    fn published_content_requires_decision() {
+    fn measured_content_requires_decision() {
         let item = ContentItem {
             id: Uuid::new_v4(),
             company_id: Uuid::new_v4(),
             brief: brief(),
             variant: variant(),
-            status: ContentStatus::Published,
+            status: ContentStatus::Measured,
             decision: None,
         };
         assert!(validate_item(&item).is_err());
