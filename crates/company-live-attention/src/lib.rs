@@ -108,7 +108,11 @@ pub fn decide_attention(
     }
 
     let (base_priority, classified_reason) = classify_event(event, mode, policy);
-    let viewer_bonus = event.viewer_value_bps.map(|value| value / 1000).unwrap_or(0).min(10);
+    let viewer_bonus = event
+        .viewer_value_bps
+        .map(|value| if value >= 8_000 { 12 } else { value / 1000 })
+        .unwrap_or(0)
+        .min(12);
     let priority = base_priority.saturating_add(viewer_bonus as u8).min(100);
     let reason = match classified_reason {
         Some(reason) => reason,
@@ -220,7 +224,7 @@ fn classify_event(
             } else if matches!(mode, LiveMode::Shopping) && is_question(text) {
                 (74, Some(AttentionReason::PurchaseIntent))
             } else {
-                (35, None)
+                (40, None)
             }
         }
         LiveEventKind::PkUpdate if matches!(mode, LiveMode::Pk | LiveMode::CoHost) => {
@@ -382,6 +386,25 @@ mod tests {
         .unwrap();
         assert_eq!(result.action, AttentionAction::Respond);
         assert_eq!(result.reason, AttentionReason::Objection);
+    }
+
+    #[test]
+    fn high_value_viewer_evidence_can_promote_a_low_signal_event() {
+        let mut high_value = event(LiveEventKind::Comment, "hello", 0);
+        high_value.viewer_value_bps = Some(9_000);
+        let result = decide_attention(
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            LiveMode::Shopping,
+            &high_value,
+            &context(),
+            1_750_000_010,
+            &AttentionPolicy::default(),
+        )
+        .unwrap();
+        assert_eq!(result.action, AttentionAction::Respond);
+        assert_eq!(result.reason, AttentionReason::HighValueViewer);
+        assert!(result.priority >= 50);
     }
 
     #[test]
