@@ -300,123 +300,125 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
-      {/* Top Header */}
-      <Header
-        snapshot={snapshot}
-        onRunCycle={handleRunCycle}
-        isRunningCycle={isRunningCycle}
-        uiMode={uiMode}
-        setUiMode={setUiMode}
-        hasGeminiKey={hasGeminiKey}
-      />
+      {/* Sticky Master Header: Keeps Header & Navigation Bar Fixed at Top */}
+      <div className="sticky top-0 z-50 bg-slate-950/95 backdrop-blur-md border-b border-slate-800 shadow-md">
+        <Header
+          snapshot={snapshot}
+          onRunCycle={handleRunCycle}
+          isRunningCycle={isRunningCycle}
+          uiMode={uiMode}
+          setUiMode={setUiMode}
+          hasGeminiKey={hasGeminiKey}
+        />
 
-      {/* Clean Navigation Bar */}
-      <div className="bg-slate-900/60 border-b border-slate-800/80 sticky top-[57px] z-40 backdrop-blur-md px-4 lg:px-8">
-        <div className="max-w-5xl mx-auto flex items-center justify-between gap-2 py-2">
-          {uiMode === 'basic' ? (
-            <div className="flex items-center gap-1 overflow-x-auto scrollbar-none w-full">
-              <button
-                onClick={() => setBasicTab('dashboard')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                  basicTab === 'dashboard'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                }`}
-              >
-                <LayoutDashboard className="w-3.5 h-3.5" />
-                <span>1. Dashboard</span>
-              </button>
+        {/* Clean Navigation Bar (Sticky with Header) */}
+        <nav className="border-t border-slate-800/80 bg-slate-900/60 px-4 lg:px-8">
+          <div className="max-w-5xl mx-auto flex items-center justify-between gap-2 py-1.5">
+            {uiMode === 'basic' ? (
+              <div className="flex items-center gap-1 overflow-x-auto scrollbar-none w-full">
+                <button
+                  onClick={() => setBasicTab('dashboard')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                    basicTab === 'dashboard'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                >
+                  <LayoutDashboard className="w-3.5 h-3.5" />
+                  <span>1. Dashboard</span>
+                </button>
 
-              <button
-                onClick={() => setBasicTab('agents')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                  basicTab === 'agents'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                }`}
-              >
-                <Users className="w-3.5 h-3.5" />
-                <span>2. Nhân Sự &amp; Tuyển Dụng</span>
-              </button>
+                <button
+                  onClick={() => setBasicTab('agents')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                    basicTab === 'agents'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>2. Nhân Sự &amp; Tuyển Dụng</span>
+                </button>
 
-              <button
-                onClick={() => setBasicTab('pipeline')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                  basicTab === 'pipeline'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                }`}
-              >
-                <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                <span>3. Dây Chuyền Bán Hàng</span>
-              </button>
+                <button
+                  onClick={() => setBasicTab('pipeline')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                    basicTab === 'pipeline'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                  <span>3. Dây Chuyền Bán Hàng</span>
+                </button>
 
-              <button
-                onClick={() => setBasicTab('finances')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                  basicTab === 'finances'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                }`}
-              >
-                <Wallet className="w-3.5 h-3.5" />
-                <span>4. Ví Tiền &amp; Thu Chi</span>
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1 overflow-x-auto scrollbar-none w-full">
-              <button
-                onClick={() => setProTab('audit')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                  proTab === 'audit' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
-                <span>Review Khắc Khe</span>
-              </button>
+                <button
+                  onClick={() => setBasicTab('finances')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                    basicTab === 'finances'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                >
+                  <Wallet className="w-3.5 h-3.5" />
+                  <span>4. Ví Tiền &amp; Thu Chi</span>
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 overflow-x-auto scrollbar-none w-full">
+                <button
+                  onClick={() => setProTab('audit')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                    proTab === 'audit' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Review Khắc Khe</span>
+                </button>
 
-              <button
-                onClick={() => setProTab('cycles')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                  proTab === 'cycles' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <RotateCw className="w-3.5 h-3.5" />
-                <span>Chu Kỳ Tự Trị</span>
-              </button>
+                <button
+                  onClick={() => setProTab('cycles')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                    proTab === 'cycles' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <RotateCw className="w-3.5 h-3.5" />
+                  <span>Chu Kỳ Tự Trị</span>
+                </button>
 
-              <button
-                onClick={() => setProTab('war-room')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                  proTab === 'war-room' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Users className="w-3.5 h-3.5" />
-                <span>War Room Tranh Luận</span>
-              </button>
+                <button
+                  onClick={() => setProTab('war-room')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                    proTab === 'war-room' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>War Room Tranh Luận</span>
+                </button>
 
-              <button
-                onClick={() => setProTab('ledger')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                  proTab === 'ledger' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Wallet className="w-3.5 h-3.5" />
-                <span>Sổ Cái Kép</span>
-              </button>
+                <button
+                  onClick={() => setProTab('ledger')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                    proTab === 'ledger' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Wallet className="w-3.5 h-3.5" />
+                  <span>Sổ Cái Kép</span>
+                </button>
 
-              <button
-                onClick={() => setProTab('chaos')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                  proTab === 'chaos' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <AlertOctagon className="w-3.5 h-3.5 text-amber-400" />
-                <span>Giả Lập Khủng Hoảng</span>
-              </button>
-            </div>
-          )}
-        </div>
+                <button
+                  onClick={() => setProTab('chaos')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                    proTab === 'chaos' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <AlertOctagon className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Giả Lập Khủng Hoảng</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </nav>
       </div>
 
       {/* Main Content Area */}
