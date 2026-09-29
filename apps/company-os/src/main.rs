@@ -149,6 +149,10 @@ struct AffiliateSearchParams {
 #[derive(Debug, Deserialize)] struct CustomerRequest { name: String, email: Option<String>, external_ref: Option<String>, status: Option<String>, notes: Option<String>, idempotency_key: String }
 #[derive(Debug, Deserialize)] struct CustomerSuccessTaskRequest { customer_id: uuid::Uuid, task_type:String, due_at_epoch:i64, owner:Option<String>, notes:Option<String>, idempotency_key:String }
 #[derive(Debug, Deserialize)] struct CustomerSuccessCompleteRequest { task_id:uuid::Uuid, outcome:String }
+#[derive(Debug, Deserialize)] struct VendorRequest { legal_name:String, contact_email:Option<String>, currency:String, tax_ref:Option<String>, idempotency_key:String }
+#[derive(Debug, Deserialize)] struct PurchaseRequest { vendor_id:uuid::Uuid, title:String, currency:String, amount_minor:i128, requester:String, idempotency_key:String }
+#[derive(Debug, Deserialize)] struct PurchaseApproveRequest { request_id:uuid::Uuid, approved_by:String, approval_reference:String }
+#[derive(Debug, Deserialize)] struct VendorDeliveryRequest { purchase_request_id:uuid::Uuid, external_ref:Option<String>, received_at_epoch:i64, evidence_hash:String }
 
 fn format_minor(value: i128, currency: &str) -> String {
     let negative = value < 0;
@@ -800,6 +804,53 @@ async fn require_control_plane_auth(request: Request, next: Next) -> Result<Resp
 }
 
 
+async fn vendor_api(
+    State(state): State<AppState>,
+    Json(req): Json<VendorRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.create_vendor(
+        &state.company_id, uuid::Uuid::new_v4(), &req.legal_name,
+        req.contact_email.as_deref(), &req.currency, req.tax_ref.as_deref(),
+        &req.idempotency_key,
+    ).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn vendors_api(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    state.store.list_vendors(&state.company_id, 200).await
+        .map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn purchase_request_api(
+    State(state): State<AppState>,
+    Json(req): Json<PurchaseRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.create_purchase_request(
+        &state.company_id, uuid::Uuid::new_v4(), req.vendor_id, &req.title,
+        &req.currency, req.amount_minor, &req.requester, &req.idempotency_key,
+    ).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn purchase_approve_api(
+    State(state): State<AppState>,
+    Json(req): Json<PurchaseApproveRequest>,
+) -> Result<StatusCode, StatusCode> {
+    state.store.approve_purchase_request(
+        &state.company_id, &req.request_id.to_string(), &req.approved_by, &req.approval_reference,
+    ).await.map(|_| StatusCode::ACCEPTED).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn vendor_delivery_api(
+    State(state): State<AppState>,
+    Json(req): Json<VendorDeliveryRequest>,
+) -> Result<StatusCode, StatusCode> {
+    state.store.record_vendor_delivery(
+        &state.company_id, uuid::Uuid::new_v4(), &req.purchase_request_id.to_string(),
+        req.external_ref.as_deref(), req.received_at_epoch, &req.evidence_hash,
+    ).await.map(|_| StatusCode::ACCEPTED).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
 async fn customer_api(
     State(state): State<AppState>,
     Json(req): Json<CustomerRequest>,
@@ -1022,6 +1073,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/publishing/tiktok/status", post(publishing::tiktok_status))
         .route("/api/publishing/tiktok/webhook", post(publishing::tiktok_webhook))
         .route("/api/customers", get(customers_api).post(customer_api))
+        .route("/api/vendors", get(vendors_api).post(vendor_api))
+        .route("/api/procurement/requests", post(purchase_request_api))
+        .route("/api/procurement/requests/approve", post(purchase_approve_api))
+        .route("/api/procurement/deliveries", post(vendor_delivery_api))
         .route("/api/employees", get(employees_api))
         .route("/api/payroll/due", get(payroll_due_api))
         .route("/api/commercial/proposals", post(service_proposal_api))
