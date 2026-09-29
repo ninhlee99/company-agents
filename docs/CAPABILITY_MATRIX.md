@@ -89,3 +89,10 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Ledger-backed revenue periods:** Company OS now derives MTD, trailing-30-day, and lifetime revenue from immutable revenue ledger entries rather than using the cumulative company snapshot as a monthly progress proxy.
 - **Evidence count:** The dashboard exposes the number of revenue transactions supporting the MTD figure.
 - **Fail-closed display:** If the ledger query is unavailable, MTD displays as zero rather than silently presenting cumulative revenue as monthly revenue.
+
+
+## Contribution-margin truth
+
+- **Expense classification:** ledger expense accounts carry VARIABLE, FIXED, or UNCLASSIFIED cost class.
+- **Fail-closed economics:** MTD contribution margin is only reported when all MTD expense entries are classified; otherwise the dashboard reports Incomplete and shows the unclassified expense amount.
+- **No proxy margin:** cumulative snapshot revenue is not reused as a contribution-margin input.
