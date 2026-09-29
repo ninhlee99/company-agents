@@ -4848,7 +4848,7 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         let tx = client.transaction().await?;
         let row = tx.query_one(
             "SELECT id,company_id,trend_id,opportunity_key,title,score_bps,confidence_bps,
-                    policy_evidence_ref,plan_json,status,content_item_id,created_at::text
+                    policy_evidence_ref,plan_json,status,content_item_id,content_created_at_epoch,created_at::text
                FROM growth_opportunities
               WHERE company_id=$1 AND id=$2
               FOR UPDATE",
@@ -5264,21 +5264,6 @@ fn growth_trend_from_row(
         decision,
         created_at: row.get(24),
     })
-}
-
-async fn load_growth_opportunity(
-    tx: &tokio_postgres::Transaction<'_>,
-    company_id: &Uuid,
-    opportunity_id: Uuid,
-) -> Result<Option<GrowthOpportunityRecord>, Box<dyn std::error::Error + Send + Sync>> {
-    let row = tx.query_opt(
-        "SELECT id,company_id,trend_id,opportunity_key,title,score_bps,confidence_bps,
-                policy_evidence_ref,plan_json,status,content_item_id,created_at::text
-           FROM growth_opportunities
-          WHERE company_id=$1 AND id=$2",
-        &[company_id, &opportunity_id],
-    ).await?;
-    row.map(growth_opportunity_from_row).transpose()
 }
 
 fn growth_opportunity_from_row(
