@@ -193,6 +193,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/022_fpa_forecasts_cashflow.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/026_recurring_revenue.sql"
+            ))
             .await
     }
 
@@ -4151,6 +4156,40 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             "id":row.get::<_,Uuid>(0),"period_start_epoch":row.get::<_,i64>(1),
             "closing_cash_minor":parse_i128_numeric(&row.get::<_,String>(2))?
         }))
+    }
+
+    pub async fn create_subscription_plan(&self, company_id:&str, plan_id:Uuid, name:&str, currency:&str, amount_minor:i128, interval_unit:&str, interval_count:i32, idempotency_key:&str) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let currency=currency.trim().to_uppercase(); let interval_unit=interval_unit.trim().to_ascii_uppercase();
+        if name.trim().is_empty() || currency.len()!=3 || amount_minor<0 || !matches!(interval_unit.as_str(),"MONTH"|"YEAR") || interval_count<=0 || interval_count>12 || idempotency_key.trim().is_empty() { return Err("invalid subscription plan".into()); }
+        let client=self.client.lock().await;
+        let row=client.query_opt("INSERT INTO subscription_plans(id,company_id,name,currency,amount_minor,interval_unit,interval_count,idempotency_key) VALUES($1,$2,$3,$4,$5::numeric,$6,$7,$8) ON CONFLICT(company_id,idempotency_key) DO NOTHING RETURNING id",&[&plan_id,&company,&name,&currency,&amount_minor.to_string(),&interval_unit,&interval_count,&idempotency_key]).await?;
+        let id=match row {Some(r)=>r.get::<_,Uuid>(0),None=>client.query_one("SELECT id FROM subscription_plans WHERE company_id=$1 AND idempotency_key=$2",&[&company,&idempotency_key]).await?.get::<_,Uuid>(0)};
+        Ok(serde_json::json!({"id":id}))
+    }
+    pub async fn create_subscription(&self, company_id:&str, subscription_id:Uuid, customer_id:&str, plan_id:&str, started_at_epoch:i64, period_end_epoch:i64, idempotency_key:&str) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let customer=Uuid::parse_str(customer_id)?; let plan=Uuid::parse_str(plan_id)?;
+        if started_at_epoch<=0 || period_end_epoch<=started_at_epoch || idempotency_key.trim().is_empty() { return Err("invalid subscription period".into()); }
+        let client=self.client.lock().await;
+        let row=client.query_one("INSERT INTO subscriptions(id,company_id,customer_id,plan_id,status,started_at_epoch,current_period_start_epoch,current_period_end_epoch,idempotency_key) SELECT $1,$2,$3,$4,'ACTIVE',$5,$5,$6,$7 WHERE EXISTS(SELECT 1 FROM subscription_plans WHERE id=$4 AND company_id=$2 AND active=true) RETURNING id",&[&subscription_id,&company,&customer,&plan,&started_at_epoch,&period_end_epoch,&idempotency_key]).await.map_err(|_| "subscription plan/customer/company mismatch")?;
+        Ok(serde_json::json!({"id":row.get::<_,Uuid>(0),"status":"ACTIVE","period_end_epoch":period_end_epoch}))
+    }
+    pub async fn create_billing_period(&self, company_id:&str, period_id:Uuid, subscription_id:&str, start:i64, end:i64, compliance_reference:Option<&str>, idempotency_key:&str) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let subscription=Uuid::parse_str(subscription_id)?;
+        if start<=0 || end<=start || idempotency_key.trim().is_empty() || compliance_reference.map(|x|x.trim().is_empty()).unwrap_or(false) { return Err("invalid billing period".into()); }
+        let client=self.client.lock().await;
+        let row=client.query_one("INSERT INTO subscription_billing_periods(id,company_id,subscription_id,period_start_epoch,period_end_epoch,amount_minor,currency,status,compliance_reference,idempotency_key) SELECT $1,$2,s.id,$3,$4,p.amount_minor,p.currency,'PLANNED',$5,$6 FROM subscriptions s JOIN subscription_plans p ON p.id=s.plan_id WHERE s.id=$7 AND s.company_id=$2 AND s.status IN ('TRIALING','ACTIVE') RETURNING id,amount_minor::text,currency",&[&period_id,&company,&start,&end,&compliance_reference,&idempotency_key,&subscription]).await.map_err(|_| "subscription not billable")?;
+        Ok(serde_json::json!({"id":row.get::<_,Uuid>(0),"amount_minor":parse_i128_numeric(&row.get::<_,String>(1))?,"currency":row.get::<_,String>(2),"status":"PLANNED"}))
+    }
+    pub async fn issue_subscription_invoice(&self, company_id:&str, period_id:&str, invoice_id:Uuid, due_epoch:i64, compliance_reference:&str) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let period=Uuid::parse_str(period_id)?;
+        if due_epoch<=0 || compliance_reference.trim().is_empty() { return Err("compliance reference required before invoice issuance".into()); }
+        let client=self.client.lock().await; let tx=client.transaction().await?;
+        let r=tx.query_one("SELECT p.amount_minor::text,p.currency,s.customer_id FROM subscription_billing_periods p JOIN subscriptions s ON s.id=p.subscription_id WHERE p.id=$1 AND p.company_id=$2 AND p.status='PLANNED' FOR UPDATE",&[&period,&company]).await?;
+        let amount=parse_i128_numeric(&r.get::<_,String>(0))?; let currency=r.get::<_,String>(1); let customer=r.get::<_,Uuid>(2);
+        tx.execute("INSERT INTO invoices(id,company_id,customer_id,currency,subtotal_minor,paid_minor,status,due_epoch,idempotency_key) VALUES($1,$2,$3,$4,$5::numeric,0,'ISSUED',$6,$7)",&[&invoice_id,&company,&customer,&currency,&amount.to_string(),&due_epoch,&format!("subscription-period-{}",period)]).await?;
+        tx.execute("UPDATE subscription_billing_periods SET status='INVOICED',invoice_id=$1,compliance_reference=$2 WHERE id=$3",&[&invoice_id,&compliance_reference,&period]).await?;
+        tx.commit().await?;
+        Ok(serde_json::json!({"invoice_id":invoice_id,"period_id":period,"amount_minor":amount,"currency":currency,"status":"ISSUED"}))
     }
 
 }
