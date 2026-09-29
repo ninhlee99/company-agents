@@ -46,6 +46,23 @@ pub struct ContentObservationRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GrowthTrendRecord {
+    pub id: Uuid,
+    pub signal: company_growth::TrendSignal,
+    pub score_bps: u32,
+    pub decision: company_growth::TrendDecision,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GrowthOpportunityRecord {
+    pub opportunity: company_growth::Opportunity,
+    pub status: company_growth::OpportunityStatus,
+    pub content_item_id: Option<Uuid>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AffiliateReconciliationMetrics {
     pub reported_commission_mtd_minor: i128,
     pub attributed_commission_mtd_minor: i128,
