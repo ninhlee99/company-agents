@@ -85,6 +85,48 @@ pub fn transition_invoice(status: InvoiceStatus, paid_minor: i128, total_minor: 
     else { Ok(InvoiceStatus::Paid) }
 }
 
+
+pub fn transition_proposal(
+    current: ProposalStatus,
+    next: ProposalStatus,
+) -> Result<ProposalStatus, String> {
+    use ProposalStatus::*;
+    let allowed = matches!(
+        (current, next),
+        (Draft, Sent)
+            | (Sent, Accepted)
+            | (Sent, Rejected)
+            | (Sent, Expired)
+    );
+    if allowed {
+        Ok(next)
+    } else if current == next {
+        Ok(current)
+    } else {
+        Err(format!("invalid proposal transition: {:?} -> {:?}", current, next))
+    }
+}
+
+pub fn transition_sponsorship(
+    current: &str,
+    next: &str,
+) -> Result<String, String> {
+    let allowed = matches!(
+        (current, next),
+        ("PROSPECT", "CONTRACTED")
+            | ("CONTRACTED", "DELIVERING")
+            | ("DELIVERING", "COMPLETED")
+            | ("PROSPECT", "CANCELLED")
+            | ("CONTRACTED", "CANCELLED")
+            | ("DELIVERING", "CANCELLED")
+    );
+    if allowed || current == next {
+        Ok(next.to_owned())
+    } else {
+        Err(format!("invalid sponsorship transition: {current} -> {next}"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
