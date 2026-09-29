@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CompanySnapshot, GovernedProposal, ExecutionReceipt, LedgerEntry, CustomAgent, CycleTrendPoint, AutoAuditReport } from './types/company';
+import { CompanySnapshot, GovernedProposal, ExecutionReceipt, LedgerEntry, CustomAgent, CycleTrendPoint, AutoAuditReport, DepartmentBudgetPoint } from './types/company';
 import { Header } from './components/Header';
 import { BasicDashboard } from './components/BasicDashboard';
 import { ManageAgents } from './components/ManageAgents';
@@ -73,6 +73,7 @@ export default function App() {
   ]);
 
   const [cycleHistory, setCycleHistory] = useState<CycleTrendPoint[]>([]);
+  const [departmentBudgets, setDepartmentBudgets] = useState<DepartmentBudgetPoint[]>([]);
   const [auditReports, setAuditReports] = useState<AutoAuditReport[]>([]);
 
   const loadState = async () => {
@@ -89,6 +90,9 @@ export default function App() {
         }
         if (data.cycleHistory) {
           setCycleHistory(data.cycleHistory);
+        }
+        if (data.departmentBudgets) {
+          setDepartmentBudgets(data.departmentBudgets);
         }
         if (data.auditReports) {
           setAuditReports(data.auditReports);
@@ -386,6 +390,7 @@ export default function App() {
                 snapshot={snapshot}
                 recentProposals={proposals}
                 cycleHistory={cycleHistory}
+                departmentBudgets={departmentBudgets}
                 auditReports={auditReports}
                 onRunCycle={handleRunCycle}
                 isRunningCycle={isRunningCycle}

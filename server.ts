@@ -151,6 +151,21 @@ const state: {
     summary: string;
     governorNote: string;
   }[];
+  communicationStream: {
+    id: string;
+    type: 'Chat' | 'Memo';
+    fromAgent: string;
+    fromRole: string;
+    toAgent: string;
+    toRole: string;
+    subject?: string;
+    content: string;
+    actionItem?: string;
+    tag: string;
+    cycle: number;
+    timestamp: string;
+    priority?: 'High' | 'Normal' | 'Urgent';
+  }[];
 } = {
   snapshot: {
     status: 'Active',
@@ -256,6 +271,98 @@ const state: {
       verdict: 'ExceededTarget',
       summary: 'Kỳ kiểm toán #10: Doanh thu thực tế ($8,800/th) vượt kế hoạch ngân sách ($8,000/th) thêm +10.0%. Tỷ lệ thặng dư duy trì xuất sắc.',
       governorNote: 'Hiến pháp: Đạt chuẩn tăng trưởng bền vững. Ủy quyền tiếp tục chuỗi tự động hóa affiliate.',
+    },
+  ],
+  communicationStream: [
+    {
+      id: 'comm-1',
+      type: 'Memo',
+      fromAgent: 'Growth Lead',
+      fromRole: 'Trưởng Nhóm Kinh Doanh',
+      toAgent: 'Toàn Thể Công Ty',
+      toRole: 'Hội đồng Điều hành',
+      subject: 'Chiến lược mở rộng ngách Setup Bàn Làm Việc Thông Minh',
+      content: 'Đã hoàn tất phân tích thị trường affiliate tuần này. EPC trung bình đạt $0.92/click với tỷ lệ chuyển đổi đơn hàng 3.4%. Đề xuất Content Lead tập trung 70% công suất vào dòng sản phẩm bàn phím cơ & đèn màn hình công thái học.',
+      actionItem: 'Content Lead sản xuất 4 kịch bản video hook 3s kèm link TikTok Shop.',
+      tag: '#MarketResearch',
+      cycle: 14,
+      timestamp: new Date(Date.now() - 3600000 * 3).toISOString(),
+      priority: 'High',
+    },
+    {
+      id: 'comm-2',
+      type: 'Chat',
+      fromAgent: 'Content Lead',
+      fromRole: 'Sáng Tạo Nội Dung',
+      toAgent: 'Growth Lead',
+      toRole: 'Trưởng Nhóm Kinh Doanh',
+      content: 'Đã nhận chỉ đạo! 4 kịch bản hoàn tất đạt chuẩn FTC. Media Worker đã render xong bản draft 1080p 60fps. Cần Growth duyệt UTM tracking code trước khi publish lên mạng xã hội.',
+      tag: '#AffiliateProduction',
+      cycle: 14,
+      timestamp: new Date(Date.now() - 3600000 * 2.5).toISOString(),
+    },
+    {
+      id: 'comm-3',
+      type: 'Chat',
+      fromAgent: 'Growth Lead',
+      fromRole: 'Trưởng Nhóm Kinh Doanh',
+      toAgent: 'Content Lead',
+      toRole: 'Sáng Tạo Nội Dung',
+      content: 'Đã đối soát link TikTok Shop! Tỷ lệ hoa hồng 22% tự động ghi nhận vào ví kho bạc. Tiến hành xuất bản tự động trên hệ thống ngay!',
+      tag: '#Publishing',
+      cycle: 14,
+      timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
+    },
+    {
+      id: 'comm-4',
+      type: 'Memo',
+      fromAgent: 'CFO',
+      fromRole: 'Giám Đốc Tài Chính',
+      toAgent: 'CEO & Governor',
+      toRole: 'Ban Lãnh Đạo',
+      subject: 'Báo cáo kiểm toán chi phí hạ tầng máy chủ & token AI Chu kỳ #14',
+      content: 'Tổng chi phí token LLM và render video trong kỳ là $62.00, thấp hơn 24% so với ngân sách dự kiến nhờ kích hoạt cơ chế Prompt Caching. Số ngày runway an toàn ở mức 440 ngày.',
+      actionItem: 'Duy trì ngân sách thử nghiệm $4,500.00 cho kỳ tới.',
+      tag: '#TreasuryAudit',
+      cycle: 14,
+      timestamp: new Date(Date.now() - 3600000 * 1.5).toISOString(),
+      priority: 'Normal',
+    },
+    {
+      id: 'comm-5',
+      type: 'Chat',
+      fromAgent: 'Governor',
+      fromRole: 'Hiến Pháp & Quỹ Tiền',
+      toAgent: 'CFO',
+      toRole: 'Giám Đốc Tài Chính',
+      content: 'Hiến pháp ghi nhận báo cáo an toàn vốn. Trần chi tiêu thử nghiệm tiếp tục được phê chuẩn. Tuyệt đối không giải ngân vượt $1,000 cho một chiến dịch đơn lẻ mà chưa qua hội đồng phê duyệt.',
+      tag: '#ConstitutionalVeto',
+      cycle: 14,
+      timestamp: new Date(Date.now() - 3600000 * 1).toISOString(),
+    },
+    {
+      id: 'comm-6',
+      type: 'Chat',
+      fromAgent: 'COO',
+      fromRole: 'Giám Đốc Vận Hành',
+      toAgent: 'Recruiter',
+      toRole: 'Tuyển Dụng',
+      content: 'Tải lượng hàng đợi backlog hiện tại là 12/22 (54% công suất). Hệ thống đang cân bằng tốt, chưa cần kích hoạt tuyển thêm Full-time AI Agent trong kỳ này.',
+      tag: '#WorkforcePlanning',
+      cycle: 14,
+      timestamp: new Date(Date.now() - 3600000 * 0.7).toISOString(),
+    },
+    {
+      id: 'comm-7',
+      type: 'Chat',
+      fromAgent: 'Experimenter',
+      fromRole: 'Nghiên Cứu A/B Test',
+      toAgent: 'Growth Lead',
+      toRole: 'Trưởng Nhóm Kinh Doanh',
+      content: 'A/B test biến thể thumbnail nền tối có độ tương phản cao cho kết quả CTR +18.4% so với ảnh chụp phong cách tối giản. Đã cập nhật template tự động cho Media Studio.',
+      tag: '#ABTesting',
+      cycle: 14,
+      timestamp: new Date(Date.now() - 3600000 * 0.3).toISOString(),
     },
   ],
 };
@@ -776,6 +883,35 @@ function getCycleTrendHistory() {
   return history;
 }
 
+// Department budget distribution over last 10 business cycles
+function getDepartmentBudgetHistory() {
+  const currentCycle = state.snapshot.cycle_count;
+  const history = [];
+  const startCycle = Math.max(1, currentCycle - 9);
+
+  for (let c = startCycle; c <= currentCycle; c++) {
+    const cycleFactor = c / Math.max(1, currentCycle);
+    const baseExpenses = Math.round(state.snapshot.expenses_minor / 100);
+    const cycleExpenses = Math.round(baseExpenses * (0.8 + cycleFactor * 0.2));
+
+    const leadership = Math.round(cycleExpenses * 0.18);
+    const growth = Math.round(cycleExpenses * 0.44);
+    const ops = Math.round(cycleExpenses * 0.24);
+    const techAndMedia = Math.max(0, cycleExpenses - leadership - growth - ops);
+
+    history.push({
+      cycle: `Kỳ ${c}`,
+      cycleNum: c,
+      leadership,
+      growth,
+      ops,
+      techAndMedia,
+      total: cycleExpenses,
+    });
+  }
+  return history;
+}
+
 // Auto-Audit routine that generates a summary report every 10 business cycles
 function generateAutoAuditReport(milestoneCycle: number) {
   const plannedRevenueMinor = 800000; // $8,000 / month baseline budget
@@ -834,9 +970,42 @@ app.get('/api/state', (req, res) => {
     activeExperiments: state.activeExperiments,
     recentCycles: state.cycles.slice(-5),
     cycleHistory: getCycleTrendHistory(),
+    departmentBudgets: getDepartmentBudgetHistory(),
+    communicationStream: state.communicationStream,
     auditReports: state.auditReports,
     hasGeminiKey: Boolean(apiKey && apiKey !== 'MY_GEMINI_API_KEY'),
   });
+});
+
+app.get('/api/communication-stream', (req, res) => {
+  res.json({
+    stream: state.communicationStream,
+    totalCount: state.communicationStream.length,
+    activeCycle: state.snapshot.cycle_count,
+  });
+});
+
+app.post('/api/communication-stream', (req, res) => {
+  const { type, fromAgent, toAgent, subject, content, actionItem, tag, priority } = req.body;
+  
+  const newMessage = {
+    id: `comm-${Date.now().toString(36)}`,
+    type: type || 'Chat',
+    fromAgent: fromAgent || 'CEO',
+    fromRole: fromAgent === 'CEO' ? 'Tổng Giám Đốc' : fromAgent === 'CFO' ? 'Giám Đốc Tài Chính' : fromAgent === 'Growth' ? 'Kinh Doanh' : 'Điều Hành',
+    toAgent: toAgent || 'Toàn Thể Công Ty',
+    toRole: 'Hội đồng',
+    subject: subject || undefined,
+    content: content || 'Đã đồng bộ chỉ số chu kỳ và cập nhật hạn ngạch tự động.',
+    actionItem: actionItem || undefined,
+    tag: tag || '#AutonomousCoordination',
+    cycle: state.snapshot.cycle_count,
+    timestamp: new Date().toISOString(),
+    priority: priority || 'Normal',
+  };
+
+  state.communicationStream.unshift(newMessage);
+  res.json({ success: true, message: newMessage, stream: state.communicationStream });
 });
 
 app.get('/api/auto-audit', (req, res) => {

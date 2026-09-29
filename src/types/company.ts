@@ -121,6 +121,32 @@ export interface CycleTrendPoint {
   netCashFlow: number;
 }
 
+export interface DepartmentBudgetPoint {
+  cycle: string;
+  cycleNum: number;
+  leadership: number;
+  growth: number;
+  ops: number;
+  techAndMedia: number;
+  total: number;
+}
+
+export interface AgentMessage {
+  id: string;
+  type: 'Chat' | 'Memo';
+  fromAgent: string;
+  fromRole: string;
+  toAgent: string;
+  toRole: string;
+  subject?: string;
+  content: string;
+  actionItem?: string;
+  tag: string;
+  cycle: number;
+  timestamp: string;
+  priority?: 'High' | 'Normal' | 'Urgent';
+}
+
 export interface AgentTaskItem {
   id: string;
   cycle: number;

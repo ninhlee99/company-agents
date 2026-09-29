@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CompanySnapshot, GovernedProposal, CycleTrendPoint, AutoAuditReport } from '../types/company';
+import { CompanySnapshot, GovernedProposal, CycleTrendPoint, AutoAuditReport, DepartmentBudgetPoint } from '../types/company';
 import { 
   RotateCw, 
   CheckCircle2, 
@@ -16,12 +16,15 @@ import {
   FileCheck2,
   CalendarCheck,
   Scale,
+  PieChart,
   X
 } from 'lucide-react';
 import {
   ResponsiveContainer,
   LineChart,
   Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   Tooltip,
@@ -33,6 +36,7 @@ interface BasicDashboardProps {
   snapshot: CompanySnapshot;
   recentProposals: GovernedProposal[];
   cycleHistory?: CycleTrendPoint[];
+  departmentBudgets?: DepartmentBudgetPoint[];
   auditReports?: AutoAuditReport[];
   onRunCycle: () => void;
   isRunningCycle: boolean;
@@ -45,6 +49,7 @@ export const BasicDashboard: React.FC<BasicDashboardProps> = ({
   snapshot,
   recentProposals,
   cycleHistory,
+  departmentBudgets,
   auditReports,
   onRunCycle,
   isRunningCycle,
@@ -52,6 +57,7 @@ export const BasicDashboard: React.FC<BasicDashboardProps> = ({
   onNavigate,
   onTriggerAudit,
 }) => {
+  const [chartView, setChartView] = useState<'financial_trend' | 'department_budget'>('financial_trend');
   const [chartMetric, setChartMetric] = useState<'all' | 'revenue_expense' | 'cash'>('all');
   const [showAuditModal, setShowAuditModal] = useState(false);
   const [isAuditing, setIsAuditing] = useState(false);
@@ -112,6 +118,28 @@ export const BasicDashboard: React.FC<BasicDashboardProps> = ({
     { cycle: 'Kỳ 12', cycleNum: 12, cash: 46900, revenue: 9000, expenses: 6100, netCashFlow: 2900 },
     { cycle: 'Kỳ 13', cycleNum: 13, cash: 47600, revenue: 9200, expenses: 6150, netCashFlow: 3050 },
     { cycle: `Kỳ ${snapshot.cycle_count}`, cycleNum: snapshot.cycle_count, cash: Math.round(snapshot.cash_minor / 100), revenue: Math.round(snapshot.revenue_minor / 100), expenses: Math.round(snapshot.expenses_minor / 100), netCashFlow: Math.round(netMonthly / 100) },
+  ];
+
+  // 10-cycle department budget distribution for stacked area chart
+  const budgetData: DepartmentBudgetPoint[] = departmentBudgets && departmentBudgets.length > 0 ? departmentBudgets : [
+    { cycle: 'Kỳ 5', cycleNum: 5, leadership: 880, growth: 2150, ops: 1180, techAndMedia: 690, total: 4900 },
+    { cycle: 'Kỳ 6', cycleNum: 6, leadership: 910, growth: 2240, ops: 1230, techAndMedia: 720, total: 5100 },
+    { cycle: 'Kỳ 7', cycleNum: 7, leadership: 950, growth: 2330, ops: 1280, techAndMedia: 740, total: 5300 },
+    { cycle: 'Kỳ 8', cycleNum: 8, leadership: 1000, growth: 2470, ops: 1350, techAndMedia: 780, total: 5600 },
+    { cycle: 'Kỳ 9', cycleNum: 9, leadership: 1020, growth: 2510, ops: 1370, techAndMedia: 800, total: 5700 },
+    { cycle: 'Kỳ 10', cycleNum: 10, leadership: 1060, growth: 2600, ops: 1420, techAndMedia: 820, total: 5900 },
+    { cycle: 'Kỳ 11', cycleNum: 11, leadership: 1080, growth: 2640, ops: 1440, techAndMedia: 840, total: 6000 },
+    { cycle: 'Kỳ 12', cycleNum: 12, leadership: 1100, growth: 2690, ops: 1460, techAndMedia: 850, total: 6100 },
+    { cycle: 'Kỳ 13', cycleNum: 13, leadership: 1110, growth: 2710, ops: 1470, techAndMedia: 860, total: 6150 },
+    { 
+      cycle: `Kỳ ${snapshot.cycle_count}`, 
+      cycleNum: snapshot.cycle_count, 
+      leadership: Math.round((snapshot.expenses_minor / 100) * 0.18), 
+      growth: Math.round((snapshot.expenses_minor / 100) * 0.44), 
+      ops: Math.round((snapshot.expenses_minor / 100) * 0.24), 
+      techAndMedia: Math.max(0, Math.round(snapshot.expenses_minor / 100) - Math.round((snapshot.expenses_minor / 100) * 0.18) - Math.round((snapshot.expenses_minor / 100) * 0.44) - Math.round((snapshot.expenses_minor / 100) * 0.24)), 
+      total: Math.round(snapshot.expenses_minor / 100) 
+    },
   ];
 
   return (
@@ -242,142 +270,327 @@ export const BasicDashboard: React.FC<BasicDashboardProps> = ({
         </div>
       </div>
 
-      {/* RECHARTS LINE GRAPH: 10-CYCLE FINANCIAL & CASH FLOW TREND */}
+      {/* RECHARTS FINANCIAL & BUDGET VISUALIZATION CARDS */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
           <div className="flex items-center gap-2">
-            <Activity className="w-4 h-4 text-indigo-400" />
+            {chartView === 'financial_trend' ? (
+              <Activity className="w-4 h-4 text-indigo-400" />
+            ) : (
+              <Layers className="w-4 h-4 text-purple-400" />
+            )}
             <div>
-              <span className="font-bold text-white text-xs block">Biểu Đồ Xu Hướng 10 Chu Kỳ Gần Nhất</span>
-              <span className="text-[10px] text-slate-400">Doanh thu, chi phí và biến động dòng tiền thực tế</span>
+              <span className="font-bold text-white text-xs block">
+                {chartView === 'financial_trend'
+                  ? 'Biểu Đồ Xu Hướng 10 Chu Kỳ Gần Nhất'
+                  : 'Phân Bổ Ngân Sách Theo Phòng Ban 10 Chu Kỳ (Stacked Area)'}
+              </span>
+              <span className="text-[10px] text-slate-400">
+                {chartView === 'financial_trend'
+                  ? 'Doanh thu, chi phí và biến động dòng tiền thực tế'
+                  : 'Cơ cấu phân bổ chi phí giữa Ban Lãnh Đạo, Kinh Doanh, Vận Hành & Media'}
+              </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-[11px]">
-            <button
-              onClick={() => setChartMetric('all')}
-              className={`px-2 py-0.5 rounded font-semibold transition-all ${
-                chartMetric === 'all' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Tất cả
-            </button>
-            <button
-              onClick={() => setChartMetric('revenue_expense')}
-              className={`px-2 py-0.5 rounded font-semibold transition-all ${
-                chartMetric === 'revenue_expense' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Thu vs Chi
-            </button>
-            <button
-              onClick={() => setChartMetric('cash')}
-              className={`px-2 py-0.5 rounded font-semibold transition-all ${
-                chartMetric === 'cash' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Kho Bạc
-            </button>
+          <div className="flex items-center gap-2">
+            {/* View Switcher: Financial Trend vs Department Stacked Area */}
+            <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800 text-[11px]">
+              <button
+                onClick={() => setChartView('financial_trend')}
+                className={`px-2.5 py-1 rounded-md font-semibold transition-all flex items-center gap-1.5 ${
+                  chartView === 'financial_trend'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Activity className="w-3 h-3" />
+                <span>Thu Chi</span>
+              </button>
+              <button
+                onClick={() => setChartView('department_budget')}
+                className={`px-2.5 py-1 rounded-md font-semibold transition-all flex items-center gap-1.5 ${
+                  chartView === 'department_budget'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Layers className="w-3 h-3 text-purple-300" />
+                <span>Ngân Sách Phòng Ban</span>
+              </button>
+            </div>
+
+            {/* Quick Metrics filter for Financial Trend */}
+            {chartView === 'financial_trend' && (
+              <div className="hidden sm:flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-[11px]">
+                <button
+                  onClick={() => setChartMetric('all')}
+                  className={`px-2 py-0.5 rounded font-semibold transition-all ${
+                    chartMetric === 'all' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Tất cả
+                </button>
+                <button
+                  onClick={() => setChartMetric('revenue_expense')}
+                  className={`px-2 py-0.5 rounded font-semibold transition-all ${
+                    chartMetric === 'revenue_expense' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Thu vs Chi
+                </button>
+                <button
+                  onClick={() => setChartMetric('cash')}
+                  className={`px-2 py-0.5 rounded font-semibold transition-all ${
+                    chartMetric === 'cash' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Kho Bạc
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Recharts Container */}
-        <div className="h-60 w-full pt-1">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={trendData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-              <XAxis
-                dataKey="cycle"
-                stroke="#64748b"
-                tick={{ fill: '#94a3b8', fontSize: 11 }}
-                tickLine={false}
-              />
-              <YAxis
-                stroke="#64748b"
-                tick={{ fill: '#94a3b8', fontSize: 10 }}
-                tickFormatter={(val) => `$${val >= 1000 ? `${(val / 1000).toFixed(0)}k` : val}`}
-                tickLine={false}
-              />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: '#0f172a',
-                  borderColor: '#334155',
-                  borderRadius: '0.75rem',
-                  fontSize: '11px',
-                  boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)',
-                }}
-                formatter={(val: any, name: any) => [
-                  `$${Number(val || 0).toLocaleString()}`,
-                  name === 'revenue'
-                    ? 'Doanh Thu'
-                    : name === 'expenses'
-                    ? 'Chi Phí'
-                    : name === 'netCashFlow'
-                    ? 'Lợi Nhuận Ròng'
-                    : 'Kho Bạc',
-                ]}
-                labelStyle={{ color: '#e2e8f0', fontWeight: 'bold' }}
-              />
-              <Legend
-                wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}
-                formatter={(val) =>
-                  val === 'revenue'
-                    ? 'Doanh Thu ($)'
-                    : val === 'expenses'
-                    ? 'Chi Phí ($)'
-                    : val === 'netCashFlow'
-                    ? 'Dòng Tiền / Lãi ($)'
-                    : 'Số Dư Kho Bạc ($)'
-                }
-              />
-
-              {(chartMetric === 'all' || chartMetric === 'revenue_expense') && (
-                <Line
-                  type="monotone"
-                  dataKey="revenue"
-                  stroke="#10b981"
-                  strokeWidth={2.5}
-                  dot={{ r: 3, fill: '#10b981' }}
-                  activeDot={{ r: 5 }}
+        {/* Chart Body */}
+        {chartView === 'financial_trend' ? (
+          <div className="h-60 w-full pt-1">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={trendData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                <XAxis
+                  dataKey="cycle"
+                  stroke="#64748b"
+                  tick={{ fill: '#94a3b8', fontSize: 11 }}
+                  tickLine={false}
                 />
-              )}
-
-              {(chartMetric === 'all' || chartMetric === 'revenue_expense') && (
-                <Line
-                  type="monotone"
-                  dataKey="expenses"
-                  stroke="#f43f5e"
-                  strokeWidth={2}
-                  strokeDasharray="4 4"
-                  dot={{ r: 3, fill: '#f43f5e' }}
-                  activeDot={{ r: 5 }}
+                <YAxis
+                  stroke="#64748b"
+                  tick={{ fill: '#94a3b8', fontSize: 10 }}
+                  tickFormatter={(val) => `$${val >= 1000 ? `${(val / 1000).toFixed(0)}k` : val}`}
+                  tickLine={false}
                 />
-              )}
-
-              {(chartMetric === 'all' || chartMetric === 'revenue_expense') && (
-                <Line
-                  type="monotone"
-                  dataKey="netCashFlow"
-                  stroke="#a855f7"
-                  strokeWidth={2}
-                  dot={{ r: 3, fill: '#a855f7' }}
-                  activeDot={{ r: 5 }}
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#0f172a',
+                    borderColor: '#334155',
+                    borderRadius: '0.75rem',
+                    fontSize: '11px',
+                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)',
+                  }}
+                  formatter={(val: any, name: any) => [
+                    `$${Number(val || 0).toLocaleString()}`,
+                    name === 'revenue'
+                      ? 'Doanh Thu'
+                      : name === 'expenses'
+                      ? 'Chi Phí'
+                      : name === 'netCashFlow'
+                      ? 'Lợi Nhuận Ròng'
+                      : 'Kho Bạc',
+                  ]}
+                  labelStyle={{ color: '#e2e8f0', fontWeight: 'bold' }}
                 />
-              )}
-
-              {(chartMetric === 'all' || chartMetric === 'cash') && (
-                <Line
-                  type="monotone"
-                  dataKey="cash"
-                  stroke="#38bdf8"
-                  strokeWidth={2.5}
-                  dot={{ r: 3, fill: '#38bdf8' }}
-                  activeDot={{ r: 5 }}
+                <Legend
+                  wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}
+                  formatter={(val) =>
+                    val === 'revenue'
+                      ? 'Doanh Thu ($)'
+                      : val === 'expenses'
+                      ? 'Chi Phí ($)'
+                      : val === 'netCashFlow'
+                      ? 'Dòng Tiền / Lãi ($)'
+                      : 'Số Dư Kho Bạc ($)'
+                  }
                 />
-              )}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+
+                {(chartMetric === 'all' || chartMetric === 'revenue_expense') && (
+                  <Line
+                    type="monotone"
+                    dataKey="revenue"
+                    stroke="#10b981"
+                    strokeWidth={2.5}
+                    dot={{ r: 3, fill: '#10b981' }}
+                    activeDot={{ r: 5 }}
+                  />
+                )}
+
+                {(chartMetric === 'all' || chartMetric === 'revenue_expense') && (
+                  <Line
+                    type="monotone"
+                    dataKey="expenses"
+                    stroke="#f43f5e"
+                    strokeWidth={2}
+                    strokeDasharray="4 4"
+                    dot={{ r: 3, fill: '#f43f5e' }}
+                    activeDot={{ r: 5 }}
+                  />
+                )}
+
+                {(chartMetric === 'all' || chartMetric === 'revenue_expense') && (
+                  <Line
+                    type="monotone"
+                    dataKey="netCashFlow"
+                    stroke="#a855f7"
+                    strokeWidth={2}
+                    dot={{ r: 3, fill: '#a855f7' }}
+                    activeDot={{ r: 5 }}
+                  />
+                )}
+
+                {(chartMetric === 'all' || chartMetric === 'cash') && (
+                  <Line
+                    type="monotone"
+                    dataKey="cash"
+                    stroke="#38bdf8"
+                    strokeWidth={2.5}
+                    dot={{ r: 3, fill: '#38bdf8' }}
+                    activeDot={{ r: 5 }}
+                  />
+                )}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          /* STACKED AREA CHART: BUDGET DISTRIBUTION ACROSS DEPARTMENTS OVER 10 CYCLES */
+          <div className="space-y-3">
+            <div className="h-64 w-full pt-1">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={budgetData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorLeadership" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0.15} />
+                    </linearGradient>
+                    <linearGradient id="colorOps" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0.15} />
+                    </linearGradient>
+                    <linearGradient id="colorGrowth" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#a855f7" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="#a855f7" stopOpacity={0.15} />
+                    </linearGradient>
+                    <linearGradient id="colorTech" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.15} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis
+                    dataKey="cycle"
+                    stroke="#64748b"
+                    tick={{ fill: '#94a3b8', fontSize: 11 }}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    stroke="#64748b"
+                    tick={{ fill: '#94a3b8', fontSize: 10 }}
+                    tickFormatter={(val) => `$${val >= 1000 ? `${(val / 1000).toFixed(0)}k` : val}`}
+                    tickLine={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#0f172a',
+                      borderColor: '#334155',
+                      borderRadius: '0.75rem',
+                      fontSize: '11px',
+                      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)',
+                    }}
+                    formatter={(val: any, name: any) => [
+                      `$${Number(val || 0).toLocaleString()}`,
+                      name === 'growth'
+                        ? 'Kinh Doanh & Affiliate (Growth)'
+                        : name === 'ops'
+                        ? 'Vận Hành & Điều Phối (Ops)'
+                        : name === 'leadership'
+                        ? 'Ban Lãnh Đạo & Hiến Pháp (Leadership)'
+                        : 'Kỹ Thuật, Token & Media (Tech)',
+                    ]}
+                    labelStyle={{ color: '#e2e8f0', fontWeight: 'bold' }}
+                  />
+                  <Legend
+                    wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}
+                    formatter={(val) =>
+                      val === 'growth'
+                        ? 'Kinh Doanh (Growth)'
+                        : val === 'ops'
+                        ? 'Vận Hành (Ops)'
+                        : val === 'leadership'
+                        ? 'Ban Giám Đốc (Leadership)'
+                        : 'Kỹ Thuật & Media'
+                    }
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="leadership"
+                    stackId="1"
+                    stroke="#6366f1"
+                    fillOpacity={1}
+                    fill="url(#colorLeadership)"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="ops"
+                    stackId="1"
+                    stroke="#10b981"
+                    fillOpacity={1}
+                    fill="url(#colorOps)"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="growth"
+                    stackId="1"
+                    stroke="#a855f7"
+                    fillOpacity={1}
+                    fill="url(#colorGrowth)"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="techAndMedia"
+                    stackId="1"
+                    stroke="#f59e0b"
+                    fillOpacity={1}
+                    fill="url(#colorTech)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Department Budget Proportions Summary */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-800">
+              <div className="p-2 rounded-lg bg-slate-950 border border-slate-800/80 text-xs">
+                <span className="text-[10px] text-indigo-400 font-bold block flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-indigo-500 inline-block" /> Ban Giám Đốc
+                </span>
+                <div className="font-bold text-white font-mono mt-0.5">18% Ngân Sách</div>
+                <span className="text-[10px] text-slate-500">Giám sát & Hiến pháp</span>
+              </div>
+
+              <div className="p-2 rounded-lg bg-slate-950 border border-slate-800/80 text-xs">
+                <span className="text-[10px] text-purple-400 font-bold block flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-purple-500 inline-block" /> Khối Kinh Doanh
+                </span>
+                <div className="font-bold text-white font-mono mt-0.5">44% Ngân Sách</div>
+                <span className="text-[10px] text-slate-500">Traffic, TikTok & Content</span>
+              </div>
+
+              <div className="p-2 rounded-lg bg-slate-950 border border-slate-800/80 text-xs">
+                <span className="text-[10px] text-emerald-400 font-bold block flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> Khối Vận Hành
+                </span>
+                <div className="font-bold text-white font-mono mt-0.5">24% Ngân Sách</div>
+                <span className="text-[10px] text-slate-500">Kế toán & Thông lượng</span>
+              </div>
+
+              <div className="p-2 rounded-lg bg-slate-950 border border-slate-800/80 text-xs">
+                <span className="text-[10px] text-amber-400 font-bold block flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" /> Kỹ Thuật & Media
+                </span>
+                <div className="font-bold text-white font-mono mt-0.5">14% Ngân Sách</div>
+                <span className="text-[10px] text-slate-500">GPU, API & Prompt Cache</span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Pending Approvals (Only when needed) */}
