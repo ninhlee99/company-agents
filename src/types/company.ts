@@ -17,7 +17,8 @@ export type AgentRole =
   | 'Content'
   | 'Recruiter'
   | 'Analyst'
-  | 'Experiment';
+  | 'Experiment'
+  | string;
 
 export type ActionKind = 
   | 'AllocateExperimentBudget'
@@ -29,7 +30,8 @@ export type ActionKind =
   | 'ProduceReport'
   | 'EscalateIncident'
   | 'PublishContent'
-  | 'LaunchCampaign';
+  | 'LaunchCampaign'
+  | 'ExecutePipeline';
 
 export type RiskTier = 'Low' | 'Medium' | 'High' | 'Critical';
 export type GovernorDecision = 'Approve' | 'Reject' | 'RequestRevision' | 'EscalateToHuman';
@@ -98,27 +100,37 @@ export interface CompanySnapshot {
   currency: string;
 }
 
-export interface DebateTurn {
-  agent: AgentRole;
-  stance: string;
-  argument: string;
-  proposedAction?: string;
-  finalRuling?: string;
-  policyJustification?: string;
-}
-
-export interface MediaScriptOutline {
-  timestamp: string;
-  visual: string;
-  audio: string;
+export interface CustomAgent {
+  id: string;
+  name: string;
+  role: string;
+  department: 'Leadership' | 'Growth' | 'Ops' | 'Sales' | 'Tech';
+  description: string;
+  salary_minor: number;
+  tasksCompleted: number;
+  status: 'Active' | 'Paused';
+  hiredAtCycle: number;
 }
 
 export interface MediaContentGenerated {
   title: string;
   hook: string;
-  scriptOutline: MediaScriptOutline[];
+  scriptOutline: {
+    timestamp: string;
+    visual: string;
+    audio: string;
+  }[];
   affiliateOffer: string;
   projectedEpc: string;
   callToAction: string;
   governorComplianceCheck: string;
+}
+
+export interface DebateTurn {
+  agent: string;
+  stance: string;
+  argument: string;
+  proposedAction?: string;
+  finalRuling?: string;
+  policyJustification?: string;
 }

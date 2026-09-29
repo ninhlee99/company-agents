@@ -1,244 +1,320 @@
 import React, { useState } from 'react';
-import { CompanySnapshot } from '../types/company';
+import { CompanySnapshot, CustomAgent } from '../types/company';
 import { 
   Users, 
+  Plus, 
+  Send, 
+  CheckCircle2, 
+  ShieldCheck, 
   Briefcase, 
   TrendingUp, 
   Cpu, 
+  Sparkles, 
   Video, 
   Search, 
-  ShieldCheck, 
-  Microscope, 
   FileText, 
-  Sparkles,
-  CheckCircle2,
-  Send,
-  RotateCw
+  Microscope,
+  Power,
+  X
 } from 'lucide-react';
 
 interface ManageAgentsProps {
   snapshot: CompanySnapshot;
-  onRunCycle: () => void;
+  agents: CustomAgent[];
+  onHireAgent: (data: { name: string; role: string; department: 'Leadership' | 'Growth' | 'Ops' | 'Sales' | 'Tech'; description: string; salary_minor: number }) => Promise<{ success: boolean; reason?: string }>;
+  onToggleStatus: (agentId: string) => void;
 }
 
-export const ManageAgents: React.FC<ManageAgentsProps> = ({ snapshot, onRunCycle }) => {
-  const [activeFilter, setActiveFilter] = useState<'All' | 'Leadership' | 'Growth' | 'Ops'>('All');
-  const [quickTask, setQuickTask] = useState('');
-  const [taskSent, setTaskSent] = useState(false);
+export const ManageAgents: React.FC<ManageAgentsProps> = ({
+  snapshot,
+  agents,
+  onHireAgent,
+  onToggleStatus,
+}) => {
+  const [filter, setFilter] = useState<'All' | 'Leadership' | 'Growth' | 'Ops'>('All');
+  const [showHireModal, setShowHireModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hireError, setHireError] = useState<string | null>(null);
 
-  const team = [
-    {
-      id: 'Governor',
-      name: 'Governor',
-      role: 'Bảo Vệ Hiến Pháp & Giám Sát Chi Tiêu',
-      simpleJob: 'Có quyền phủ quyết (Veto). Ngăn không cho công ty phá sản, khóa ví tiền khi có nguy cơ.',
-      category: 'Leadership',
-      budget: 'Không giới hạn quyền phủ quyết',
-      icon: ShieldCheck,
-      color: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
-      badge: 'Quyền Tối Cao',
-    },
-    {
-      id: 'CEO',
-      name: 'CEO (Giám Đốc Điều Hành)',
-      role: 'Định Hướng Chiến Lược & Phân Bổ Vốn',
-      simpleJob: 'Quyết định mở rộng thị trường mới, duyệt ngân sách nghiên cứu và bảo vệ tầm nhìn dài hạn.',
-      category: 'Leadership',
-      budget: `$${(snapshot.budget_remaining_minor / 100).toLocaleString()}`,
-      icon: Briefcase,
-      color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
-      badge: 'Ban Giám Đốc',
-    },
-    {
-      id: 'CFO',
-      name: 'CFO (Giám Đốc Tài Chính)',
-      role: 'Quản Lý Tiền Mặt & Chống Thua Lỗ',
-      simpleJob: 'Theo dõi từng đồng chi tiêu. Nếu công ty đốt tiền quá nhanh, CFO tự động yêu cầu cắt giảm ngay.',
-      category: 'Leadership',
-      budget: 'Kiểm toán toàn bộ kho bạc',
-      icon: TrendingUp,
-      color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-      badge: 'Tài Chính',
-    },
-    {
-      id: 'COO',
-      name: 'COO (Giám Đốc Vận Hành)',
-      role: 'Điều Phối Khối Lượng Công Việc',
-      simpleJob: 'Đảm bảo hệ thống máy chủ và hàng đợi không bị nghẽn, các tác vụ được hoàn thành đúng hạn.',
-      category: 'Ops',
-      budget: '22 tác vụ/chu kỳ',
-      icon: Cpu,
-      color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
-      badge: 'Vận Hành',
-    },
-    {
-      id: 'Growth',
-      name: 'Growth Lead (Trưởng Nhóm Tăng Trưởng)',
-      role: 'Tìm Kiếm Khách Hàng & Traffic',
-      simpleJob: 'Tăng lượt xem, tối ưu hóa tỷ lệ chuyển đổi cho các link mua hàng affiliate trên TikTok/Reels.',
-      category: 'Growth',
-      budget: '$500 / thử nghiệm',
-      icon: Sparkles,
-      color: 'text-pink-400 bg-pink-500/10 border-pink-500/20',
-      badge: 'Tăng Trưởng',
-    },
-    {
-      id: 'Content',
-      name: 'Content Lead (Trưởng Nhóm Nội Dung)',
-      role: 'Sản Xuất Video & Kịch Bản Bán Hàng',
-      simpleJob: 'Viết kịch bản short-form có hook hấp dẫn, chèn sản phẩm hoa hồng cao vào video.',
-      category: 'Growth',
-      budget: '$300 / chiến dịch',
-      icon: Video,
-      color: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
-      badge: 'Nội Dung',
-    },
-    {
-      id: 'Recruiter',
-      name: 'Recruiter (Trưởng Phòng Tuyển Dụng)',
-      role: 'Tuyển Dụng & Bổ Sung Nhân Sự',
-      simpleJob: 'Chỉ đề xuất tuyển thêm người khi công ty làm ăn có lãi và số ngày sống còn > 60 ngày.',
-      category: 'Ops',
-      budget: 'Theo phê duyệt của Operator',
-      icon: Search,
-      color: 'text-teal-400 bg-teal-500/10 border-teal-500/20',
-      badge: 'Nhân Sự',
-    },
-    {
-      id: 'Analyst',
-      name: 'Analyst (Chuyên Viên Phân Tích)',
-      role: 'Báo Cáo Số Liệu & Kiểm Chứng Doanh Thu',
-      simpleJob: 'Kiểm tra doanh thu đối soát hoa hồng thực tế, loại bỏ doanh thu ảo trước khi chia thưởng.',
-      category: 'Ops',
-      budget: 'Miễn phí (Phân tích dữ liệu)',
-      icon: FileText,
-      color: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
-      badge: 'Dữ Liệu',
-    },
-    {
-      id: 'Experiment',
-      name: 'Experiment Specialist (Nghiên Cứu Thử Nghiệm)',
-      role: 'Thử Nghiệm A/B Test Tốc Độ Cao',
-      simpleJob: 'Chạy các thử nghiệm nhỏ với ngân sách cách ly để tìm ra mẫu video viral mới nhất.',
-      category: 'Growth',
-      budget: `$${(snapshot.experiment_budget_minor / 100).toLocaleString()} (Quỹ riêng)`,
-      icon: Microscope,
-      color: 'text-violet-400 bg-violet-500/10 border-violet-500/20',
-      badge: 'R&D',
-    },
-  ];
+  // Form State
+  const [name, setName] = useState('');
+  const [role, setRole] = useState('');
+  const [department, setDepartment] = useState<'Leadership' | 'Growth' | 'Ops' | 'Sales' | 'Tech'>('Growth');
+  const [description, setDescription] = useState('');
+  const [salaryUsd, setSalaryUsd] = useState(1500);
 
-  const handleSendTask = (e: React.FormEvent) => {
+  const [quickInstruction, setQuickInstruction] = useState('');
+  const [instructionSent, setInstructionSent] = useState(false);
+
+  const handleHireSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!quickTask.trim()) return;
-    setTaskSent(true);
-    setTimeout(() => {
-      setTaskSent(false);
-      setQuickTask('');
-    }, 4000);
+    if (!name.trim() || !role.trim()) return;
+    setIsSubmitting(true);
+    setHireError(null);
+
+    const res = await onHireAgent({
+      name: name.trim(),
+      role: role.trim(),
+      department,
+      description: description.trim() || 'Chuyên viên xử lý công việc tự động',
+      salary_minor: salaryUsd * 100,
+    });
+
+    setIsSubmitting(false);
+    if (res.success) {
+      setShowHireModal(false);
+      setName('');
+      setRole('');
+      setDescription('');
+    } else {
+      setHireError(res.reason || 'Không thể tuyển dụng.');
+    }
   };
 
-  const filteredTeam = team.filter((member) => {
-    if (activeFilter === 'All') return true;
-    return member.category === activeFilter;
+  const handleSendInstruction = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickInstruction.trim()) return;
+    setInstructionSent(true);
+    setTimeout(() => {
+      setInstructionSent(false);
+      setQuickInstruction('');
+    }, 3000);
+  };
+
+  const filteredAgents = agents.filter((a) => {
+    if (filter === 'All') return true;
+    return a.department === filter;
   });
 
+  const getDepartmentBadge = (dept: string) => {
+    switch (dept) {
+      case 'Leadership':
+        return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
+      case 'Growth':
+        return 'bg-pink-500/10 text-pink-400 border-pink-500/20';
+      default:
+        return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20';
+    }
+  };
+
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-12">
-      {/* Header Info */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-md">
-        <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <Users className="w-5 h-5 text-indigo-400" />
-            Quản Lý Đội Ngũ 9 Nhân Sự AI
-          </h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Mỗi Agent có một nhiệm vụ rõ ràng và bị giám sát bởi Governor để tránh lãng phí vốn.
-          </p>
-        </div>
-
-        {/* Quick Filter */}
-        <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-lg border border-slate-800">
-          {(['All', 'Leadership', 'Growth', 'Ops'] as const).map((filter) => (
-            <button
-              key={filter}
-              onClick={() => setActiveFilter(filter)}
-              className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${
-                activeFilter === filter
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              {filter === 'All' ? 'Tất cả (9)' : filter === 'Leadership' ? 'Ban Giám Đốc' : filter === 'Growth' ? 'Tăng Trưởng' : 'Vận Hành'}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Quick Task Dispatch Form */}
-      <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4">
-        <form onSubmit={handleSendTask} className="flex gap-2">
-          <input
-            type="text"
-            value={quickTask}
-            onChange={(e) => setQuickTask(e.target.value)}
-            placeholder="Nhập chỉ đạo nhanh cho toàn bộ ban giám đốc AI (Ví dụ: 'Tập trung đẩy mạnh video công nghệ AI')..."
-            className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-          />
-          <button
-            type="submit"
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-all shrink-0"
-          >
-            <Send className="w-3.5 h-3.5" /> Giao Việc
-          </button>
-        </form>
-
-        {taskSent && (
-          <div className="mt-2 text-xs text-emerald-400 flex items-center gap-1.5 animate-fadeIn">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            Chỉ đạo đã được gửi tới CEO và các Agent! Ban giám đốc sẽ họp và thực thi trong chu kỳ tiếp theo.
+    <div className="space-y-4 max-w-5xl mx-auto pb-10">
+      {/* Top Header */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
+        <div className="flex items-center gap-2">
+          <Users className="w-5 h-5 text-indigo-400" />
+          <div>
+            <h2 className="text-base font-bold text-white">Đội Ngũ Nhân Sự AI ({agents.length} vị trí)</h2>
+            <p className="text-xs text-slate-400">Tự động hóa theo phân quyền và hạn mức chi tiêu</p>
           </div>
-        )}
+        </div>
+
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          {/* Filter */}
+          <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+            {(['All', 'Leadership', 'Growth', 'Ops'] as const).map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setFilter(cat)}
+                className={`px-2.5 py-1 rounded-md font-semibold transition-all ${
+                  filter === cat ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {cat === 'All' ? 'Tất cả' : cat === 'Leadership' ? 'Ban Giám Đốc' : cat === 'Growth' ? 'Kinh Doanh' : 'Vận Hành'}
+              </button>
+            ))}
+          </div>
+
+          {/* Hire Button */}
+          <button
+            onClick={() => setShowHireModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-all shrink-0"
+          >
+            <Plus className="w-3.5 h-3.5" /> Tuyển Thêm AI
+          </button>
+        </div>
       </div>
 
-      {/* Team Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredTeam.map((member) => {
-          const Icon = member.icon;
-          return (
-            <div
-              key={member.id}
-              className="bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-all shadow-md flex flex-col justify-between space-y-4"
-            >
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className={`p-2.5 rounded-xl border ${member.color}`}>
-                    <Icon className="w-5 h-5" />
-                  </div>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">
-                    {member.badge}
-                  </span>
+      {/* Quick Instruction Bar */}
+      <form onSubmit={handleSendInstruction} className="flex gap-2">
+        <input
+          type="text"
+          value={quickInstruction}
+          onChange={(e) => setQuickInstruction(e.target.value)}
+          placeholder="Giao việc nhanh cho toàn bộ nhân sự (Ví dụ: 'Tập trung đẩy mạnh video công nghệ AI')..."
+          className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+        />
+        <button
+          type="submit"
+          className="flex items-center gap-1 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs shrink-0 transition-all"
+        >
+          <Send className="w-3.5 h-3.5" /> Gửi Lệnh
+        </button>
+      </form>
+
+      {instructionSent && (
+        <div className="text-xs text-emerald-400 flex items-center gap-1.5">
+          <CheckCircle2 className="w-3.5 h-3.5" /> Lệnh đã chuyển đến CEO và các phòng ban!
+        </div>
+      )}
+
+      {/* Agents Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {filteredAgents.map((agent) => (
+          <div
+            key={agent.id}
+            className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 hover:border-slate-700 transition-all flex flex-col justify-between space-y-2.5 shadow-sm"
+          >
+            <div>
+              <div className="flex items-center justify-between">
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${getDepartmentBadge(agent.department)}`}>
+                  {agent.department}
+                </span>
+
+                <button
+                  onClick={() => onToggleStatus(agent.id)}
+                  className={`flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-md transition-all ${
+                    agent.status === 'Active'
+                      ? 'text-emerald-400 hover:bg-emerald-500/10'
+                      : 'text-slate-500 hover:bg-slate-800'
+                  }`}
+                  title="Bật / Tạm dừng hoạt động"
+                >
+                  <Power className="w-3 h-3" />
+                  <span>{agent.status === 'Active' ? 'Đang chạy' : 'Tạm dừng'}</span>
+                </button>
+              </div>
+
+              <div className="mt-2">
+                <h3 className="font-bold text-white text-sm">{agent.name}</h3>
+                <p className="text-xs text-indigo-300 font-medium">{agent.role}</p>
+                <p className="text-[11px] text-slate-400 mt-1 line-clamp-2">{agent.description}</p>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+              <span>Đã làm: <strong className="text-slate-200">{agent.tasksCompleted} việc</strong></span>
+              {agent.salary_minor > 0 ? (
+                <span className="text-rose-400">${(agent.salary_minor / 100).toLocaleString()}/th</span>
+              ) : (
+                <span className="text-cyan-400">Core Agent</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Hire Modal */}
+      {showHireModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                <Plus className="w-4 h-4 text-indigo-400" />
+                Tuyển Thêm Vị Trí AI Chuyên Môn
+              </h3>
+              <button
+                onClick={() => setShowHireModal(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {hireError && (
+              <div className="p-2.5 rounded-lg bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs">
+                {hireError}
+              </div>
+            )}
+
+            <form onSubmit={handleHireSubmit} className="space-y-3 text-xs">
+              <div>
+                <label className="text-slate-300 block mb-1">Tên Agent</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ví dụ: TikTok Ads Specialist, Legal Bot, Support AI..."
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-300 block mb-1">Chức Danh / Lĩnh Vực Chuyên Môn</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ví dụ: Chuyên Viên Chạy Quảng Cáo Tiếp Thị..."
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-slate-300 block mb-1">Phòng Ban</label>
+                  <select
+                    value={department}
+                    onChange={(e) => setDepartment(e.target.value as any)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="Growth">Kinh Doanh (Growth)</option>
+                    <option value="Ops">Vận Hành (Ops)</option>
+                    <option value="Sales">Bán Hàng (Sales)</option>
+                    <option value="Tech">Kỹ Thuật (Tech)</option>
+                  </select>
                 </div>
 
                 <div>
-                  <h3 className="font-bold text-white text-base">{member.name}</h3>
-                  <p className="text-xs text-slate-400 font-medium mt-0.5">{member.role}</p>
-                </div>
-
-                <div className="p-3 bg-slate-950/70 border border-slate-800/80 rounded-lg text-xs text-slate-300 leading-relaxed">
-                  <strong className="text-white block mb-0.5">Việc phải làm:</strong>
-                  {member.simpleJob}
+                  <label className="text-slate-300 block mb-1">Chi Phí Duy Trì ($/tháng)</label>
+                  <input
+                    type="number"
+                    min="100"
+                    step="50"
+                    value={salaryUsd}
+                    onChange={(e) => setSalaryUsd(Number(e.target.value))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white focus:outline-none focus:border-indigo-500 font-mono"
+                  />
                 </div>
               </div>
 
-              <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
-                <span className="text-slate-400 text-[11px]">Hạn mức:</span>
-                <span className="font-mono font-bold text-cyan-400 text-[11px]">{member.budget}</span>
+              <div>
+                <label className="text-slate-300 block mb-1">Mô Tả Nhiệm Vụ</label>
+                <textarea
+                  rows={2}
+                  placeholder="Mô tả ngắn gọn việc vị trí này cần làm..."
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-indigo-500"
+                />
               </div>
-            </div>
-          );
-        })}
-      </div>
+
+              <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-400">
+                Governor kiểm toán: Vốn hiện có <strong>${(snapshot.cash_minor / 100).toLocaleString()}</strong> ({snapshot.runway_days} ngày sống).
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowHireModal(false)}
+                  className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md"
+                >
+                  {isSubmitting ? 'Đang duyệt...' : 'Phê Duyệt Tuyển Dụng'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,16 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { CompanySnapshot, GovernedProposal, ExecutionReceipt, LedgerEntry } from './types/company';
+import { CompanySnapshot, GovernedProposal, ExecutionReceipt, LedgerEntry, CustomAgent } from './types/company';
 import { Header } from './components/Header';
 import { BasicDashboard } from './components/BasicDashboard';
 import { ManageAgents } from './components/ManageAgents';
 import { ManageFinances } from './components/ManageFinances';
-import { MediaStudioTab } from './components/MediaStudioTab';
+import { AutonomousPipelineTab } from './components/AutonomousPipelineTab';
 
 // Pro Mode Components
 import { ReviewTab } from './components/ReviewTab';
 import { CycleRunnerTab } from './components/CycleRunnerTab';
 import { WarRoomTab } from './components/WarRoomTab';
-import { AgentRosterTab } from './components/AgentRosterTab';
 import { LedgerTab } from './components/LedgerTab';
 import { ChaosSimulatorTab } from './components/ChaosSimulatorTab';
 
@@ -21,7 +20,6 @@ import {
   Sparkles, 
   ShieldAlert, 
   RotateCw, 
-  SlidersHorizontal,
   CheckCircle2,
   AlertOctagon
 } from 'lucide-react';
@@ -30,10 +28,10 @@ export default function App() {
   const [uiMode, setUiMode] = useState<'basic' | 'pro'>('basic');
   
   // Basic Nav Tabs
-  const [basicTab, setBasicTab] = useState<'dashboard' | 'agents' | 'finances' | 'create-content'>('dashboard');
+  const [basicTab, setBasicTab] = useState<'dashboard' | 'agents' | 'finances' | 'pipeline'>('dashboard');
 
   // Pro Nav Tabs
-  const [proTab, setProTab] = useState<'audit' | 'cycles' | 'war-room' | 'roster' | 'ledger' | 'chaos'>('audit');
+  const [proTab, setProTab] = useState<'audit' | 'cycles' | 'war-room' | 'ledger' | 'chaos'>('audit');
 
   const [isRunningCycle, setIsRunningCycle] = useState(false);
   const [hasGeminiKey, setHasGeminiKey] = useState(false);
@@ -58,109 +56,38 @@ export default function App() {
     currency: 'USD',
   });
 
-  const [proposals, setProposals] = useState<GovernedProposal[]>([
-    {
-      proposal: {
-        id: 'prop-ceo-14',
-        agent: 'CEO',
-        objective: 'Mở rộng thị trường affiliate AI gadgets sang ngách đồ công nghệ văn phòng cao cấp',
-        action: 'AllocateExperimentBudget',
-        cost_minor: 50000,
-        expected_revenue_minor: 120000,
-        risk: 'Low',
-        confidence_bps: 8200,
-        evidence: ['Tăng trưởng người theo dõi: +1.20%', 'Dòng tiền quỹ dương liên tục 3 chu kỳ'],
-        rationale: 'Nhu cầu làm việc từ xa đang đẩy mạnh sức mua các công cụ tự động hóa bàn làm việc.',
-        reversible: true,
-        timestamp: new Date().toISOString(),
-      },
-      decision: 'Approve',
-      reason: 'Đề xuất tuân thủ ngân sách còn lại và tỷ lệ rủi ro ở mức thấp an toàn.',
-      evaluatedAt: new Date().toISOString(),
-      executed: true,
-    },
-    {
-      proposal: {
-        id: 'prop-cfo-14',
-        agent: 'CFO',
-        objective: 'Kiểm toán số dư sổ cái kép và xác thực đối soát hoa hồng Awin quý 3',
-        action: 'ProduceReport',
-        cost_minor: 0,
-        expected_revenue_minor: 0,
-        risk: 'Low',
-        confidence_bps: 9500,
-        evidence: ['Tiền mặt kho bạc: $48,500.00', 'Gross margin: 34.7%'],
-        rationale: 'Xác thực báo cáo độc lập trước khi tái phân bổ nguồn vốn sang các thử nghiệm mới.',
-        reversible: true,
-        timestamp: new Date().toISOString(),
-      },
-      decision: 'Approve',
-      reason: 'Báo cáo độc lập không tiêu tốn ngân sách, khuyến khích tính minh bạch.',
-      evaluatedAt: new Date().toISOString(),
-      executed: true,
-    },
-    {
-      proposal: {
-        id: 'prop-growth-14',
-        agent: 'Growth',
-        objective: 'Triển khai A/B test widget so sánh cấu hình sản phẩm trên TikTok Shop',
-        action: 'CreateExperiment',
-        cost_minor: 25000,
-        expected_revenue_minor: 75000,
-        risk: 'Medium',
-        confidence_bps: 7800,
-        evidence: ['Conversion hiện tại: 2.40%', 'Projected EPC: $0.42'],
-        rationale: 'Kỳ vọng tăng tỷ lệ click vào link mua hàng thêm 18 điểm cơ bản.',
-        reversible: true,
-        timestamp: new Date().toISOString(),
-      },
-      decision: 'Approve',
-      reason: 'Chi phí $250.00 nằm trong hạn mức thử nghiệm có kiểm soát.',
-      evaluatedAt: new Date().toISOString(),
-      executed: true,
-    },
-    {
-      proposal: {
-        id: 'prop-recruiter-14',
-        agent: 'Recruiter',
-        objective: 'Ký hợp đồng với Lead Prompt & Video Automation Engineer',
-        action: 'ProposeHire',
-        cost_minor: 220000,
-        expected_revenue_minor: 600000,
-        risk: 'High',
-        confidence_bps: 7400,
-        evidence: ['Nhu cầu nhân sự: 1 vị trí', 'Doanh thu vượt chi phí'],
-        rationale: 'Mở rộng gấp 3 lần sản lượng video AI với chi phí biên thấp hơn tuyển dụng agency.',
-        reversible: false,
-        timestamp: new Date().toISOString(),
-      },
-      decision: 'EscalateToHuman',
-      reason: 'Hành động trọng yếu (Chi phí > $1,000 và tính chất Bất biến). Chuyển quyền phê duyệt cho Operator.',
-      evaluatedAt: new Date().toISOString(),
-      executed: false,
-    },
-  ]);
-
+  const [proposals, setProposals] = useState<GovernedProposal[]>([]);
   const [receipts, setReceipts] = useState<ExecutionReceipt[]>([]);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [employees, setEmployees] = useState<{ id: string; role: string; name: string; salary_minor: number; hiredAtCycle: number }[]>([]);
-  const [experiments, setExperiments] = useState<{ id: string; name: string; budget_minor: number; startCycle: number; status: string; roi_bps: number }[]>([]);
+  const [customAgents, setCustomAgents] = useState<CustomAgent[]>([
+    { id: 'agent-gov', name: 'Governor', role: 'Hiến Pháp & Quỹ Tiền', department: 'Leadership', description: 'Phủ quyết chi tiêu nguy hiểm, chống phá sản', salary_minor: 0, tasksCompleted: 42, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-ceo', name: 'CEO', role: 'Tổng Giám Đốc', department: 'Leadership', description: 'Chiến lược tăng trưởng & phân bổ nguồn vốn', salary_minor: 0, tasksCompleted: 35, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-cfo', name: 'CFO', role: 'Giám Đốc Tài Chính', department: 'Leadership', description: 'Kiểm toán kho bạc và cắt giảm chi tiêu', salary_minor: 0, tasksCompleted: 38, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-coo', name: 'COO', role: 'Giám Đốc Vận Hành', department: 'Ops', description: 'Điều phối hàng đợi và tiến độ công việc', salary_minor: 0, tasksCompleted: 50, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-growth', name: 'Growth Lead', role: 'Kinh Doanh & Traffic', department: 'Growth', description: 'Tìm ngách sản phẩm hoa hồng cao', salary_minor: 0, tasksCompleted: 62, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-content', name: 'Content Lead', role: 'Sáng Tạo Nội Dung', department: 'Growth', description: 'Kịch bản video short-form bán hàng', salary_minor: 0, tasksCompleted: 78, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-recruiter', name: 'Recruiter', role: 'Tuyển Dụng', department: 'Ops', description: 'Đề xuất bổ sung vị trí mới khi có lãi', salary_minor: 0, tasksCompleted: 14, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-analyst', name: 'Analyst', role: 'Phân Tích Dữ Liệu', department: 'Ops', description: 'Đối soát số liệu và tính toán hoa hồng', salary_minor: 0, tasksCompleted: 45, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-experiment', name: 'Experimenter', role: 'Nghiên Cứu A/B Test', department: 'Growth', description: 'Thử nghiệm mẫu kịch bản và thị trường', salary_minor: 0, tasksCompleted: 29, status: 'Active', hiredAtCycle: 1 },
+  ]);
 
-  // Fetch initial state from server
   const loadState = async () => {
     try {
       const res = await fetch('/api/state');
       if (res.ok) {
         const data = await res.json();
         setSnapshot(data.snapshot);
-        setLedger(data.ledger);
-        setReceipts(data.receipts);
-        setEmployees(data.employees);
-        setExperiments(data.activeExperiments);
+        setLedger(data.ledger || []);
+        setReceipts(data.receipts || []);
+        setEmployees(data.employees || []);
+        if (data.customAgents && data.customAgents.length > 0) {
+          setCustomAgents(data.customAgents);
+        }
         setHasGeminiKey(data.hasGeminiKey);
       }
     } catch (err) {
-      console.warn('Backend fetch note, using client state:', err);
+      console.warn('Backend load note:', err);
     }
   };
 
@@ -170,33 +97,29 @@ export default function App() {
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 4000);
+    setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Run a complete autonomous cycle
   const handleRunCycle = async () => {
     setIsRunningCycle(true);
     try {
-      const res = await fetch('/api/run-cycle', {
-        method: 'POST',
-      });
+      const res = await fetch('/api/run-cycle', { method: 'POST' });
       if (res.ok) {
         const data = await res.json();
         setSnapshot(data.snapshot);
         setProposals(data.proposals);
         setReceipts((prev) => [...data.receipts, ...prev]);
-        triggerToast(`Chu kỳ #${data.cycleNumber} đã chạy xong! AI đã ra quyết định và hạch toán.`);
+        triggerToast(`Chu kỳ #${data.cycleNumber} đã xong! AI đã ra quyết định.`);
         loadState();
       }
     } catch (err) {
-      console.error('Cycle run error:', err);
-      triggerToast('Đã ghi log chu kỳ.');
+      console.error(err);
+      triggerToast('Đã ghi nhận chu kỳ.');
     } finally {
       setIsRunningCycle(false);
     }
   };
 
-  // Human Operator Override
   const handleOverride = async (proposalId: string, decision: 'Approve' | 'Reject') => {
     try {
       const res = await fetch('/api/governor-override', {
@@ -206,27 +129,86 @@ export default function App() {
       });
       if (res.ok) {
         setProposals((prev) =>
-          prev.map((item) => {
-            if (item.proposal.id === proposalId) {
-              return {
-                ...item,
-                decision,
-                reason: `Đã được Operator can thiệp trực tiếp: ${decision === 'Approve' ? 'Chấp thuận' : 'Bác bỏ'}.`,
-                executed: decision === 'Approve',
-              };
-            }
-            return item;
-          })
+          prev.map((item) =>
+            item.proposal.id === proposalId
+              ? { ...item, decision, executed: decision === 'Approve' }
+              : item
+          )
         );
-        triggerToast(`Quyết định của bạn đã được thực thi: ${decision === 'Approve' ? 'Duyệt thành công' : 'Đã từ chối'}`);
+        triggerToast(`Quyết định: ${decision === 'Approve' ? 'Duyệt thành công' : 'Đã từ chối'}`);
         loadState();
       }
     } catch (err) {
-      console.error('Override error:', err);
+      console.error(err);
     }
   };
 
-  // Chaos shock handler
+  // Hire dynamic custom agent
+  const handleHireAgent = async (data: {
+    name: string;
+    role: string;
+    department: 'Leadership' | 'Growth' | 'Ops' | 'Sales' | 'Tech';
+    description: string;
+    salary_minor: number;
+  }) => {
+    try {
+      const res = await fetch('/api/hire-custom-agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const result = await res.json();
+      if (result.success) {
+        setCustomAgents((prev) => [...prev, result.agent]);
+        setSnapshot(result.snapshot);
+        triggerToast(result.message);
+        loadState();
+        return { success: true };
+      }
+      return { success: false, reason: result.reason };
+    } catch (err) {
+      return { success: false, reason: 'Lỗi kết nối tuyển dụng.' };
+    }
+  };
+
+  const handleToggleAgentStatus = async (agentId: string) => {
+    try {
+      const res = await fetch('/api/toggle-agent-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId }),
+      });
+      if (res.ok) {
+        setCustomAgents((prev) =>
+          prev.map((a) => (a.id === agentId ? { ...a, status: a.status === 'Active' ? 'Paused' : 'Active' } : a))
+        );
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Run autonomous multi-agent pipeline
+  const handleRunPipeline = async (topic: string) => {
+    try {
+      const res = await fetch('/api/run-pipeline', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSnapshot(data.snapshot);
+        triggerToast(`Dây chuyền hoàn tất! Thu về +$${(data.revenueGainMinor / 100).toFixed(2)}.`);
+        loadState();
+        return { success: true, steps: data.steps, revenueGainMinor: data.revenueGainMinor };
+      }
+      return { success: false, steps: [], revenueGainMinor: 0 };
+    } catch (err) {
+      return { success: false, steps: [], revenueGainMinor: 0 };
+    }
+  };
+
   const handleApplyShock = async (shockType: string) => {
     try {
       const res = await fetch('/api/chaos-shock', {
@@ -237,17 +219,12 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setSnapshot(data.snapshot);
-        triggerToast(`Đã áp dụng biến cố "${shockType}". Trạng thái cập nhật: ${data.snapshot.status}!`);
+        triggerToast(`Đã áp dụng biến cố "${shockType}". Trạng thái: ${data.snapshot.status}`);
         loadState();
       }
     } catch (err) {
-      console.error('Shock error:', err);
+      console.error(err);
     }
-  };
-
-  const handlePublishContent = (title: string, costMinor: number) => {
-    triggerToast(`Đã đưa kịch bản "${title.substring(0, 25)}..." vào hàng đợi xuất bản.`);
-    handleRunCycle();
   };
 
   return (
@@ -262,116 +239,105 @@ export default function App() {
         hasGeminiKey={hasGeminiKey}
       />
 
-      {/* Navigation Sub-Header */}
-      <div className="bg-slate-900/60 border-b border-slate-800/80 sticky top-[61px] z-40 backdrop-blur-md px-4 lg:px-8">
+      {/* Clean Navigation Bar */}
+      <div className="bg-slate-900/60 border-b border-slate-800/80 sticky top-[57px] z-40 backdrop-blur-md px-4 lg:px-8">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-2 py-2">
-          {/* Tabs based on mode */}
           {uiMode === 'basic' ? (
-            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none w-full">
+            <div className="flex items-center gap-1 overflow-x-auto scrollbar-none w-full">
               <button
                 onClick={() => setBasicTab('dashboard')}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
                   basicTab === 'dashboard'
                     ? 'bg-indigo-600 text-white shadow-sm'
                     : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
                 }`}
               >
                 <LayoutDashboard className="w-3.5 h-3.5" />
-                <span>1. Dashboard Tổng Quan</span>
+                <span>1. Dashboard</span>
               </button>
 
               <button
                 onClick={() => setBasicTab('agents')}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
                   basicTab === 'agents'
                     ? 'bg-indigo-600 text-white shadow-sm'
                     : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
                 }`}
               >
                 <Users className="w-3.5 h-3.5" />
-                <span>2. Quản Lý 9 Nhân Sự AI</span>
+                <span>2. Nhân Sự &amp; Tuyển Dụng</span>
+              </button>
+
+              <button
+                onClick={() => setBasicTab('pipeline')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  basicTab === 'pipeline'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                <span>3. Dây Chuyền Bán Hàng</span>
               </button>
 
               <button
                 onClick={() => setBasicTab('finances')}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
                   basicTab === 'finances'
                     ? 'bg-indigo-600 text-white shadow-sm'
                     : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
                 }`}
               >
                 <Wallet className="w-3.5 h-3.5" />
-                <span>3. Ví Tiền &amp; Thu Chi</span>
-              </button>
-
-              <button
-                onClick={() => setBasicTab('create-content')}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                  basicTab === 'create-content'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                }`}
-              >
-                <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                <span>4. Tạo Video &amp; Affiliate</span>
+                <span>4. Ví Tiền &amp; Thu Chi</span>
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none w-full">
+            <div className="flex items-center gap-1 overflow-x-auto scrollbar-none w-full">
               <button
                 onClick={() => setProTab('audit')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                  proTab === 'audit'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  proTab === 'audit' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
                 }`}
               >
                 <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
-                <span>Review Khắc Khe Codebase</span>
+                <span>Review Khắc Khe</span>
               </button>
 
               <button
                 onClick={() => setProTab('cycles')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                  proTab === 'cycles'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  proTab === 'cycles' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
                 }`}
               >
                 <RotateCw className="w-3.5 h-3.5" />
-                <span>Chu Kỳ Tự Trị Chi Tiết</span>
+                <span>Chu Kỳ Tự Trị</span>
               </button>
 
               <button
                 onClick={() => setProTab('war-room')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                  proTab === 'war-room'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  proTab === 'war-room' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
                 }`}
               >
                 <Users className="w-3.5 h-3.5" />
-                <span>Phòng Tranh Luận (War Room)</span>
+                <span>War Room Tranh Luận</span>
               </button>
 
               <button
                 onClick={() => setProTab('ledger')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                  proTab === 'ledger'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  proTab === 'ledger' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
                 }`}
               >
                 <Wallet className="w-3.5 h-3.5" />
-                <span>Sổ Cái Kép (Double-Entry)</span>
+                <span>Sổ Cái Kép</span>
               </button>
 
               <button
                 onClick={() => setProTab('chaos')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                  proTab === 'chaos'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  proTab === 'chaos' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
                 }`}
               >
                 <AlertOctagon className="w-3.5 h-3.5 text-amber-400" />
@@ -382,15 +348,14 @@ export default function App() {
         </div>
       </div>
 
-      {/* Main Content View */}
-      <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-6">
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-5">
         {uiMode === 'basic' ? (
           <>
             {basicTab === 'dashboard' && (
               <BasicDashboard
                 snapshot={snapshot}
                 recentProposals={proposals}
-                recentReceipts={receipts}
                 onRunCycle={handleRunCycle}
                 isRunningCycle={isRunningCycle}
                 onOverride={handleOverride}
@@ -398,19 +363,24 @@ export default function App() {
               />
             )}
             {basicTab === 'agents' && (
-              <ManageAgents snapshot={snapshot} onRunCycle={handleRunCycle} />
+              <ManageAgents
+                snapshot={snapshot}
+                agents={customAgents}
+                onHireAgent={handleHireAgent}
+                onToggleStatus={handleToggleAgentStatus}
+              />
+            )}
+            {basicTab === 'pipeline' && (
+              <AutonomousPipelineTab
+                snapshot={snapshot}
+                onRunPipeline={handleRunPipeline}
+              />
             )}
             {basicTab === 'finances' && (
               <ManageFinances
                 snapshot={snapshot}
                 ledger={ledger}
                 employees={employees}
-              />
-            )}
-            {basicTab === 'create-content' && (
-              <MediaStudioTab
-                snapshot={snapshot}
-                onPublishToCycle={handlePublishContent}
               />
             )}
           </>
@@ -433,7 +403,7 @@ export default function App() {
                 snapshot={snapshot}
                 ledger={ledger}
                 employees={employees}
-                experiments={experiments}
+                experiments={[]}
               />
             )}
             {proTab === 'chaos' && (
@@ -448,7 +418,7 @@ export default function App() {
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 border border-indigo-500/40 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2.5 text-xs md:text-sm animate-bounce">
+        <div className="fixed bottom-5 right-5 z-50 bg-slate-900 border border-indigo-500/50 text-white px-3.5 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 text-xs animate-bounce">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{toastMessage}</span>
         </div>

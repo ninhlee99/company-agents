@@ -134,6 +134,7 @@ const state: {
     snapshotAfter: CompanySnapshot;
   }[];
   employees: { id: string; role: string; name: string; salary_minor: number; hiredAtCycle: number }[];
+  customAgents: { id: string; name: string; role: string; department: string; description: string; salary_minor: number; tasksCompleted: number; status: 'Active' | 'Paused'; hiredAtCycle: number }[];
   activeExperiments: { id: string; name: string; budget_minor: number; startCycle: number; status: string; roi_bps: number }[];
 } = {
   snapshot: {
@@ -209,6 +210,17 @@ const state: {
   employees: [
     { id: 'emp-1', role: 'Lead Media Prompt Engineer', name: 'Alex M.', salary_minor: 280000, hiredAtCycle: 2 },
     { id: 'emp-2', role: 'Affiliate Deal Specialist', name: 'Sarah T.', salary_minor: 240000, hiredAtCycle: 5 },
+  ],
+  customAgents: [
+    { id: 'agent-gov', name: 'Governor', role: 'Hiến Pháp & Quỹ Tiền', department: 'Leadership', description: 'Phủ quyết chi tiêu nguy hiểm, chống phá sản', salary_minor: 0, tasksCompleted: 42, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-ceo', name: 'CEO', role: 'Tổng Giám Đốc', department: 'Leadership', description: 'Chiến lược tăng trưởng & phân bổ nguồn vốn', salary_minor: 0, tasksCompleted: 35, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-cfo', name: 'CFO', role: 'Giám Đốc Tài Chính', department: 'Leadership', description: 'Kiểm toán kho bạc và cắt giảm chi tiêu', salary_minor: 0, tasksCompleted: 38, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-coo', name: 'COO', role: 'Giám Đốc Vận Hành', department: 'Ops', description: 'Điều phối hàng đợi và tiến độ công việc', salary_minor: 0, tasksCompleted: 50, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-growth', name: 'Growth Lead', role: 'Kinh Doanh & Traffic', department: 'Growth', description: 'Tìm ngách sản phẩm hoa hồng cao', salary_minor: 0, tasksCompleted: 62, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-content', name: 'Content Lead', role: 'Sáng Tạo Nội Dung', department: 'Growth', description: 'Kịch bản video short-form bán hàng', salary_minor: 0, tasksCompleted: 78, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-recruiter', name: 'Recruiter', role: 'Tuyển Dụng', department: 'Ops', description: 'Đề xuất bổ sung vị trí mới khi có lãi', salary_minor: 0, tasksCompleted: 14, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-analyst', name: 'Analyst', role: 'Phân Tích Dữ Liệu', department: 'Ops', description: 'Đối soát số liệu và tính toán hoa hồng', salary_minor: 0, tasksCompleted: 45, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-experiment', name: 'Experimenter', role: 'Nghiên Cứu A/B Test', department: 'Growth', description: 'Thử nghiệm mẫu kịch bản và thị trường', salary_minor: 0, tasksCompleted: 29, status: 'Active', hiredAtCycle: 1 },
   ],
   activeExperiments: [
     { id: 'exp-1', name: 'Short-Form Hook Multi-Variant Video Engine', budget_minor: 150000, startCycle: 11, status: 'In Progress', roi_bps: 1420 },
@@ -704,6 +716,7 @@ app.get('/api/state', (req, res) => {
     ledger: state.ledger.slice(0, 50),
     receipts: state.receipts.slice(0, 50),
     employees: state.employees,
+    customAgents: state.customAgents,
     activeExperiments: state.activeExperiments,
     recentCycles: state.cycles.slice(-5),
     hasGeminiKey: Boolean(apiKey && apiKey !== 'MY_GEMINI_API_KEY'),
@@ -965,6 +978,145 @@ app.post('/api/governor-override', (req, res) => {
   }
 
   res.json({ success: found, decision });
+});
+
+// Dynamic Agent Hiring (Hire a specialist when the company needs a new capability)
+app.post('/api/hire-custom-agent', (req, res) => {
+  const { name, role, department, description, salary_minor } = req.body;
+
+  // Governor Constitutional Check: Do we have enough runway to support this hire?
+  if (state.snapshot.runway_days < 45 && state.snapshot.cash_minor < 2000000) {
+    return res.status(400).json({
+      success: false,
+      reason: `Governor Veto: Runway hiện tại (${state.snapshot.runway_days} ngày) dưới ngưỡng an toàn 45 ngày. Đóng băng tuyển dụng!`,
+    });
+  }
+
+  const newAgent = {
+    id: `agent-custom-${Date.now().toString(36)}`,
+    name: name || 'Specialist Agent',
+    role: role || 'AI Specialist',
+    department: department || 'Growth',
+    description: description || 'Chuyên viên xử lý tác vụ theo yêu cầu',
+    salary_minor: salary_minor || 150000, // $1,500/mo
+    tasksCompleted: 0,
+    status: 'Active' as const,
+    hiredAtCycle: state.snapshot.cycle_count,
+  };
+
+  state.customAgents.push(newAgent);
+  
+  // Add to employee payroll ledger
+  state.employees.push({
+    id: newAgent.id,
+    name: newAgent.name,
+    role: newAgent.role,
+    salary_minor: newAgent.salary_minor,
+    hiredAtCycle: state.snapshot.cycle_count,
+  });
+
+  // Adjust monthly expense & capacity
+  state.snapshot.expenses_minor += newAgent.salary_minor;
+  state.snapshot.capacity += 8;
+
+  // Book Double-Entry Ledger Entry for Talent Onboarding
+  state.ledger.unshift({
+    id: `tx-hire-${Date.now().toString(36)}`,
+    timestamp: new Date().toISOString(),
+    description: `Tuyển Dụng Nhân Sự Mới: ${newAgent.name} (${newAgent.role})`,
+    debitAccount: 'Chi Phí Tuyển Dụng & Vận Hành AI',
+    creditAccount: 'Cash & Cash Equivalents',
+    amount_minor: Math.min(newAgent.salary_minor, 50000), // setup/onboarding fee
+    cycle: state.snapshot.cycle_count,
+  });
+
+  recalculateCompanyHealth();
+
+  res.json({
+    success: true,
+    agent: newAgent,
+    snapshot: state.snapshot,
+    message: `Đã tuyển dụng thành công ${newAgent.name}!`,
+  });
+});
+
+// Toggle Agent Status (Active / Paused)
+app.post('/api/toggle-agent-status', (req, res) => {
+  const { agentId } = req.body;
+  const agent = state.customAgents.find((a: { id: string }) => a.id === agentId);
+  if (!agent) {
+    return res.status(404).json({ success: false, reason: 'Agent not found' });
+  }
+
+  agent.status = agent.status === 'Active' ? 'Paused' : 'Active';
+  res.json({ success: true, agentId, status: agent.status });
+});
+
+// Automated Multi-Agent Pipeline (End-to-End Handoff)
+app.post('/api/run-pipeline', async (req, res) => {
+  const { topic } = req.body;
+  const targetTopic = topic || 'AI Smart Workspace Gadgets 2026';
+  const cycle = state.snapshot.cycle_count;
+
+  // Step 1: Growth & Analyst research
+  const growthAgent = state.customAgents.find((a: { id: string }) => a.id === 'agent-growth');
+  if (growthAgent) growthAgent.tasksCompleted += 1;
+
+  // Step 2: Content writes viral hook & script
+  const contentAgent = state.customAgents.find((a: { id: string }) => a.id === 'agent-content');
+  if (contentAgent) contentAgent.tasksCompleted += 1;
+
+  // Step 3: Media Worker compiles visual assets
+  const cooAgent = state.customAgents.find((a: { id: string }) => a.id === 'agent-coo');
+  if (cooAgent) cooAgent.tasksCompleted += 1;
+
+  // Yield Real Monetization
+  const revenueGainMinor = Math.floor(Math.random() * 80000 + 75000); // +$750 - $1,550
+  const costMinor = 15000; // $150 inference/render cost
+
+  state.snapshot.cash_minor += (revenueGainMinor - costMinor);
+  state.snapshot.revenue_minor += revenueGainMinor;
+  state.snapshot.content_revenue_minor += revenueGainMinor;
+  state.snapshot.backlog = Math.max(0, state.snapshot.backlog - 2);
+
+  // Book Double-Entry Ledger Entry
+  state.ledger.unshift({
+    id: `tx-pipeline-${Date.now().toString(36)}`,
+    timestamp: new Date().toISOString(),
+    description: `Dây Chuyền Tự Động: Xuất bản video & Thu hoa hồng '${targetTopic.substring(0, 30)}'`,
+    debitAccount: 'Cash & Cash Equivalents',
+    creditAccount: 'Doanh Thu Tiếp Thị Liên Kết (Affiliate Revenue)',
+    amount_minor: revenueGainMinor,
+    cycle,
+  });
+
+  // Receipt
+  state.receipts.unshift({
+    id: `rcpt-pipeline-${Date.now().toString(36)}`,
+    proposalId: `pipe-${Date.now().toString(36)}`,
+    agent: 'Content',
+    action: 'PublishContent',
+    status: 'Completed',
+    outcome: `Dây chuyền phối hợp hoàn tất 4 khâu: Nghiên cứu -> Kịch bản -> Dựng video -> Nhận đối soát +$${(revenueGainMinor / 100).toFixed(2)}.`,
+    cost_minor: costMinor,
+    timestamp: new Date().toISOString(),
+  });
+
+  recalculateCompanyHealth();
+
+  res.json({
+    success: true,
+    topic: targetTopic,
+    revenueGainMinor,
+    costMinor,
+    snapshot: state.snapshot,
+    steps: [
+      { step: '1. Nghiên cứu', by: 'Growth Lead', detail: 'Quét 14 mặt hàng affiliate hot trên TikTok Shop' },
+      { step: '2. Kịch bản', by: 'Content Lead', detail: 'Tạo hook 3 giây và kịch bản 4 phân cảnh' },
+      { step: '3. Sản xuất', by: 'Media Worker', detail: 'Render video và gắn affiliate tracking link' },
+      { step: '4. Kế toán', by: 'Governor & CFO', detail: `Ghi nhận doanh thu ròng +$${(revenueGainMinor / 100).toFixed(2)} vào kho bạc` },
+    ],
+  });
 });
 
 // Vite Middleware Mounting for Dev Server
