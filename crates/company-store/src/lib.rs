@@ -314,9 +314,11 @@ impl CompanyStore {
         Ok(ContributionMarginMetrics {
             month_to_date_revenue_minor: revenue,
             month_to_date_variable_cost_minor: variable_cost,
-            month_to_date_contribution_margin_minor: (unclassified == 0)
-                .then_some(revenue.checked_sub(variable_cost).ok_or("contribution margin overflow")?)
-                .transpose()?,
+            month_to_date_contribution_margin_minor: if unclassified == 0 {
+                Some(revenue.checked_sub(variable_cost).ok_or("contribution margin overflow")?)
+            } else {
+                None
+            },
             unclassified_expense_minor: unclassified,
             variable_cost_transaction_count: row.get(3),
         })
