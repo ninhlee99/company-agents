@@ -218,7 +218,7 @@ fn classify_event(
         LiveEventKind::Comment => {
             let text = event.text.as_deref().unwrap_or_default();
             if contains_objection(text) {
-                (88, Some(AttentionReason::Objection))
+                (94, Some(AttentionReason::Objection))
             } else if contains_purchase_intent(text) {
                 (92, Some(AttentionReason::PurchaseIntent))
             } else if matches!(mode, LiveMode::Shopping) && is_question(text) {
@@ -353,6 +353,25 @@ mod tests {
             window_started_at_epoch: Some(1_750_000_000),
             responses_in_window: 0,
         }
+    }
+
+    #[test]
+    fn invalid_policy_is_rejected() {
+        let policy = AttentionPolicy {
+            response_cooldown_seconds: 20,
+            response_window_seconds: 10,
+            ..AttentionPolicy::default()
+        };
+        assert!(decide_attention(
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            LiveMode::Shopping,
+            &event(LiveEventKind::Comment, "giá?", 0),
+            &context(),
+            1_750_000_010,
+            &policy,
+        )
+        .is_err());
     }
 
     #[test]
