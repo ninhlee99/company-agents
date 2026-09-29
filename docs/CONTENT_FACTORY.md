@@ -41,3 +41,11 @@ Outcomes: SCALE, ITERATE, PAUSE, KILL.
 - unsafe content rejected
 - tracking identifiers validated
 - final media checksum stored.
+
+## Implemented control-plane foundation
+
+The repository now includes a durable company-content contract and PostgreSQL content_items ledger. Each content item records the hypothesis, audience, format, product/offer references, disclosure requirement, expected cost, maximum loss, success metric/threshold, and a structured creative variant (hook, first frame, pacing, scene count, product placement, CTA, comment trigger, music and visual style).
+
+The Company OS exposes authenticated GET/POST /api/content/items endpoints for creating and reviewing these plans. Validation is deterministic and fail-closed. Content creation does not imply rendering, publishing, platform approval, audience reach, or revenue; those remain separate governed workflows requiring verified evidence.
+
+The next integration layer is to connect content plans to media rendering, publishing intents, verified analytics, attribution, experiment observations and learning entries without allowing unverified metrics to become business outcomes.
