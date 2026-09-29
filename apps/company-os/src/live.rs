@@ -1,7 +1,7 @@
 use super::AppState;
 use axum::{extract::{Path, State}, http::StatusCode, Json};
 use serde::Deserialize;
-use tiktok_live_engine::{LiveEvent, LiveMode, LiveSession, ProviderGiftStatement};
+use tiktok_live_engine::{decide_response, EngagementPolicy, LiveEvent, LiveLedger, LiveMode, LiveSession, ProviderGiftStatement};
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
@@ -59,9 +59,37 @@ pub async fn record_event(
     let accepted = state.store.record_tiktok_live_event(&state.company_id, &session_id, &req.event)
         .await
         .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let mut response = None;
+    let mut overlay_updated = false;
+    if accepted {
+        if let Ok(mode) = state.store.tiktok_live_mode(&state.company_id, &session_id).await {
+            if let Ok(summary) = state.store.tiktok_live_summary(&state.company_id, &session_id).await {
+                let gift_count = summary.get("gift_count")
+                    .and_then(|value| value.as_str())
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .unwrap_or(0);
+                let gift_value_minor = summary.get("gift_value_minor")
+                    .and_then(|value| value.as_str())
+                    .and_then(|value| value.parse::<u128>().ok())
+                    .unwrap_or(0);
+                let ledger = LiveLedger {
+                    gift_count,
+                    gift_value_minor,
+                    ..LiveLedger::default()
+                };
+                let generated = decide_response(mode, &req.event, &ledger, &EngagementPolicy::default());
+                if let Some(controller) = state.live_stream.as_ref() {
+                    overlay_updated = controller.update_overlay(&generated.text).is_ok();
+                }
+                response = Some(generated);
+            }
+        }
+    }
     Ok(Json(serde_json::json!({
         "accepted": accepted,
         "event_id": req.event.event_id,
+        "response": response,
+        "overlay_updated": overlay_updated,
     })))
 }
 
