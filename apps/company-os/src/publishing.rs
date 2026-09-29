@@ -112,6 +112,33 @@ pub async fn execute_tiktok(
     State(state): State<AppState>,
     Json(request): Json<TikTokExecuteRequest>,
 ) -> Result<Json<TikTokExecuteResponse>, (StatusCode, Json<serde_json::Value>)> {
+    let compliance = state
+        .store
+        .check_tiktok_compliance_for_publish(
+            &state.company_id,
+            &request.intent_id,
+            &request.policy_snapshot_key,
+            &request.policy_evidence_ref,
+            request.disclosure_present,
+            request.claim_evidence_present,
+            request.product_eligibility_verified,
+            request.rights_evidence_present,
+        )
+        .await
+        .map_err(fail_message)?;
+
+    if compliance.decision != company_compliance::ComplianceDecision::Allowed {
+        return Err((
+            StatusCode::PRECONDITION_FAILED,
+            Json(serde_json::json!({
+                "error": "TikTok publish blocked by compliance policy",
+                "decision": compliance.decision,
+                "reason": compliance.reason,
+                "requires_human": compliance.requires_human
+            })),
+        ));
+    }
+
     let Some(job) = state
         .store
         .claim_publish_intent(
