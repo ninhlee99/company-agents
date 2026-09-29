@@ -96,3 +96,11 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Expense classification:** ledger expense accounts carry VARIABLE, FIXED, or UNCLASSIFIED cost class.
 - **Fail-closed economics:** MTD contribution margin is only reported when all MTD expense entries are classified; otherwise the dashboard reports Incomplete and shows the unclassified expense amount.
 - **No proxy margin:** cumulative snapshot revenue is not reused as a contribution-margin input.
+
+
+## Affiliate reconciliation cockpit
+
+- MTD affiliate commission is shown from persisted conversion records.
+- MTD attributed commission is aggregated from persisted attribution records.
+- MTD recorded payouts are shown separately; they are not represented as bank receipt unless backed by the payout/evidence flow.
+- The dashboard exposes the reconciliation variance so attribution gaps cannot be hidden inside a single revenue number.
