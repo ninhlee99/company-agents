@@ -113,6 +113,15 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Persistent evidence:** experiment definitions and observations are company-scoped and persisted before terminal decisions are returned.
 - **No fabricated outcomes:** the engine evaluates supplied observations; it does not invent traffic, orders, conversion, revenue or platform metrics.
 
+## Trend → Opportunity → Content loop
+
+- **Evidence-gated trend ingestion:** trend signals require a source, evidence reference, timestamp, normalized scoring inputs, confidence and policy evidence before they can enter the growth loop.
+- **Deterministic opportunity scoring:** trend signals are scored from velocity, audience fit, product fit, contentability and inverse competition; low-confidence/high-score signals remain monitored instead of being auto-pursued.
+- **Durable opportunity ledger:** pursued trends create idempotent, company-scoped opportunities with the exact content economics and policy evidence used to generate them.
+- **Content-plan bridge:** a pursued opportunity can be materialized once into the Content Factory as a Draft; this does not publish externally or claim reach/revenue.
+- **Typed outbox events:** TREND_DETECTED, OPPORTUNITY_CREATED and CONTENT_CREATED provide durable downstream hand-off points without free-form agent chat.
+- **Current boundary:** trend discovery still requires an external/verified signal source, and content analytics/publishing evidence must come from separately authenticated platform boundaries.
+
 ## Learning / Failure Ledger
 
 - **Typed learning records:** P0.5 now defines durable, company-scoped learning/failure entries with source linkage, expected vs actual outcome, impact, confidence, root cause, corrective action, reusable rule, and a deterministic follow-up decision.
