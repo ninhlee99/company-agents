@@ -3555,8 +3555,8 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             &[&company,&message],
         ).await?.ok_or("outbound message not found")?;
         let status: String = row.get(6);
-        if status == "SENT" || status == "CANCELLED" {
-            return Err("outbound message is not approvable in its current state".into());
+        if status != "PENDING_APPROVAL" {
+            return Err("outbound message is not pending approval".into());
         }
         tx.execute(
             "UPDATE outbound_messages
