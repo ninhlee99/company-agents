@@ -59,6 +59,7 @@ pub struct GrowthOpportunityRecord {
     pub opportunity: company_growth::Opportunity,
     pub status: company_growth::OpportunityStatus,
     pub content_item_id: Option<Uuid>,
+    pub content_created_at_epoch: Option<i64>,
     pub created_at: String,
 }
 
