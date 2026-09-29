@@ -193,6 +193,16 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/022_fpa_forecasts_cashflow.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/023_agent_evaluations.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/024_incidents_sla.sql"
+            ))
             .await
     }
 
@@ -4151,6 +4161,42 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             "id":row.get::<_,Uuid>(0),"period_start_epoch":row.get::<_,i64>(1),
             "closing_cash_minor":parse_i128_numeric(&row.get::<_,String>(2))?
         }))
+    }
+
+    pub async fn create_incident(&self, company_id:&str, incident_id:Uuid, title:&str, description:&str, severity:&str, source:&str, opened_at_epoch:i64, sla_minutes:i32, owner:Option<&str>, idempotency_key:&str) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let severity=severity.trim().to_ascii_uppercase();
+        if title.trim().is_empty() || description.trim().is_empty() || !matches!(severity.as_str(),"SEV1"|"SEV2"|"SEV3"|"SEV4") || source.trim().is_empty() || opened_at_epoch<=0 || sla_minutes<=0 || idempotency_key.trim().is_empty() { return Err("invalid incident".into()); }
+        let client=self.client.lock().await;
+        let row=client.query_opt("INSERT INTO incidents(id,company_id,title,description,severity,status,source,opened_at_epoch,sla_minutes,owner,idempotency_key) VALUES($1,$2,$3,$4,$5,'OPEN',$6,$7,$8,$9,$10) ON CONFLICT(company_id,idempotency_key) DO NOTHING RETURNING id,status,severity,opened_at_epoch,sla_minutes",&[&incident_id,&company,&title,&description,&severity,&source,&opened_at_epoch,&sla_minutes,&owner,&idempotency_key]).await?;
+        let row=match row { Some(r)=>r, None=>client.query_one("SELECT id,status,severity,opened_at_epoch,sla_minutes FROM incidents WHERE company_id=$1 AND idempotency_key=$2",&[&company,&idempotency_key]).await? };
+        Ok(serde_json::json!({"id":row.get::<_,Uuid>(0),"status":row.get::<_,String>(1),"severity":row.get::<_,String>(2),"opened_at_epoch":row.get::<_,i64>(3),"sla_minutes":row.get::<_,i32>(4)}))
+    }
+
+    pub async fn update_incident(&self, company_id:&str, incident_id:&str, status:&str, actor:&str, evidence_hash:Option<&str>, notes:Option<&str>) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let incident=Uuid::parse_str(incident_id)?; let status=status.trim().to_ascii_uppercase();
+        if !matches!(status.as_str(),"ACKNOWLEDGED"|"MITIGATING"|"RESOLVED"|"CLOSED") || actor.trim().is_empty() { return Err("invalid incident transition".into()); }
+        let client=self.client.lock().await; let tx=client.transaction().await?;
+        let row=tx.query_one("SELECT status FROM incidents WHERE id=$1 AND company_id=$2 FOR UPDATE",&[&incident,&company]).await?;
+        let current=row.get::<_,String>(0);
+        if !matches!((current.as_str(),status.as_str()),("OPEN","ACKNOWLEDGED")|("ACKNOWLEDGED","MITIGATING")|("MITIGATING","RESOLVED")|("RESOLVED","CLOSED")|("OPEN","RESOLVED")) { return Err(format!("invalid incident transition {} -> {}",current,status).into()); }
+        let now=chrono::Utc::now().timestamp();
+        if status=="RESOLVED" || status=="CLOSED" { tx.execute("UPDATE incidents SET status=$1,resolved_at_epoch=COALESCE(resolved_at_epoch,$2) WHERE id=$3",&[&status,&now,&incident]).await?; } else { tx.execute("UPDATE incidents SET status=$1,acknowledged_at_epoch=CASE WHEN $1='ACKNOWLEDGED' THEN $2 ELSE acknowledged_at_epoch END WHERE id=$3",&[&status,&now,&incident]).await?; }
+        tx.execute("INSERT INTO incident_events(id,incident_id,event_type,actor,evidence_hash,notes) VALUES($1,$2,$3,$4,$5,$6)",&[&Uuid::new_v4(),&incident,&status,&actor,&evidence_hash,&notes]).await?;
+        tx.commit().await?; Ok(serde_json::json!({"incident_id":incident,"status":status}))
+    }
+
+    pub async fn list_incidents(&self, company_id:&str) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let client=self.client.lock().await;
+        let rows=client.query("SELECT id,title,severity,status,source,opened_at_epoch,acknowledged_at_epoch,resolved_at_epoch,sla_minutes,owner FROM incidents WHERE company_id=$1 ORDER BY opened_at_epoch DESC LIMIT 100",&[&company]).await?;
+        Ok(rows.into_iter().map(|r| serde_json::json!({"id":r.get::<_,Uuid>(0),"title":r.get::<_,String>(1),"severity":r.get::<_,String>(2),"status":r.get::<_,String>(3),"source":r.get::<_,String>(4),"opened_at_epoch":r.get::<_,i64>(5),"acknowledged_at_epoch":r.get::<_,Option<i64>>(6),"resolved_at_epoch":r.get::<_,Option<i64>>(7),"sla_minutes":r.get::<_,i32>(8),"owner":r.get::<_,Option<String>>(9)})).collect())
+    }
+
+    pub async fn record_incident_postmortem(&self, company_id:&str, incident_id:&str, root_cause:&str, corrective_actions:&str, prevention_actions:&str, learning_notes:Option<&str>) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let incident=Uuid::parse_str(incident_id)?;
+        if root_cause.trim().is_empty() || corrective_actions.trim().is_empty() || prevention_actions.trim().is_empty() { return Err("postmortem fields are required".into()); }
+        let client=self.client.lock().await; if client.query_opt("SELECT 1 FROM incidents WHERE id=$1 AND company_id=$2",&[&incident,&company]).await?.is_none() { return Err("incident not found".into()); }
+        let row=client.query_one("INSERT INTO incident_postmortems(id,incident_id,root_cause,corrective_actions,prevention_actions,learning_notes) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(incident_id) DO UPDATE SET root_cause=EXCLUDED.root_cause,corrective_actions=EXCLUDED.corrective_actions,prevention_actions=EXCLUDED.prevention_actions,learning_notes=EXCLUDED.learning_notes RETURNING id",&[&Uuid::new_v4(),&incident,&root_cause,&corrective_actions,&prevention_actions,&learning_notes]).await?;
+        Ok(serde_json::json!({"id":row.get::<_,Uuid>(0),"incident_id":incident}))
     }
 
 }
