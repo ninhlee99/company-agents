@@ -30,5 +30,6 @@ members = [
   "apps/outbox-worker",
   "crates/commercial-sales",
   "crates/company-experiments",
-  "crates/company-learning"
+  "crates/company-learning",
+  "crates/company-content"
 ]
