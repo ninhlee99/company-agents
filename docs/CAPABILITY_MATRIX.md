@@ -102,3 +102,24 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - Existing payment reconciliation evidence attaches to the generated invoice: supported by invoice_id linkage
 - Automated payment execution/settlement: not implemented
 - Automated renewal/dunning: next
+
+
+## Legal / Compliance
+
+- Compliance obligations with deadlines and owners: implemented
+- Evidence ledger with hashes and submitter: implemented
+- Explicit approval/rejection evidence and audit events: implemented
+- Overdue obligation state: implemented
+- Revenue/payment linkage requires a SATISFIED compliance obligation: implemented
+- Automated legal interpretation or autonomous approval: not implemented
+- Jurisdiction-specific legal advice: not implemented
+
+
+## Incident / SLA / Learning
+
+- Incident lifecycle with severity and SLA target: implemented
+- Evidence-backed incident transitions: implemented
+- Incident event history: implemented
+- Postmortem and corrective/prevention actions: implemented
+- Automated SLA breach detection/escalation: next
+- Cross-incident reliability analytics: next
