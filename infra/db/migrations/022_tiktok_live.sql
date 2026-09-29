@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS tiktok_live_gift_statements (
   company_id uuid NOT NULL REFERENCES companies(id),
   session_id uuid NOT NULL REFERENCES tiktok_live_sessions(id),
   statement_id text NOT NULL,
-  gift_count bigint NOT NULL,
+  gift_count numeric(38,0) NOT NULL,
   gross_value_minor numeric(38,0) NOT NULL,
   currency text NOT NULL,
   matched boolean NOT NULL,
