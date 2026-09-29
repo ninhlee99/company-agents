@@ -24,6 +24,17 @@ pub struct RevenuePeriodMetrics {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AffiliateReconciliationMetrics {
+    pub reported_commission_mtd_minor: i128,
+    pub attributed_commission_mtd_minor: i128,
+    pub recorded_payout_mtd_minor: i128,
+    pub variance_mtd_minor: i128,
+    pub conversion_count_mtd: i64,
+    pub verified_conversion_count_mtd: i64,
+    pub partial_or_rejected_count_mtd: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ContributionMarginMetrics {
     pub month_to_date_revenue_minor: i128,
     pub month_to_date_variable_cost_minor: i128,
@@ -275,6 +286,56 @@ impl CompanyStore {
             last_30_days_minor: parse_i128_numeric(&row.get::<_, String>(1))?,
             lifetime_minor: parse_i128_numeric(&row.get::<_, String>(2))?,
             revenue_transaction_count: row.get(3),
+        })
+    }
+
+    pub async fn affiliate_reconciliation_metrics(
+        &self,
+        company_id: &str,
+    ) -> Result<AffiliateReconciliationMetrics, Box<dyn std::error::Error + Send + Sync>> {
+        let id = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_one(
+                "WITH conversions AS (
+                    SELECT conversion_id, commission_minor::text AS commission, reconciliation_status
+                      FROM affiliate_conversions
+                     WHERE company_id = $1
+                       AND created_at >= date_trunc('month', now())
+                 ),
+                 attributed AS (
+                    SELECT a.conversion_id, COALESCE(SUM(a.attributed_commission_minor),0)::text AS commission
+                      FROM affiliate_attributions a
+                      JOIN conversions c ON c.conversion_id = a.conversion_id
+                     WHERE a.company_id = $1
+                     GROUP BY a.conversion_id
+                 ),
+                 totals AS (
+                    SELECT
+                      COALESCE((SELECT SUM(commission::numeric) FROM conversions),0)::text AS reported,
+                      COALESCE((SELECT SUM(commission::numeric) FROM attributed),0)::text AS attributed,
+                      COALESCE((SELECT SUM(amount_minor) FROM affiliate_payouts
+                                WHERE company_id=$1 AND occurred_at >= date_trunc('month', now())),0)::text AS paid,
+                      (SELECT COUNT(*) FROM conversions) AS conversion_count,
+                      (SELECT COUNT(*) FROM conversions WHERE reconciliation_status='VERIFIED') AS verified_count,
+                      (SELECT COUNT(*) FROM conversions WHERE reconciliation_status IN ('PARTIAL','REJECTED')) AS partial_or_rejected_count
+                 )
+                 SELECT reported, attributed, paid, conversion_count, verified_count, partial_or_rejected_count
+                   FROM totals",
+                &[&id],
+            )
+            .await?;
+
+        let reported = parse_i128_numeric(&row.get::<_, String>(0))?;
+        let attributed = parse_i128_numeric(&row.get::<_, String>(1))?;
+        Ok(AffiliateReconciliationMetrics {
+            reported_commission_mtd_minor: reported,
+            attributed_commission_mtd_minor: attributed,
+            recorded_payout_mtd_minor: parse_i128_numeric(&row.get::<_, String>(2))?,
+            variance_mtd_minor: reported.checked_sub(attributed).ok_or("affiliate reconciliation overflow")?,
+            conversion_count_mtd: row.get(3),
+            verified_conversion_count_mtd: row.get(4),
+            partial_or_rejected_count_mtd: row.get(5),
         })
     }
 
