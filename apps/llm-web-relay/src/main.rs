@@ -158,7 +158,11 @@ fn request_hash(request: &GenerateRequest) -> String {
         request.response_format,
         request.allow_tools
     );
-    format!("sha256:{:x}", Sha256::digest(canonical.as_bytes()))
+    format!("sha256:{}", hex_digest(&Sha256::digest(canonical.as_bytes())))
+}
+
+fn hex_digest(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn validate_request(request: &GenerateRequest) -> Result<(), ApiError> {
