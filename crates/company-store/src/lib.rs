@@ -4838,7 +4838,7 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
                FROM growth_opportunities o
                JOIN growth_trends t ON t.id=o.trend_id AND t.company_id=o.company_id
               WHERE o.company_id=$1
-              ORDER BY score_bps DESC,created_at DESC
+              ORDER BY o.score_bps DESC,o.created_at DESC
               LIMIT $2",
             &[&company, &limit],
         ).await?;
