@@ -1,0 +1,995 @@
+import express from 'express';
+import { createServer as createViteServer } from 'vite';
+import { GoogleGenAI } from '@google/genai';
+import dotenv from 'dotenv';
+import path from 'path';
+
+dotenv.config();
+
+const app = express();
+app.use(express.json());
+
+// Initialize Google GenAI if key is present
+const apiKey = process.env.GEMINI_API_KEY;
+let ai: GoogleGenAI | null = null;
+if (apiKey && apiKey !== 'MY_GEMINI_API_KEY' && apiKey.length > 5) {
+  try {
+    ai = new GoogleGenAI();
+  } catch (err) {
+    console.warn('GoogleGenAI initialization warning:', err);
+  }
+}
+
+// Company Domain Types & State mirroring ninhlee99/company-agents
+export type CompanyStatus = 
+  | 'Active' 
+  | 'Growth' 
+  | 'Warning' 
+  | 'CostControl' 
+  | 'Distress' 
+  | 'Emergency' 
+  | 'Liquidation' 
+  | 'Bankrupt';
+
+export type AgentRole = 
+  | 'Governor'
+  | 'CEO'
+  | 'CFO'
+  | 'COO'
+  | 'Growth'
+  | 'Content'
+  | 'Recruiter'
+  | 'Analyst'
+  | 'Experiment';
+
+export type ActionKind = 
+  | 'AllocateExperimentBudget'
+  | 'ReduceBudget'
+  | 'RebalanceOperations'
+  | 'ResearchOpportunity'
+  | 'CreateExperiment'
+  | 'ProposeHire'
+  | 'ProduceReport'
+  | 'EscalateIncident'
+  | 'PublishContent'
+  | 'LaunchCampaign';
+
+export type RiskTier = 'Low' | 'Medium' | 'High' | 'Critical';
+export type GovernorDecision = 'Approve' | 'Reject' | 'RequestRevision' | 'EscalateToHuman';
+
+export interface Proposal {
+  id: string;
+  agent: AgentRole;
+  objective: string;
+  action: ActionKind;
+  cost_minor: number; // in cents/minor units (e.g. 5000 = $50.00)
+  expected_revenue_minor: number;
+  risk: RiskTier;
+  confidence_bps: number; // basis points: 8500 = 85.0%
+  evidence: string[];
+  rationale: string;
+  reversible: boolean;
+  timestamp: string;
+}
+
+export interface GovernedProposal {
+  proposal: Proposal;
+  decision: GovernorDecision;
+  reason: string;
+  evaluatedAt: string;
+  executed: boolean;
+}
+
+export interface LedgerEntry {
+  id: string;
+  timestamp: string;
+  description: string;
+  debitAccount: string;
+  creditAccount: string;
+  amount_minor: number;
+  cycle: number;
+  proposalId?: string;
+}
+
+export interface ExecutionReceipt {
+  id: string;
+  proposalId: string;
+  agent: AgentRole;
+  action: ActionKind;
+  status: 'Completed' | 'Failed' | 'PendingHumanReview';
+  outcome: string;
+  cost_minor: number;
+  timestamp: string;
+}
+
+export interface CompanySnapshot {
+  status: CompanyStatus;
+  cash_minor: number;
+  revenue_minor: number; // Monthly recurring/run-rate
+  expenses_minor: number; // Monthly burn
+  budget_remaining_minor: number;
+  experiment_budget_minor: number;
+  runway_days: number;
+  backlog: number;
+  capacity: number;
+  conversion_bps: number;
+  audience_growth_bps: number;
+  content_revenue_minor: number;
+  content_cost_minor: number;
+  hiring_need: number;
+  cycle_count: number;
+  currency: string;
+}
+
+// In-Memory Database
+const state: {
+  snapshot: CompanySnapshot;
+  ledger: LedgerEntry[];
+  receipts: ExecutionReceipt[];
+  cycles: {
+    cycleNumber: number;
+    timestamp: string;
+    proposals: GovernedProposal[];
+    snapshotBefore: CompanySnapshot;
+    snapshotAfter: CompanySnapshot;
+  }[];
+  employees: { id: string; role: string; name: string; salary_minor: number; hiredAtCycle: number }[];
+  activeExperiments: { id: string; name: string; budget_minor: number; startCycle: number; status: string; roi_bps: number }[];
+} = {
+  snapshot: {
+    status: 'Active',
+    cash_minor: 4850000, // $48,500.00
+    revenue_minor: 950000, // $9,500.00 / month
+    expenses_minor: 620000, // $6,200.00 / month
+    budget_remaining_minor: 2400000, // $24,000.00
+    experiment_budget_minor: 450000, // $4,500.00
+    runway_days: 440,
+    backlog: 12,
+    capacity: 22,
+    conversion_bps: 240, // 2.40%
+    audience_growth_bps: 120, // +1.20% / wk
+    content_revenue_minor: 680000,
+    content_cost_minor: 290000,
+    hiring_need: 1,
+    cycle_count: 14,
+    currency: 'USD',
+  },
+  ledger: [
+    {
+      id: 'tx-init-1',
+      timestamp: new Date(Date.now() - 86400000 * 10).toISOString(),
+      description: 'Founding Treasury Capital Injection',
+      debitAccount: 'Cash & Cash Equivalents',
+      creditAccount: 'Owner Paid-In Equity',
+      amount_minor: 5000000,
+      cycle: 0,
+    },
+    {
+      id: 'tx-rev-1',
+      timestamp: new Date(Date.now() - 86400000 * 5).toISOString(),
+      description: 'Affiliate Commission Settlement (TikTok Shop & Awin)',
+      debitAccount: 'Cash & Cash Equivalents',
+      creditAccount: 'Affiliate Media Revenue',
+      amount_minor: 680000,
+      cycle: 10,
+    },
+    {
+      id: 'tx-exp-1',
+      timestamp: new Date(Date.now() - 86400000 * 2).toISOString(),
+      description: 'Cloud Compute & LLM Inference Cluster Billing',
+      debitAccount: 'Operating Expenses (Infra/API)',
+      creditAccount: 'Cash & Cash Equivalents',
+      amount_minor: 150000,
+      cycle: 12,
+    },
+  ],
+  receipts: [
+    {
+      id: 'rcpt-prev-1',
+      proposalId: 'prop-cfo-12',
+      agent: 'CFO',
+      action: 'ReduceBudget',
+      status: 'Completed',
+      outcome: 'Trimmed redundant SaaS subscriptions and pinned LLM inference cache, saving $350/mo.',
+      cost_minor: 0,
+      timestamp: new Date(Date.now() - 86400000 * 2).toISOString(),
+    },
+    {
+      id: 'rcpt-prev-2',
+      proposalId: 'prop-growth-12',
+      agent: 'Growth',
+      action: 'CreateExperiment',
+      status: 'Completed',
+      outcome: 'A/B test deployed for TikTok Shop tech affiliate widgets; conversion boosted +18 bps.',
+      cost_minor: 25000,
+      timestamp: new Date(Date.now() - 86400000 * 1).toISOString(),
+    },
+  ],
+  cycles: [],
+  employees: [
+    { id: 'emp-1', role: 'Lead Media Prompt Engineer', name: 'Alex M.', salary_minor: 280000, hiredAtCycle: 2 },
+    { id: 'emp-2', role: 'Affiliate Deal Specialist', name: 'Sarah T.', salary_minor: 240000, hiredAtCycle: 5 },
+  ],
+  activeExperiments: [
+    { id: 'exp-1', name: 'Short-Form Hook Multi-Variant Video Engine', budget_minor: 150000, startCycle: 11, status: 'In Progress', roi_bps: 1420 },
+    { id: 'exp-2', name: 'Micro-Affiliate Niche Directory SEO Loop', budget_minor: 80000, startCycle: 13, status: 'In Progress', roi_bps: 980 },
+  ],
+};
+
+function recalculateCompanyHealth() {
+  const netBurn = Math.max(0, state.snapshot.expenses_minor - state.snapshot.revenue_minor);
+  if (netBurn <= 0) {
+    // Profitable!
+    state.snapshot.runway_days = 999;
+  } else {
+    const dailyBurn = netBurn / 30;
+    state.snapshot.runway_days = Math.max(0, Math.floor(state.snapshot.cash_minor / (dailyBurn || 1)));
+  }
+
+  // Update Status based on economic-core rules
+  if (state.snapshot.cash_minor <= 0) {
+    state.snapshot.status = 'Bankrupt';
+  } else if (state.snapshot.runway_days <= 14) {
+    state.snapshot.status = 'Liquidation';
+  } else if (state.snapshot.runway_days <= 30) {
+    state.snapshot.status = 'Emergency';
+  } else if (state.snapshot.runway_days <= 60) {
+    state.snapshot.status = 'Distress';
+  } else if (state.snapshot.runway_days <= 90 || state.snapshot.expenses_minor > state.snapshot.revenue_minor * 1.5) {
+    state.snapshot.status = 'Warning';
+  } else if (state.snapshot.revenue_minor > state.snapshot.expenses_minor && state.snapshot.audience_growth_bps > 100) {
+    state.snapshot.status = 'Growth';
+  } else {
+    state.snapshot.status = 'Active';
+  }
+}
+
+// Evaluate Proposal through Governor Policy Engine (Mirrors crates/agent-runtime/governor.rs)
+function evaluateGovernor(proposal: Proposal, snapshot: CompanySnapshot): { decision: GovernorDecision; reason: string } {
+  if (proposal.agent === 'Governor') {
+    return { decision: 'Reject', reason: 'Governor cannot govern its own authority' };
+  }
+
+  // Distress policy blocks new discretionary spend
+  const isDistressed = ['Distress', 'Emergency', 'Liquidation', 'Bankrupt'].includes(snapshot.status);
+  if (isDistressed && proposal.cost_minor > 0) {
+    return {
+      decision: 'Reject',
+      reason: `Distress policy (${snapshot.status}) forbids discretionary spend ($${(proposal.cost_minor / 100).toFixed(2)})`,
+    };
+  }
+
+  // Bankruptcy blocks execution except reports & cost cuts
+  if (['Bankrupt', 'Liquidation'].includes(snapshot.status)) {
+    if (!['ProduceReport', 'EscalateIncident', 'ReduceBudget'].includes(proposal.action)) {
+      return { decision: 'Reject', reason: 'Company state blocks non-essential execution during liquidation' };
+    }
+  }
+
+  if (proposal.cost_minor < 0 || proposal.expected_revenue_minor < 0) {
+    return { decision: 'Reject', reason: 'Negative economic values are strictly invalid in double-entry' };
+  }
+
+  if (proposal.cost_minor > snapshot.budget_remaining_minor) {
+    return { decision: 'Reject', reason: `Proposal cost ($${(proposal.cost_minor / 100).toFixed(2)}) exceeds remaining budget ($${(snapshot.budget_remaining_minor / 100).toFixed(2)})` };
+  }
+
+  if (proposal.cost_minor > snapshot.cash_minor) {
+    return { decision: 'Reject', reason: `Proposal cost ($${(proposal.cost_minor / 100).toFixed(2)}) exceeds available treasury cash ($${(snapshot.cash_minor / 100).toFixed(2)})` };
+  }
+
+  if (proposal.confidence_bps < 3000) {
+    return { decision: 'RequestRevision', reason: `Confidence (${(proposal.confidence_bps / 100).toFixed(1)}%) is below mandatory threshold (30.0%)` };
+  }
+
+  // Materiality test: Cost > $1000 or High/Critical risk or Irreversible
+  const isMaterial = proposal.cost_minor > 100000 || ['High', 'Critical'].includes(proposal.risk) || !proposal.reversible;
+  if (isMaterial) {
+    return {
+      decision: 'EscalateToHuman',
+      reason: `Material action detected (Cost: $${(proposal.cost_minor / 100).toFixed(2)}, Risk: ${proposal.risk}, Reversible: ${proposal.reversible}). Requires Operator authorization.`,
+    };
+  }
+
+  return { decision: 'Approve', reason: 'Proposal satisfies constitutional economic limits, runway bounds, and budget limits.' };
+}
+
+// Execute an approved proposal
+function executeProposal(proposal: Proposal): ExecutionReceipt {
+  let outcome = '';
+  const now = new Date().toISOString();
+  const txId = `tx-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+
+  if (proposal.cost_minor > 0) {
+    state.snapshot.cash_minor = Math.max(0, state.snapshot.cash_minor - proposal.cost_minor);
+    state.snapshot.budget_remaining_minor = Math.max(0, state.snapshot.budget_remaining_minor - proposal.cost_minor);
+
+    // Book double-entry ledger entry
+    let debit = 'Operating Expenses';
+    if (proposal.action === 'AllocateExperimentBudget' || proposal.action === 'CreateExperiment') {
+      debit = 'R&D / Growth Experiments';
+      state.snapshot.experiment_budget_minor = Math.max(0, state.snapshot.experiment_budget_minor - proposal.cost_minor);
+    } else if (proposal.action === 'ProposeHire') {
+      debit = 'Payroll & Talent Acquisition';
+    }
+
+    state.ledger.unshift({
+      id: txId,
+      timestamp: now,
+      description: `[Cycle ${state.snapshot.cycle_count}] ${proposal.agent}: ${proposal.objective}`,
+      debitAccount: debit,
+      creditAccount: 'Cash & Cash Equivalents',
+      amount_minor: proposal.cost_minor,
+      cycle: state.snapshot.cycle_count,
+      proposalId: proposal.id,
+    });
+  }
+
+  // Effect on metrics
+  switch (proposal.action) {
+    case 'AllocateExperimentBudget':
+      state.snapshot.experiment_budget_minor += proposal.cost_minor;
+      outcome = `Allocated $${(proposal.cost_minor / 100).toFixed(2)} to experimental fund pool.`;
+      break;
+    case 'CreateExperiment':
+      state.activeExperiments.unshift({
+        id: `exp-${Date.now().toString(36)}`,
+        name: proposal.objective,
+        budget_minor: proposal.cost_minor,
+        startCycle: state.snapshot.cycle_count,
+        status: 'Active',
+        roi_bps: Math.floor(Math.random() * 800 + 400),
+      });
+      state.snapshot.conversion_bps += Math.floor(Math.random() * 20 + 5);
+      outcome = `Created and deployed live experiment '${proposal.objective}'. Projected conversion boost: +${(Math.random() * 0.2 + 0.05).toFixed(2)}%.`;
+      break;
+    case 'ReduceBudget':
+      const reduction = Math.min(state.snapshot.expenses_minor, 45000);
+      state.snapshot.expenses_minor = Math.max(100000, state.snapshot.expenses_minor - reduction);
+      outcome = `Executed cost containment: reduced monthly burn by $${(reduction / 100).toFixed(2)}.`;
+      break;
+    case 'RebalanceOperations':
+      state.snapshot.backlog = Math.max(2, state.snapshot.backlog - 4);
+      state.snapshot.capacity = Math.min(40, state.snapshot.capacity + 2);
+      outcome = `Reallocated worker queues. Reduced task backlog from to ${state.snapshot.backlog} items.`;
+      break;
+    case 'ResearchOpportunity':
+      state.snapshot.audience_growth_bps += 30;
+      outcome = `Market intelligence synthesized: Identified 3 untapped affiliate creator angles in consumer tech.`;
+      break;
+    case 'ProposeHire':
+      state.snapshot.hiring_need = Math.max(0, state.snapshot.hiring_need - 1);
+      state.snapshot.capacity += 6;
+      state.snapshot.expenses_minor += 220000;
+      state.employees.push({
+        id: `emp-${Date.now().toString(36)}`,
+        role: 'Autonomous Agent Engineer / Content Specialist',
+        name: 'Jordan K.',
+        salary_minor: 220000,
+        hiredAtCycle: state.snapshot.cycle_count,
+      });
+      outcome = `Successfully onboarded talent candidate Jordan K. Expanded company execution capacity by +6 units.`;
+      break;
+    case 'PublishContent':
+      const revBoost = Math.floor(Math.random() * 50000 + 15000);
+      state.snapshot.revenue_minor += revBoost;
+      state.snapshot.content_revenue_minor += revBoost;
+      state.ledger.unshift({
+        id: `tx-rev-${Date.now().toString(36)}`,
+        timestamp: now,
+        description: `Content Publishing Yield: ${proposal.objective}`,
+        debitAccount: 'Cash & Cash Equivalents',
+        creditAccount: 'Media & Affiliate Revenue',
+        amount_minor: revBoost,
+        cycle: state.snapshot.cycle_count,
+        proposalId: proposal.id,
+      });
+      outcome = `Published high-intent multi-platform video series. Incurred immediate revenue delta: +$${(revBoost / 100).toFixed(2)}.`;
+      break;
+    default:
+      outcome = `Action ${proposal.action} completed and archived in immutable audit journal.`;
+  }
+
+  recalculateCompanyHealth();
+
+  return {
+    id: `rcpt-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+    proposalId: proposal.id,
+    agent: proposal.agent,
+    action: proposal.action,
+    status: 'Completed',
+    outcome,
+    cost_minor: proposal.cost_minor,
+    timestamp: now,
+  };
+}
+
+// Generate LLM reasoning using Gemini 3.8 Flash or deterministic fallback
+async function generateAgentProposalWithAI(role: AgentRole, snapshot: CompanySnapshot): Promise<Proposal> {
+  const prompt = `You are the ${role} agent of an Autonomous Media & AI Company Operating System.
+Current Financial Snapshot:
+- Status: ${snapshot.status}
+- Cash: $${(snapshot.cash_minor / 100).toFixed(2)}
+- Monthly Revenue: $${(snapshot.revenue_minor / 100).toFixed(2)}
+- Monthly Expenses: $${(snapshot.expenses_minor / 100).toFixed(2)}
+- Runway: ${snapshot.runway_days} days
+- Backlog: ${snapshot.backlog} tasks | Capacity: ${snapshot.capacity} tasks
+- Conversion: ${(snapshot.conversion_bps / 100).toFixed(2)}% | Audience Growth: ${(snapshot.audience_growth_bps / 100).toFixed(2)}%
+- Cycle: #${snapshot.cycle_count}
+
+Role Responsibilities:
+- CEO: Long-term strategy, market positioning, high-level capital allocation.
+- CFO: Solvency, strict double-entry ledger health, runway protection, cost cutting.
+- COO: Workflow efficiency, queue throughput, bottleneck resolution, capacity balancing.
+- Growth: Audience acquisition, viral loops, conversion rate optimization, affiliate traffic.
+- Content: Media production, creator engagement, high-yield product hooks, video pipeline.
+- Recruiter: Talent acquisition economics, hiring vs contractor trade-offs.
+- Analyst: Objective decision support, variance metrics, root-cause diagnostics.
+- Experiment: Bounded A/B hypotheses, fast iteration, high-upside tests.
+
+Return a STRICT JSON response only (no markdown code blocks, just raw JSON) matching this schema:
+{
+  "objective": "A specific 1-sentence goal",
+  "action": "One of: AllocateExperimentBudget, ReduceBudget, RebalanceOperations, ResearchOpportunity, CreateExperiment, ProposeHire, ProduceReport, EscalateIncident, PublishContent, LaunchCampaign",
+  "cost_minor": integer cost in cents (e.g. 5000 for $50.00),
+  "expected_revenue_minor": integer expected revenue in cents,
+  "risk": "Low" | "Medium" | "High" | "Critical",
+  "confidence_bps": integer basis points between 3000 and 9900 (e.g. 8500 = 85%),
+  "evidence": ["bullet point 1 with data", "bullet point 2 with data"],
+  "rationale": "Clear logical defense for why this proposal is economically justified",
+  "reversible": boolean
+}`;
+
+  if (ai) {
+    try {
+      const generatePromise = ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.4,
+        },
+      });
+
+      // 4-second timeout guard to ensure snappy cycle execution
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000));
+      const response = await Promise.race([generatePromise, timeoutPromise]);
+
+      if (response && 'text' in response && response.text) {
+        const text = response.text;
+        const parsed = JSON.parse(text);
+        return {
+          id: `prop-${role.toLowerCase()}-${Date.now().toString(36)}`,
+          agent: role,
+          objective: parsed.objective || `Autonomous ${role} action for cycle ${snapshot.cycle_count}`,
+          action: parsed.action || 'ProduceReport',
+          cost_minor: typeof parsed.cost_minor === 'number' ? Math.max(0, parsed.cost_minor) : 0,
+          expected_revenue_minor: typeof parsed.expected_revenue_minor === 'number' ? Math.max(0, parsed.expected_revenue_minor) : 0,
+          risk: ['Low', 'Medium', 'High', 'Critical'].includes(parsed.risk) ? parsed.risk : 'Low',
+          confidence_bps: typeof parsed.confidence_bps === 'number' ? Math.min(9900, Math.max(3000, parsed.confidence_bps)) : 7500,
+          evidence: Array.isArray(parsed.evidence) ? parsed.evidence : [`Status: ${snapshot.status}`, `Runway: ${snapshot.runway_days} days`],
+          rationale: parsed.rationale || `${role} economic reasoning under cycle ${snapshot.cycle_count}`,
+          reversible: typeof parsed.reversible === 'boolean' ? parsed.reversible : true,
+          timestamp: new Date().toISOString(),
+        };
+      }
+    } catch (e) {
+      console.warn(`Gemini generation for ${role} failed, using heuristic:`, e);
+    }
+  }
+
+  // Deterministic fallback matching crates/agent-runtime/roles.rs
+  return getDeterministicProposal(role, snapshot);
+}
+
+function getDeterministicProposal(role: AgentRole, snapshot: CompanySnapshot): Proposal {
+  const now = new Date().toISOString();
+  const id = `prop-${role.toLowerCase()}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 5)}`;
+
+  switch (role) {
+    case 'CEO':
+      if (['Distress', 'Emergency', 'Liquidation'].includes(snapshot.status)) {
+        return {
+          id,
+          agent: 'CEO',
+          objective: 'Preserve enterprise solvency and freeze non-essential R&D',
+          action: 'ReduceBudget',
+          cost_minor: 0,
+          expected_revenue_minor: 0,
+          risk: 'Low',
+          confidence_bps: 8800,
+          evidence: [`Runway is down to ${snapshot.runway_days} days`, `Status: ${snapshot.status}`],
+          rationale: 'Fiduciary duty requires immediate capital preservation to avoid bankruptcy liquidation.',
+          reversible: true,
+          timestamp: now,
+        };
+      }
+      return {
+        id,
+        agent: 'CEO',
+        objective: 'Expand viral creator syndicate and allocate exploration capital',
+        action: 'AllocateExperimentBudget',
+        cost_minor: 50000, // $500
+        expected_revenue_minor: 120000,
+        risk: 'Low',
+        confidence_bps: 8200,
+        evidence: [`Audience growth at +${(snapshot.audience_growth_bps / 100).toFixed(2)}%`, `Treasury cash at $${(snapshot.cash_minor / 100).toFixed(2)}`],
+        rationale: 'Free cash flow supports measured expansion into trending vertical product categories.',
+        reversible: true,
+        timestamp: now,
+      };
+
+    case 'CFO':
+      if (snapshot.runway_days <= 30 || snapshot.expenses_minor > snapshot.revenue_minor) {
+        return {
+          id,
+          agent: 'CFO',
+          objective: 'Cut cloud GPU inference waste and enforce cash flow austerity',
+          action: 'ReduceBudget',
+          cost_minor: 0,
+          expected_revenue_minor: 0,
+          risk: 'Low',
+          confidence_bps: 9400,
+          evidence: [`Burn rate: $${(snapshot.expenses_minor / 100).toFixed(2)}/mo`, `Net burn requires immediate budget clamping`],
+          rationale: 'Strict unit economics require immediate reduction in recurring fixed liabilities.',
+          reversible: true,
+          timestamp: now,
+        };
+      }
+      return {
+        id,
+        agent: 'CFO',
+        objective: 'Audit double-entry ledger balance and calculate trailing unit margins',
+        action: 'ProduceReport',
+        cost_minor: 0,
+        expected_revenue_minor: 0,
+        risk: 'Low',
+        confidence_bps: 9500,
+        evidence: [`Current cash: $${(snapshot.cash_minor / 100).toFixed(2)}`, `Gross margin positive at 34.7%`],
+        rationale: 'Factual verification of reconciliation statements prior to quarterly dividend declaration.',
+        reversible: true,
+        timestamp: now,
+      };
+
+    case 'COO':
+      if (snapshot.backlog > snapshot.capacity) {
+        return {
+          id,
+          agent: 'COO',
+          objective: 'Rebalance parallel task queues and clear media rendering bottleneck',
+          action: 'RebalanceOperations',
+          cost_minor: 0,
+          expected_revenue_minor: 0,
+          risk: 'Low',
+          confidence_bps: 8600,
+          evidence: [`Backlog (${snapshot.backlog}) exceeds operational capacity (${snapshot.capacity})`],
+          rationale: 'Operational queues are lagging behind creator intake; priority tasks must be re-routed.',
+          reversible: true,
+          timestamp: now,
+        };
+      }
+      return {
+        id,
+        agent: 'COO',
+        objective: 'Conduct operational capacity audit across distributed worker pods',
+        action: 'ProduceReport',
+        cost_minor: 0,
+        expected_revenue_minor: 0,
+        risk: 'Low',
+        confidence_bps: 8900,
+        evidence: [`System capacity headroom: ${(snapshot.capacity - snapshot.backlog)} units available`],
+        rationale: 'Sufficient throughput headroom exists to ingest next batch of creator affiliate campaigns.',
+        reversible: true,
+        timestamp: now,
+      };
+
+    case 'Growth':
+      return {
+        id,
+        agent: 'Growth',
+        objective: 'Launch dynamic TikTok Shop & Amazon affiliate comparison widget test',
+        action: 'CreateExperiment',
+        cost_minor: 25000, // $250
+        expected_revenue_minor: 75000,
+        risk: 'Medium',
+        confidence_bps: 7800,
+        evidence: [`Conversion benchmark: ${(snapshot.conversion_bps / 100).toFixed(2)}%`, `Projected EPC: $0.42`],
+        rationale: 'Hypothesis: Embedded interactive spec tables will boost buyer intent click-through by +15%.',
+        reversible: true,
+        timestamp: now,
+      };
+
+    case 'Content':
+      return {
+        id,
+        agent: 'Content',
+        objective: 'Deploy automated 5-part AI video series on trending smart home ergonomics',
+        action: 'PublishContent',
+        cost_minor: 15000, // $150
+        expected_revenue_minor: 45000,
+        risk: 'Low',
+        confidence_bps: 8300,
+        evidence: [`Content revenue: $${(snapshot.content_revenue_minor / 100).toFixed(2)}`, `Audience retention 68%`],
+        rationale: 'Organic high-yield video scripts generated with multi-affiliate tracking links.',
+        reversible: true,
+        timestamp: now,
+      };
+
+    case 'Recruiter':
+      if (snapshot.hiring_need > 0 && snapshot.revenue_minor > snapshot.expenses_minor && snapshot.runway_days > 90) {
+        return {
+          id,
+          agent: 'Recruiter',
+          objective: 'Recruit specialized Autonomous Media Automation & Video Prompt Engineer',
+          action: 'ProposeHire',
+          cost_minor: 220000, // $2,200 salary impact
+          expected_revenue_minor: 600000,
+          risk: 'Medium',
+          confidence_bps: 7400,
+          evidence: [`Hiring need index: ${snapshot.hiring_need}`, `Profitable run-rate covers candidate burn`],
+          rationale: 'Candidate will unlock 3x media production throughput with positive net marginal profit.',
+          reversible: false,
+          timestamp: now,
+        };
+      }
+      return {
+        id,
+        agent: 'Recruiter',
+        objective: 'Screen contractor benchmarks and talent market compensation rates',
+        action: 'ProduceReport',
+        cost_minor: 0,
+        expected_revenue_minor: 0,
+        risk: 'Low',
+        confidence_bps: 9100,
+        evidence: [`Current Headcount: ${state.employees.length} team members`],
+        rationale: 'Hiring freeze in effect or talent queue currently fulfilled. Maintaining market intel.',
+        reversible: true,
+        timestamp: now,
+      };
+
+    case 'Analyst':
+      return {
+        id,
+        agent: 'Analyst',
+        objective: 'Synthesize verified decision support: attribution decay and LTV/CAC ratio',
+        action: 'ProduceReport',
+        cost_minor: 0,
+        expected_revenue_minor: 0,
+        risk: 'Low',
+        confidence_bps: 9600,
+        evidence: [`LTV/CAC ratio: 3.8x`, `Attribution window: 30 days click-through`],
+        rationale: 'Factual statistical verification prevents phantom attribution errors in affiliate accounting.',
+        reversible: true,
+        timestamp: now,
+      };
+
+    case 'Experiment':
+      return {
+        id,
+        agent: 'Experiment',
+        objective: 'Rapid A/B testing on AI thumbnail color psychology and hook timing',
+        action: 'CreateExperiment',
+        cost_minor: 10000, // $100
+        expected_revenue_minor: 35000,
+        risk: 'Low',
+        confidence_bps: 7600,
+        evidence: [`Available experiment budget: $${(snapshot.experiment_budget_minor / 100).toFixed(2)}`],
+        rationale: 'Iterative micro-testing isolated from core brand capital.',
+        reversible: true,
+        timestamp: now,
+      };
+
+    default:
+      return {
+        id,
+        agent: 'Analyst',
+        objective: 'System status report',
+        action: 'ProduceReport',
+        cost_minor: 0,
+        expected_revenue_minor: 0,
+        risk: 'Low',
+        confidence_bps: 8000,
+        evidence: [],
+        rationale: 'Default monitoring cycle',
+        reversible: true,
+        timestamp: now,
+      };
+  }
+}
+
+// REST Endpoints
+app.get('/api/state', (req, res) => {
+  res.json({
+    snapshot: state.snapshot,
+    ledger: state.ledger.slice(0, 50),
+    receipts: state.receipts.slice(0, 50),
+    employees: state.employees,
+    activeExperiments: state.activeExperiments,
+    recentCycles: state.cycles.slice(-5),
+    hasGeminiKey: Boolean(apiKey && apiKey !== 'MY_GEMINI_API_KEY'),
+  });
+});
+
+// Run a complete autonomous cycle
+app.post('/api/run-cycle', async (req, res) => {
+  const snapshotBefore = { ...state.snapshot };
+  state.snapshot.cycle_count += 1;
+
+  const roles: AgentRole[] = ['CEO', 'CFO', 'COO', 'Growth', 'Content', 'Recruiter', 'Analyst', 'Experiment'];
+  
+  // Run agents in parallel
+  const proposalPromises = roles.map(role => generateAgentProposalWithAI(role, state.snapshot));
+  const rawProposals = await Promise.all(proposalPromises);
+
+  const governedProposals: GovernedProposal[] = [];
+  const cycleReceipts: ExecutionReceipt[] = [];
+
+  for (const proposal of rawProposals) {
+    const govResult = evaluateGovernor(proposal, state.snapshot);
+    let executed = false;
+
+    if (govResult.decision === 'Approve') {
+      const receipt = executeProposal(proposal);
+      state.receipts.unshift(receipt);
+      cycleReceipts.push(receipt);
+      executed = true;
+    }
+
+    governedProposals.push({
+      proposal,
+      decision: govResult.decision,
+      reason: govResult.reason,
+      evaluatedAt: new Date().toISOString(),
+      executed,
+    });
+  }
+
+  recalculateCompanyHealth();
+
+  const cycleRecord = {
+    cycleNumber: state.snapshot.cycle_count,
+    timestamp: new Date().toISOString(),
+    proposals: governedProposals,
+    snapshotBefore,
+    snapshotAfter: { ...state.snapshot },
+  };
+
+  state.cycles.push(cycleRecord);
+
+  res.json({
+    cycleNumber: state.snapshot.cycle_count,
+    proposals: governedProposals,
+    receipts: cycleReceipts,
+    snapshot: state.snapshot,
+  });
+});
+
+// Executive Deliberation / War Room with Gemini AI
+app.post('/api/agent-debate', async (req, res) => {
+  const { topic } = req.body;
+  const userTopic = topic || 'Should the company pivot 50% of budget into TikTok Shop video automation vs maintaining reserve cash?';
+
+  if (ai) {
+    try {
+      const prompt = `You are orchestrating an executive boardroom debate for an Autonomous AI Enterprise.
+Company State:
+- Status: ${state.snapshot.status}
+- Cash: $${(state.snapshot.cash_minor / 100).toFixed(2)}
+- Runway: ${state.snapshot.runway_days} days
+- Monthly Revenue: $${(state.snapshot.revenue_minor / 100).toFixed(2)}
+- Monthly Expenses: $${(state.snapshot.expenses_minor / 100).toFixed(2)}
+
+Dilemma Topic: "${userTopic}"
+
+Produce a structured debate involving 4 key agents:
+1. CEO (Strategy, bold moves, market share)
+2. CFO (Fiduciary vigilance, cash preservation, risk of insolvency)
+3. COO (Operational capacity, execution realism, bottleneck warnings)
+4. Governor (Final constitutional verdict, statutory policy decision)
+
+Return a STRICT JSON array of objects (no markdown, just raw JSON):
+[
+  { "agent": "CEO", "stance": "Pro/Aggressive", "argument": "...", "proposedAction": "..." },
+  { "agent": "CFO", "stance": "Cautious/Counter", "argument": "...", "proposedAction": "..." },
+  { "agent": "COO", "stance": "Pragmatic/Operational", "argument": "...", "proposedAction": "..." },
+  { "agent": "Governor", "stance": "Constitutional Ruling", "argument": "...", "finalRuling": "Approve / Reject / Conditional Pass with Cap", "policyJustification": "..." }
+]`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.5,
+        },
+      });
+
+      const parsed = JSON.parse(response.text || '[]');
+      return res.json({ debate: parsed, topic: userTopic });
+    } catch (err) {
+      console.warn('Debate generation fallback:', err);
+    }
+  }
+
+  // Fallback debate
+  res.json({
+    topic: userTopic,
+    debate: [
+      {
+        agent: 'CEO',
+        stance: 'Pro-Aggressive Expansion',
+        argument: `Our audience growth rate of ${(state.snapshot.audience_growth_bps / 100).toFixed(2)}% shows strong product-market fit. Hesitating now will forfeit first-mover advantage to competitor syndicates.`,
+        proposedAction: 'Authorize $1,500 injection into automated creator pipelines.',
+      },
+      {
+        agent: 'CFO',
+        stance: 'Fiscal Defense & Liquidity Buffer',
+        argument: `With runway at ${state.snapshot.runway_days} days and fixed burn of $${(state.snapshot.expenses_minor / 100).toFixed(2)}/mo, reckless capital flight risks triggering Distress status under economic-core law.`,
+        proposedAction: 'Cap any pilot at strictly $250 with immediate 14-day break-even audit.',
+      },
+      {
+        agent: 'COO',
+        stance: 'Capacity & Workflow Realism',
+        argument: `Our current backlog sits at ${state.snapshot.backlog} against capacity ${state.snapshot.capacity}. Rushing 100 new videos without queue stabilization will trigger media worker timeouts.`,
+        proposedAction: 'Queue 15 high-confidence scripts first to benchmark rendering latency.',
+      },
+      {
+        agent: 'Governor',
+        stance: 'Constitutional Verdict',
+        argument: 'Section 4 of Company OS Constitution permits bounded exploration only when double-entry reserves exceed 90 days.',
+        finalRuling: 'Conditional Pass with Cap ($300.00 maximum)',
+        policyJustification: 'Permits CEO experiment while honoring CFO liquidity threshold and COO capacity limit.',
+      },
+    ],
+  });
+});
+
+// Real-Time AI Content & Script Generator for Media Pipeline
+app.post('/api/generate-content', async (req, res) => {
+  const { niche, productCategory } = req.body;
+  const category = productCategory || 'AI Productivity & Desk Setup Hardware';
+
+  if (ai) {
+    try {
+      const prompt = `You are the Content Agent of Company OS, an autonomous media company.
+Generate a high-converting, viral short-form video concept and script for: "${category}".
+Return STRICT JSON:
+{
+  "title": "Eye-catching title with high CTR",
+  "hook": "First 3 seconds verbal and visual hook",
+  "scriptOutline": [
+    { "timestamp": "0:00 - 0:03", "visual": "...", "audio": "..." },
+    { "timestamp": "0:03 - 0:15", "visual": "...", "audio": "..." },
+    { "timestamp": "0:15 - 0:35", "visual": "...", "audio": "..." },
+    { "timestamp": "0:35 - 0:45", "visual": "...", "audio": "..." }
+  ],
+  "affiliateOffer": "Suggested high-commission affiliate product",
+  "projectedEpc": "$0.58",
+  "callToAction": "Link in bio / exclusive coupon code discount",
+  "governorComplianceCheck": "Passes platform spam & financial disclosure regulations"
+}`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.6,
+        },
+      });
+
+      const parsed = JSON.parse(response.text || '{}');
+      return res.json({ content: parsed });
+    } catch (e) {
+      console.warn('Content generation fallback:', e);
+    }
+  }
+
+  res.json({
+    content: {
+      title: `The 3 AI Hardware Tools That Actually Saved Me 14 Hours This Week`,
+      hook: `Stop buying mechanical keyboards until you see what these 3 AI tools do to your daily workflow.`,
+      scriptOutline: [
+        { timestamp: '0:00 - 0:03', visual: 'Fast zoom-in on sleek magnetic desk stand with glowing screen', audio: 'Stop buying productivity gadgets until you see this.' },
+        { timestamp: '0:03 - 0:15', visual: 'Screen record demonstrating one-click automated meeting summarization', audio: 'First: This AI audio pebble transcribes and files your client action items automatically.' },
+        { timestamp: '0:15 - 0:35', visual: 'Side-by-side comparison of chaotic spreadsheet vs instant dashboard', audio: 'Second: Plug this into your USB-C dock, and it runs local LLM shortcuts with zero latency.' },
+        { timestamp: '0:35 - 0:45', visual: 'Pointing to affiliate discount coupon banner overlay', audio: 'Use code AGENTSOS for 25% off via the link below before the batch closes.' },
+      ],
+      affiliateOffer: 'ErgoTech AI Smart Workspace Hub (18% Commission Rate via Awin)',
+      projectedEpc: '$0.74',
+      callToAction: 'Tap the bio link and apply code AGENTSOS for instant $30 rebate.',
+      governorComplianceCheck: 'Clear FTC affiliate sponsorship disclosure mandated and verified.',
+    },
+  });
+});
+
+// Stress-Test Chaos Injection
+app.post('/api/chaos-shock', (req, res) => {
+  const { shockType } = req.body;
+
+  switch (shockType) {
+    case 'cash_drain':
+      state.snapshot.cash_minor = Math.floor(state.snapshot.cash_minor * 0.35); // 65% cash loss
+      state.ledger.unshift({
+        id: `tx-shock-${Date.now().toString(36)}`,
+        timestamp: new Date().toISOString(),
+        description: 'CHAOS EVENT: Unforeseen Tax Audit & Vendor Dispute Settlement',
+        debitAccount: 'Extraordinary Legal Losses',
+        creditAccount: 'Cash & Cash Equivalents',
+        amount_minor: Math.floor(state.snapshot.cash_minor * 0.65),
+        cycle: state.snapshot.cycle_count,
+      });
+      break;
+    case 'revenue_crash':
+      state.snapshot.revenue_minor = Math.floor(state.snapshot.revenue_minor * 0.4); // 60% revenue drop
+      state.snapshot.conversion_bps = Math.floor(state.snapshot.conversion_bps * 0.5);
+      break;
+    case 'burn_spike':
+      state.snapshot.expenses_minor = Math.floor(state.snapshot.expenses_minor * 2.2); // 120% expense surge
+      break;
+    case 'queue_overload':
+      state.snapshot.backlog = 85;
+      break;
+    case 'recovery':
+      state.snapshot.cash_minor = 5000000;
+      state.snapshot.revenue_minor = 1200000;
+      state.snapshot.expenses_minor = 600000;
+      state.snapshot.runway_days = 400;
+      state.snapshot.status = 'Growth';
+      state.snapshot.backlog = 8;
+      break;
+  }
+
+  recalculateCompanyHealth();
+  res.json({ snapshot: state.snapshot, appliedShock: shockType });
+});
+
+// Human Operator Override (Escalated Proposals)
+app.post('/api/governor-override', (req, res) => {
+  const { proposalId, decision } = req.body;
+  // Locate proposal in recent cycles
+  let found = false;
+  for (const c of state.cycles) {
+    for (const p of c.proposals) {
+      if (p.proposal.id === proposalId) {
+        p.decision = decision;
+        if (decision === 'Approve') {
+          const receipt = executeProposal(p.proposal);
+          state.receipts.unshift(receipt);
+          p.executed = true;
+        }
+        found = true;
+        break;
+      }
+    }
+  }
+
+  res.json({ success: found, decision });
+});
+
+// Vite Middleware Mounting for Dev Server
+async function startServer() {
+  const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+  if (process.env.NODE_ENV === 'production') {
+    app.use(express.static('dist'));
+    app.get('*', (req, res) => {
+      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+    });
+  } else {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  }
+
+  app.listen(port, '0.0.0.0', () => {
+    console.log(`Company OS Suite listening on http://0.0.0.0:${port}`);
+  });
+}
+
+startServer().catch((err) => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
+});
