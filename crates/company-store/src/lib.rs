@@ -343,6 +343,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/033_growth_loop.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/034_live_attention.sql"
+            ))
             .await
     }
 
