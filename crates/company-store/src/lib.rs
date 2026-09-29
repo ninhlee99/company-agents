@@ -3297,6 +3297,21 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         tx.execute("UPDATE invoices SET paid_minor=$3::numeric,status=$4,updated_at=now() WHERE company_id=$1 AND id=$2",&[&company,&invoice,&next.to_string(),&format!("{:?}",next_status).to_uppercase()]).await?;
         tx.commit().await?; Ok(next_status)
     }
+    pub async fn issue_invoice(&self, company_id: &str, invoice_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let invoice = Uuid::parse_str(invoice_id)?;
+        let mut c = self.client.lock().await;
+        let changed = c.execute(
+            "UPDATE invoices SET status='ISSUED', updated_at=now()
+             WHERE company_id=$1 AND id=$2 AND status='DRAFT'",
+            &[&company,&invoice]).await?;
+        if changed == 0 {
+            let exists = c.query_opt("SELECT status FROM invoices WHERE company_id=$1 AND id=$2",&[&company,&invoice]).await?;
+            return match exists { Some(row) if row.get::<_,String>(0) == "ISSUED" => Ok(()), Some(_) => Err("invoice cannot be issued from its current state".into()), None => Err("invoice not found".into()) };
+        }
+        Ok(())
+    }
+
 
 }
 
