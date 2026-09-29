@@ -3245,7 +3245,7 @@ async fn tx_store_live_gift_statement(
                 &company_id,
                 &session_id,
                 &reconciliation.statement_id,
-                &(reconciliation.provider_gift_count as i64),
+                &reconciliation.provider_gift_count.to_string(),
                 &reconciliation.provider_value_minor.to_string(),
                 &currency,
                 &reconciliation.matched,
