@@ -361,38 +361,39 @@ impl CompanyStore {
         snapshot: &company_compliance::PolicySnapshot,
     ) -> Result<company_compliance::PolicySnapshot, Box<dyn std::error::Error + Send + Sync>> {
         snapshot.validate().map_err(|error| error.to_string())?;
-        let client = self.client.lock().await;
-        client
-            .execute(
-                "INSERT INTO policy_snapshots
-                 (id,company_id,policy_key,platform,jurisdiction,version,source_reference,
-                  evidence_hash,observed_at_epoch,effective_at_epoch,active,rules_json)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-                 ON CONFLICT(company_id,policy_key,version) DO NOTHING",
-                &[
-                    &snapshot.id,
-                    &snapshot.company_id,
-                    &snapshot.policy_key,
-                    &snapshot.platform,
-                    &snapshot.jurisdiction,
-                    &snapshot.version,
-                    &snapshot.source_reference,
-                    &snapshot.evidence_hash,
-                    &snapshot.observed_at_epoch,
-                    &snapshot.effective_at_epoch,
-                    &snapshot.active,
-                    &serde_json::to_value(&snapshot.rules)?,
-                ],
-            )
-            .await?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
 
-        let row = client
+        tx.execute(
+            "INSERT INTO policy_snapshots
+             (id,company_id,policy_key,platform,jurisdiction,version,source_reference,
+              evidence_hash,observed_at_epoch,effective_at_epoch,active,rules_json)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+             ON CONFLICT(company_id,policy_key,version) DO NOTHING",
+            &[
+                &snapshot.id,
+                &snapshot.company_id,
+                &snapshot.policy_key,
+                &snapshot.platform,
+                &snapshot.jurisdiction,
+                &snapshot.version,
+                &snapshot.source_reference,
+                &snapshot.evidence_hash,
+                &snapshot.observed_at_epoch,
+                &snapshot.effective_at_epoch,
+                &snapshot.active,
+                &serde_json::to_value(&snapshot.rules)?,
+            ],
+        ).await?;
+
+        let row = tx
             .query_one(
                 "SELECT id,company_id,policy_key,platform,jurisdiction,version,
                         source_reference,evidence_hash,observed_at_epoch,effective_at_epoch,
                         active,rules_json
                    FROM policy_snapshots
-                  WHERE company_id=$1 AND policy_key=$2 AND version=$3",
+                  WHERE company_id=$1 AND policy_key=$2 AND version=$3
+                  FOR UPDATE",
                 &[&snapshot.company_id, &snapshot.policy_key, &snapshot.version],
             )
             .await?;
@@ -400,6 +401,17 @@ impl CompanyStore {
         if stored != *snapshot {
             return Err("policy snapshot version already exists with different evidence".into());
         }
+
+        if snapshot.active {
+            tx.execute(
+                "UPDATE policy_snapshots
+                    SET active=false
+                  WHERE company_id=$1 AND policy_key=$2 AND id<>$3",
+                &[&snapshot.company_id, &snapshot.policy_key, &snapshot.id],
+            ).await?;
+        }
+
+        tx.commit().await?;
         Ok(stored)
     }
 
