@@ -474,6 +474,35 @@ async fn index(
             score_pct
         ));
     }
+    let mut compliance_data_available = true;
+    let compliance_status = match state.store.compliance_status(&state.company_id).await {
+        Ok(value) => value,
+        Err(error) => {
+            compliance_data_available = false;
+            tracing::warn!(%error, "compliance status unavailable");
+            serde_json::json!({})
+        }
+    };
+    let compliance_html = if !compliance_data_available {
+        r#"<p class="muted">Policy intelligence is unavailable. External side effects remain fail-closed.</p>"#.to_string()
+    } else if let Some(policy) = compliance_status.get("latest_policy") {
+        let version = policy.get("version").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let active = policy.get("active").and_then(|v| v.as_bool()).unwrap_or(false);
+        let counts = compliance_status.get("checks_last_24h").cloned().unwrap_or_else(|| serde_json::json!({}));
+        format!(
+            r#"<div class="metric">{}</div><div class="muted">{} · {} · 24h: {} allowed / {} review / {} blocked / {} unknown</div>"#,
+            if active { "Policy ready" } else { "Policy inactive" },
+            escape_html(version),
+            escape_html(policy.get("evidence_hash").and_then(|v| v.as_str()).unwrap_or("evidence unavailable")),
+            counts.get("allowed").and_then(|v| v.as_i64()).unwrap_or(0),
+            counts.get("review").and_then(|v| v.as_i64()).unwrap_or(0),
+            counts.get("blocked").and_then(|v| v.as_i64()).unwrap_or(0),
+            counts.get("unknown").and_then(|v| v.as_i64()).unwrap_or(0),
+        )
+    } else {
+        r#"<p class="muted">No verified policy snapshot is loaded. External publishing/LIVE launch will remain blocked.</p>"#.to_string()
+    };
+
     if !growth_data_available {
         growth_html.push_str(r#"<p class="muted">Growth pipeline data is unavailable. The dashboard is not treating this as “no opportunities.”</p>"#);
     } else if growth_html.is_empty() {
