@@ -290,6 +290,13 @@ mod tests {
     }
 
     #[test]
+    fn monitor_does_not_create_opportunity() {
+        let mut value = signal();
+        value.confidence_bps = 4_000;
+        assert!(opportunity_from_trend(Uuid::new_v4(), &value).unwrap().is_none());
+    }
+
+    #[test]
     fn generated_plan_always_requires_disclosure() {
         let plan = build_content_plan(&signal()).unwrap();
         assert!(plan.brief.disclosure_required);
