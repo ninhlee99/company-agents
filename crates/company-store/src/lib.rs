@@ -333,6 +333,22 @@ impl CompanyStore {
         let company = Uuid::parse_str(company_id)?;
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
+        let existing = tx.query_opt(
+            "SELECT decision FROM growth_experiment_observations
+              WHERE company_id=$1 AND experiment_id=$2 AND observation_key=$3",
+            &[&company, &experiment_id, &observation_key],
+        ).await?;
+        if let Some(existing) = existing {
+            let decision: String = existing.get(0);
+            return match decision.as_str() {
+                "CONTINUE" => Ok(company_experiments::ExperimentDecision::Continue),
+                "SUCCEED" => Ok(company_experiments::ExperimentDecision::Succeed),
+                "KILL" => Ok(company_experiments::ExperimentDecision::Kill),
+                "EXPIRE" => Ok(company_experiments::ExperimentDecision::Expire),
+                _ => Err("invalid persisted experiment decision".into()),
+            };
+        }
+
         let row = tx.query_opt(
             "SELECT hypothesis,control_variant,treatment_variant,max_budget_minor::text,min_observations,duration_seconds,success_metric_bps,kill_metric_bps,status
                FROM growth_experiments WHERE company_id=$1 AND id=$2 FOR UPDATE",
