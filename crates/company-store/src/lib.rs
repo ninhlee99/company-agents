@@ -194,6 +194,11 @@ impl CompanyStore {
                 "../../../infra/db/migrations/021_procurement_vendor_lifecycle.sql"
             ))
             .await
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/022_tiktok_live.sql"
+            ))
+            .await
     }
 
     pub async fn ensure_company(
