@@ -10,8 +10,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::{env, sync::Arc, time::{Duration, Instant}};
-use tokio::sync::Mutex;
+use std::{env, time::{Duration, Instant}};
 use tokio_postgres::{Client, NoTls};
 use uuid::Uuid;
 
@@ -217,7 +216,7 @@ async fn generate(
     let job_id = Uuid::new_v4();
 
     {
-        let client = state.db.lock().await;
+        let client = &state.db;
         if let Some(row) = client
             .query_opt(
                 "SELECT id, status, output_json, expires_at <= now(), request_hash
