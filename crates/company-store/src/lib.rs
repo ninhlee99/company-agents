@@ -4907,6 +4907,22 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
               WHERE company_id=$1 AND id=$2",
             &[&company, &opportunity_id, &item.id],
         ).await?;
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'CONTENT_CREATED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[
+                &company,
+                &item.id,
+                &format!("outbox:growth-content:{}", item.id),
+                &serde_json::json!({
+                    "content_id": item.id,
+                    "opportunity_id": opportunity_id,
+                    "trend_id": opportunity.trend_id
+                }),
+            ],
+        ).await?;
         let content_row = tx.query_one(
             "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
                     expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
