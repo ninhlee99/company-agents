@@ -82,3 +82,10 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - Delivery evidence ledger: implemented
 - Automatic vendor payment/settlement: not implemented; approval and delivery do not settle funds
 - Autonomous supplier contracting: not implemented; external contracts remain human-governed
+
+
+## Revenue period truth
+
+- **Ledger-backed revenue periods:** Company OS now derives MTD, trailing-30-day, and lifetime revenue from immutable revenue ledger entries rather than using the cumulative company snapshot as a monthly progress proxy.
+- **Evidence count:** The dashboard exposes the number of revenue transactions supporting the MTD figure.
+- **Fail-closed display:** If the ledger query is unavailable, MTD displays as zero rather than silently presenting cumulative revenue as monthly revenue.

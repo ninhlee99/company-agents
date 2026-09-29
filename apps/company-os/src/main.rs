@@ -322,7 +322,24 @@ async fn index(State(state): State<AppState>) -> Html<String> {
         .and_then(|v| v.parse::<i128>().ok())
         .filter(|v| *v > 0)
         .unwrap_or_else(|| if state.currency.eq_ignore_ascii_case("VND") { 50_000_000 } else { 500_000 });
-    let target_pct = ((company.revenue_minor.max(0) as f64 / target_minor as f64) * 100.0).round().min(999.0) as u64;
+    let revenue_periods = state
+        .store
+        .revenue_period_metrics(&state.company_id)
+        .await
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, "revenue period metrics unavailable");
+            company_store::RevenuePeriodMetrics {
+                month_to_date_minor: 0,
+                last_30_days_minor: 0,
+                lifetime_minor: 0,
+                revenue_transaction_count: 0,
+            }
+        });
+    let target_pct = if revenue_periods.month_to_date_minor > 0 {
+        ((revenue_periods.month_to_date_minor as f64 / target_minor as f64) * 100.0).round().min(999.0) as u64
+    } else {
+        0
+    };
     let capacity_pct = if company.capacity > 0 {
         ((company.backlog.max(0) as f64 / company.capacity as f64) * 100.0).round().min(999.0) as u64
     } else { 0 };
@@ -369,8 +386,8 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <nav><a href="/">Overview</a><a href="/api/agents">Agents</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Audit</a></nav>
 <div class="grid">
 <div class="card"><small>Cash</small><div class="metric">{}</div></div>
-<div class="card"><small>Revenue</small><div class="metric">{}</div></div>
-<div class="card"><small>Monthly target</small><div class="metric">{}</div><div class="progress"><span style="width:{}%"></span></div><small>{}% of planning target</small></div>
+<div class="card"><small>Revenue MTD</small><div class="metric">{}</div><small>Ledger evidence: {} revenue transactions</small></div>
+<div class="card"><small>Monthly target</small><div class="metric">{}</div><div class="progress"><span style="width:{}%"></span></div><small>{}% of planning target · last 30d: {}</small></div>
 <div class="card"><small>Runway</small><div class="metric">{} days</div></div>
 </div>
 <div class="grid"><div class="card"><small>Status</small><div class="metric">{:?}</div></div><div class="card"><small>Agent cycle</small><div class="metric">{}</div></div><div class="card"><small>Backlog / capacity</small><div class="metric">{}%</div></div><div class="card"><small>Agent results</small><div class="metric">{}</div></div></div>
@@ -388,10 +405,12 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 </body></html>"#,
         state.company_id.clone(),
         format_minor(company.cash_minor, &state.currency),
-        format_minor(company.revenue_minor, &state.currency),
+        format_minor(revenue_periods.month_to_date_minor, &state.currency),
+        revenue_periods.revenue_transaction_count,
         format_minor(target_minor, &state.currency),
         target_pct,
         target_pct,
+        format_minor(revenue_periods.last_30_days_minor, &state.currency),
         company.runway_days,
         company.status,
         cycle_state,
