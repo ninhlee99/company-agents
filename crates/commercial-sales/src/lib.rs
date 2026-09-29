@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+pub mod messaging;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ProposalStatus { Draft, Sent, Accepted, Rejected, Expired }

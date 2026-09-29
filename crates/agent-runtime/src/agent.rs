@@ -2,6 +2,13 @@ use crate::{model::Model, types::*};
 use async_trait::async_trait;
 use std::{fmt, sync::Arc, time::Duration};
 
+#[derive(Debug, Clone)]
+pub struct AgentContext {
+    pub company: crate::types::CompanySnapshot,
+    pub model_timeout: std::time::Duration,
+    pub memory: Vec<crate::types::AgentMemory>,
+}
+
 #[derive(Debug)]
 pub enum AgentError {
     Model(crate::model::ModelError),
