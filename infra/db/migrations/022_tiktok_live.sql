@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS tiktok_live_gift_statements (
   gross_value_minor numeric(38,0) NOT NULL,
   currency text NOT NULL,
   matched boolean NOT NULL,
-  count_delta bigint NOT NULL,
+  count_delta numeric(38,0) NOT NULL,
   value_delta_minor numeric(38,0) NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE(company_id, statement_id)
