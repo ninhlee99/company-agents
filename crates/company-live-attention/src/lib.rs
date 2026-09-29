@@ -112,8 +112,9 @@ pub fn decide_attention(
         .is_some_and(|started| now_epoch.saturating_sub(started) >= policy.response_window_seconds)
     {
         let context = AttentionContext {
+            last_response_at_epoch: context.last_response_at_epoch,
             window_started_at_epoch: Some(now_epoch),
-            ..*context
+            responses_in_window: 0,
         };
         return decide_attention(company_id, session_id, mode, event, &context, now_epoch, policy);
     }
@@ -416,6 +417,27 @@ mod tests {
         .unwrap();
         assert_eq!(result.action, AttentionAction::Escalate);
         assert!(result.requires_human);
+    }
+
+    #[test]
+    fn expired_window_resets_rate_limit() {
+        let context = AttentionContext {
+            last_response_at_epoch: Some(1_750_000_010),
+            window_started_at_epoch: Some(1_750_000_000),
+            responses_in_window: 10,
+        };
+        let result = decide_attention(
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            LiveMode::Shopping,
+            &event(LiveEventKind::Comment, "Giá bao nhiêu?", 0),
+            &context,
+            1_750_000_061,
+            &AttentionPolicy::default(),
+        )
+        .unwrap();
+        assert_eq!(result.action, AttentionAction::Respond);
+        assert_eq!(result.reason, AttentionReason::PurchaseIntent);
     }
 
     #[test]
