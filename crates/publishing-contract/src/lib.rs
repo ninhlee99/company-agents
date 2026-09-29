@@ -146,7 +146,12 @@ pub fn generate_approval_token() -> (String, String) {
 }
 
 pub fn hash_secret(value: &str) -> String {
-    format!("sha256:{:x}", Sha256::digest(value.as_bytes()))
+    let digest = Sha256::digest(value.as_bytes());
+    let hex = digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    format!("sha256:{hex}")
 }
 
 
