@@ -129,3 +129,8 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Control-plane API:** authenticated GET/POST /api/content/items is available for creating and reviewing content plans.
 - **Truth boundary:** content plans do not imply rendering, publishing, reach, conversion or revenue. Those outcomes require separate verified media, platform, analytics and attribution evidence.
 - **Next integration:** connect content plans to media jobs, publish intents, verified analytics, experiments and the learning ledger.
+
+- **Content lifecycle evidence:** status transitions are governed and published/measured states require persisted evidence references.
+- **Content performance evidence:** company-scoped observations persist source/evidence hash, timestamp, sample/funnel metrics, spend, commission and contribution margin with idempotent observation keys.
+- **Deterministic feedback:** content observations resolve to SCALE/ITERATE/KILL using the declared loss limit and success threshold; no platform metrics are fabricated.
+- **Integration boundary:** verified analytics and publisher integrations must supply the evidence; the content API itself does not claim TikTok publishing or analytics connectivity.
