@@ -291,27 +291,6 @@ export default function App() {
     }
   };
 
-  const handleAutoRecruit = async (thresholdMinor?: number) => {
-    try {
-      const res = await fetch('/api/auto-recruit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ thresholdMinor }),
-      });
-      const result = await res.json();
-      if (result.success) {
-        setCustomAgents((prev) => [...prev, result.agent]);
-        setSnapshot(result.snapshot);
-        triggerToast(result.message);
-        loadState();
-        return { success: true };
-      }
-      return { success: false, reason: result.reason };
-    } catch (err) {
-      return { success: false, reason: 'Lỗi kết nối tuyển dụng tự động.' };
-    }
-  };
-
   // Run autonomous multi-agent pipeline
   const handleRunPipeline = async (topic: string) => {
     try {
@@ -504,7 +483,6 @@ export default function App() {
                 onHireAgent={handleHireAgent}
                 onToggleStatus={handleToggleAgentStatus}
                 onOpenTraining={handleOpenTraining}
-                onAutoRecruit={handleAutoRecruit}
               />
             )}
             {basicTab === 'pipeline' && (
@@ -518,7 +496,6 @@ export default function App() {
                 snapshot={snapshot}
                 ledger={ledger}
                 employees={employees}
-                agents={customAgents}
               />
             )}
           </>
