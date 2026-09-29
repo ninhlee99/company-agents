@@ -141,6 +141,20 @@ mod tests {
     }
 
     #[test]
+    fn proposal_lifecycle_is_deterministic() {
+        assert_eq!(transition_proposal(ProposalStatus::Draft, ProposalStatus::Sent).unwrap(), ProposalStatus::Sent);
+        assert_eq!(transition_proposal(ProposalStatus::Sent, ProposalStatus::Accepted).unwrap(), ProposalStatus::Accepted);
+        assert!(transition_proposal(ProposalStatus::Accepted, ProposalStatus::Sent).is_err());
+    }
+
+    #[test]
+    fn sponsorship_delivery_lifecycle_is_deterministic() {
+        assert_eq!(transition_sponsorship("PROSPECT", "CONTRACTED").unwrap(), "CONTRACTED");
+        assert_eq!(transition_sponsorship("CONTRACTED", "DELIVERING").unwrap(), "DELIVERING");
+        assert!(transition_sponsorship("COMPLETED", "DELIVERING").is_err());
+    }
+
+    #[test]
     fn payment_lifecycle_is_deterministic() {
         assert_eq!(transition_invoice(InvoiceStatus::Issued, 0, 1000).unwrap(), InvoiceStatus::Issued);
         assert_eq!(transition_invoice(InvoiceStatus::Issued, 400, 1000).unwrap(), InvoiceStatus::PartiallyPaid);
