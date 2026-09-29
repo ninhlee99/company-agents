@@ -4203,7 +4203,7 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
               WHERE company_id=$1 ORDER BY period_start_epoch DESC, created_at DESC LIMIT 1",&[&company]).await?;
         let currency:String=row.get(0); let cash=parse_i128_numeric(&row.get::<_,String>(1))?;
         let avg=client.query_opt(
-            "SELECT AVG((outflow_minor)::numeric) FROM cashflow_observations
+            "SELECT AVG((outflow_minor)::double precision) FROM cashflow_observations
               WHERE company_id=$1 AND period_start_epoch >= $2",&[&company,&(period_start_epoch-7776000)]).await?;
         let avg_out=avg.and_then(|r| r.get::<_,Option<f64>>(0)).unwrap_or(0.0);
         let runway=if avg_out>0.0 { cash as f64/avg_out } else { f64::INFINITY };
