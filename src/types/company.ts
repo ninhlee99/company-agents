@@ -110,6 +110,35 @@ export interface CustomAgent {
   tasksCompleted: number;
   status: 'Active' | 'Paused';
   hiredAtCycle: number;
+  skillLevel?: number; // e.g. 1, 2, 3
+  taskMultiplier?: number; // e.g. 1.0, 1.25, 1.5
+  trainedSkills?: string[];
+  trainingCount?: number;
+}
+
+export interface SkillTrainingCourse {
+  id: string;
+  name: string;
+  department: 'Leadership' | 'Growth' | 'Ops' | 'All';
+  description: string;
+  cost_minor: number;
+  multiplierBoost: number; // e.g. 0.25 = +25%
+  tasksBonus: number; // e.g. +10 tasks
+  badge: string;
+  levelRequired: number;
+}
+
+export interface WorkloadHeatmapCell {
+  cycle: number;
+  agentId: string;
+  agentName: string;
+  agentRole: string;
+  department: 'Leadership' | 'Growth' | 'Ops';
+  workloadPct: number; // 0 - 100%
+  tasksProcessed: number;
+  isBottleneck: boolean;
+  bottleneckType?: 'Queue Overflow' | 'Token Exhaustion' | 'Manual Escalation' | 'Compliance Lock';
+  notes?: string;
 }
 
 export interface CycleTrendPoint {

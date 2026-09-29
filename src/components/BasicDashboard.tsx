@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { CompanySnapshot, GovernedProposal, CycleTrendPoint, AutoAuditReport, DepartmentBudgetPoint, SystemAlert, CompanyKPIs } from '../types/company';
+import { CompanySnapshot, GovernedProposal, CycleTrendPoint, AutoAuditReport, DepartmentBudgetPoint, SystemAlert, CompanyKPIs, CustomAgent } from '../types/company';
 import { KPIOverview } from './KPIOverview';
 import { SystemAlertsLog } from './SystemAlertsLog';
+import { WorkloadHeatmap } from './WorkloadHeatmap';
 import { 
   RotateCw, 
   CheckCircle2, 
@@ -42,6 +43,8 @@ interface BasicDashboardProps {
   auditReports?: AutoAuditReport[];
   systemAlerts?: SystemAlert[];
   kpis?: CompanyKPIs;
+  agents?: CustomAgent[];
+  onOpenTraining?: (agentId?: string) => void;
   onRunCycle: () => void;
   isRunningCycle: boolean;
   onOverride: (proposalId: string, decision: 'Approve' | 'Reject') => void;
@@ -59,6 +62,8 @@ export const BasicDashboard: React.FC<BasicDashboardProps> = ({
   auditReports,
   systemAlerts,
   kpis,
+  agents = [],
+  onOpenTraining,
   onRunCycle,
   isRunningCycle,
   onOverride,
@@ -650,6 +655,9 @@ export const BasicDashboard: React.FC<BasicDashboardProps> = ({
           </div>
         )}
       </div>
+
+      {/* 30-Cycle Agent Workload Distribution & Operational Bottlenecks Heatmap */}
+      <WorkloadHeatmap agents={agents} onOpenTraining={onOpenTraining} />
 
       {/* Pending Approvals (Only when needed) */}
       {pendingApprovals.length > 0 && (

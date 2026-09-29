@@ -20,7 +20,9 @@ import {
   ArrowUpDown,
   Flame,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  GraduationCap,
+  Zap
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -38,6 +40,7 @@ interface ManageAgentsProps {
   agents: CustomAgent[];
   onHireAgent: (data: { name: string; role: string; department: 'Leadership' | 'Growth' | 'Ops' | 'Sales' | 'Tech'; description: string; salary_minor: number }) => Promise<{ success: boolean; reason?: string }>;
   onToggleStatus: (agentId: string) => void;
+  onOpenTraining?: (agentId?: string) => void;
 }
 
 export const ManageAgents: React.FC<ManageAgentsProps> = ({
@@ -45,6 +48,7 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
   agents,
   onHireAgent,
   onToggleStatus,
+  onOpenTraining,
 }) => {
   const [filter, setFilter] = useState<'All' | 'Leadership' | 'Growth' | 'Ops'>('All');
   const [showHireModal, setShowHireModal] = useState(false);
@@ -303,6 +307,16 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
             ))}
           </div>
 
+          {/* Training Button */}
+          {onOpenTraining && (
+            <button
+              onClick={() => onOpenTraining()}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md transition-all shrink-0 active:scale-95"
+            >
+              <GraduationCap className="w-3.5 h-3.5 text-yellow-300" /> Đào Tạo Kỹ Năng
+            </button>
+          )}
+
           {/* Hire Button */}
           <button
             onClick={() => setShowHireModal(true)}
@@ -545,9 +559,21 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
                     </div>
                   </div>
 
-                  <div className="mt-2 text-[11px] text-slate-300 bg-slate-900/60 p-2 rounded-lg border border-slate-800/80 flex items-start gap-1.5">
-                    <span className="text-indigo-400 font-bold shrink-0">Governor:</span>
-                    <span>{agent.recommendation}</span>
+                  <div className="mt-2 text-[11px] text-slate-300 bg-slate-900/60 p-2 rounded-lg border border-slate-800/80 flex items-start justify-between gap-1.5">
+                    <div className="flex items-start gap-1.5 flex-1">
+                      <span className="text-indigo-400 font-bold shrink-0">Governor:</span>
+                      <span>{agent.recommendation}</span>
+                    </div>
+                    {onOpenTraining && (
+                      <button
+                        onClick={() => onOpenTraining(agent.id)}
+                        className="px-2 py-1 rounded bg-indigo-600/30 hover:bg-indigo-600 text-indigo-300 hover:text-white font-bold text-[10px] shrink-0 border border-indigo-500/40 transition-all flex items-center gap-1 active:scale-95"
+                        title="Đào tạo kỹ năng để tăng hệ số công việc"
+                      >
+                        <Zap className="w-2.5 h-2.5 text-yellow-300" />
+                        <span>Upskill</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -681,15 +707,25 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
                 </div>
               </div>
 
-              {/* Task History Trigger Button */}
-              <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+              {/* Task History & Training Trigger Buttons */}
+              <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between gap-2">
                 <button
                   onClick={() => openTaskHistoryModal(agent)}
-                  className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-slate-200 hover:text-white font-medium text-xs transition-all active:scale-95 border border-slate-700/60"
+                  className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-slate-200 hover:text-white font-medium text-xs transition-all active:scale-95 border border-slate-700/60"
                 >
                   <History className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>Xem 10 Tác Vụ Gần Nhất</span>
+                  <span>10 Tác Vụ</span>
                 </button>
+
+                {onOpenTraining && (
+                  <button
+                    onClick={() => onOpenTraining(agent.id)}
+                    className="flex-1 flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-lg bg-gradient-to-r from-purple-600/20 to-indigo-600/20 hover:from-purple-600/40 hover:to-indigo-600/40 text-purple-300 hover:text-white font-bold text-xs transition-all active:scale-95 border border-purple-500/30"
+                  >
+                    <GraduationCap className="w-3.5 h-3.5 text-yellow-300" />
+                    <span>Đào Tạo ({agent.taskMultiplier ? `${agent.taskMultiplier}x` : '1.0x'})</span>
+                  </button>
+                )}
               </div>
             </div>
           );

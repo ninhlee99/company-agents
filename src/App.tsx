@@ -5,6 +5,8 @@ import { BasicDashboard } from './components/BasicDashboard';
 import { ManageAgents } from './components/ManageAgents';
 import { ManageFinances } from './components/ManageFinances';
 import { AutonomousPipelineTab } from './components/AutonomousPipelineTab';
+import { AgentSkillTrainingModal } from './components/AgentSkillTrainingModal';
+import { SkillTrainingCourse } from './types/company';
 
 // Pro Mode Components
 import { ReviewTab } from './components/ReviewTab';
@@ -76,6 +78,8 @@ export default function App() {
   const [departmentBudgets, setDepartmentBudgets] = useState<DepartmentBudgetPoint[]>([]);
   const [auditReports, setAuditReports] = useState<AutoAuditReport[]>([]);
   const [systemAlerts, setSystemAlerts] = useState<SystemAlert[]>([]);
+  const [showTrainingModal, setShowTrainingModal] = useState(false);
+  const [trainingAgentId, setTrainingAgentId] = useState<string | null>(null);
 
   const loadState = async () => {
     try {
@@ -259,6 +263,34 @@ export default function App() {
     }
   };
 
+  const handleOpenTraining = (agentId?: string) => {
+    setTrainingAgentId(agentId || null);
+    setShowTrainingModal(true);
+  };
+
+  const handleTrainAgent = async (agentId: string, course: SkillTrainingCourse) => {
+    try {
+      const res = await fetch('/api/train-agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, course }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        setCustomAgents((prev) =>
+          prev.map((a) => (a.id === agentId ? result.agent : a))
+        );
+        setSnapshot(result.snapshot);
+        triggerToast(result.message);
+        loadState();
+        return { success: true };
+      }
+      return { success: false, reason: result.reason };
+    } catch (err) {
+      return { success: false, reason: 'Lỗi kết nối đào tạo.' };
+    }
+  };
+
   // Run autonomous multi-agent pipeline
   const handleRunPipeline = async (topic: string) => {
     try {
@@ -433,6 +465,8 @@ export default function App() {
                 departmentBudgets={departmentBudgets}
                 auditReports={auditReports}
                 systemAlerts={systemAlerts}
+                agents={customAgents}
+                onOpenTraining={handleOpenTraining}
                 onRunCycle={handleRunCycle}
                 isRunningCycle={isRunningCycle}
                 onOverride={handleOverride}
@@ -448,6 +482,7 @@ export default function App() {
                 agents={customAgents}
                 onHireAgent={handleHireAgent}
                 onToggleStatus={handleToggleAgentStatus}
+                onOpenTraining={handleOpenTraining}
               />
             )}
             {basicTab === 'pipeline' && (
@@ -495,6 +530,16 @@ export default function App() {
           </>
         )}
       </main>
+
+      {/* Agent Skill Training Modal */}
+      <AgentSkillTrainingModal
+        isOpen={showTrainingModal}
+        onClose={() => setShowTrainingModal(false)}
+        agents={customAgents}
+        snapshot={snapshot}
+        onTrainAgent={handleTrainAgent}
+        initialSelectedAgentId={trainingAgentId}
+      />
 
       {/* Toast Notification */}
       {toastMessage && (
