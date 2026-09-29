@@ -14,6 +14,7 @@ pub enum Tool {
     PublishContent,
     SendExternalMessage,
     InitiatePayment,
+    EscalateIncident,
 }
 
 impl Tool {
@@ -30,15 +31,31 @@ impl Tool {
         Self::PublishContent,
         Self::SendExternalMessage,
         Self::InitiatePayment,
+        Self::EscalateIncident,
     ];
 }
 
 pub struct ToolRegistry;
 
 impl ToolRegistry {
+    pub fn for_action(action: crate::types::ActionKind) -> Option<Tool> {
+        match action {
+            crate::types::ActionKind::CreateExperiment => Some(Tool::CreateExperiment),
+            crate::types::ActionKind::AllocateExperimentBudget => Some(Tool::AllocateExperimentBudget),
+            crate::types::ActionKind::ReduceBudget => Some(Tool::ReduceBudget),
+            crate::types::ActionKind::RebalanceOperations => Some(Tool::RebalanceOperations),
+            crate::types::ActionKind::ResearchOpportunity => Some(Tool::ResearchOpportunity),
+            crate::types::ActionKind::ProposeHire => Some(Tool::ProposeHire),
+            crate::types::ActionKind::ProduceReport => Some(Tool::ProduceReport),
+            crate::types::ActionKind::PublishContent => Some(Tool::PublishContent),
+            crate::types::ActionKind::EscalateIncident => Some(Tool::EscalateIncident),
+            crate::types::ActionKind::None => None,
+        }
+    }
+
     pub fn allowed(role: AgentRole, tool: Tool) -> bool {
         match role {
-            AgentRole::Governor => matches!(tool, Tool::ReadCompany | Tool::ReadMetrics),
+            AgentRole::Governor => matches!(tool, Tool::ReadCompany | Tool::ReadMetrics | Tool::EscalateIncident),
             AgentRole::CEO => matches!(
                 tool,
                 Tool::ReadCompany
@@ -47,10 +64,12 @@ impl ToolRegistry {
                     | Tool::AllocateExperimentBudget
                     | Tool::ReduceBudget
                     | Tool::ProduceReport
+                    | Tool::EscalateIncident
             ),
             AgentRole::CFO => matches!(
                 tool,
                 Tool::ReadCompany | Tool::ReadMetrics | Tool::ReduceBudget | Tool::ProduceReport
+                    | Tool::EscalateIncident
             ),
             AgentRole::COO => matches!(
                 tool,
@@ -58,6 +77,7 @@ impl ToolRegistry {
                     | Tool::ReadMetrics
                     | Tool::RebalanceOperations
                     | Tool::ProduceReport
+                    | Tool::EscalateIncident
             ),
             AgentRole::Growth => matches!(
                 tool,
