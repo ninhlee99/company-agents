@@ -16,5 +16,6 @@ members = [
   "crates/publishing-contract",
   "crates/social-publishing",
   "apps/llm-web-relay",
-  "apps/llm-web-worker"
+  "apps/llm-web-worker",
+  "apps/outbox-worker"
 ]
