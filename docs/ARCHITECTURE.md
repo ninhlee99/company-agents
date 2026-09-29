@@ -17,14 +17,13 @@ The core runtime is Rust, with specialized workers chosen by workload.
 
 `event -> scheduler -> agent -> typed proposal -> governance -> deterministic executor -> audit -> event`
 
-Rust owns the safety-critical path. Go can be used for isolated operational services or infrastructure utilities. Python is isolated to data/ML workloads.
+Rust owns the safety-critical path. Go and Python are optional escape hatches, not runtime requirements. Introduce them only when a measured workload justifies the extra runtime/toolchain footprint.
 
 ## Repository layout
 
 ```
 apps/
   company-os/            # Rust control plane
-apps/
   media-worker/          # Rust worker around FFmpeg
   llm-web-relay/         # Rust browser/web relay control plane
   llm-web-worker/        # Rust relay worker
