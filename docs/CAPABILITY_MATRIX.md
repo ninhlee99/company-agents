@@ -90,3 +90,14 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - Idempotent cash-flow observations with evidence: implemented
 - Forecast-vs-actual variance analysis: next
 - Automated cash runway / liquidity alerts: next
+
+
+## Legal / Compliance
+
+- Compliance obligations with deadlines and owners: implemented
+- Evidence ledger with hashes and submitter: implemented
+- Explicit approval/rejection evidence and audit events: implemented
+- Overdue obligation state: implemented
+- Revenue/payment linkage requires a SATISFIED compliance obligation: implemented
+- Automated legal interpretation or autonomous approval: not implemented
+- Jurisdiction-specific legal advice: not implemented
