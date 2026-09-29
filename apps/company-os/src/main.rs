@@ -498,7 +498,6 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <small>Example: <code>/api/affiliate/search?category=electronics&amp;min_commission_bps=1500&amp;require_coupon=true</code></small>
 </div>
 </body></html>"#,
-        live_feedback(&query),
         state.company_id.clone(),
         format_minor(company.cash_minor, &state.currency),
         format_minor(revenue_periods.month_to_date_minor, &state.currency),
@@ -522,6 +521,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         due_payroll_count,
         business_unit_count,
         rows,
+        live_feedback(&query),
     ))
 }
 
