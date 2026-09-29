@@ -1077,17 +1077,16 @@ impl CompanyStore {
         let intent_uuid = Uuid::parse_str(&intent.id)?;
         let idempotency_key = publishing_contract::new_idempotency_key(intent);
 
-        let scheduled_at = intent
-            .scheduled_at
-            .as_deref()
-            .map(|value| {
+        let scheduled_at = match intent.scheduled_at.as_deref() {
+            Some(value) => Some(
                 time::OffsetDateTime::parse(
                     value,
                     &time::format_description::well_known::Rfc3339,
-                )
-                .map(|parsed| parsed.format(&time::format_description::well_known::Rfc3339))
-            })
-            .transpose()??;
+                )?
+                .format(&time::format_description::well_known::Rfc3339)?,
+            ),
+            None => None,
+        };
 
         let client = self.client.lock().await;
         let existing = client
