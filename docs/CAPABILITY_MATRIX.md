@@ -88,5 +88,5 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - Monthly/period cash-flow assumptions: implemented
 - Forecast net cash-flow summary: implemented
 - Idempotent cash-flow observations with evidence: implemented
-- Forecast-vs-actual variance analysis: next
-- Automated cash runway / liquidity alerts: next
+- Forecast-vs-actual variance analysis: implemented (period-level inflow/outflow/net variance)
+- Automated cash runway / liquidity alerts: implemented baseline (persisted INFO/WARNING/CRITICAL assessment)
