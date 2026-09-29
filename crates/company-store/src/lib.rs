@@ -245,6 +245,36 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/024_growth_experiments.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/025_legal_compliance.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/026_recurring_revenue.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/027_payment_execution.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/028_fpa_variance_alerts.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/029_customer_support.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/030_content_factory.sql"
+            ))
             .await
     }
 
