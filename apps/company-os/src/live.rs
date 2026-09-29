@@ -28,6 +28,15 @@ pub async fn create_session(
     Json(req): Json<CreateSessionRequest>,
 ) -> Result<Json<LiveSession>, StatusCode> {
     let mode = parse_mode(&req.mode).ok_or(StatusCode::BAD_REQUEST)?;
+    if req.approved_for_external_publish {
+        let approved = std::env::var("TIKTOK_LIVE_PUBLISH_APPROVED")
+            .ok()
+            .is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"));
+        let destination = std::env::var("TIKTOK_LIVE_STREAM_DESTINATION").ok();
+        if !approved || destination.as_deref().is_none_or(|value| !(value.starts_with("rtmp://") || value.starts_with("rtmps://"))) {
+            return Err(StatusCode::PRECONDITION_FAILED);
+        }
+    }
     let company_id = Uuid::parse_str(&state.company_id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let session = LiveSession {
         id: Uuid::new_v4(),
