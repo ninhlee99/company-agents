@@ -297,7 +297,35 @@ fn affiliate_query(params: AffiliateSearchParams) -> ProductSearchQuery {
     }
 }
 
-async fn index(State(state): State<AppState>) -> Html<String> {
+#[derive(Debug, Deserialize, Default)]
+struct LiveUiQuery {
+    live_error: Option<String>,
+    live_status: Option<String>,
+}
+
+fn live_feedback(query: &LiveUiQuery) -> String {
+    let message = match query.live_error.as_deref() {
+        Some("session_create_failed") => Some("Could not create the LIVE session. Check the selected mode and server logs."),
+        Some("stream_not_enabled") => Some("LIVE publishing is not enabled. External publishing remains disabled until the required configuration is present."),
+        Some("stream_start_failed") => Some("The LIVE stream could not be started. Check the publisher configuration and logs."),
+        Some("stream_stop_failed") => Some("The LIVE stream could not be stopped cleanly. Check the publisher status and logs."),
+        _ => None,
+    };
+    if let Some(message) = message {
+        return format!(r#"<div class="card" style="border-color:#7f1d1d"><strong>LIVE action needs attention</strong><p class="muted">{}</p></div>"#, message);
+    }
+    match query.live_status.as_deref() {
+        Some("session_created") => r#"<div class="card"><strong>LIVE session created</strong><p class="muted">The session is persisted. Creating a session does not publish externally.</p></div>"#.into(),
+        Some("stream_started") => r#"<div class="card"><strong>LIVE stream started</strong><p class="muted">The governed publisher accepted the start request.</p></div>"#.into(),
+        Some("stream_stopped") => r#"<div class="card"><strong>LIVE stream stopped</strong></div>"#.into(),
+        _ => String::new(),
+    }
+}
+
+async fn index(
+    State(state): State<AppState>,
+    Query(query): Query<LiveUiQuery>,
+) -> Html<String> {
     let company = state.company.read().await.clone();
     let workforce = state.store.list_employees(&state.company_id).await.unwrap_or_default();
     let business_units = state.store.list_business_units(&state.company_id).await.unwrap_or_default();
@@ -465,11 +493,12 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <div class="card"><h2>Agents</h2>
 <table><tr><th>Agent</th><th>Governor</th><th>Execution</th><th>Action</th></tr>{}</table>
 </div>
-<div class="card"><h2>LIVE Command Center</h2><p><small>Server-rendered controls; external publishing stays gated by configuration and approval.</small></p><form method="post" action="/live/session"><select name="mode" style="padding:9px;width:100%"><option>SOLO</option><option>SHOPPING</option><option>GAME</option><option>STORY</option><option>MUSIC</option><option>PK</option><option>COHOST</option></select><input name="title" value="Veridara AI LIVE" style="margin-top:8px;padding:9px;width:100%;box-sizing:border-box"><p><button type="submit">Create session</button></p></form><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><form method="post" action="/live/start"><button type="submit">Start stream</button></form><form method="post" action="/live/stop"><button type="submit">Stop stream</button></form><a href="/" style="color:#94a3b8">Refresh</a></div><div class="metric">Provider-gated</div></div><div class="card"><h2>Commerce</h2>
+{}<div class="card"><h2>LIVE Command Center</h2><p><small>Server-rendered controls; external publishing stays gated by configuration and approval.</small></p><form method="post" action="/live/session"><select name="mode" style="padding:9px;width:100%"><option>SOLO</option><option>SHOPPING</option><option>GAME</option><option>STORY</option><option>MUSIC</option><option>PK</option><option>COHOST</option></select><input name="title" value="Veridara AI LIVE" style="margin-top:8px;padding:9px;width:100%;box-sizing:border-box"><p><button type="submit">Create session</button></p></form><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><form method="post" action="/live/start"><button type="submit">Start stream</button></form><form method="post" action="/live/stop"><button type="submit">Stop stream</button></form><a href="/" style="color:#94a3b8">Refresh</a></div><div class="metric">Provider-gated</div></div><div class="card"><h2>Commerce</h2>
 <p>Search live Awin feed data when <code>AFFILIATE_PROVIDER=awin</code>; local mock data is used by default.</p>
 <small>Example: <code>/api/affiliate/search?category=electronics&amp;min_commission_bps=1500&amp;require_coupon=true</code></small>
 </div>
 </body></html>"#,
+        live_feedback(&query),
         state.company_id.clone(),
         format_minor(company.cash_minor, &state.currency),
         format_minor(revenue_periods.month_to_date_minor, &state.currency),
@@ -515,18 +544,26 @@ async fn live_create_html(
         started_at_epoch: time::OffsetDateTime::now_utc().unix_timestamp(),
         approved_for_external_publish: false,
     };
-    let _ = live::create_session(State(state), Json(request)).await;
-    Redirect::to("/")
+    match live::create_session(State(state), Json(request)).await {
+        Ok(_) => Redirect::to("/?live_status=session_created"),
+        Err(_) => Redirect::to("/?live_error=session_create_failed"),
+    }
 }
 
 async fn live_start_html(State(state): State<AppState>) -> Redirect {
-    let _ = live::start_stream(State(state)).await;
-    Redirect::to("/")
+    match live::start_stream(State(state)).await {
+        Ok(_) => Redirect::to("/?live_status=stream_started"),
+        Err(StatusCode::PRECONDITION_FAILED) => Redirect::to("/?live_error=stream_not_enabled"),
+        Err(_) => Redirect::to("/?live_error=stream_start_failed"),
+    }
 }
 
 async fn live_stop_html(State(state): State<AppState>) -> Redirect {
-    let _ = live::stop_stream(State(state)).await;
-    Redirect::to("/")
+    match live::stop_stream(State(state)).await {
+        Ok(_) => Redirect::to("/?live_status=stream_stopped"),
+        Err(StatusCode::PRECONDITION_FAILED) => Redirect::to("/?live_error=stream_not_enabled"),
+        Err(_) => Redirect::to("/?live_error=stream_stop_failed"),
+    }
 }
 
 async fn run_html(State(state): State<AppState>) -> (StatusCode, Html<String>) {
