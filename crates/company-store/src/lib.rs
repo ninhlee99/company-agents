@@ -3272,7 +3272,7 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
     pub async fn create_invoice(&self, invoice: &commercial_sales::Invoice, lines: &[commercial_sales::InvoiceLine]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if invoice.idempotency_key.trim().is_empty() || invoice.currency.len() != 3 || lines.is_empty() { return Err("invalid invoice".into()); }
         let total = commercial_sales::invoice_total(lines)?;
-        if total != invoice.subtotal_minor || invoice.paid_minor != 0 { return Err("invoice total or initial payment is invalid".into()); }
+        if total <= 0 || total != invoice.subtotal_minor || invoice.paid_minor != 0 { return Err("invoice total or initial payment is invalid".into()); }
         let mut c = self.client.lock().await; let tx = c.transaction().await?;
         if tx.query_opt("SELECT id FROM invoices WHERE company_id=$1 AND idempotency_key=$2",&[&invoice.company_id,&invoice.idempotency_key]).await?.is_some() { tx.rollback().await?; return Ok(()); }
         tx.execute("INSERT INTO invoices (id,company_id,customer_id,currency,subtotal_minor,paid_minor,status,due_epoch,idempotency_key) VALUES ($1,$2,$3,$4,$5::numeric,0,$6,$7,$8)",
