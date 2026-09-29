@@ -4694,7 +4694,7 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
 
-        let inserted = tx.query_opt(
+        let _inserted = tx.query_opt(
             "INSERT INTO growth_trends
              (id,company_id,trend_key,topic,source,evidence_ref,observed_at_epoch,
               velocity_bps,audience_fit_bps,product_fit_bps,contentability_bps,competition_bps,
@@ -4702,7 +4702,7 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
               max_duration_seconds,success_metric,success_threshold_bps,policy_evidence_ref,score_bps,decision)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
              ON CONFLICT(company_id,trend_key) DO NOTHING
-             RETURNING id,created_at::text",
+             RETURNING id",
             &[
                 &trend_id, &company, &signal.trend_key, &signal.topic, &signal.source,
                 &signal.evidence_ref, &signal.observed_at_epoch, &(signal.velocity_bps as i32),
@@ -4717,73 +4717,31 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             ],
         ).await?;
 
-        let (stored_trend_id, created_at) = match inserted {
-            Some(row) => (row.get::<_, Uuid>(0), row.get::<_, String>(1)),
-            None => {
-                let row = tx.query_one(
-                    "SELECT id,created_at::text
-                       FROM growth_trends
-                      WHERE company_id=$1 AND trend_key=$2",
-                    &[&company, &signal.trend_key],
+        let trend = load_growth_trend(&tx, &company, &signal.trend_key)
+            .await?
+            .ok_or("persisted growth trend not found")?;
+
+        let opportunity = if trend.decision == company_growth::TrendDecision::Pursue {
+            if let Some(existing) = load_growth_opportunity_by_trend(&tx, &company, trend.id).await? {
+                Some(existing)
+            } else {
+                let opportunity = company_growth::opportunity_from_trend(trend.id, &trend.signal)?
+                    .ok_or("pursue trend must create an opportunity")?;
+                let plan_json = serde_json::to_value(&opportunity.plan)?;
+                tx.execute(
+                    "INSERT INTO growth_opportunities
+                     (id,company_id,trend_id,opportunity_key,title,score_bps,confidence_bps,
+                      policy_evidence_ref,plan_json,status)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'READY')
+                     ON CONFLICT(company_id,opportunity_key) DO NOTHING",
+                    &[
+                        &opportunity.id, &company, &trend.id, &opportunity.opportunity_key,
+                        &opportunity.title, &(opportunity.score_bps as i32), &(opportunity.confidence_bps as i32),
+                        &opportunity.policy_evidence_ref, &plan_json,
+                    ],
                 ).await?;
-                (row.get(0), row.get(1))
+                load_growth_opportunity_by_trend(&tx, &company, trend.id).await?
             }
-        };
-
-        let trend = GrowthTrendRecord {
-            id: stored_trend_id,
-            signal: signal.clone(),
-            score_bps: evaluation.score_bps,
-            decision: evaluation.decision,
-            created_at,
-        };
-
-        let opportunity = if evaluation.decision == company_growth::TrendDecision::Pursue {
-            let opportunity = company_growth::opportunity_from_trend(stored_trend_id, signal)?
-                .ok_or("pursue trend must create an opportunity")?;
-            let plan_json = serde_json::to_value(&opportunity.plan)?;
-            let inserted = tx.query_opt(
-                "INSERT INTO growth_opportunities
-                 (id,company_id,trend_id,opportunity_key,title,score_bps,confidence_bps,
-                  policy_evidence_ref,plan_json,status)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'READY')
-                 ON CONFLICT(company_id,opportunity_key) DO NOTHING
-                 RETURNING id,created_at::text",
-                &[
-                    &opportunity.id, &company, &stored_trend_id, &opportunity.opportunity_key,
-                    &opportunity.title, &(opportunity.score_bps as i32), &(opportunity.confidence_bps as i32),
-                    &opportunity.policy_evidence_ref, &plan_json,
-                ],
-            ).await?;
-
-            let (opportunity_id, opportunity_created_at) = match inserted {
-                Some(row) => (row.get::<_, Uuid>(0), row.get::<_, String>(1)),
-                None => {
-                    let row = tx.query_one(
-                        "SELECT id,created_at::text
-                           FROM growth_opportunities
-                          WHERE company_id=$1 AND opportunity_key=$2",
-                        &[&company, &opportunity.opportunity_key],
-                    ).await?;
-                    (row.get(0), row.get(1))
-                }
-            };
-
-            Some(GrowthOpportunityRecord {
-                opportunity: if opportunity_id == opportunity.id {
-                    opportunity
-                } else {
-                    load_growth_opportunity(&tx, &company, opportunity_id).await?
-                        .ok_or("persisted growth opportunity not found")?
-                        .opportunity
-                },
-                status: load_growth_opportunity(&tx, &company, opportunity_id).await?
-                    .map(|record| record.status)
-                    .unwrap_or(company_growth::OpportunityStatus::Ready),
-                content_item_id: load_growth_opportunity(&tx, &company, opportunity_id).await?
-                    .and_then(|record| record.content_item_id),
-                created_at: opportunity_created_at,
-            })
         } else {
             None
         };
