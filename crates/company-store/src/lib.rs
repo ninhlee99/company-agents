@@ -5109,6 +5109,81 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
 
 }
 
+async fn load_growth_trend(
+    tx: &tokio_postgres::Transaction<'_>,
+    company_id: &Uuid,
+    trend_key: &str,
+) -> Result<Option<GrowthTrendRecord>, Box<dyn std::error::Error + Send + Sync>> {
+    let row = tx.query_opt(
+        "SELECT id,company_id,trend_key,topic,source,evidence_ref,observed_at_epoch,
+                velocity_bps,audience_fit_bps,product_fit_bps,contentability_bps,competition_bps,
+                confidence_bps,product_ref,offer_ref,content_format,max_budget_minor,max_loss_minor,
+                max_duration_seconds,success_metric,success_threshold_bps,policy_evidence_ref,
+                score_bps,decision,created_at::text
+           FROM growth_trends
+          WHERE company_id=$1 AND trend_key=$2",
+        &[company_id, &trend_key],
+    ).await?;
+    row.map(growth_trend_from_row).transpose()
+}
+
+async fn load_growth_opportunity_by_trend(
+    tx: &tokio_postgres::Transaction<'_>,
+    company_id: &Uuid,
+    trend_id: Uuid,
+) -> Result<Option<GrowthOpportunityRecord>, Box<dyn std::error::Error + Send + Sync>> {
+    let row = tx.query_opt(
+        "SELECT id,company_id,trend_id,opportunity_key,title,score_bps,confidence_bps,
+                policy_evidence_ref,plan_json,status,content_item_id,created_at::text
+           FROM growth_opportunities
+          WHERE company_id=$1 AND trend_id=$2",
+        &[company_id, &trend_id],
+    ).await?;
+    row.map(growth_opportunity_from_row).transpose()
+}
+
+fn growth_trend_from_row(
+    row: tokio_postgres::Row,
+) -> Result<GrowthTrendRecord, Box<dyn std::error::Error + Send + Sync>> {
+    let decision = match row.get::<_, String>(23).as_str() {
+        "PURSUE" => company_growth::TrendDecision::Pursue,
+        "MONITOR" => company_growth::TrendDecision::Monitor,
+        "REJECT" => company_growth::TrendDecision::Reject,
+        other => return Err(format!("invalid growth trend decision: {other}").into()),
+    };
+    let signal = company_growth::TrendSignal {
+        company_id: row.get(1),
+        trend_key: row.get(2),
+        topic: row.get(3),
+        source: row.get(4),
+        evidence_ref: row.get(5),
+        observed_at_epoch: row.get(6),
+        velocity_bps: row.get::<_, i32>(7) as u32,
+        audience_fit_bps: row.get::<_, i32>(8) as u32,
+        product_fit_bps: row.get::<_, i32>(9) as u32,
+        contentability_bps: row.get::<_, i32>(10) as u32,
+        competition_bps: row.get::<_, i32>(11) as u32,
+        confidence_bps: row.get::<_, i32>(12) as u32,
+        product_ref: row.get(13),
+        offer_ref: row.get(14),
+        content_format: parse_content_format(row.get::<_, String>(15))?,
+        max_budget_minor: row.get::<_, String>(16).parse()?,
+        max_loss_minor: row.get::<_, String>(17).parse()?,
+        max_duration_seconds: row.get::<_, i64>(18) as u32,
+        success_metric: parse_success_metric(row.get::<_, String>(19))?,
+        success_threshold_bps: row.get::<_, i32>(20) as u32,
+        policy_evidence_ref: row.get(21),
+    };
+    company_growth::validate_trend(&signal).map_err(|error| error.to_string())?;
+    Ok(GrowthTrendRecord {
+        id: row.get(0),
+        signal,
+        score_bps: row.get::<_, i32>(22) as u32,
+        decision,
+        created_at: row.get(24),
+    })
+}
+
 async fn load_growth_opportunity(
     tx: &tokio_postgres::Transaction<'_>,
     company_id: &Uuid,
