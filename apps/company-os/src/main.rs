@@ -123,6 +123,16 @@ struct AffiliateConversionRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct GrowthTrendRequest {
+    signal: company_growth::TrendSignal,
+}
+
+#[derive(Debug, Deserialize)]
+struct GrowthContentRequest {
+    opportunity_id: uuid::Uuid,
+}
+
+#[derive(Debug, Deserialize)]
 struct ContentCreateRequest {
     brief: company_content::ContentBrief,
     variant: company_content::CreativeVariant,
