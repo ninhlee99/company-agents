@@ -4800,7 +4800,7 @@ fn parse_content_status(value: &str) -> Result<company_content::ContentStatus, S
         "RENDERED" => Ok(company_content::ContentStatus::Rendered),
         "PUBLISHED" => Ok(company_content::ContentStatus::Published),
         "MEASURED" => Ok(company_content::ContentStatus::Measured),
-        "Paused" => Ok(company_content::ContentStatus::Paused),
+        "PAUSED" => Ok(company_content::ContentStatus::Paused),
         "KILLED" => Ok(company_content::ContentStatus::Killed),
         _ => Err(format!("invalid content status: {value}")),
     }
