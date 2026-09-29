@@ -66,6 +66,57 @@ pub struct LiveLedger {
     pub comments: u64, pub follows: u64, pub shares: u64, pub likes: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProviderGiftStatement {
+    pub statement_id: String,
+    pub room_id: String,
+    pub gift_count: u64,
+    pub gross_value_minor: u128,
+    pub currency: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GiftReconciliation {
+    pub statement_id: String,
+    pub recorded_gift_count: u64,
+    pub provider_gift_count: u64,
+    pub recorded_value_minor: u128,
+    pub provider_value_minor: u128,
+    pub count_delta: i128,
+    pub value_delta_minor: i128,
+    pub matched: bool,
+}
+
+pub fn reconcile_gifts(
+    ledger: &LiveLedger,
+    statement: &ProviderGiftStatement,
+) -> Result<GiftReconciliation, String> {
+    if statement.statement_id.trim().is_empty()
+        || statement.room_id.trim().is_empty()
+        || statement.currency.trim().is_empty()
+    {
+        return Err("provider gift statement identifiers/currency are required".into());
+    }
+    if ledger.gift_value_minor > i128::MAX as u128
+        || statement.gross_value_minor > i128::MAX as u128
+    {
+        return Err("gift values exceed reconciliation range".into());
+    }
+    let count_delta = ledger.gift_count as i128 - statement.gift_count as i128;
+    let value_delta_minor =
+        ledger.gift_value_minor as i128 - statement.gross_value_minor as i128;
+    Ok(GiftReconciliation {
+        statement_id: statement.statement_id.clone(),
+        recorded_gift_count: ledger.gift_count,
+        provider_gift_count: statement.gift_count,
+        recorded_value_minor: ledger.gift_value_minor,
+        provider_value_minor: statement.gross_value_minor,
+        count_delta,
+        value_delta_minor,
+        matched: count_delta == 0 && value_delta_minor == 0,
+    })
+}
+
 impl LiveLedger {
     pub fn ingest(&mut self, event: &LiveEvent) -> Result<bool, String> {
         event.validate()?;
