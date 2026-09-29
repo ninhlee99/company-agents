@@ -3679,10 +3679,30 @@ impl CompanyStore {
         event.validate().map_err(|error| error.to_string())?;
         let company_uuid = Uuid::parse_str(company_id)?;
         let session_uuid = Uuid::parse_str(session_id)?;
-        let mode = self.tiktok_live_mode(company_id, session_id).await?;
 
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
+
+        let mode_value: String = tx
+            .query_one(
+                "SELECT mode
+                   FROM tiktok_live_sessions
+                  WHERE company_id=$1 AND id=$2
+                  FOR UPDATE",
+                &[&company_uuid, &session_uuid],
+            )
+            .await?
+            .get(0);
+        let mode = match mode_value.as_str() {
+            "SOLO" => tiktok_live_engine::LiveMode::Solo,
+            "COHOST" | "CO_HOST" => tiktok_live_engine::LiveMode::CoHost,
+            "PK" => tiktok_live_engine::LiveMode::Pk,
+            "GAME" => tiktok_live_engine::LiveMode::Game,
+            "STORY" => tiktok_live_engine::LiveMode::Story,
+            "MUSIC" => tiktok_live_engine::LiveMode::Music,
+            "SHOPPING" | "SHOP" => tiktok_live_engine::LiveMode::Shopping,
+            other => return Err(format!("unknown LIVE mode: {other}").into()),
+        };
 
         tx.query_one(
             "SELECT 1 FROM tiktok_live_events
