@@ -1052,7 +1052,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/readyz", get(readyz))
         .route("/metrics", get(metrics))
         .with_state(state)
-        .layer(middleware::from_fn(require_control_plane_auth));
+        .layer(middleware::from_fn_with_state(state, require_control_plane_auth));
 
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", 8080)).await?;
 
