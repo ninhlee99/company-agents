@@ -5151,6 +5151,52 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
 
 }
 
+async fn load_growth_opportunity(
+    tx: &tokio_postgres::Transaction<'_>,
+    company_id: &Uuid,
+    opportunity_id: Uuid,
+) -> Result<Option<GrowthOpportunityRecord>, Box<dyn std::error::Error + Send + Sync>> {
+    let row = tx.query_opt(
+        "SELECT id,company_id,trend_id,opportunity_key,title,score_bps,confidence_bps,
+                policy_evidence_ref,plan_json,status,content_item_id,created_at::text
+           FROM growth_opportunities
+          WHERE company_id=$1 AND id=$2",
+        &[company_id, &opportunity_id],
+    ).await?;
+    row.map(growth_opportunity_from_row).transpose()
+}
+
+fn growth_opportunity_from_row(
+    row: tokio_postgres::Row,
+) -> Result<GrowthOpportunityRecord, Box<dyn std::error::Error + Send + Sync>> {
+    let id: Uuid = row.get(0);
+    let company_id: Uuid = row.get(1);
+    let trend_id: Uuid = row.get(2);
+    let plan: company_growth::ContentPlan = serde_json::from_value(row.get(8))?;
+    let opportunity = company_growth::Opportunity {
+        id,
+        company_id,
+        trend_id,
+        opportunity_key: row.get(3),
+        title: row.get(4),
+        score_bps: row.get::<_, i32>(5) as u32,
+        confidence_bps: row.get::<_, i32>(6) as u32,
+        policy_evidence_ref: row.get(7),
+        plan,
+    };
+    let status = match row.get::<_, String>(9).as_str() {
+        "READY" => company_growth::OpportunityStatus::Ready,
+        "CONTENT_CREATED" => company_growth::OpportunityStatus::ContentCreated,
+        other => return Err(format!("invalid growth opportunity status: {other}").into()),
+    };
+    Ok(GrowthOpportunityRecord {
+        opportunity,
+        status,
+        content_item_id: row.get(10),
+        created_at: row.get(11),
+    })
+}
+
 async fn content_observation_by_key(
     client: &tokio_postgres::Client,
     company_id: &Uuid,
