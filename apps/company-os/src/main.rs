@@ -431,11 +431,19 @@ async fn index(
                 partial_or_rejected_count_mtd: 0,
             }
         });
-    let growth_opportunities = state
+    let mut growth_data_available = true;
+    let growth_opportunities = match state
         .store
         .list_growth_opportunities(&state.company_id, 5)
         .await
-        .unwrap_or_default();
+    {
+        Ok(value) => value,
+        Err(error) => {
+            growth_data_available = false;
+            tracing::warn!(%error, "growth opportunity metrics unavailable");
+            Vec::new()
+        }
+    };
     let mut growth_html = String::new();
     for record in &growth_opportunities {
         let score_pct = record.opportunity.score_bps / 100;
