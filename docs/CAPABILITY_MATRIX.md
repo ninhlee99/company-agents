@@ -80,3 +80,13 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - Append-only audit evidence for budget spend: implemented
 - Forecast vs actual: not yet implemented
 - Cash-flow forecasting / runway planning: not yet implemented
+
+
+## Forecast / Cash Flow
+
+- Versioned financial forecast plans: implemented
+- Monthly/period cash-flow assumptions: implemented
+- Forecast net cash-flow summary: implemented
+- Idempotent cash-flow observations with evidence: implemented
+- Forecast-vs-actual variance analysis: next
+- Automated cash runway / liquidity alerts: next
