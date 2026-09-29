@@ -326,7 +326,9 @@ impl CompanyStore {
         company_id: &str,
         experiment_id: Uuid,
         observation: &company_experiments::ExperimentObservation,
+        observation_key: &str,
     ) -> Result<company_experiments::ExperimentDecision, Box<dyn std::error::Error + Send + Sync>> {
+        if observation_key.trim().is_empty() { return Err("experiment observation key is required".into()); }
         if observation.spend_minor < 0 { return Err("experiment spend cannot be negative".into()); }
         let company = Uuid::parse_str(company_id)?;
         let mut client = self.client.lock().await;
@@ -336,6 +338,10 @@ impl CompanyStore {
                FROM growth_experiments WHERE company_id=$1 AND id=$2 FOR UPDATE",
             &[&company,&experiment_id],
         ).await?.ok_or("experiment not found")?;
+        let current_status: String = row.get(8);
+        if matches!(current_status.as_str(), "SUCCEEDED" | "KILLED" | "EXPIRED" | "FAILED") {
+            return Err("terminal experiment cannot accept new observations".into());
+        }
         let spec = company_experiments::ExperimentSpec {
             hypothesis: row.get(0), control: row.get(1), treatment: row.get(2),
             max_budget_minor: row.get::<_,String>(3).parse()?,
@@ -353,10 +359,10 @@ impl CompanyStore {
         tx.execute(
             "INSERT INTO growth_experiment_observations
              (company_id,experiment_id,control_observations,treatment_observations,control_metric_bps,treatment_metric_bps,spend_minor,elapsed_seconds,decision)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
             &[&company,&experiment_id,&(observation.control_observations as i64),&(observation.treatment_observations as i64),
               &observation.control_metric_bps,&observation.treatment_metric_bps,&observation.spend_minor.to_string(),
-              &(observation.elapsed_seconds as i64),&format!("{:?}",decision).to_uppercase()],
+              &(observation.elapsed_seconds as i64),&format!("{:?}",decision).to_uppercase(),&observation_key],
         ).await?;
         tx.execute(
             "UPDATE growth_experiments SET status=$3,
