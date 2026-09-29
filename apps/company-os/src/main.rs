@@ -1,3 +1,4 @@
+mod publishing;
 use affiliate_intelligence::{
     search as search_affiliate, AffiliateProvider, AggregateAffiliateProvider, AwinProvider,
     MockProvider, ProductSearchQuery, SearchResponse, TikTokShopProvider,
@@ -85,6 +86,31 @@ struct CycleResponse {
     snapshot: CompanySnapshot,
     results: Vec<AgentRunResult>,
     receipts: Vec<company_execution::ExecutionReceipt>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PublishApproveRequest {
+    intent_id: String,
+    approved_by: String,
+    ttl_seconds: i64,
+}
+#[derive(Debug, Deserialize)]
+struct PublishClaimRequest {
+    intent_id: String,
+    approval_token: String,
+    lease_seconds: i64,
+}
+#[derive(Debug, Deserialize)]
+struct PublishCompleteRequest {
+    intent_id: String,
+    execution_token: String,
+    success: bool,
+    external_reference: Option<String>,
+    error_message: Option<String>,
+}
+#[derive(Debug, Deserialize)]
+struct PublishRevokeRequest {
+    intent_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -934,6 +960,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/publishing/intents/claim", post(publish_claim_api))
         .route("/api/publishing/intents/complete", post(publish_complete_api))
         .route("/api/publishing/intents/revoke", post(publish_revoke_api))
+        .route("/api/publishing/tiktok/execute", post(publishing::execute_tiktok))
+        .route("/api/publishing/tiktok/status", post(publishing::tiktok_status))
         .route("/api/customers", get(customers_api).post(customer_api))
         .route("/api/employees", get(employees_api))
         .route("/api/payroll/due", get(payroll_due_api))
