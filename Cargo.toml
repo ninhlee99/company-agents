@@ -29,5 +29,6 @@ members = [
   "apps/llm-web-worker",
   "apps/outbox-worker",
   "crates/commercial-sales",
-  "crates/company-experiments"
+  "crates/company-experiments",
+  "crates/company-learning"
 ]
