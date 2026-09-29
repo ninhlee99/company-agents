@@ -183,6 +183,16 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/017_payment_reconciliation_evidence.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/020_customer_success_tasks.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/022_fpa_forecasts_cashflow.sql"
+            ))
             .await
     }
 
@@ -4028,6 +4038,119 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         ).await?;
         tx.commit().await?;
         Ok(response)
+    }
+
+    pub async fn create_financial_forecast(
+        &self, company_id:&str, forecast_id:Uuid, name:&str, currency:&str,
+        horizon_months:i32, methodology:&str, idempotency_key:&str
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?;
+        let currency=currency.trim().to_uppercase();
+        if name.trim().is_empty() || currency.len()!=3 || !(1..=60).contains(&horizon_months)
+            || methodology.trim().is_empty() || idempotency_key.trim().is_empty() {
+            return Err("invalid financial forecast".into());
+        }
+        let client=self.client.lock().await;
+        let row=client.query_opt(
+            "INSERT INTO financial_forecasts(id,company_id,name,currency,horizon_months,methodology,status,idempotency_key)
+             VALUES($1,$2,$3,$4,$5,$6,'DRAFT',$7)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING
+             RETURNING id,name,currency,horizon_months,methodology,status",
+            &[&forecast_id,&company,&name,&currency,&horizon_months,&methodology,&idempotency_key]
+        ).await?;
+        let row=match row {
+            Some(r)=>r,
+            None=>client.query_one(
+                "SELECT id,name,currency,horizon_months,methodology,status FROM financial_forecasts
+                 WHERE company_id=$1 AND idempotency_key=$2",&[&company,&idempotency_key]).await?
+        };
+        Ok(serde_json::json!({
+            "id":row.get::<_,Uuid>(0),"name":row.get::<_,String>(1),"currency":row.get::<_,String>(2),
+            "horizon_months":row.get::<_,i32>(3),"methodology":row.get::<_,String>(4),"status":row.get::<_,String>(5)
+        }))
+    }
+
+    pub async fn record_financial_forecast_period(
+        &self, company_id:&str, forecast_id:&str, period_start_epoch:i64,
+        revenue_minor:i128, operating_inflow_minor:i128, operating_outflow_minor:i128,
+        capex_minor:i128, financing_inflow_minor:i128, financing_outflow_minor:i128,
+        notes:Option<&str>
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let forecast=Uuid::parse_str(forecast_id)?;
+        if period_start_epoch<=0 || [revenue_minor,operating_inflow_minor,operating_outflow_minor,capex_minor,financing_inflow_minor,financing_outflow_minor].iter().any(|v|*v<0) {
+            return Err("invalid forecast period".into());
+        }
+        let client=self.client.lock().await;
+        let row=client.query_one(
+            "INSERT INTO financial_forecast_periods
+             (id,forecast_id,period_start_epoch,revenue_minor,operating_inflow_minor,operating_outflow_minor,capex_minor,financing_inflow_minor,financing_outflow_minor,notes)
+             SELECT $1,$2,$3,$4::numeric,$5::numeric,$6::numeric,$7::numeric,$8::numeric,$9::numeric,$10
+             WHERE EXISTS (SELECT 1 FROM financial_forecasts WHERE id=$2 AND company_id=$11)
+             ON CONFLICT(forecast_id,period_start_epoch) DO UPDATE SET
+               revenue_minor=EXCLUDED.revenue_minor,operating_inflow_minor=EXCLUDED.operating_inflow_minor,
+               operating_outflow_minor=EXCLUDED.operating_outflow_minor,capex_minor=EXCLUDED.capex_minor,
+               financing_inflow_minor=EXCLUDED.financing_inflow_minor,financing_outflow_minor=EXCLUDED.financing_outflow_minor,
+               notes=EXCLUDED.notes
+             RETURNING id,period_start_epoch",
+            &[&Uuid::new_v4(),&forecast,&period_start_epoch,&revenue_minor.to_string(),&operating_inflow_minor.to_string(),
+              &operating_outflow_minor.to_string(),&capex_minor.to_string(),&financing_inflow_minor.to_string(),
+              &financing_outflow_minor.to_string(),&notes,&company]
+        ).await.map_err(|e| format!("forecast period rejected: {e}"))?;
+        Ok(serde_json::json!({"id":row.get::<_,Uuid>(0),"period_start_epoch":row.get::<_,i64>(1)}))
+    }
+
+    pub async fn forecast_cashflow_summary(
+        &self, company_id:&str, forecast_id:&str
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let forecast=Uuid::parse_str(forecast_id)?;
+        let client=self.client.lock().await;
+        let row=client.query_opt(
+            "SELECT f.currency, COUNT(p.id),
+                    COALESCE(SUM(p.operating_inflow_minor+p.financing_inflow_minor),0)::text,
+                    COALESCE(SUM(p.operating_outflow_minor+p.capex_minor+p.financing_outflow_minor),0)::text
+             FROM financial_forecasts f
+             LEFT JOIN financial_forecast_periods p ON p.forecast_id=f.id
+             WHERE f.id=$1 AND f.company_id=$2 GROUP BY f.currency",
+            &[&forecast,&company]
+        ).await?.ok_or("forecast not found")?;
+        let inflow=parse_i128_numeric(&row.get::<_,String>(2))?;
+        let outflow=parse_i128_numeric(&row.get::<_,String>(3))?;
+        Ok(serde_json::json!({
+            "currency":row.get::<_,String>(0),"period_count":row.get::<_,i64>(1),
+            "total_inflow_minor":inflow,"total_outflow_minor":outflow,
+            "net_cashflow_minor":inflow-outflow
+        }))
+    }
+
+    pub async fn record_cashflow_observation(
+        &self, company_id:&str, observation_id:Uuid, period_start_epoch:i64,
+        currency:&str, inflow_minor:i128, outflow_minor:i128, closing_cash_minor:i128,
+        source:&str, evidence_hash:&str, idempotency_key:&str
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let currency=currency.trim().to_uppercase();
+        if period_start_epoch<=0 || currency.len()!=3 || inflow_minor<0 || outflow_minor<0
+            || closing_cash_minor<0 || source.trim().is_empty() || evidence_hash.trim().is_empty()
+            || idempotency_key.trim().is_empty() { return Err("invalid cashflow observation".into()); }
+        let client=self.client.lock().await;
+        let row=client.query_opt(
+            "INSERT INTO cashflow_observations
+             (id,company_id,period_start_epoch,currency,inflow_minor,outflow_minor,closing_cash_minor,source,evidence_hash,idempotency_key)
+             VALUES($1,$2,$3,$4,$5::numeric,$6::numeric,$7::numeric,$8,$9,$10)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING
+             RETURNING id,period_start_epoch,closing_cash_minor::text",
+            &[&observation_id,&company,&period_start_epoch,&currency,&inflow_minor.to_string(),&outflow_minor.to_string(),
+              &closing_cash_minor.to_string(),&source,&evidence_hash,&idempotency_key]
+        ).await?;
+        let row=match row {
+            Some(r)=>r,
+            None=>client.query_one(
+                "SELECT id,period_start_epoch,closing_cash_minor::text FROM cashflow_observations
+                 WHERE company_id=$1 AND idempotency_key=$2",&[&company,&idempotency_key]).await?
+        };
+        Ok(serde_json::json!({
+            "id":row.get::<_,Uuid>(0),"period_start_epoch":row.get::<_,i64>(1),
+            "closing_cash_minor":parse_i128_numeric(&row.get::<_,String>(2))?
+        }))
     }
 
 }
