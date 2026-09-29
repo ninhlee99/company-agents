@@ -908,8 +908,24 @@ async fn metrics(
     )
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn runtime_worker_threads() -> usize {
+    std::env::var("TOKIO_WORKER_THREADS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| (1..=64).contains(value))
+        .unwrap_or_else(|| std::thread::available_parallelism().map(|value| value.get().min(8)).unwrap_or(2))
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let worker_threads = runtime_worker_threads();
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(worker_threads)
+        .enable_all()
+        .build()?
+        .block_on(async_main())
+}
+
+async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let database_url = std::env::var("DATABASE_URL")?;
     let company_id = std::env::var("COMPANY_ID")
         .unwrap_or_else(|_| "00000000-0000-0000-0000-000000000001".into());
