@@ -404,6 +404,22 @@ impl CompanyStore {
         }
 
         if snapshot.active {
+            let existing_effective = tx
+                .query_opt(
+                    "SELECT effective_at_epoch
+                       FROM policy_snapshots
+                      WHERE company_id=$1 AND policy_key=$2 AND active=true AND id<>$3
+                      ORDER BY effective_at_epoch DESC
+                      LIMIT 1",
+                    &[&snapshot.company_id, &snapshot.policy_key, &snapshot.id],
+                )
+                .await?
+                .map(|row| row.get::<_, i64>(0));
+
+            if existing_effective.is_some_and(|value| value > snapshot.effective_at_epoch) {
+                return Err("cannot activate a policy snapshot older than the active policy".into());
+            }
+
             tx.execute(
                 "UPDATE policy_snapshots
                     SET active=false
