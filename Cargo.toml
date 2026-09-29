@@ -1,14 +1,4 @@
 [workspace]
-
-[profile.release]
-opt-level = 3
-lto = "thin"
-codegen-units = 1
-panic = "abort"
-strip = "symbols"
-
-[profile.dev]
-debug = 1
 resolver = "2"
 members = [
   "apps/company-os",
@@ -34,3 +24,13 @@ members = [
   "crates/company-content",
   "crates/company-growth"
 ]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.dev]
+debug = 1
