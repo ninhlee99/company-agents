@@ -60,6 +60,7 @@ pub struct GrowthOpportunityRecord {
     pub status: company_growth::OpportunityStatus,
     pub content_item_id: Option<Uuid>,
     pub content_created_at_epoch: Option<i64>,
+    pub ttfc_seconds: Option<i64>,
     pub created_at: String,
 }
 
@@ -4828,7 +4829,10 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         let client = self.client.lock().await;
         let rows = client.query(
             "SELECT id,company_id,trend_id,opportunity_key,title,score_bps,confidence_bps,
-                    policy_evidence_ref,plan_json,status,content_item_id,content_created_at_epoch,created_at::text
+                    policy_evidence_ref,plan_json,status,content_item_id,content_created_at_epoch,
+                CASE WHEN content_created_at_epoch IS NULL THEN NULL
+                     ELSE GREATEST(content_created_at_epoch - t.observed_at_epoch, 0) END AS ttfc_seconds,
+                created_at::text
                FROM growth_opportunities
               WHERE company_id=$1
               ORDER BY score_bps DESC,created_at DESC
@@ -4849,8 +4853,9 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         let row = tx.query_one(
             "SELECT id,company_id,trend_id,opportunity_key,title,score_bps,confidence_bps,
                     policy_evidence_ref,plan_json,status,content_item_id,content_created_at_epoch,created_at::text
-               FROM growth_opportunities
-              WHERE company_id=$1 AND id=$2
+               FROM growth_opportunities o
+              JOIN growth_trends t ON t.id=o.trend_id AND t.company_id=o.company_id
+              WHERE o.company_id=$1 AND o.id=$2
               FOR UPDATE",
             &[&company, &opportunity_id],
         ).await?;
@@ -5217,8 +5222,9 @@ async fn load_growth_opportunity_by_trend(
     let row = tx.query_opt(
         "SELECT id,company_id,trend_id,opportunity_key,title,score_bps,confidence_bps,
                 policy_evidence_ref,plan_json,status,content_item_id,content_created_at_epoch,created_at::text
-           FROM growth_opportunities
-          WHERE company_id=$1 AND trend_id=$2",
+           FROM growth_opportunities o
+          JOIN growth_trends t ON t.id=o.trend_id AND t.company_id=o.company_id
+          WHERE o.company_id=$1 AND trend_id=$2",
         &[company_id, &trend_id],
     ).await?;
     row.map(growth_opportunity_from_row).transpose()
@@ -5294,7 +5300,8 @@ fn growth_opportunity_from_row(
         status,
         content_item_id: row.get(10),
         content_created_at_epoch: row.get(11),
-        created_at: row.get(12),
+        ttfc_seconds: row.get(12),
+        created_at: row.get(13),
     })
 }
 
