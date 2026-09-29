@@ -1,4 +1,9 @@
-# Capability Matrix — Strict Production Review
+# Veridara AI — Capability Matrix
+
+**Core platform:** Autonomous Company OS  
+**Positioning:** AI-native operating company with controlled autonomy
+
+## Strict production review
 
 This document intentionally separates implemented behavior from contracts, simulations and environment-dependent integrations.
 
