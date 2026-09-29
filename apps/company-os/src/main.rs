@@ -381,7 +381,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <div class="card"><h2>Agents</h2>
 <table><tr><th>Agent</th><th>Governor</th><th>Execution</th><th>Action</th></tr>{}</table>
 </div>
-<div class="card"><h2>Commerce</h2>
+<div class="card"><h2>LIVE Command Center</h2><p><small>Choose a mode, then use the provider stream configuration.</small></p><select id="liveMode" style="padding:9px;width:100%"><option>SOLO</option><option>SHOPPING</option><option>GAME</option><option>STORY</option><option>MUSIC</option><option>PK</option></select><p><button id="liveCreate">Create session</button> <button id="liveStart">Start</button> <button id="liveStop">Stop</button> <button id="liveRefresh">Refresh</button></p><div id="liveStatus" class="metric">Checking…</div></div><div class="card"><h2>Commerce</h2>
 <p>Search live Awin feed data when <code>AFFILIATE_PROVIDER=awin</code>; local mock data is used by default.</p>
 <small>Example: <code>/api/affiliate/search?category=electronics&amp;min_commission_bps=1500&amp;require_coupon=true</code></small>
 </div>
