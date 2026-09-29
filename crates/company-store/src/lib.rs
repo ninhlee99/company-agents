@@ -23,6 +23,14 @@ pub struct RevenuePeriodMetrics {
     pub revenue_transaction_count: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContributionMarginMetrics {
+    pub month_to_date_revenue_minor: i128,
+    pub month_to_date_variable_cost_minor: i128,
+    pub month_to_date_contribution_margin_minor: Option<i128>,
+    pub unclassified_expense_minor: i128,
+    pub variable_cost_transaction_count: i64,
+}
 
 #[derive(Debug, Clone)]
 pub struct OutboxEvent {
@@ -207,6 +215,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/022_tiktok_live.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/023_ledger_cost_class.sql"
+            ))
             .await
     }
 
@@ -261,6 +274,51 @@ impl CompanyStore {
             last_30_days_minor: parse_i128_numeric(&row.get::<_, String>(1))?,
             lifetime_minor: parse_i128_numeric(&row.get::<_, String>(2))?,
             revenue_transaction_count: row.get(3),
+        })
+    }
+
+    pub async fn contribution_margin_metrics(
+        &self,
+        company_id: &str,
+    ) -> Result<ContributionMarginMetrics, Box<dyn std::error::Error + Send + Sync>> {
+        let id = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_one(
+                "SELECT
+                    COALESCE(SUM(CASE WHEN a.account_type = 'REVENUE'
+                                       THEN e.credit_minor - e.debit_minor ELSE 0 END), 0)::text,
+                    COALESCE(SUM(CASE WHEN a.account_type = 'EXPENSE'
+                                       AND a.cost_class = 'VARIABLE'
+                                       THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text,
+                    COALESCE(SUM(CASE WHEN a.account_type = 'EXPENSE'
+                                       AND a.cost_class = 'UNCLASSIFIED'
+                                       THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text,
+                    COUNT(DISTINCT CASE WHEN a.account_type = 'EXPENSE'
+                                          AND a.cost_class = 'VARIABLE'
+                                        THEN t.id END)
+                 FROM ledger_transactions t
+                 JOIN ledger_entries e ON e.transaction_id = t.id
+                 JOIN ledger_accounts a ON a.id = e.account_id
+                WHERE t.company_id = $1
+                  AND a.company_id = $1
+                  AND t.created_at >= date_trunc('month', now())",
+                &[&id],
+            )
+            .await?;
+
+        let revenue = parse_i128_numeric(&row.get::<_, String>(0))?;
+        let variable_cost = parse_i128_numeric(&row.get::<_, String>(1))?;
+        let unclassified = parse_i128_numeric(&row.get::<_, String>(2))?;
+
+        Ok(ContributionMarginMetrics {
+            month_to_date_revenue_minor: revenue,
+            month_to_date_variable_cost_minor: variable_cost,
+            month_to_date_contribution_margin_minor: (unclassified == 0)
+                .then_some(revenue.checked_sub(variable_cost).ok_or("contribution margin overflow")?)
+                .transpose()?,
+            unclassified_expense_minor: unclassified,
+            variable_cost_transaction_count: row.get(3),
         })
     }
 
