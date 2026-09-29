@@ -33,6 +33,7 @@ jobs:
           - media-worker
           - llm-web-relay
           - llm-web-worker
+          - outbox-worker
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
