@@ -14,7 +14,15 @@ import {
   Sparkles,
   Layers,
   ArrowRight,
-  Download
+  Download,
+  Award,
+  AlertTriangle,
+  ArrowUpDown,
+  Flame,
+  ChevronDown,
+  ChevronUp,
+  GraduationCap,
+  Zap
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -32,6 +40,7 @@ interface ManageAgentsProps {
   agents: CustomAgent[];
   onHireAgent: (data: { name: string; role: string; department: 'Leadership' | 'Growth' | 'Ops' | 'Sales' | 'Tech'; description: string; salary_minor: number }) => Promise<{ success: boolean; reason?: string }>;
   onToggleStatus: (agentId: string) => void;
+  onOpenTraining?: (agentId?: string) => void;
 }
 
 export const ManageAgents: React.FC<ManageAgentsProps> = ({
@@ -39,6 +48,7 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
   agents,
   onHireAgent,
   onToggleStatus,
+  onOpenTraining,
 }) => {
   const [filter, setFilter] = useState<'All' | 'Leadership' | 'Growth' | 'Ops'>('All');
   const [showHireModal, setShowHireModal] = useState(false);
@@ -54,6 +64,11 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
 
   const [quickInstruction, setQuickInstruction] = useState('');
   const [instructionSent, setInstructionSent] = useState(false);
+
+  // Departmental Performance Report State
+  const [reportSort, setReportSort] = useState<'roi' | 'overpaid' | 'tasks' | 'cost'>('roi');
+  const [reportDeptFilter, setReportDeptFilter] = useState<'All' | 'Leadership' | 'Growth' | 'Ops'>('All');
+  const [showDetailedReportList, setShowDetailedReportList] = useState(true);
 
   // Task History Modal State
   const [selectedAgentForHistory, setSelectedAgentForHistory] = useState<CustomAgent | null>(null);
@@ -145,16 +160,65 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
     };
   };
 
-  // Prepare data for Agent Performance Bar Chart
-  const chartData = agents.map((a) => {
-    const costUsd = a.salary_minor > 0 ? Math.round(a.salary_minor / 100) : 350;
-    return {
-      name: a.name.replace(' Agent', '').replace(' Specialist', ''),
-      tasks: a.tasksCompleted,
-      cost: costUsd,
-      dept: a.department,
-    };
+  // Prepare comprehensive data for Departmental Performance Report
+  const agentReportData = agents
+    .filter((a) => reportDeptFilter === 'All' || a.department === reportDeptFilter)
+    .map((a) => {
+      const salaryUsd = a.salary_minor > 0 ? Math.round(a.salary_minor / 100) : 350;
+      const tasks = a.tasksCompleted;
+      const costPerTask = Math.round((salaryUsd / Math.max(1, tasks)) * 10) / 10;
+      
+      let tier: 'HighPerformer' | 'Balanced' | 'Overpaid' = 'Balanced';
+      let label = '⚖️ Đạt Chuẩn (Balanced)';
+      let badgeClass = 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30';
+      let recommendation = 'Đạt chuẩn tác vụ. Duy trì ổn định mức đãi ngộ hiện thời.';
+
+      if (costPerTask <= 16) {
+        tier = 'HighPerformer';
+        label = '🌟 High-Performer (Hiệu Suất Cao)';
+        badgeClass = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-bold';
+        recommendation = 'Năng suất xuất sắc ($' + costPerTask + '/việc). Khuyến nghị thưởng hạn ngạch & ưu tiên cấp tài nguyên.';
+      } else if (costPerTask > 35) {
+        tier = 'Overpaid';
+        label = '⚠️ Cần Tối Ưu Lương (Overpaid)';
+        badgeClass = 'bg-rose-500/20 text-rose-300 border-rose-500/40 font-bold';
+        recommendation = 'Chi phí/việc cao ($' + costPerTask + '/việc). Governor khuyến nghị giao thêm tác vụ hoặc điều chỉnh mức lương.';
+      }
+
+      return {
+        id: a.id,
+        name: a.name.replace(' Agent', '').replace(' Specialist', ''),
+        fullName: a.name,
+        role: a.role,
+        dept: a.department,
+        tasks,
+        cost: salaryUsd,
+        costPerTask,
+        tier,
+        label,
+        badgeClass,
+        recommendation,
+        status: a.status,
+      };
+    });
+
+  const sortedReportData = [...agentReportData].sort((a, b) => {
+    if (reportSort === 'roi') return a.costPerTask - b.costPerTask; // best value first
+    if (reportSort === 'overpaid') return b.costPerTask - a.costPerTask; // overpaid first
+    if (reportSort === 'tasks') return b.tasks - a.tasks; // most tasks
+    if (reportSort === 'cost') return b.cost - a.cost; // highest salary
+    return 0;
   });
+
+  // Calculate summary metrics for report
+  const topPerformer = [...agentReportData].sort((a, b) => a.costPerTask - b.costPerTask)[0];
+  const overpaidAlert = [...agentReportData].sort((a, b) => b.costPerTask - a.costPerTask)[0];
+  const totalReportTasks = agentReportData.reduce((sum, a) => sum + a.tasks, 0);
+  const totalReportCost = agentReportData.reduce((sum, a) => sum + a.cost, 0);
+  const avgCostPerTask = totalReportTasks > 0 ? (totalReportCost / totalReportTasks).toFixed(1) : '0';
+  const highPerformerCount = agentReportData.filter((a) => a.tier === 'HighPerformer').length;
+  const balancedCount = agentReportData.filter((a) => a.tier === 'Balanced').length;
+  const overpaidCount = agentReportData.filter((a) => a.tier === 'Overpaid').length;
 
   // Calculate department totals
   const deptStats = ['Leadership', 'Growth', 'Ops'].map((deptName) => {
@@ -179,26 +243,27 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
       'Chức Danh (Role)',
       'Phòng Ban (Department)',
       'Số Tác Vụ Hoàn Thành (Tasks Completed)',
-      'Chi Phí Duy Trì Tháng (USD)',
-      'Điểm Hiệu Suất / Lương (%)',
-      'Đánh Giá (Performance Rating)',
+      'Chi Phí Lương Tháng (USD)',
+      'Chi Phí / Tác Vụ (USD/Task)',
+      'Xếp Hạng Hiệu Suất (Performance Tier)',
+      'Khuyến Nghị Governor (Governor Recommendation)',
       'Trạng Thái (Status)',
       'Chu Kỳ Gia Nhập (Hired Cycle)',
     ];
 
-    const rows = agents.map((a) => {
-      const eff = getEfficiencyScore(a);
+    const rows = sortedReportData.map((a) => {
       return [
         `"${a.id}"`,
-        `"${a.name.replace(/"/g, '""')}"`,
+        `"${a.fullName.replace(/"/g, '""')}"`,
         `"${a.role.replace(/"/g, '""')}"`,
-        `"${a.department}"`,
-        a.tasksCompleted,
-        eff.cost,
-        eff.score,
-        `"${eff.label}"`,
+        `"${a.dept}"`,
+        a.tasks,
+        a.cost,
+        a.costPerTask,
+        `"${a.label.replace(/"/g, '""')}"`,
+        `"${a.recommendation.replace(/"/g, '""')}"`,
         `"${a.status === 'Active' ? 'Đang hoạt động' : 'Tạm dừng'}"`,
-        a.hiredAtCycle,
+        snapshot.cycle_count,
       ].join(',');
     });
 
@@ -242,6 +307,16 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
             ))}
           </div>
 
+          {/* Training Button */}
+          {onOpenTraining && (
+            <button
+              onClick={() => onOpenTraining()}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md transition-all shrink-0 active:scale-95"
+            >
+              <GraduationCap className="w-3.5 h-3.5 text-yellow-300" /> Đào Tạo Kỹ Năng
+            </button>
+          )}
+
           {/* Hire Button */}
           <button
             onClick={() => setShowHireModal(true)}
@@ -252,40 +327,141 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
         </div>
       </div>
 
-      {/* RECHARTS BAR CHART: VISUAL PERFORMANCE BREAKDOWN (TASKS COMPLETED VS COST) */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
-          <div className="flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-emerald-400" />
+      {/* DEPARTMENTAL PERFORMANCE REPORT (TASKS COMPLETED VS SALARY COST: HIGH-PERFORMERS VS OVERPAID) */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3.5 shadow-sm">
+        {/* Report Header */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
+              <BarChart3 className="w-4 h-4" />
+            </div>
             <div>
-              <span className="font-bold text-white text-xs block">Hiệu Suất Nhân Sự AI: Khối Lượng Tác Vụ vs. Chi Phí</span>
-              <span className="text-[10px] text-slate-400">Giúp nhà điều hành phát hiện nhân sự/phòng ban chưa đạt kỳ vọng</span>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-white text-xs block">
+                  Báo Cáo Hiệu Suất Phòng Ban &amp; Nhân Sự (Departmental Performance Report)
+                </span>
+                <span className="px-2 py-0.2 rounded-full font-mono text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold">
+                  {agentReportData.length} Nhân Sự
+                </span>
+              </div>
+              <span className="text-[10px] text-slate-400">
+                So sánh Số Tác Vụ Hoàn Thành (Tasks) vs. Chi Phí Lương (Salary Cost) để đánh giá High-Performers vs. Overpaid Agents
+              </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 text-[11px]">
+          {/* Controls: Department Filter, Sorting, Export */}
+          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+            {/* Filter by Department */}
+            <div className="flex bg-slate-950 p-0.5 rounded-lg border border-slate-800">
+              {(['All', 'Leadership', 'Growth', 'Ops'] as const).map((dept) => (
+                <button
+                  key={dept}
+                  onClick={() => setReportDeptFilter(dept)}
+                  className={`px-2 py-0.5 rounded font-semibold transition-all ${
+                    reportDeptFilter === dept ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {dept === 'All' ? 'Tất cả' : dept === 'Leadership' ? 'Lãnh Đạo' : dept === 'Growth' ? 'Kinh Doanh' : 'Vận Hành'}
+                </button>
+              ))}
+            </div>
+
+            {/* Sort selector */}
+            <div className="flex items-center gap-1 bg-slate-950 px-2 py-1 rounded-lg border border-slate-800 text-slate-300">
+              <ArrowUpDown className="w-3 h-3 text-slate-400" />
+              <select
+                value={reportSort}
+                onChange={(e) => setReportSort(e.target.value as any)}
+                className="bg-transparent text-[11px] font-semibold text-white focus:outline-none cursor-pointer"
+              >
+                <option value="roi" className="bg-slate-900 text-white">🌟 High-Performer trước</option>
+                <option value="overpaid" className="bg-slate-900 text-white">⚠️ Nguy cơ Overpaid</option>
+                <option value="tasks" className="bg-slate-900 text-white">⚡ Tác vụ nhiều nhất</option>
+                <option value="cost" className="bg-slate-900 text-white">💰 Lương cao nhất</option>
+              </select>
+            </div>
+
             <button
               onClick={exportPerformanceToCSV}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 text-[11px] font-semibold transition-all active:scale-95 shadow-sm"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 text-[11px] font-semibold transition-all active:scale-95 shadow-sm"
               title="Xuất file CSV báo cáo hiệu suất nhân sự để phân tích trên Excel / Google Sheets"
             >
-              <Download className="w-3.5 h-3.5" />
+              <Download className="w-3 h-3" />
               <span>Xuất CSV</span>
             </button>
+          </div>
+        </div>
 
-            <span className="hidden sm:flex items-center gap-1 text-indigo-400 font-mono">
-              <span className="w-2.5 h-2.5 rounded-sm bg-indigo-500 inline-block" /> Việc hoàn thành
-            </span>
-            <span className="hidden sm:flex items-center gap-1 text-rose-400 font-mono">
-              <span className="w-2.5 h-2.5 rounded-sm bg-rose-500 inline-block" /> Chi phí ($)
-            </span>
+        {/* 4 Summary Highlight Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          {/* 1. Top Performer */}
+          <div className="p-2.5 rounded-lg bg-emerald-950/20 border border-emerald-500/30">
+            <div className="flex items-center justify-between text-emerald-400 text-[10px] font-bold">
+              <span className="flex items-center gap-1">
+                <Award className="w-3 h-3" /> Ngôi Sao Hiệu Suất
+              </span>
+              <span>🌟 High-Performer</span>
+            </div>
+            <div className="mt-1 text-xs font-bold text-white truncate">
+              {topPerformer ? topPerformer.fullName : 'N/A'}
+            </div>
+            <div className="text-[10px] text-emerald-400/90 font-mono mt-0.5">
+              {topPerformer ? `${topPerformer.tasks} việc • $${topPerformer.costPerTask}/việc` : ''}
+            </div>
+          </div>
+
+          {/* 2. Overpaid Alert */}
+          <div className="p-2.5 rounded-lg bg-rose-950/20 border border-rose-500/30">
+            <div className="flex items-center justify-between text-rose-400 text-[10px] font-bold">
+              <span className="flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3" /> Cần Tối Ưu Lương
+              </span>
+              <span>⚠️ Overpaid</span>
+            </div>
+            <div className="mt-1 text-xs font-bold text-white truncate">
+              {overpaidAlert && overpaidAlert.tier === 'Overpaid' ? overpaidAlert.fullName : 'Không có rủi ro cao'}
+            </div>
+            <div className="text-[10px] text-rose-300 font-mono mt-0.5">
+              {overpaidAlert && overpaidAlert.tier === 'Overpaid'
+                ? `${overpaidAlert.tasks} việc • $${overpaidAlert.costPerTask}/việc`
+                : 'Mọi nhân sự đều đạt chuẩn'}
+            </div>
+          </div>
+
+          {/* 3. Avg Cost Per Task */}
+          <div className="p-2.5 rounded-lg bg-indigo-950/20 border border-indigo-500/30">
+            <div className="text-slate-400 text-[10px]">
+              Chi Phí TB / Tác Vụ
+            </div>
+            <div className="mt-1 text-sm font-black text-indigo-300 font-mono">
+              ${avgCostPerTask} <span className="text-[10px] font-normal text-slate-400">/ việc</span>
+            </div>
+            <div className="text-[10px] text-slate-400 mt-0.5">
+              Tổng {totalReportTasks} tác vụ hoàn tất
+            </div>
+          </div>
+
+          {/* 4. Healthy Workforce Ratio */}
+          <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
+            <div className="text-slate-400 text-[10px]">
+              Tỷ Lệ Đạt Chuẩn &amp; Vượt Trội
+            </div>
+            <div className="mt-1 text-sm font-black text-white font-mono">
+              {agentReportData.length > 0
+                ? `${Math.round(((highPerformerCount + balancedCount) / agentReportData.length) * 100)}%`
+                : '100%'}
+            </div>
+            <div className="text-[10px] text-emerald-400 mt-0.5">
+              {highPerformerCount} High-Performer • {overpaidCount} Overpaid
+            </div>
           </div>
         </div>
 
         {/* Bar Chart Container */}
         <div className="h-64 w-full pt-1">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 10, right: 10, left: -15, bottom: 25 }}>
+            <BarChart data={sortedReportData} margin={{ top: 10, right: 10, left: -15, bottom: 25 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
               <XAxis
                 dataKey="name"
@@ -308,20 +484,101 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
                   fontSize: '11px',
                   boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)',
                 }}
-                formatter={(val: any, name: any) => [
-                  name === 'tasks' ? `${val} tác vụ` : `$${Number(val || 0).toLocaleString()}`,
-                  name === 'tasks' ? 'Số Việc Đã Làm' : 'Chi Phí Tháng',
-                ]}
+                formatter={(val: any, name: any, item: any) => {
+                  const agent = item.payload;
+                  if (name === 'tasks') return [`${val} tác vụ`, 'Khối Lượng Đã Làm (Tasks)'];
+                  if (name === 'cost') return [`$${Number(val || 0).toLocaleString()}/th`, 'Chi Phí Lương (Salary)'];
+                  return [val, name];
+                }}
+                labelFormatter={(name, items) => {
+                  const agent = items[0]?.payload;
+                  return agent ? `${agent.fullName} (${agent.role} • ${agent.dept}) - ${agent.label}` : name;
+                }}
                 labelStyle={{ color: '#e2e8f0', fontWeight: 'bold' }}
               />
               <Legend
                 wrapperStyle={{ fontSize: '11px', paddingTop: '4px' }}
-                formatter={(val) => (val === 'tasks' ? 'Số việc hoàn thành' : 'Chi phí ước tính ($)')}
+                formatter={(val) =>
+                  val === 'tasks' ? 'Số Việc Hoàn Thành (Tasks Completed)' : 'Chi Phí Lương Tháng ($ Salary Cost)'
+                }
               />
               <Bar dataKey="tasks" fill="#6366f1" radius={[4, 4, 0, 0]} name="tasks" />
-              <Bar dataKey="cost" fill="#f43f5e" radius={[4, 4, 0, 0]} name="cost" />
+              <Bar dataKey="cost" fill="#f59e0b" radius={[4, 4, 0, 0]} name="cost" />
             </BarChart>
           </ResponsiveContainer>
+        </div>
+
+        {/* Detailed Breakdown List / Table */}
+        <div className="border-t border-slate-800 pt-3">
+          <div className="flex items-center justify-between pb-2">
+            <span className="text-xs font-bold text-white flex items-center gap-1.5">
+              <span>Bảng Đánh Giá Chi Tiết Từng Nhân Sự: High-Performers vs. Overpaid</span>
+            </span>
+            <button
+              onClick={() => setShowDetailedReportList(!showDetailedReportList)}
+              className="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold"
+            >
+              <span>{showDetailedReportList ? 'Thu gọn' : 'Mở rộng bảng chi tiết'}</span>
+              {showDetailedReportList ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+
+          {showDetailedReportList && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-1">
+              {sortedReportData.map((agent) => (
+                <div
+                  key={agent.id}
+                  className={`p-3 rounded-xl border text-xs transition-all flex flex-col justify-between ${
+                    agent.tier === 'HighPerformer'
+                      ? 'bg-emerald-950/10 border-emerald-500/30'
+                      : agent.tier === 'Overpaid'
+                      ? 'bg-rose-950/15 border-rose-500/40'
+                      : 'bg-slate-950 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <strong className="text-white text-xs">{agent.fullName}</strong>
+                        <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono border ${agent.badgeClass}`}>
+                          {agent.label}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        {agent.role} • <span className="text-slate-300">{agent.dept}</span>
+                      </div>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <div className="text-xs font-bold font-mono text-white">
+                        ${agent.costPerTask}<span className="text-[10px] font-normal text-slate-400">/việc</span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-mono">
+                        {agent.tasks} việc • ${agent.cost}/th
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-2 text-[11px] text-slate-300 bg-slate-900/60 p-2 rounded-lg border border-slate-800/80 flex items-start justify-between gap-1.5">
+                    <div className="flex items-start gap-1.5 flex-1">
+                      <span className="text-indigo-400 font-bold shrink-0">Governor:</span>
+                      <span>{agent.recommendation}</span>
+                    </div>
+                    {onOpenTraining && (
+                      <button
+                        onClick={() => onOpenTraining(agent.id)}
+                        className="px-2 py-1 rounded bg-indigo-600/30 hover:bg-indigo-600 text-indigo-300 hover:text-white font-bold text-[10px] shrink-0 border border-indigo-500/40 transition-all flex items-center gap-1 active:scale-95"
+                        title="Đào tạo kỹ năng để tăng hệ số công việc"
+                      >
+                        <Zap className="w-2.5 h-2.5 text-yellow-300" />
+                        <span>Upskill</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Department Health Highlights */}
@@ -450,15 +707,25 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
                 </div>
               </div>
 
-              {/* Task History Trigger Button */}
-              <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+              {/* Task History & Training Trigger Buttons */}
+              <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between gap-2">
                 <button
                   onClick={() => openTaskHistoryModal(agent)}
-                  className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-slate-200 hover:text-white font-medium text-xs transition-all active:scale-95 border border-slate-700/60"
+                  className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-slate-200 hover:text-white font-medium text-xs transition-all active:scale-95 border border-slate-700/60"
                 >
                   <History className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>Xem 10 Tác Vụ Gần Nhất</span>
+                  <span>10 Tác Vụ</span>
                 </button>
+
+                {onOpenTraining && (
+                  <button
+                    onClick={() => onOpenTraining(agent.id)}
+                    className="flex-1 flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-lg bg-gradient-to-r from-purple-600/20 to-indigo-600/20 hover:from-purple-600/40 hover:to-indigo-600/40 text-purple-300 hover:text-white font-bold text-xs transition-all active:scale-95 border border-purple-500/30"
+                  >
+                    <GraduationCap className="w-3.5 h-3.5 text-yellow-300" />
+                    <span>Đào Tạo ({agent.taskMultiplier ? `${agent.taskMultiplier}x` : '1.0x'})</span>
+                  </button>
+                )}
               </div>
             </div>
           );

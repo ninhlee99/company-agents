@@ -166,6 +166,18 @@ const state: {
     timestamp: string;
     priority?: 'High' | 'Normal' | 'Urgent';
   }[];
+  systemAlerts: {
+    id: string;
+    level: 'Critical' | 'Warning' | 'Info' | 'Resolved';
+    type: 'Low Runway' | 'Budget Exhaustion' | 'High Expense Spike' | 'Constitutional Override' | 'Backlog Surge';
+    title: string;
+    description: string;
+    discoveredBy: string;
+    cycle: number;
+    timestamp: string;
+    resolved: boolean;
+    mitigationAction?: string;
+  }[];
 } = {
   snapshot: {
     status: 'Active',
@@ -242,15 +254,15 @@ const state: {
     { id: 'emp-2', role: 'Affiliate Deal Specialist', name: 'Sarah T.', salary_minor: 240000, hiredAtCycle: 5 },
   ],
   customAgents: [
-    { id: 'agent-gov', name: 'Governor', role: 'Hiến Pháp & Quỹ Tiền', department: 'Leadership', description: 'Phủ quyết chi tiêu nguy hiểm, chống phá sản', salary_minor: 0, tasksCompleted: 42, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-ceo', name: 'CEO', role: 'Tổng Giám Đốc', department: 'Leadership', description: 'Chiến lược tăng trưởng & phân bổ nguồn vốn', salary_minor: 0, tasksCompleted: 35, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-cfo', name: 'CFO', role: 'Giám Đốc Tài Chính', department: 'Leadership', description: 'Kiểm toán kho bạc và cắt giảm chi tiêu', salary_minor: 0, tasksCompleted: 38, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-coo', name: 'COO', role: 'Giám Đốc Vận Hành', department: 'Ops', description: 'Điều phối hàng đợi và tiến độ công việc', salary_minor: 0, tasksCompleted: 50, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-growth', name: 'Growth Lead', role: 'Kinh Doanh & Traffic', department: 'Growth', description: 'Tìm ngách sản phẩm hoa hồng cao', salary_minor: 0, tasksCompleted: 62, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-content', name: 'Content Lead', role: 'Sáng Tạo Nội Dung', department: 'Growth', description: 'Kịch bản video short-form bán hàng', salary_minor: 0, tasksCompleted: 78, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-recruiter', name: 'Recruiter', role: 'Tuyển Dụng', department: 'Ops', description: 'Đề xuất bổ sung vị trí mới khi có lãi', salary_minor: 0, tasksCompleted: 14, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-analyst', name: 'Analyst', role: 'Phân Tích Dữ Liệu', department: 'Ops', description: 'Đối soát số liệu và tính toán hoa hồng', salary_minor: 0, tasksCompleted: 45, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-experiment', name: 'Experimenter', role: 'Nghiên Cứu A/B Test', department: 'Growth', description: 'Thử nghiệm mẫu kịch bản và thị trường', salary_minor: 0, tasksCompleted: 29, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-gov', name: 'Governor', role: 'Hiến Pháp & Quỹ Tiền', department: 'Leadership', description: 'Phủ quyết chi tiêu nguy hiểm, chống phá sản', salary_minor: 70000, tasksCompleted: 42, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-ceo', name: 'CEO', role: 'Tổng Giám Đốc', department: 'Leadership', description: 'Chiến lược tăng trưởng & phân bổ nguồn vốn', salary_minor: 95000, tasksCompleted: 35, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-cfo', name: 'CFO', role: 'Giám Đốc Tài Chính', department: 'Leadership', description: 'Kiểm toán kho bạc và cắt giảm chi tiêu', salary_minor: 90000, tasksCompleted: 22, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-coo', name: 'COO', role: 'Giám Đốc Vận Hành', department: 'Ops', description: 'Điều phối hàng đợi và tiến độ công việc', salary_minor: 80000, tasksCompleted: 50, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-growth', name: 'Growth Lead', role: 'Kinh Doanh & Traffic', department: 'Growth', description: 'Tìm ngách sản phẩm hoa hồng cao', salary_minor: 75000, tasksCompleted: 62, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-content', name: 'Content Lead', role: 'Sáng Tạo Nội Dung', department: 'Growth', description: 'Kịch bản video short-form bán hàng', salary_minor: 60000, tasksCompleted: 78, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-recruiter', name: 'Recruiter', role: 'Tuyển Dụng', department: 'Ops', description: 'Đề xuất bổ sung vị trí mới khi có lãi', salary_minor: 65000, tasksCompleted: 14, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-analyst', name: 'Analyst', role: 'Phân Tích Dữ Liệu', department: 'Ops', description: 'Đối soát số liệu và tính toán hoa hồng', salary_minor: 50000, tasksCompleted: 45, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-experiment', name: 'Experimenter', role: 'Nghiên Cứu A/B Test', department: 'Growth', description: 'Thử nghiệm mẫu kịch bản và thị trường', salary_minor: 55000, tasksCompleted: 29, status: 'Active', hiredAtCycle: 1 },
   ],
   activeExperiments: [
     { id: 'exp-1', name: 'Short-Form Hook Multi-Variant Video Engine', budget_minor: 150000, startCycle: 11, status: 'In Progress', roi_bps: 1420 },
@@ -363,6 +375,56 @@ const state: {
       tag: '#ABTesting',
       cycle: 14,
       timestamp: new Date(Date.now() - 3600000 * 0.3).toISOString(),
+    },
+  ],
+  systemAlerts: [
+    {
+      id: 'alert-1',
+      level: 'Warning',
+      type: 'High Expense Spike',
+      title: 'Phát hiện tăng vọt chi phí Render Video GPU (+28%)',
+      description: 'Governor phát hiện Media Studio render đồng thời 12 video 4K ngoài giờ cao điểm làm chi phí điện toán đám mây tăng $85.00 so với dự toán. Đã kích hoạt điều khoản trần chi phí và chuyển hướng sang chế độ render hàng đợi tiết kiệm.',
+      discoveredBy: 'Governor AI',
+      cycle: 13,
+      timestamp: new Date(Date.now() - 3600000 * 5).toISOString(),
+      resolved: true,
+      mitigationAction: 'Kích hoạt GPU rate limiting và bật Prompt Caching cho tất cả worker render.',
+    },
+    {
+      id: 'alert-2',
+      level: 'Warning',
+      type: 'Budget Exhaustion',
+      title: 'Ngân Sách Thử Nghiệm A/B Chạm Mức Cảnh Báo 80%',
+      description: 'Governor ghi nhận tổng chi tiêu thử nghiệm kênh mới đạt $3,600/$4,500. Đã yêu cầu CFO và Growth Lead nộp báo cáo đối soát tỷ lệ hoàn vốn trước khi phê duyệt thêm bất kỳ chiến dịch ad spend nào.',
+      discoveredBy: 'Governor AI',
+      cycle: 14,
+      timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
+      resolved: false,
+      mitigationAction: 'Tạm khóa các đề xuất thử nghiệm > $300 cho đến khi doanh thu chu kỳ #14 được ghi nhận.',
+    },
+    {
+      id: 'alert-3',
+      level: 'Info',
+      type: 'Low Runway',
+      title: 'Bảo Toàn Runway An Toàn (Đã Thoát Vùng Rủi Ro)',
+      description: 'Governor xác nhận quỹ sinh tồn kho bạc duy trì 440 ngày (ngưỡng tối thiểu của hiến pháp là 90 ngày). Tình trạng tài chính công ty chính thức nâng từ Warning lên Growth thặng dư.',
+      discoveredBy: 'Governor AI',
+      cycle: 12,
+      timestamp: new Date(Date.now() - 86400000 * 2).toISOString(),
+      resolved: true,
+      mitigationAction: 'Cho phép tái đầu tư 20% lợi nhuận ròng vào mở rộng dây chuyền bán hàng affiliate.',
+    },
+    {
+      id: 'alert-4',
+      level: 'Critical',
+      type: 'Constitutional Override',
+      title: 'Veto Đề Xuất Chi Tiêu Lương Ngoài Kế Hoạch',
+      description: 'Governor tự động phủ quyết đề xuất tuyển 2 Agent toàn thời gian khi tỷ lệ backlog (12/22) vẫn nằm trong ngưỡng kiểm soát 60% năng lực hệ thống.',
+      discoveredBy: 'Governor AI',
+      cycle: 14,
+      timestamp: new Date(Date.now() - 3600000 * 1).toISOString(),
+      resolved: true,
+      mitigationAction: 'Duy trì đội ngũ 9 Agent cốt lõi và giao thêm tác vụ cho Content Specialist.',
     },
   ],
 };
@@ -972,9 +1034,44 @@ app.get('/api/state', (req, res) => {
     cycleHistory: getCycleTrendHistory(),
     departmentBudgets: getDepartmentBudgetHistory(),
     communicationStream: state.communicationStream,
+    systemAlerts: state.systemAlerts,
     auditReports: state.auditReports,
     hasGeminiKey: Boolean(apiKey && apiKey !== 'MY_GEMINI_API_KEY'),
   });
+});
+
+app.get('/api/system-alerts', (req, res) => {
+  res.json({
+    alerts: state.systemAlerts,
+    activeCount: state.systemAlerts.filter(a => !a.resolved).length,
+  });
+});
+
+app.post('/api/system-alerts/resolve', (req, res) => {
+  const { alertId } = req.body;
+  const target = state.systemAlerts.find(a => a.id === alertId);
+  if (target) {
+    target.resolved = true;
+  }
+  res.json({ success: true, alerts: state.systemAlerts });
+});
+
+app.post('/api/system-alerts/trigger', (req, res) => {
+  const { type, level, title, description, mitigationAction } = req.body;
+  const newAlert = {
+    id: `alert-${Date.now().toString(36)}`,
+    level: level || 'Warning',
+    type: type || 'High Expense Spike',
+    title: title || 'Governor phát hiện biến động chi phí bất thường',
+    description: description || 'Hệ thống tự động kích hoạt ngưỡng an toàn hiến định.',
+    discoveredBy: 'Governor AI',
+    cycle: state.snapshot.cycle_count,
+    timestamp: new Date().toISOString(),
+    resolved: false,
+    mitigationAction: mitigationAction || 'Tạm hoãn chi tiêu phát sinh ngoài kế hoạch.',
+  };
+  state.systemAlerts.unshift(newAlert);
+  res.json({ success: true, alert: newAlert, alerts: state.systemAlerts });
 });
 
 app.get('/api/communication-stream', (req, res) => {
@@ -1368,6 +1465,66 @@ app.post('/api/toggle-agent-status', (req, res) => {
 
   agent.status = agent.status === 'Active' ? 'Paused' : 'Active';
   res.json({ success: true, agentId, status: agent.status });
+});
+
+// Agent Skill Training (Upskilling via Treasury Cash)
+app.post('/api/train-agent', (req, res) => {
+  const { agentId, course } = req.body;
+  const agent: any = state.customAgents.find((a: any) => a.id === agentId);
+  if (!agent) {
+    return res.status(404).json({ success: false, reason: 'Không tìm thấy nhân sự AI.' });
+  }
+
+  const cost_minor = course?.cost_minor || 50000;
+  if (state.snapshot.cash_minor < cost_minor) {
+    return res.status(400).json({ success: false, reason: 'Kho bạc không đủ ngân quỹ để đầu tư khóa đào tạo này.' });
+  }
+
+  // Deduct training investment from cash
+  state.snapshot.cash_minor -= cost_minor;
+
+  // Apply skill upgrades
+  agent.skillLevel = (agent.skillLevel || 1) + 1;
+  const currentMult = agent.taskMultiplier || 1.0;
+  agent.taskMultiplier = Math.round((currentMult + (course?.multiplierBoost || 0.25)) * 100) / 100;
+  agent.tasksCompleted += (course?.tasksBonus || 10);
+  agent.trainedSkills = [...(agent.trainedSkills || []), course?.name || 'Chuyên Môn Hóa AI'];
+  agent.trainingCount = (agent.trainingCount || 0) + 1;
+
+  // Slightly expand overall company capacity
+  state.snapshot.capacity += 2;
+
+  // Book Double-Entry Accounting
+  state.ledger.unshift({
+    id: `tx-train-${Date.now().toString(36)}`,
+    timestamp: new Date().toISOString(),
+    description: `Đào Tạo Kỹ Năng (Upskilling): ${agent.name} - ${course?.name || 'Khóa Đào Tạo'}`,
+    debitAccount: 'Đầu Tư Phát Triển Nhân Sự AI (Human Capital / R&D)',
+    creditAccount: 'Cash & Cash Equivalents',
+    amount_minor: cost_minor,
+    cycle: state.snapshot.cycle_count,
+  });
+
+  // Record Execution Receipt
+  state.receipts.unshift({
+    id: `rcpt-train-${Date.now().toString(36)}`,
+    proposalId: `prop-train-${agent.id}`,
+    agent: 'COO',
+    action: 'RebalanceOperations',
+    status: 'Completed',
+    outcome: `Hoàn tất khóa đào tạo "${course?.name}" cho ${agent.name}. Hệ số năng suất tăng lên ${agent.taskMultiplier}x, giải quyết nguy cơ nghẽn cổ chai.`,
+    cost_minor: cost_minor,
+    timestamp: new Date().toISOString(),
+  });
+
+  recalculateCompanyHealth();
+
+  res.json({
+    success: true,
+    agent,
+    snapshot: state.snapshot,
+    message: `Đào tạo thành công cho ${agent.name}! Hệ số hoàn thành tác vụ tăng lên ${agent.taskMultiplier}x.`,
+  });
 });
 
 // Automated Multi-Agent Pipeline (End-to-End Handoff)
