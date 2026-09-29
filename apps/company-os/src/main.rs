@@ -659,6 +659,44 @@ async fn agents_api(State(state): State<AppState>) -> Json<Vec<AgentRunResult>> 
     Json(state.latest.read().await.clone())
 }
 
+async fn growth_trend_api(
+    State(state): State<AppState>,
+    Json(request): Json<GrowthTrendRequest>,
+) -> Result<Json<(company_store::GrowthTrendRecord, Option<company_store::GrowthOpportunityRecord>)>, StatusCode> {
+    if request.signal.company_id.to_string() != state.company_id {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    state
+        .store
+        .record_growth_trend(&request.signal)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn growth_opportunities_api(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<company_store::GrowthOpportunityRecord>>, StatusCode> {
+    state
+        .store
+        .list_growth_opportunities(&state.company_id, 100)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn growth_content_api(
+    State(state): State<AppState>,
+    Json(request): Json<GrowthContentRequest>,
+) -> Result<Json<company_store::ContentRecord>, StatusCode> {
+    state
+        .store
+        .create_content_from_growth_opportunity(&state.company_id, request.opportunity_id)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
 async fn content_create_api(
     State(state): State<AppState>,
     Json(req): Json<ContentCreateRequest>,
