@@ -29,6 +29,7 @@ pub struct ContributionMarginMetrics {
     pub month_to_date_variable_cost_minor: i128,
     pub month_to_date_contribution_margin_minor: Option<i128>,
     pub unclassified_expense_minor: i128,
+    pub unclassified_expense_entry_count: i64,
     pub variable_cost_transaction_count: i64,
 }
 
@@ -294,6 +295,8 @@ impl CompanyStore {
                     COALESCE(SUM(CASE WHEN a.account_type = 'EXPENSE'
                                        AND a.cost_class = 'UNCLASSIFIED'
                                        THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text,
+                    COUNT(*) FILTER (WHERE a.account_type = 'EXPENSE'
+                                      AND a.cost_class = 'UNCLASSIFIED'),
                     COUNT(DISTINCT CASE WHEN a.account_type = 'EXPENSE'
                                           AND a.cost_class = 'VARIABLE'
                                         THEN t.id END)
@@ -310,17 +313,19 @@ impl CompanyStore {
         let revenue = parse_i128_numeric(&row.get::<_, String>(0))?;
         let variable_cost = parse_i128_numeric(&row.get::<_, String>(1))?;
         let unclassified = parse_i128_numeric(&row.get::<_, String>(2))?;
+        let unclassified_entries: i64 = row.get(3);
 
         Ok(ContributionMarginMetrics {
             month_to_date_revenue_minor: revenue,
             month_to_date_variable_cost_minor: variable_cost,
-            month_to_date_contribution_margin_minor: if unclassified == 0 {
+            month_to_date_contribution_margin_minor: if unclassified_entries == 0 {
                 Some(revenue.checked_sub(variable_cost).ok_or("contribution margin overflow")?)
             } else {
                 None
             },
             unclassified_expense_minor: unclassified,
-            variable_cost_transaction_count: row.get(3),
+            unclassified_expense_entry_count: unclassified_entries,
+            variable_cost_transaction_count: row.get(4),
         })
     }
 
