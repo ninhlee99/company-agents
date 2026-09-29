@@ -193,6 +193,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/022_fpa_forecasts_cashflow.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/023_agent_evaluations.sql"
+            ))
             .await
     }
 
@@ -4151,6 +4156,57 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             "id":row.get::<_,Uuid>(0),"period_start_epoch":row.get::<_,i64>(1),
             "closing_cash_minor":parse_i128_numeric(&row.get::<_,String>(2))?
         }))
+    }
+
+    pub async fn record_agent_evaluation(
+        &self, company_id:&str, cycle_id:&str, result:&AgentRunResult,
+        outcome:&str, notes:Option<&str>
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?;
+        let outcome=outcome.trim().to_ascii_uppercase();
+        if cycle_id.trim().is_empty() || !matches!(outcome.as_str(),"OBSERVED"|"APPROVED"|"REJECTED"|"FAILED"|"UNKNOWN") {
+            return Err("invalid agent evaluation".into());
+        }
+        let decision=result.governance.as_ref().map(|g| format!("{:?}",g.decision)).unwrap_or_else(||"UNDECIDED".into());
+        let mut score=match outcome.as_str() {
+            "APPROVED" => 9000, "REJECTED" => 5000, "FAILED" => 0, "OBSERVED" => 7500, _ => 5000
+        };
+        if result.proposal.confidence_bps < 5000 { score=score.min(6000); }
+        let row= self.client.lock().await.query_one(
+            "INSERT INTO agent_evaluations
+             (id,company_id,cycle_id,agent_role,action,governance_decision,confidence_bps,evidence_count,proposal_cost_minor,expected_revenue_minor,outcome,evaluation_score_bps,notes)
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::numeric,$10::numeric,$11,$12,$13)
+             ON CONFLICT(company_id,cycle_id,agent_role) DO UPDATE SET
+               outcome=EXCLUDED.outcome,evaluation_score_bps=EXCLUDED.evaluation_score_bps,notes=EXCLUDED.notes
+             RETURNING id,evaluation_score_bps",
+            &[&Uuid::new_v4(),&company,&cycle_id,&result.agent.as_str(),&format!("{:?}",result.proposal.action),
+              &decision,&(result.proposal.confidence_bps as i32),&(result.proposal.evidence.len() as i32),
+              &result.proposal.cost_minor.to_string(),&result.proposal.expected_revenue_minor.to_string(),&outcome,&score,&notes]
+        ).await?;
+        Ok(serde_json::json!({"id":row.get::<_,Uuid>(0),"evaluation_score_bps":row.get::<_,i32>(1)}))
+    }
+
+    pub async fn list_agent_evaluations(
+        &self, company_id:&str, agent_role:Option<&str>
+    ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?;
+        let client=self.client.lock().await;
+        let rows=match agent_role {
+            Some(role)=>client.query(
+                "SELECT cycle_id,agent_role,action,governance_decision,outcome,evaluation_score_bps,created_at
+                 FROM agent_evaluations WHERE company_id=$1 AND agent_role=$2 ORDER BY created_at DESC LIMIT 100",
+                &[&company,&role]).await?,
+            None=>client.query(
+                "SELECT cycle_id,agent_role,action,governance_decision,outcome,evaluation_score_bps,created_at
+                 FROM agent_evaluations WHERE company_id=$1 ORDER BY created_at DESC LIMIT 100",
+                &[&company]).await?
+        };
+        Ok(rows.into_iter().map(|r| serde_json::json!({
+            "cycle_id":r.get::<_,String>(0),"agent_role":r.get::<_,String>(1),
+            "action":r.get::<_,String>(2),"governance_decision":r.get::<_,String>(3),
+            "outcome":r.get::<_,String>(4),"evaluation_score_bps":r.get::<_,i32>(5),
+            "created_at":r.get::<_,time::OffsetDateTime>(6).to_string()
+        })).collect())
     }
 
 }
