@@ -1,0 +1,253 @@
+#![forbid(unsafe_code)]
+
+use axum::{extract::State, http::StatusCode, Json};
+use company_store::CompanyStore;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use social_publishing::{ApprovalAuthority, CreatorInfo, TikTokPublisher, VideoPublishRequest};
+use std::{path::{Path, PathBuf}, sync::Arc};
+use tokio::{fs::File, io::AsyncReadExt};
+use url::Url;
+
+use crate::AppState;
+
+#[derive(Debug, Deserialize)]
+pub struct TikTokExecuteRequest {
+    pub intent_id: String,
+    pub approval_token: String,
+    pub lease_seconds: i64,
+    pub privacy_level: String,
+    #[serde(default)]
+    pub disable_duet: bool,
+    #[serde(default)]
+    pub disable_comment: bool,
+    #[serde(default)]
+    pub disable_stitch: bool,
+    pub cover_timestamp_ms: Option<u64>,
+    pub is_aigc: bool,
+    #[serde(default)]
+    pub brand_organic_toggle: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TikTokExecuteResponse {
+    pub intent_id: String,
+    pub execution_token: String,
+    pub publish_id: String,
+    pub status: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TikTokStatusRequest {
+    pub intent_id: String,
+    pub execution_token: String,
+    pub publish_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TikTokStatusResponse {
+    pub intent_id: String,
+    pub publish_id: String,
+    pub provider_status: String,
+    pub terminal: bool,
+}
+
+fn approval_authority() -> Result<ApprovalAuthority, String> {
+    let secret = std::env::var("PUBLISH_APPROVAL_SECRET")
+        .map_err(|_| "PUBLISH_APPROVAL_SECRET is required for TikTok publishing".to_owned())?;
+    ApprovalAuthority::new(secret.into_bytes()).map_err(|e| e.to_string())
+}
+
+fn publisher() -> Result<TikTokPublisher, String> {
+    let approval = approval_authority()?;
+    TikTokPublisher::from_env(approval).map_err(|e| e.to_string())
+}
+
+fn file_path(media_uri: &str) -> Result<PathBuf, String> {
+    let parsed = Url::parse(media_uri).map_err(|e| format!("media_uri is not a valid URL: {e}"))?;
+    if parsed.scheme() != "file" {
+        return Err("TikTok FILE_UPLOAD execution requires a file:// media_uri".into());
+    }
+    parsed
+        .to_file_path()
+        .map_err(|_| "media_uri must resolve to a local file path".into())
+}
+
+fn enforce_media_root(path: &Path) -> Result<PathBuf, String> {
+    let root = std::env::var("PUBLISH_MEDIA_ROOT")
+        .map_err(|_| "PUBLISH_MEDIA_ROOT is required for local media publishing".to_owned())?;
+    let root = std::fs::canonicalize(root).map_err(|e| format!("invalid PUBLISH_MEDIA_ROOT: {e}"))?;
+    let file = std::fs::canonicalize(path).map_err(|e| format!("media file is unavailable: {e}"))?;
+    if !file.starts_with(&root) {
+        return Err("media file is outside PUBLISH_MEDIA_ROOT".into());
+    }
+    Ok(file)
+}
+
+async fn sha256_file(path: &Path) -> Result<String, String> {
+    let mut file = File::open(path).await.map_err(|e| e.to_string())?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; 1024 * 1024];
+    loop {
+        let read = file.read(&mut buffer).await.map_err(|e| e.to_string())?;
+        if read == 0 { break; }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn fail_message(error: impl std::fmt::Display) -> (StatusCode, Json<serde_json::Value>) {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": error.to_string() })),
+    )
+}
+
+pub async fn execute_tiktok(
+    State(state): State<AppState>,
+    Json(request): Json<TikTokExecuteRequest>,
+) -> Result<Json<TikTokExecuteResponse>, (StatusCode, Json<serde_json::Value>)> {
+    let Some(job) = state
+        .store
+        .claim_publish_intent(
+            &state.company_id,
+            &request.intent_id,
+            &request.approval_token,
+            request.lease_seconds,
+        )
+        .await
+        .map_err(fail_message)?
+    else {
+        return Err(fail_message("publish intent is not approved, not due, or already claimed"));
+    };
+
+    if job.intent.platform != publishing_contract::PublishPlatform::TikTok {
+        let _ = state.store.complete_publish_intent(
+            &state.company_id,
+            &request.intent_id,
+            &job.execution_token,
+            false,
+            None,
+            Some("executor only supports TikTok"),
+        ).await;
+        return Err(fail_message("publish intent platform is not TikTok"));
+    }
+
+    let path = match file_path(&job.intent.media_uri).and_then(|p| enforce_media_root(&p)) {
+        Ok(path) => path,
+        Err(error) => {
+            let _ = state.store.complete_publish_intent(
+                &state.company_id, &request.intent_id, &job.execution_token, false, None, Some(&error)
+            ).await;
+            return Err(fail_message(error));
+        }
+    };
+
+    let actual_hash = match sha256_file(&path).await {
+        Ok(value) => value,
+        Err(error) => {
+            let _ = state.store.complete_publish_intent(
+                &state.company_id, &request.intent_id, &job.execution_token, false, None, Some(&error)
+            ).await;
+            return Err(fail_message(error));
+        }
+    };
+    if !actual_hash.eq_ignore_ascii_case(&job.intent.content_hash) {
+        let error = "media content hash does not match the approved publish intent";
+        let _ = state.store.complete_publish_intent(
+            &state.company_id, &request.intent_id, &job.execution_token, false, None, Some(error)
+        ).await;
+        return Err(fail_message(error));
+    }
+
+    let publisher = publisher().map_err(fail_message)?;
+    let creator = publisher.query_creator_info().await.map_err(|e| fail_message(e))?;
+
+    let publish_request = VideoPublishRequest {
+        artifact_id: job.intent.content_id.clone(),
+        video_path: path,
+        title: job.intent.title.clone(),
+        privacy_level: request.privacy_level,
+        disable_duet: request.disable_duet,
+        disable_comment: request.disable_comment,
+        disable_stitch: request.disable_stitch,
+        cover_timestamp_ms: request.cover_timestamp_ms,
+        is_aigc: request.is_aigc,
+        brand_organic_toggle: request.brand_organic_toggle,
+    };
+
+    if let Err(error) = validate_creator_request(&publish_request, &creator) {
+        let message = error;
+        let _ = state.store.complete_publish_intent(
+            &state.company_id, &request.intent_id, &job.execution_token, false, None, Some(&message)
+        ).await;
+        return Err(fail_message(message));
+    }
+
+    let receipt = match publisher.publish_video_authorized(publish_request, &creator).await {
+        Ok(receipt) => receipt,
+        Err(error) => {
+            let message = error.to_string();
+            let _ = state.store.complete_publish_intent(
+                &state.company_id, &request.intent_id, &job.execution_token, false, None, Some(&message)
+            ).await;
+            return Err(fail_message(message));
+        }
+    };
+
+    Ok(Json(TikTokExecuteResponse {
+        intent_id: request.intent_id,
+        execution_token: job.execution_token,
+        publish_id: receipt.publish_id,
+        status: receipt.status,
+    }))
+}
+
+fn validate_creator_request(
+    request: &VideoPublishRequest,
+    creator: &CreatorInfo,
+) -> Result<(), String> {
+    if request.privacy_level.trim().is_empty() {
+        return Err("privacy_level must be explicitly selected".into());
+    }
+    if !creator.privacy_level_options.iter().any(|v| v == &request.privacy_level) {
+        return Err("privacy_level is not currently allowed for this creator".into());
+    }
+    if request.disable_comment && !creator.comment_disabled {
+        // The provider accepts disabling comments; this check is intentionally
+        // not restrictive. Creator-level disabled settings are always honored.
+    }
+    Ok(())
+}
+
+pub async fn tiktok_status(
+    State(state): State<AppState>,
+    Json(request): Json<TikTokStatusRequest>,
+) -> Result<Json<TikTokStatusResponse>, (StatusCode, Json<serde_json::Value>)> {
+    if request.publish_id.trim().is_empty() {
+        return Err(fail_message("publish_id is required"));
+    }
+    let publisher = publisher().map_err(fail_message)?;
+    let provider_status = publisher.fetch_status(&request.publish_id).await.map_err(|e| fail_message(e))?;
+
+    let terminal = matches!(provider_status.as_str(), "PUBLISH_COMPLETE" | "FAILED");
+    if terminal {
+        let success = provider_status == "PUBLISH_COMPLETE";
+        let error = if success { None } else { Some(provider_status.as_str()) };
+        state.store.complete_publish_intent(
+            &state.company_id,
+            &request.intent_id,
+            &request.execution_token,
+            success,
+            Some(&request.publish_id),
+            error,
+        ).await.map_err(fail_message)?;
+    }
+
+    Ok(Json(TikTokStatusResponse {
+        intent_id: request.intent_id,
+        publish_id: request.publish_id,
+        provider_status,
+        terminal,
+    }))
+}
