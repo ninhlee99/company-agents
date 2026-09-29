@@ -4249,6 +4249,113 @@ fn attention_decision_from_row(
     })
 }
 
+fn policy_snapshot_from_row(
+    row: tokio_postgres::Row,
+) -> Result<company_compliance::PolicySnapshot, Box<dyn std::error::Error + Send + Sync>> {
+    Ok(company_compliance::PolicySnapshot {
+        id: row.get(0),
+        company_id: row.get(1),
+        policy_key: row.get(2),
+        platform: row.get(3),
+        jurisdiction: row.get(4),
+        version: row.get(5),
+        source_reference: row.get(6),
+        evidence_hash: row.get(7),
+        observed_at_epoch: row.get(8),
+        effective_at_epoch: row.get(9),
+        active: row.get(10),
+        rules: serde_json::from_value(row.get(11))?,
+    })
+}
+
+fn compliance_surface_name(value: company_compliance::ComplianceSurface) -> &'static str {
+    match value {
+        company_compliance::ComplianceSurface::Content => "CONTENT",
+        company_compliance::ComplianceSurface::Affiliate => "AFFILIATE",
+        company_compliance::ComplianceSurface::Live => "LIVE",
+        company_compliance::ComplianceSurface::Advertising => "ADVERTISING",
+        company_compliance::ComplianceSurface::Copyright => "COPYRIGHT",
+        company_compliance::ComplianceSurface::ProductEligibility => "PRODUCT_ELIGIBILITY",
+        company_compliance::ComplianceSurface::Claims => "CLAIMS",
+    }
+}
+
+fn compliance_decision_name(value: company_compliance::ComplianceDecision) -> &'static str {
+    match value {
+        company_compliance::ComplianceDecision::Allowed => "ALLOWED",
+        company_compliance::ComplianceDecision::Review => "REVIEW",
+        company_compliance::ComplianceDecision::Blocked => "BLOCKED",
+        company_compliance::ComplianceDecision::Unknown => "UNKNOWN",
+    }
+}
+
+fn compliance_reason_name(value: company_compliance::ComplianceReason) -> &'static str {
+    match value {
+        company_compliance::ComplianceReason::PolicyUnavailable => "POLICY_UNAVAILABLE",
+        company_compliance::ComplianceReason::MissingPolicyEvidence => "MISSING_POLICY_EVIDENCE",
+        company_compliance::ComplianceReason::MissingDisclosure => "MISSING_DISCLOSURE",
+        company_compliance::ComplianceReason::ProhibitedProduct => "PROHIBITED_PRODUCT",
+        company_compliance::ComplianceReason::UnsupportedProduct => "UNSUPPORTED_PRODUCT",
+        company_compliance::ComplianceReason::UnverifiedClaim => "UNVERIFIED_CLAIM",
+        company_compliance::ComplianceReason::FakeEngagement => "FAKE_ENGAGEMENT",
+        company_compliance::ComplianceReason::Simulcast => "SIMULCAST",
+        company_compliance::ComplianceReason::MissingRightsEvidence => "MISSING_RIGHTS_EVIDENCE",
+        company_compliance::ComplianceReason::HumanReviewRequired => "HUMAN_REVIEW_REQUIRED",
+        company_compliance::ComplianceReason::AllowedByPolicy => "ALLOWED_BY_POLICY",
+    }
+}
+
+fn compliance_check_from_row(
+    row: tokio_postgres::Row,
+    input: &company_compliance::ComplianceInput,
+) -> Result<company_compliance::ComplianceCheck, Box<dyn std::error::Error + Send + Sync>> {
+    let decision = match row.get::<_, String>(3).as_str() {
+        "ALLOWED" => company_compliance::ComplianceDecision::Allowed,
+        "REVIEW" => company_compliance::ComplianceDecision::Review,
+        "BLOCKED" => company_compliance::ComplianceDecision::Blocked,
+        "UNKNOWN" => company_compliance::ComplianceDecision::Unknown,
+        other => return Err(format!("invalid stored compliance decision: {other}").into()),
+    };
+    let reason = match row.get::<_, String>(4).as_str() {
+        "POLICY_UNAVAILABLE" => company_compliance::ComplianceReason::PolicyUnavailable,
+        "MISSING_POLICY_EVIDENCE" => company_compliance::ComplianceReason::MissingPolicyEvidence,
+        "MISSING_DISCLOSURE" => company_compliance::ComplianceReason::MissingDisclosure,
+        "PROHIBITED_PRODUCT" => company_compliance::ComplianceReason::ProhibitedProduct,
+        "UNSUPPORTED_PRODUCT" => company_compliance::ComplianceReason::UnsupportedProduct,
+        "UNVERIFIED_CLAIM" => company_compliance::ComplianceReason::UnverifiedClaim,
+        "FAKE_ENGAGEMENT" => company_compliance::ComplianceReason::FakeEngagement,
+        "SIMULCAST" => company_compliance::ComplianceReason::Simulcast,
+        "MISSING_RIGHTS_EVIDENCE" => company_compliance::ComplianceReason::MissingRightsEvidence,
+        "HUMAN_REVIEW_REQUIRED" => company_compliance::ComplianceReason::HumanReviewRequired,
+        "ALLOWED_BY_POLICY" => company_compliance::ComplianceReason::AllowedByPolicy,
+        other => return Err(format!("invalid stored compliance reason: {other}").into()),
+    };
+    Ok(company_compliance::ComplianceCheck {
+        id: row.get(0),
+        company_id: row.get(1),
+        policy_snapshot_id: row.get(2),
+        input: input.clone(),
+        decision,
+        reason,
+        requires_human: row.get(5),
+        checked_at_epoch: row.get(6),
+    })
+}
+
+async fn existing_compliance_check(
+    client: &tokio_postgres::Client,
+    input: &company_compliance::ComplianceInput,
+    input_hash: &str,
+) -> Result<company_compliance::ComplianceCheck, Box<dyn std::error::Error + Send + Sync>> {
+    let row = client.query_one(
+        "SELECT id,company_id,policy_snapshot_id,decision,reason,requires_human,checked_at_epoch
+           FROM compliance_checks
+          WHERE company_id=$1 AND policy_key=$2 AND policy_snapshot_key=$3 AND input_hash=$4",
+        &[&input.company_id, &input.policy_key, &input.policy_snapshot_key, &input_hash],
+    ).await?;
+    compliance_check_from_row(row, input)
+}
+
 fn parse_reconciliation_status(
     value: &str,
 ) -> Result<affiliate_attribution::ReconciliationStatus, Box<dyn std::error::Error + Send + Sync>> {
