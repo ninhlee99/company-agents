@@ -1,6 +1,10 @@
-# Company Agents
+# VERIDARA AI
 
-Autonomous Company OS — an AI-native operating system for building and operating a self-sustaining company.
+**Veridara AI — Autonomous Business Intelligence & Operations Company**
+
+> **Build. Operate. Learn. Compound.**
+
+Veridara AI is an AI-native company built around an internal Autonomous Company OS: a governed system of agents, economics, memory, operations and commercial workflows.
 
 The initial business model is an AI-native media and creator company. The deeper goal is a reusable economic operating system in which AI agents can research opportunities, create businesses, allocate capital, hire, execute, learn from outcomes, scale winners, shut down losers, and eventually enter distress or bankruptcy.
 
@@ -27,6 +31,16 @@ Optional remote provider:
     GEMINI_MODEL=gemini-3.6-flash
 
 Google currently provides a Free Tier for selected Gemini API models. Free-tier limits apply, and Google states that free-tier content may be used to improve its products, so local Ollama is preferred for private company data.
+
+## Company identity
+
+**Company:** Veridara AI  
+**Operating model:** AI-native company / agent workforce  
+**Core platform:** Autonomous Company OS  
+**Initial commercial engines:** Media & creator commerce, affiliate commerce, B2B services, sponsorships and commercial partnerships  
+**Operating principle:** AI proposes and operates within policy; deterministic systems govern money, permissions and material side effects.
+
+The name **Veridara** is an invented brand chosen to evoke verified intelligence, direction and durable execution. It is a brand choice, not a claim of trademark availability.
 
 ## Primary implementation
 
