@@ -22,11 +22,7 @@ import {
   ChevronDown,
   ChevronUp,
   GraduationCap,
-  Zap,
-  Bot,
-  ToggleLeft,
-  ToggleRight,
-  ShieldCheck
+  Zap
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -45,7 +41,6 @@ interface ManageAgentsProps {
   onHireAgent: (data: { name: string; role: string; department: 'Leadership' | 'Growth' | 'Ops' | 'Sales' | 'Tech'; description: string; salary_minor: number }) => Promise<{ success: boolean; reason?: string }>;
   onToggleStatus: (agentId: string) => void;
   onOpenTraining?: (agentId?: string) => void;
-  onAutoRecruit?: (thresholdMinor?: number) => Promise<{ success: boolean; reason?: string }>;
 }
 
 export const ManageAgents: React.FC<ManageAgentsProps> = ({
@@ -54,7 +49,6 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
   onHireAgent,
   onToggleStatus,
   onOpenTraining,
-  onAutoRecruit,
 }) => {
   const [filter, setFilter] = useState<'All' | 'Leadership' | 'Growth' | 'Ops'>('All');
   const [showHireModal, setShowHireModal] = useState(false);
@@ -80,32 +74,6 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
   const [selectedAgentForHistory, setSelectedAgentForHistory] = useState<CustomAgent | null>(null);
   const [taskHistory, setTaskHistory] = useState<AgentTaskItem[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-
-  // Auto-Recruit Engine State
-  const [autoRecruitEnabled, setAutoRecruitEnabled] = useState(true);
-  const [cashSafetyThreshold, setCashSafetyThreshold] = useState(40000); // $40,000 threshold
-  const [isAutoRecruiting, setIsAutoRecruiting] = useState(false);
-  const [autoRecruitFeedback, setAutoRecruitFeedback] = useState<{ message: string; type: 'success' | 'warning' | 'error' } | null>(null);
-
-  const handleTriggerAutoRecruit = async () => {
-    if (!onAutoRecruit) return;
-    setIsAutoRecruiting(true);
-    setAutoRecruitFeedback(null);
-
-    const res = await onAutoRecruit(cashSafetyThreshold * 100);
-    setIsAutoRecruiting(false);
-    if (res.success) {
-      setAutoRecruitFeedback({
-        message: 'Recruiter AI đã tự động tuyển dụng thành công 1 nhân sự chuyên môn mới!',
-        type: 'success',
-      });
-    } else {
-      setAutoRecruitFeedback({
-        message: res.reason || 'Không thể tự động tuyển dụng lúc này.',
-        type: 'warning',
-      });
-    }
-  };
 
   const handleHireSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -357,153 +325,6 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
             <Plus className="w-3.5 h-3.5" /> Tuyển Thêm AI
           </button>
         </div>
-      </div>
-
-      {/* AUTO-RECRUIT CONTROLLER CARD */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
-              <Bot className="w-4 h-4 text-cyan-400" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-white text-xs block">
-                  Cơ Chế Tự Động Tuyển Dụng AI (Auto-Recruit Engine)
-                </span>
-                <span className={`px-2 py-0.2 rounded-full font-mono text-[10px] font-bold border ${
-                  autoRecruitEnabled 
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' 
-                    : 'bg-slate-800 text-slate-400 border-slate-700'
-                }`}>
-                  {autoRecruitEnabled ? '🟢 ĐANG BẬT' : '⚪ ĐÃ TẮT'}
-                </span>
-              </div>
-              <span className="text-[10px] text-slate-400">
-                Ủy quyền cho Recruiter Agent tự động tuyển dụng vai trò chuyên môn khi Hiring Need &gt; 0 và Kho Bạc đạt chuẩn an toàn
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Toggle switch */}
-            <button
-              onClick={() => setAutoRecruitEnabled(!autoRecruitEnabled)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-                autoRecruitEnabled
-                  ? 'bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border-emerald-500/40'
-                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-              }`}
-            >
-              {autoRecruitEnabled ? (
-                <ToggleRight className="w-4 h-4 text-emerald-400" />
-              ) : (
-                <ToggleLeft className="w-4 h-4 text-slate-400" />
-              )}
-              <span>{autoRecruitEnabled ? 'Tự Động Tuyển: BẬT' : 'Tự Động Tuyển: TẮT'}</span>
-            </button>
-
-            {/* Quick Trigger Button */}
-            {onAutoRecruit && (
-              <button
-                onClick={handleTriggerAutoRecruit}
-                disabled={isAutoRecruiting || !autoRecruitEnabled}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-                  !autoRecruitEnabled
-                    ? 'bg-slate-950 text-slate-600 border-slate-800 cursor-not-allowed'
-                    : isAutoRecruiting
-                    ? 'bg-indigo-700 text-white cursor-wait'
-                    : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-md active:scale-95'
-                }`}
-                title="Yêu cầu Recruiter quét và thực hiện tự động tuyển dụng ngay nếu đủ điều kiện"
-              >
-                <Sparkles className={`w-3.5 h-3.5 ${isAutoRecruiting ? 'animate-spin' : 'text-yellow-300'}`} />
-                <span>{isAutoRecruiting ? 'Đang Quét Tuyển...' : 'Quét & Tuyển Ngay'}</span>
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Status conditions & Safety Threshold */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
-          {/* Condition 1: Hiring Need */}
-          <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
-            <div>
-              <span className="text-[10px] text-slate-400 block">Điều Kiện 1: Nhu Cầu Nhân Sự</span>
-              <span className="font-bold text-white text-xs font-mono">
-                Hiring Need = {snapshot.hiring_need} vị trí
-              </span>
-            </div>
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-              snapshot.hiring_need > 0 
-                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
-                : 'bg-slate-800 text-slate-400 border-slate-700'
-            }`}>
-              {snapshot.hiring_need > 0 ? '✓ Đạt chuẩn' : '⚪ Đủ quân số'}
-            </span>
-          </div>
-
-          {/* Condition 2: Cash Safety Threshold */}
-          <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
-            <div>
-              <span className="text-[10px] text-slate-400 block">Điều Kiện 2: Ngưỡng An Toàn Kho Bạc</span>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="font-bold text-white text-xs font-mono">
-                  ${(snapshot.cash_minor / 100).toLocaleString()}
-                </span>
-                <span className="text-[10px] text-slate-500">&ge;</span>
-                <select
-                  value={cashSafetyThreshold}
-                  onChange={(e) => setCashSafetyThreshold(Number(e.target.value))}
-                  className="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.2 text-[10px] text-indigo-300 font-mono focus:outline-none"
-                >
-                  <option value={30000}>$30,000</option>
-                  <option value={35000}>$35,000</option>
-                  <option value={40000}>$40,000 (Khuyên dùng)</option>
-                  <option value={45000}>$45,000</option>
-                </select>
-              </div>
-            </div>
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-              snapshot.cash_minor >= cashSafetyThreshold * 100 
-                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
-                : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
-            }`}>
-              {snapshot.cash_minor >= cashSafetyThreshold * 100 ? '✓ Đạt chuẩn' : '✕ Chưa đủ'}
-            </span>
-          </div>
-
-          {/* Recruiter Autonomous Status */}
-          <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
-            <div>
-              <span className="text-[10px] text-slate-400 block">Trạng Thái Recruiter Agent</span>
-              <span className="font-bold text-xs text-indigo-300 truncate block">
-                {autoRecruitEnabled && snapshot.hiring_need > 0 && snapshot.cash_minor >= cashSafetyThreshold * 100
-                  ? 'Sẵn sàng bổ sung chuyên môn'
-                  : !autoRecruitEnabled
-                  ? 'Chế độ tự động đang tạm tắt'
-                  : 'Đang theo dõi định mức'}
-              </span>
-            </div>
-            <ShieldCheck className={`w-4 h-4 shrink-0 ${
-              autoRecruitEnabled && snapshot.hiring_need > 0 && snapshot.cash_minor >= cashSafetyThreshold * 100
-                ? 'text-emerald-400'
-                : 'text-slate-500'
-            }`} />
-          </div>
-        </div>
-
-        {/* Feedback message */}
-        {autoRecruitFeedback && (
-          <div className={`p-2.5 rounded-lg border text-xs flex items-center gap-2 ${
-            autoRecruitFeedback.type === 'success'
-              ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
-              : 'bg-amber-950/40 border-amber-500/40 text-amber-300'
-          }`}>
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
-            <span>{autoRecruitFeedback.message}</span>
-          </div>
-        )}
       </div>
 
       {/* DEPARTMENTAL PERFORMANCE REPORT (TASKS COMPLETED VS SALARY COST: HIGH-PERFORMERS VS OVERPAID) */}

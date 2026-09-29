@@ -194,6 +194,11 @@ impl CompanyStore {
                 "../../../infra/db/migrations/022_fpa_forecasts_cashflow.sql"
             ))
             .await
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/029_customer_support.sql"
+            ))
+            .await?;
     }
 
     pub async fn ensure_company(
@@ -4152,5 +4157,78 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             "closing_cash_minor":parse_i128_numeric(&row.get::<_,String>(2))?
         }))
     }
+
+    pub async fn create_support_case(
+        &self, company_id:&str, case_id:Uuid, customer_id:Option<&str>, channel:&str, subject:&str,
+        description:&str, priority:&str, sla_due_at_epoch:i64, idempotency_key:&str
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        if subject.trim().is_empty() || description.trim().is_empty() || idempotency_key.trim().is_empty()
+            || !matches!(priority, "LOW"|"NORMAL"|"HIGH"|"URGENT") || sla_due_at_epoch<=0 {
+            return Err("invalid support case".into());
+        }
+        let company=Uuid::parse_str(company_id)?;
+        let customer=match customer_id { Some(v)=>Some(Uuid::parse_str(v)?),None=>None };
+        let client=self.client.lock().await;
+        let row=client.query_opt(
+            "INSERT INTO support_cases(id,company_id,customer_id,channel,subject,description,priority,status,sla_due_at_epoch,idempotency_key)
+             VALUES($1,$2,$3,$4,$5,$6,$7,'OPEN',$8,$9)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING
+             RETURNING id,status,priority,sla_due_at_epoch",
+            &[&case_id,&company,&customer,&channel,&subject,&description,&priority,&sla_due_at_epoch,&idempotency_key]).await?;
+        let row=match row { Some(r)=>r, None=>client.query_one(
+            "SELECT id,status,priority,sla_due_at_epoch FROM support_cases WHERE company_id=$1 AND idempotency_key=$2",
+            &[&company,&idempotency_key]).await? };
+        Ok(serde_json::json!({"id":row.get::<_,Uuid>(0),"status":row.get::<_,String>(1),
+            "priority":row.get::<_,String>(2),"sla_due_at_epoch":row.get::<_,i64>(3)}))
+    }
+
+    pub async fn update_support_case(
+        &self, company_id:&str, case_id:&str, status:&str, actor:&str, notes:Option<&str>,
+        evidence_hash:Option<&str>, resolved_at_epoch:Option<i64>
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        if !matches!(status,"ACKNOWLEDGED"|"IN_PROGRESS"|"WAITING_CUSTOMER"|"RESOLVED"|"CLOSED") || actor.trim().is_empty() {
+            return Err("invalid support transition".into());
+        }
+        let company=Uuid::parse_str(company_id)?; let case_id=Uuid::parse_str(case_id)?;
+        let client=self.client.lock().await;
+        let current=client.query_one("SELECT status FROM support_cases WHERE company_id=$1 AND id=$2 FOR UPDATE",&[&company,&case_id]).await?;
+        let from:String=current.get(0);
+        let allowed=matches!((from.as_str(),status),
+            ("OPEN","ACKNOWLEDGED")|("ACKNOWLEDGED","IN_PROGRESS")|("IN_PROGRESS","WAITING_CUSTOMER")|
+            ("WAITING_CUSTOMER","IN_PROGRESS")|("IN_PROGRESS","RESOLVED")|("RESOLVED","CLOSED")|("IN_PROGRESS","CLOSED"));
+        if !allowed { return Err(format!("invalid support transition {} -> {}",from,status).into()); }
+        client.execute("UPDATE support_cases SET status=$3,resolved_at_epoch=CASE WHEN $3='RESOLVED' THEN COALESCE($4,resolved_at_epoch) ELSE resolved_at_epoch END,updated_at=now() WHERE company_id=$1 AND id=$2",
+            &[&company,&case_id,&status,&resolved_at_epoch]).await?;
+        client.execute("INSERT INTO support_case_events(id,company_id,case_id,event_type,actor,evidence_hash,notes) VALUES($1,$2,$3,$4,$5,$6,$7)",
+            &[&Uuid::new_v4(),&company,&case_id,&format!("STATUS_{}",status),&actor,&evidence_hash,&notes]).await?;
+        Ok(serde_json::json!({"id":case_id,"from":from,"status":status}))
+    }
+
+    pub async fn list_support_cases(
+        &self, company_id:&str, status:Option<&str>, limit:i64
+    ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let limit=limit.clamp(1,100);
+        let client=self.client.lock().await;
+        let rows=match status {
+            Some(v)=>client.query("SELECT id,customer_id,channel,subject,priority,status,sla_due_at_epoch,owner_agent FROM support_cases WHERE company_id=$1 AND status=$2 ORDER BY priority DESC,created_at LIMIT $3",&[&company,&v,&limit]).await?,
+            None=>client.query("SELECT id,customer_id,channel,subject,priority,status,sla_due_at_epoch,owner_agent FROM support_cases WHERE company_id=$1 ORDER BY priority DESC,created_at LIMIT $2",&[&company,&limit]).await?
+        };
+        Ok(rows.into_iter().map(|r|serde_json::json!({"id":r.get::<_,Uuid>(0),"customer_id":r.get::<_,Option<Uuid>>(1),
+            "channel":r.get::<_,String>(2),"subject":r.get::<_,String>(3),"priority":r.get::<_,String>(4),
+            "status":r.get::<_,String>(5),"sla_due_at_epoch":r.get::<_,i64>(6),"owner_agent":r.get::<_,Option<String>>(7)})).collect())
+    }
+
+    pub async fn record_support_feedback(
+        &self, company_id:&str, feedback_id:Uuid, case_id:&str, rating:i16, feedback:Option<&str>
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=5).contains(&rating) { return Err("rating must be 1..5".into()); }
+        let company=Uuid::parse_str(company_id)?; let case_id=Uuid::parse_str(case_id)?;
+        let client=self.client.lock().await;
+        client.execute("INSERT INTO support_case_feedback(id,company_id,case_id,rating,feedback) VALUES($1,$2,$3,$4,$5)
+            ON CONFLICT(company_id,case_id) DO UPDATE SET rating=EXCLUDED.rating,feedback=EXCLUDED.feedback",
+            &[&feedback_id,&company,&case_id,&rating,&feedback]).await?;
+        Ok(serde_json::json!({"id":feedback_id,"case_id":case_id,"rating":rating}))
+    }
+
 
 }

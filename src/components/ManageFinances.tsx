@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { CompanySnapshot, LedgerEntry, CustomAgent } from '../types/company';
-import { AgentProfitabilityLedger } from './AgentProfitabilityLedger';
+import { CompanySnapshot, LedgerEntry } from '../types/company';
 import { 
   Wallet, 
   ArrowDownLeft, 
@@ -13,14 +12,12 @@ interface ManageFinancesProps {
   snapshot: CompanySnapshot;
   ledger: LedgerEntry[];
   employees: { id: string; role: string; name: string; salary_minor: number; hiredAtCycle: number }[];
-  agents?: CustomAgent[];
 }
 
 export const ManageFinances: React.FC<ManageFinancesProps> = ({
   snapshot,
   ledger,
   employees,
-  agents = [],
 }) => {
   const [filterType, setFilterType] = useState<'All' | 'Income' | 'Expense'>('All');
 
@@ -80,9 +77,6 @@ export const ManageFinances: React.FC<ManageFinancesProps> = ({
           <span className="text-[11px] text-slate-400 mt-0.5 block">Lương AI, GPU &amp; API</span>
         </div>
       </div>
-
-      {/* Agent Profitability Ledger (Granular Employee ROI & Pipeline Cross-Reference) */}
-      <AgentProfitabilityLedger snapshot={snapshot} agents={agents} />
 
       {/* Transaction History (Banking Style) */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm p-4 space-y-3">
