@@ -30,6 +30,7 @@ This document intentionally separates implemented behavior from contracts, simul
 | Invoicing | Implemented | Invoice creation, issuance and payment lifecycle are durable and idempotent. |
 | Invoice accounting | Implemented | Issuance posts AR → revenue; payment posts cash → AR inside the same transaction. |
 | Customer CRM | Implemented baseline | Idempotent customer creation and listing with lifecycle/status metadata are available. |
+| Customer support operations | Implemented baseline | Durable support cases, SLA deadlines, lifecycle transitions, event evidence and 1–5 feedback capture are available; inbound provider ingestion and human-facing support channels remain environment-gated. |
 | HR / payroll economics | Implemented baseline | Employees, payroll obligations and accounting primitives exist; external payroll execution is not integrated. |
 | Business-unit economics | Implemented baseline | Units and portfolio metrics exist; automatic capital allocation is still gated. |
 | Portfolio autonomy | NOT achieved | The repository does not yet provide evidence-backed autonomous reinvest/close decisions across real business units. |
