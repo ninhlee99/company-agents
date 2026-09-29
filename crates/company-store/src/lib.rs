@@ -173,6 +173,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/014_customer_crm.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/015_tiktok_webhook_receipts.sql"
+            ))
             .await
     }
 
@@ -778,6 +783,112 @@ impl CompanyStore {
             intent,
             execution_token: execution_token.to_string(),
         }))
+    }
+
+    pub async fn record_publish_started(
+        &self,
+        company_id: &str,
+        intent_id: &str,
+        execution_token: &str,
+        publish_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if publish_id.trim().is_empty() || publish_id.len() > 512 {
+            return Err("TikTok publish id is invalid".into());
+        }
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let intent_uuid = Uuid::parse_str(intent_id)?;
+        let execution_uuid = Uuid::parse_str(execution_token)?;
+        let client = self.client.lock().await;
+        let changed = client
+            .execute(
+                "UPDATE publish_intents
+                    SET external_reference=$4
+                  WHERE company_id=$1 AND id=$2
+                    AND status='RUNNING' AND execution_token=$3",
+                &[&company_uuid, &intent_uuid, &execution_uuid, &publish_id],
+            )
+            .await?;
+        if changed == 0 {
+            return Err("publish execution token is invalid or lease is no longer owned".into());
+        }
+        Ok(())
+    }
+
+    pub async fn reconcile_tiktok_webhook(
+        &self,
+        company_id: &str,
+        event_key: &str,
+        event_name: &str,
+        publish_id: Option<&str>,
+        payload_hash: &str,
+        success: Option<bool>,
+        failure_reason: Option<&str>,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        if event_key.trim().is_empty() || event_key.len() > 512 {
+            return Err("TikTok webhook event key is invalid".into());
+        }
+        let client = self.client.lock().await;
+        let mut tx = client.transaction().await?;
+        let inserted = tx
+            .execute(
+                "INSERT INTO tiktok_webhook_receipts
+                 (id, company_id, event_key, event_name, publish_id, payload_hash)
+                 VALUES ($1,$2,$3,$4,$5,$6)
+                 ON CONFLICT (company_id,event_key) DO NOTHING",
+                &[
+                    &Uuid::new_v4(),
+                    &company_uuid,
+                    &event_key,
+                    &event_name,
+                    &publish_id,
+                    &payload_hash,
+                ],
+            )
+            .await?;
+        if inserted == 0 {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+
+        if let (Some(publish_id), Some(success)) = (publish_id, success) {
+            let final_status = if success { "SUCCEEDED" } else { "FAILED" };
+            let error_message = failure_reason.filter(|v| !v.is_empty());
+            let changed = tx
+                .execute(
+                    "UPDATE publish_intents
+                        SET status=$4,
+                            error_message=$5,
+                            execution_token=NULL,
+                            locked_until=NULL
+                      WHERE company_id=$1 AND external_reference=$2 AND status='RUNNING'",
+                    &[&company_uuid, &publish_id, &final_status, &error_message],
+                )
+                .await?;
+            if changed > 0 {
+                tx.execute(
+                    "INSERT INTO outbox_events
+                     (company_id,event_type,aggregate_id,idempotency_key,payload)
+                     VALUES ($1,'PUBLISH_INTENT_COMPLETED',$2,$3,$4)
+                     ON CONFLICT (company_id,idempotency_key) DO NOTHING",
+                    &[
+                        &company_uuid,
+                        &publish_id,
+                        &format!("outbox:tiktok-webhook:{event_key}"),
+                        &serde_json::json!({
+                            "event": event_name,
+                            "publish_id": publish_id,
+                            "success": success,
+                            "error_message": error_message,
+                        }),
+                    ],
+                )
+                .await?;
+            }
+        }
+
+        tx.commit().await?;
+        Ok(true)
     }
 
     pub async fn complete_publish_intent(
