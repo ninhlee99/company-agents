@@ -1,11 +1,10 @@
 #![forbid(unsafe_code)]
 
 use axum::{extract::State, http::StatusCode, Json};
-use company_store::CompanyStore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use social_publishing::{ApprovalAuthority, CreatorInfo, TikTokPublisher, VideoPublishRequest};
-use std::{path::{Path, PathBuf}, sync::Arc};
+use std::{path::{Path, PathBuf}};
 use tokio::{fs::File, io::AsyncReadExt};
 use url::Url;
 
@@ -212,10 +211,6 @@ fn validate_creator_request(
     }
     if !creator.privacy_level_options.iter().any(|v| v == &request.privacy_level) {
         return Err("privacy_level is not currently allowed for this creator".into());
-    }
-    if request.disable_comment && !creator.comment_disabled {
-        // The provider accepts disabling comments; this check is intentionally
-        // not restrictive. Creator-level disabled settings are always honored.
     }
     Ok(())
 }
