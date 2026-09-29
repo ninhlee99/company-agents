@@ -1077,17 +1077,16 @@ impl CompanyStore {
         let intent_uuid = Uuid::parse_str(&intent.id)?;
         let idempotency_key = publishing_contract::new_idempotency_key(intent);
 
-        let scheduled_at = intent
-            .scheduled_at
-            .as_deref()
-            .map(|value| {
+        let scheduled_at = match intent.scheduled_at.as_deref() {
+            Some(value) => Some(
                 time::OffsetDateTime::parse(
                     value,
                     &time::format_description::well_known::Rfc3339,
-                )
-                .map(|parsed| parsed.format(&time::format_description::well_known::Rfc3339))
-            })
-            .transpose()??;
+                )?
+                .format(&time::format_description::well_known::Rfc3339)?,
+            ),
+            None => None,
+        };
 
         let client = self.client.lock().await;
         let existing = client
@@ -1384,8 +1383,8 @@ impl CompanyStore {
         if event_key.trim().is_empty() || event_key.len() > 512 {
             return Err("TikTok webhook event key is invalid".into());
         }
-        let client = self.client.lock().await;
-        let mut tx = client.transaction().await?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
         let inserted = tx
             .execute(
                 "INSERT INTO tiktok_webhook_receipts
@@ -2943,7 +2942,8 @@ impl CompanyStore {
                     &transaction_id,
                     &company_uuid,
                     &format!(
-                        "affiliate:provider-verify:{conversion_id}:{status}:{delta}"
+                        "affiliate:provider-verify:{conversion_id}:{}:{delta}",
+                        status.as_str()
                     ),
                 ],
             )
@@ -3833,6 +3833,10 @@ async fn tx_store_live_gift_statement(
     Ok(())
 }
 
+fn parse_i128_numeric(value: &str) -> Result<i128, std::num::ParseIntError> {
+    value.trim().parse::<i128>()
+}
+
 fn parse_reconciliation_status(
     value: &str,
 ) -> Result<affiliate_attribution::ReconciliationStatus, Box<dyn std::error::Error + Send + Sync>> {
@@ -4166,6 +4170,9 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             ))
         }
     }
+}
+
+impl CompanyStore {
     pub async fn create_service_proposal(&self, p: &commercial_sales::ServiceProposal) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if p.title.trim().is_empty() || p.idempotency_key.trim().is_empty() || p.total_minor < 0 || p.currency.len() != 3 { return Err("invalid service proposal".into()); }
         let mut c = self.client.lock().await;

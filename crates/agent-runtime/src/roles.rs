@@ -188,7 +188,8 @@ fn enforce_context(mut proposal: Proposal, ctx: &AgentContext) -> Proposal {
     }
 
     let fallback = match proposal.agent {
-        AgentRole::CEO | AgentRole::CFO | AgentRole::Recruiter => ActionKind::ReduceBudget,
+        AgentRole::CEO | AgentRole::CFO => ActionKind::ReduceBudget,
+        AgentRole::Recruiter => ActionKind::ProduceReport,
         AgentRole::COO => {
             if ctx.company.backlog > ctx.company.capacity {
                 ActionKind::RebalanceOperations
