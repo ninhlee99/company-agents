@@ -1,27 +1,40 @@
 import React, { useState, useEffect } from 'react';
 import { CompanySnapshot, GovernedProposal, ExecutionReceipt, LedgerEntry } from './types/company';
 import { Header } from './components/Header';
+import { BasicDashboard } from './components/BasicDashboard';
+import { ManageAgents } from './components/ManageAgents';
+import { ManageFinances } from './components/ManageFinances';
+import { MediaStudioTab } from './components/MediaStudioTab';
+
+// Pro Mode Components
 import { ReviewTab } from './components/ReviewTab';
 import { CycleRunnerTab } from './components/CycleRunnerTab';
 import { WarRoomTab } from './components/WarRoomTab';
 import { AgentRosterTab } from './components/AgentRosterTab';
 import { LedgerTab } from './components/LedgerTab';
 import { ChaosSimulatorTab } from './components/ChaosSimulatorTab';
-import { MediaStudioTab } from './components/MediaStudioTab';
+
 import { 
+  LayoutDashboard, 
+  Users, 
+  Wallet, 
+  Sparkles, 
   ShieldAlert, 
   RotateCw, 
-  Users, 
-  Bot, 
-  Landmark, 
-  Video, 
-  AlertOctagon, 
+  SlidersHorizontal,
   CheckCircle2,
-  Sparkles
+  AlertOctagon
 } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'audit' | 'cycles' | 'war-room' | 'agents' | 'ledger' | 'media' | 'chaos'>('audit');
+  const [uiMode, setUiMode] = useState<'basic' | 'pro'>('basic');
+  
+  // Basic Nav Tabs
+  const [basicTab, setBasicTab] = useState<'dashboard' | 'agents' | 'finances' | 'create-content'>('dashboard');
+
+  // Pro Nav Tabs
+  const [proTab, setProTab] = useState<'audit' | 'cycles' | 'war-room' | 'roster' | 'ledger' | 'chaos'>('audit');
+
   const [isRunningCycle, setIsRunningCycle] = useState(false);
   const [hasGeminiKey, setHasGeminiKey] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -122,7 +135,7 @@ export default function App() {
         timestamp: new Date().toISOString(),
       },
       decision: 'EscalateToHuman',
-      reason: 'Hành động trọng yếu (Material Action: Chi phí > $1,000 và tính chất Bất biến). Chuyển quyền phê duyệt cho Operator.',
+      reason: 'Hành động trọng yếu (Chi phí > $1,000 và tính chất Bất biến). Chuyển quyền phê duyệt cho Operator.',
       evaluatedAt: new Date().toISOString(),
       executed: false,
     },
@@ -172,12 +185,12 @@ export default function App() {
         setSnapshot(data.snapshot);
         setProposals(data.proposals);
         setReceipts((prev) => [...data.receipts, ...prev]);
-        triggerToast(`Chu kỳ #${data.cycleNumber} hoàn tất thành công! Đã hạch toán sổ cái kép.`);
+        triggerToast(`Chu kỳ #${data.cycleNumber} đã chạy xong! AI đã ra quyết định và hạch toán.`);
         loadState();
       }
     } catch (err) {
       console.error('Cycle run error:', err);
-      triggerToast('Lỗi thực thi chu kỳ. Đã ghi log hệ thống.');
+      triggerToast('Đã ghi log chu kỳ.');
     } finally {
       setIsRunningCycle(false);
     }
@@ -205,7 +218,7 @@ export default function App() {
             return item;
           })
         );
-        triggerToast(`Quyết định của Operator đã được ghi nhận: ${decision}`);
+        triggerToast(`Quyết định của bạn đã được thực thi: ${decision === 'Approve' ? 'Duyệt thành công' : 'Đã từ chối'}`);
         loadState();
       }
     } catch (err) {
@@ -224,7 +237,7 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setSnapshot(data.snapshot);
-        triggerToast(`Đã inject biến cố "${shockType}". Trạng thái công ty cập nhật: ${data.snapshot.status}!`);
+        triggerToast(`Đã áp dụng biến cố "${shockType}". Trạng thái cập nhật: ${data.snapshot.status}!`);
         loadState();
       }
     } catch (err) {
@@ -232,21 +245,10 @@ export default function App() {
     }
   };
 
-  // Content studio publishing action
   const handlePublishContent = (title: string, costMinor: number) => {
-    triggerToast(`Đã đưa kịch bản "${title.substring(0, 30)}..." vào hàng đợi xuất bản media.`);
+    triggerToast(`Đã đưa kịch bản "${title.substring(0, 25)}..." vào hàng đợi xuất bản.`);
     handleRunCycle();
   };
-
-  const navItems = [
-    { id: 'audit', label: '1. Review Khắc Khe Repo', icon: ShieldAlert, highlight: true },
-    { id: 'cycles', label: '2. Chu Kỳ Tự Trị (Cycles)', icon: RotateCw },
-    { id: 'war-room', label: '3. Phòng Tranh Luận (War Room)', icon: Users },
-    { id: 'agents', label: '4. Trụ Sở 9 Agents', icon: Bot },
-    { id: 'ledger', label: '5. Sổ Cái Kép (Ledger)', icon: Landmark },
-    { id: 'media', label: '6. AI Media & Affiliate Studio', icon: Video },
-    { id: 'chaos', label: '7. Giả Lập Khủng Hoảng (Chaos)', icon: AlertOctagon },
-  ];
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
@@ -255,72 +257,192 @@ export default function App() {
         snapshot={snapshot}
         onRunCycle={handleRunCycle}
         isRunningCycle={isRunningCycle}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab as any}
+        uiMode={uiMode}
+        setUiMode={setUiMode}
         hasGeminiKey={hasGeminiKey}
       />
 
       {/* Navigation Sub-Header */}
-      <div className="bg-slate-900/60 border-b border-slate-800/80 sticky top-[69px] z-40 backdrop-blur-md px-4 lg:px-8">
-        <div className="max-w-7xl mx-auto flex items-center gap-1 overflow-x-auto py-2 scrollbar-none">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
-            return (
+      <div className="bg-slate-900/60 border-b border-slate-800/80 sticky top-[61px] z-40 backdrop-blur-md px-4 lg:px-8">
+        <div className="max-w-5xl mx-auto flex items-center justify-between gap-2 py-2">
+          {/* Tabs based on mode */}
+          {uiMode === 'basic' ? (
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none w-full">
               <button
-                key={item.id}
-                onClick={() => setActiveTab(item.id as any)}
+                onClick={() => setBasicTab('dashboard')}
                 className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                  isActive
-                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
+                  basicTab === 'dashboard'
+                    ? 'bg-indigo-600 text-white shadow-sm'
                     : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
                 }`}
               >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{item.label}</span>
-                {item.highlight && !isActive && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
-                )}
+                <LayoutDashboard className="w-3.5 h-3.5" />
+                <span>1. Dashboard Tổng Quan</span>
               </button>
-            );
-          })}
+
+              <button
+                onClick={() => setBasicTab('agents')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  basicTab === 'agents'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>2. Quản Lý 9 Nhân Sự AI</span>
+              </button>
+
+              <button
+                onClick={() => setBasicTab('finances')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  basicTab === 'finances'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                }`}
+              >
+                <Wallet className="w-3.5 h-3.5" />
+                <span>3. Ví Tiền &amp; Thu Chi</span>
+              </button>
+
+              <button
+                onClick={() => setBasicTab('create-content')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  basicTab === 'create-content'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                <span>4. Tạo Video &amp; Affiliate</span>
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none w-full">
+              <button
+                onClick={() => setProTab('audit')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  proTab === 'audit'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                }`}
+              >
+                <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+                <span>Review Khắc Khe Codebase</span>
+              </button>
+
+              <button
+                onClick={() => setProTab('cycles')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  proTab === 'cycles'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                }`}
+              >
+                <RotateCw className="w-3.5 h-3.5" />
+                <span>Chu Kỳ Tự Trị Chi Tiết</span>
+              </button>
+
+              <button
+                onClick={() => setProTab('war-room')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  proTab === 'war-room'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>Phòng Tranh Luận (War Room)</span>
+              </button>
+
+              <button
+                onClick={() => setProTab('ledger')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  proTab === 'ledger'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                }`}
+              >
+                <Wallet className="w-3.5 h-3.5" />
+                <span>Sổ Cái Kép (Double-Entry)</span>
+              </button>
+
+              <button
+                onClick={() => setProTab('chaos')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  proTab === 'chaos'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                }`}
+              >
+                <AlertOctagon className="w-3.5 h-3.5 text-amber-400" />
+                <span>Giả Lập Khủng Hoảng</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8">
-        {activeTab === 'audit' && <ReviewTab />}
-        {activeTab === 'cycles' && (
-          <CycleRunnerTab
-            snapshot={snapshot}
-            recentProposals={proposals}
-            recentReceipts={receipts}
-            onRunCycle={handleRunCycle}
-            isRunningCycle={isRunningCycle}
-            onOverride={handleOverride}
-          />
-        )}
-        {activeTab === 'war-room' && <WarRoomTab snapshot={snapshot} />}
-        {activeTab === 'agents' && <AgentRosterTab snapshot={snapshot} />}
-        {activeTab === 'ledger' && (
-          <LedgerTab
-            snapshot={snapshot}
-            ledger={ledger}
-            employees={employees}
-            experiments={experiments}
-          />
-        )}
-        {activeTab === 'media' && (
-          <MediaStudioTab
-            snapshot={snapshot}
-            onPublishToCycle={handlePublishContent}
-          />
-        )}
-        {activeTab === 'chaos' && (
-          <ChaosSimulatorTab
-            snapshot={snapshot}
-            onApplyShock={handleApplyShock}
-          />
+      {/* Main Content View */}
+      <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-6">
+        {uiMode === 'basic' ? (
+          <>
+            {basicTab === 'dashboard' && (
+              <BasicDashboard
+                snapshot={snapshot}
+                recentProposals={proposals}
+                recentReceipts={receipts}
+                onRunCycle={handleRunCycle}
+                isRunningCycle={isRunningCycle}
+                onOverride={handleOverride}
+                onNavigate={(view) => setBasicTab(view)}
+              />
+            )}
+            {basicTab === 'agents' && (
+              <ManageAgents snapshot={snapshot} onRunCycle={handleRunCycle} />
+            )}
+            {basicTab === 'finances' && (
+              <ManageFinances
+                snapshot={snapshot}
+                ledger={ledger}
+                employees={employees}
+              />
+            )}
+            {basicTab === 'create-content' && (
+              <MediaStudioTab
+                snapshot={snapshot}
+                onPublishToCycle={handlePublishContent}
+              />
+            )}
+          </>
+        ) : (
+          <>
+            {proTab === 'audit' && <ReviewTab />}
+            {proTab === 'cycles' && (
+              <CycleRunnerTab
+                snapshot={snapshot}
+                recentProposals={proposals}
+                recentReceipts={receipts}
+                onRunCycle={handleRunCycle}
+                isRunningCycle={isRunningCycle}
+                onOverride={handleOverride}
+              />
+            )}
+            {proTab === 'war-room' && <WarRoomTab snapshot={snapshot} />}
+            {proTab === 'ledger' && (
+              <LedgerTab
+                snapshot={snapshot}
+                ledger={ledger}
+                employees={employees}
+                experiments={experiments}
+              />
+            )}
+            {proTab === 'chaos' && (
+              <ChaosSimulatorTab
+                snapshot={snapshot}
+                onApplyShock={handleApplyShock}
+              />
+            )}
+          </>
         )}
       </main>
 
