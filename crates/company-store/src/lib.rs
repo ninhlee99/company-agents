@@ -15,6 +15,15 @@ pub struct CompanyStore {
     client: Mutex<Client>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RevenuePeriodMetrics {
+    pub month_to_date_minor: i128,
+    pub last_30_days_minor: i128,
+    pub lifetime_minor: i128,
+    pub revenue_transaction_count: i64,
+}
+
+
 #[derive(Debug, Clone)]
 pub struct OutboxEvent {
     pub id: i64,
@@ -220,6 +229,39 @@ impl CompanyStore {
             )
             .await?;
         Ok(())
+    }
+
+    pub async fn revenue_period_metrics(
+        &self,
+        company_id: &str,
+    ) -> Result<RevenuePeriodMetrics, Box<dyn std::error::Error + Send + Sync>> {
+        let id = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_one(
+                "SELECT
+                    COALESCE(SUM(CASE WHEN t.created_at >= date_trunc('month', now())
+                                      THEN e.credit_minor - e.debit_minor ELSE 0 END), 0)::text,
+                    COALESCE(SUM(CASE WHEN t.created_at >= now() - interval '30 days'
+                                      THEN e.credit_minor - e.debit_minor ELSE 0 END), 0)::text,
+                    COALESCE(SUM(e.credit_minor - e.debit_minor), 0)::text,
+                    COUNT(DISTINCT t.id)
+                 FROM ledger_transactions t
+                 JOIN ledger_entries e ON e.transaction_id = t.id
+                 JOIN ledger_accounts a ON a.id = e.account_id
+                WHERE t.company_id = $1
+                  AND a.company_id = $1
+                  AND a.account_type = 'REVENUE'",
+                &[&id],
+            )
+            .await?;
+
+        Ok(RevenuePeriodMetrics {
+            month_to_date_minor: parse_i128_numeric(&row.get::<_, String>(0))?,
+            last_30_days_minor: parse_i128_numeric(&row.get::<_, String>(1))?,
+            lifetime_minor: parse_i128_numeric(&row.get::<_, String>(2))?,
+            revenue_transaction_count: row.get(3),
+        })
     }
 
     pub async fn load_snapshot(
