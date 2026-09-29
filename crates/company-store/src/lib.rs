@@ -3806,6 +3806,20 @@ impl CompanyStore {
                 &[&company_uuid, &session_uuid],
             )
             .await?;
+        let attention = client
+            .query_one(
+                "SELECT
+                    COUNT(*) FILTER (WHERE action='RESPOND')::bigint,
+                    COUNT(*) FILTER (WHERE action='DEFER')::bigint,
+                    COUNT(*) FILTER (WHERE action='IGNORE')::bigint,
+                    COUNT(*) FILTER (WHERE action='ESCALATE')::bigint,
+                    COALESCE(MAX(decided_at_epoch),0)::bigint
+                 FROM live_attention_decisions
+                WHERE company_id=$1 AND session_id=$2",
+                &[&company_uuid, &session_uuid],
+            )
+            .await?;
+
         Ok(serde_json::json!({
             "session_id": session_id,
             "events": row.get::<_, i64>(0),
@@ -3816,6 +3830,13 @@ impl CompanyStore {
             "follows": row.get::<_, i64>(5),
             "shares": row.get::<_, i64>(6),
             "likes": row.get::<_, i64>(7),
+            "attention": {
+                "responded": attention.get::<_, i64>(0),
+                "deferred": attention.get::<_, i64>(1),
+                "ignored": attention.get::<_, i64>(2),
+                "escalated": attention.get::<_, i64>(3),
+                "last_decided_at_epoch": attention.get::<_, i64>(4),
+            }
         }))
     }
 
