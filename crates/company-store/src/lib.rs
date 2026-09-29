@@ -213,6 +213,11 @@ impl CompanyStore {
             .await?;
         client
             .batch_execute(include_str!(
+                "../../../infra/db/migrations/015_outbound_messages.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
                 "../../../infra/db/migrations/015_tiktok_webhook_receipts.sql"
             ))
             .await?;
@@ -223,12 +228,27 @@ impl CompanyStore {
             .await?;
         client
             .batch_execute(include_str!(
+                "../../../infra/db/migrations/018_outbound_messages.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/019_control_plane_rbac_audit.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
                 "../../../infra/db/migrations/020_customer_success_tasks.sql"
             ))
             .await?;
         client
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/021_procurement_vendor_lifecycle.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/022_fpa_forecasts_cashflow.sql"
             ))
             .await?;
         client
