@@ -69,6 +69,7 @@ impl ToolRegistry {
             AgentRole::CFO => matches!(
                 tool,
                 Tool::ReadCompany | Tool::ReadMetrics | Tool::ReduceBudget | Tool::ProduceReport
+                    | Tool::EscalateIncident
             ),
             AgentRole::COO => matches!(
                 tool,
@@ -76,6 +77,7 @@ impl ToolRegistry {
                     | Tool::ReadMetrics
                     | Tool::RebalanceOperations
                     | Tool::ProduceReport
+                    | Tool::EscalateIncident
             ),
             AgentRole::Growth => matches!(
                 tool,
