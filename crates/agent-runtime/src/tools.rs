@@ -14,6 +14,7 @@ pub enum Tool {
     PublishContent,
     SendExternalMessage,
     InitiatePayment,
+    EscalateIncident,
 }
 
 impl Tool {
@@ -30,6 +31,7 @@ impl Tool {
         Self::PublishContent,
         Self::SendExternalMessage,
         Self::InitiatePayment,
+        Self::EscalateIncident,
     ];
 }
 
@@ -46,13 +48,14 @@ impl ToolRegistry {
             crate::types::ActionKind::ProposeHire => Some(Tool::ProposeHire),
             crate::types::ActionKind::ProduceReport => Some(Tool::ProduceReport),
             crate::types::ActionKind::PublishContent => Some(Tool::PublishContent),
-            crate::types::ActionKind::EscalateIncident | crate::types::ActionKind::None => None,
+            crate::types::ActionKind::EscalateIncident => Some(Tool::EscalateIncident),
+            crate::types::ActionKind::None => None,
         }
     }
 
     pub fn allowed(role: AgentRole, tool: Tool) -> bool {
         match role {
-            AgentRole::Governor => matches!(tool, Tool::ReadCompany | Tool::ReadMetrics),
+            AgentRole::Governor => matches!(tool, Tool::ReadCompany | Tool::ReadMetrics | Tool::EscalateIncident),
             AgentRole::CEO => matches!(
                 tool,
                 Tool::ReadCompany
@@ -61,6 +64,7 @@ impl ToolRegistry {
                     | Tool::AllocateExperimentBudget
                     | Tool::ReduceBudget
                     | Tool::ProduceReport
+                    | Tool::EscalateIncident
             ),
             AgentRole::CFO => matches!(
                 tool,
