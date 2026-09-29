@@ -408,8 +408,6 @@ impl TikTokPublisher {
         })
     }
 
-    }
-
     pub async fn fetch_status(&self, publish_id: &str) -> Result<String, PublishError> {
         if publish_id.trim().is_empty() {
             return Err(PublishError::InvalidRequest(
