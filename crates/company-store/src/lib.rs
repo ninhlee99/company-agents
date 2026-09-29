@@ -183,11 +183,6 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/017_payment_reconciliation_evidence.sql"
             ))
-            .await?;
-        client
-            .batch_execute(include_str!(
-                "../../../infra/db/migrations/018_outbound_messages.sql"
-            ))
             .await
     }
 
@@ -3895,70 +3890,21 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         Ok(())
     }
 
-    pub async fn queue_outbound_email(
-        &self, company_id: &str, message_id: Uuid, recipient: &str, subject: &str,
-        html_body: &str, idempotency_key: &str, consent_basis: &str,
-        unsubscribe_url: Option<&str>,
-    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let company = Uuid::parse_str(company_id)?;
-        if !recipient.contains('@') || recipient.len() > 320 || subject.trim().is_empty()
-            || subject.len() > 998 || html_body.trim().is_empty() || html_body.len() > 1_000_000
-            || idempotency_key.trim().is_empty() || idempotency_key.len() > 256
-            || consent_basis.trim().is_empty() {
-            return Err("invalid outbound email".into());
-        }
-        let client = self.client.lock().await;
-        let row = client.query_opt(
-            "INSERT INTO outbound_messages
-             (id,company_id,channel,recipient,subject,html_body,idempotency_key,consent_basis,unsubscribe_url,status)
-             VALUES ($1,$2,'EMAIL',$3,$4,$5,$6,$7,$8,'PENDING_APPROVAL')
-             ON CONFLICT (company_id,idempotency_key) DO NOTHING
-             RETURNING id,status,created_at",
-            &[&message_id,&company,&recipient,&subject,&html_body,&idempotency_key,&consent_basis,&unsubscribe_url],
-        ).await?;
-        let row = match row {
-            Some(row) => row,
-            None => client.query_one(
-                "SELECT id,status,created_at FROM outbound_messages WHERE company_id=$1 AND idempotency_key=$2",
-                &[&company,&idempotency_key],
-            ).await?,
-        };
-        Ok(serde_json::json!({"id":row.get::<_,Uuid>(0),"status":row.get::<_,String>(1),"created_at":row.get::<_,time::OffsetDateTime>(2).to_string()}))
-    }
-
-    pub async fn approve_outbound_email(
-        &self, company_id: &str, message_id: &str, approved_by: &str, approval_reference: &str,
+    pub async fn record_control_plane_audit(
+        &self, company_id:&str, actor_id:&str, actor_role:&str, method:&str,
+        path:&str, action:&str, outcome:&str, request_id:Option<&str>
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let company=Uuid::parse_str(company_id)?; let message=Uuid::parse_str(message_id)?;
-        if approved_by.trim().is_empty() || approval_reference.trim().is_empty() { return Err("approval identity and reference are required".into()); }
-        let mut client=self.client.lock().await; let tx=client.transaction().await?;
-        let row=tx.query_opt("SELECT recipient,subject,html_body,idempotency_key,consent_basis,unsubscribe_url,status FROM outbound_messages WHERE company_id=$1 AND id=$2 FOR UPDATE",&[&company,&message]).await?.ok_or("outbound message not found")?;
-        if row.get::<_,String>(6)!="PENDING_APPROVAL" { return Err("outbound message is not pending approval".into()); }
-        tx.execute("UPDATE outbound_messages SET status='APPROVED',approved_by=$3,approval_reference=$4,updated_at=now() WHERE company_id=$1 AND id=$2",&[&company,&message,&approved_by,&approval_reference]).await?;
-        tx.execute("INSERT INTO outbox_events (company_id,event_type,aggregate_id,idempotency_key,payload) VALUES ($1,'EXTERNAL_EMAIL_SEND',$2,$3,$4) ON CONFLICT (company_id,idempotency_key) DO NOTHING",&[
-            &company,&message,&format!("outbound-email:{message}"),&serde_json::json!({
-                "message_id":message,"recipient":row.get::<_,String>(0),"subject":row.get::<_,String>(1),
-                "html_body":row.get::<_,String>(2),"idempotency_key":row.get::<_,String>(3),
-                "consent_basis":row.get::<_,String>(4),"unsubscribe_url":row.get::<_,Option<String>>(5),
-                "approval_reference":approval_reference,"approved_by":approved_by
-            })
-        ]).await?;
-        tx.commit().await?; Ok(())
-    }
-
-    pub async fn mark_outbound_email_processing(&self, company_id:&str, message_id:&str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let company=Uuid::parse_str(company_id)?; let message=Uuid::parse_str(message_id)?;
+        let company=Uuid::parse_str(company_id)?;
+        if actor_id.trim().is_empty() || actor_role.trim().is_empty() || path.trim().is_empty() {
+            return Err("invalid audit actor".into());
+        }
         let client=self.client.lock().await;
-        client.execute("UPDATE outbound_messages SET status='PROCESSING',attempts=attempts+1,updated_at=now() WHERE company_id=$1 AND id=$2 AND status IN ('APPROVED','PROCESSING')",&[&company,&message]).await?;
-        Ok(())
-    }
-
-    pub async fn record_outbound_email_result(&self, company_id:&str, message_id:&str, provider:Option<&str>, provider_reference:Option<&str>, error:Option<&str>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let company=Uuid::parse_str(company_id)?; let message=Uuid::parse_str(message_id)?;
-        if error.is_none() && provider_reference.is_none() { return Err("successful delivery requires provider reference".into()); }
-        let status=if error.is_some() {"FAILED"} else {"SENT"};
-        let client=self.client.lock().await;
-        client.execute("UPDATE outbound_messages SET status=$3,provider=$4,provider_reference=$5,last_error=$6,updated_at=now() WHERE company_id=$1 AND id=$2",&[&company,&message,&status,&provider,&provider_reference,&error]).await?;
+        client.execute(
+            "INSERT INTO control_plane_audit_log
+             (company_id,actor_id,actor_role,method,path,action,outcome,request_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+            &[&company,&actor_id,&actor_role,&method,&path,&action,&outcome,&request_id]
+        ).await?;
         Ok(())
     }
 

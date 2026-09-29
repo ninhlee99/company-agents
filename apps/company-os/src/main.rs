@@ -67,6 +67,9 @@ impl RuntimeMetrics {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ControlRole { Admin, Operator, Viewer }
+impl ControlRole { fn as_str(self)->&'static str { match self { Self::Admin=>"ADMIN", Self::Operator=>"OPERATOR", Self::Viewer=>"VIEWER" } } }
 #[derive(Clone)]
 struct AppState {
     runtime: Arc<AgentRuntime>,
@@ -143,8 +146,6 @@ struct AffiliateSearchParams {
 #[derive(Debug, Deserialize)] struct InvoiceIssueRequest { invoice_id: uuid::Uuid }
 #[derive(Debug, Deserialize)] struct PaymentReconciliationEvidenceRequest { invoice_id: uuid::Uuid, provider: String, provider_event_id: String, external_ref: Option<String>, amount_minor: i128, currency: String, observed_at_epoch: i64, evidence_hash: String }
 #[derive(Debug, Deserialize)] struct InvoicePaymentRequest { invoice_id: uuid::Uuid, payment_id: uuid::Uuid, amount_minor: i128, occurred_at_epoch: i64, external_ref: Option<String> }
-#[derive(Debug, Deserialize)] struct OutboundEmailRequest { recipient:String, subject:String, html_body:String, consent_basis:String, unsubscribe_url:Option<String>, idempotency_key:String }
-#[derive(Debug, Deserialize)] struct OutboundEmailApproveRequest { message_id:uuid::Uuid, approved_by:String, approval_reference:String }
 #[derive(Debug, Deserialize)] struct ProposalTransitionRequest { proposal_id: uuid::Uuid, status: commercial_sales::ProposalStatus }
 #[derive(Debug, Deserialize)] struct SponsorshipTransitionRequest { sponsorship_id: uuid::Uuid, status: String }
 #[derive(Debug, Deserialize)] struct SponsorshipDeliveryRequest { sponsorship_id: uuid::Uuid, delivered_minor: i128 }
@@ -771,41 +772,44 @@ fn control_plane_auth_disabled() -> bool {
         .is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
 }
 
-async fn require_control_plane_auth(request: Request, next: Next) -> Result<Response, StatusCode> {
-    let path = request.uri().path();
-    if matches!(path, "/healthz" | "/readyz" | "/metrics" | "/api/publishing/tiktok/webhook") {
+async fn require_control_plane_auth(
+    State(state): State<AppState>, mut request: Request, next: Next
+) -> Result<Response, StatusCode> {
+    let path=request.uri().path().to_owned();
+    if matches!(path.as_str(), "/healthz"|"/readyz"|"/metrics"|"/api/publishing/tiktok/webhook") {
         return Ok(next.run(request).await);
     }
-    if control_plane_auth_disabled() {
-        return Ok(next.run(request).await);
+    if control_plane_auth_disabled() { return Ok(next.run(request).await); }
+    let provided=request.headers().get(axum::http::header::AUTHORIZATION)
+        .and_then(|v|v.to_str().ok()).and_then(|v|v.strip_prefix("Bearer ")).filter(|v|!v.is_empty());
+    let mut role=None;
+    for (name,candidate) in [("CONTROL_PLANE_ADMIN_TOKEN",ControlRole::Admin),("CONTROL_PLANE_OPERATOR_TOKEN",ControlRole::Operator),("CONTROL_PLANE_VIEWER_TOKEN",ControlRole::Viewer)] {
+        if let (Ok(expected),Some(value))=(std::env::var(name),provided) {
+            if bool::from(expected.as_bytes().ct_eq(value.as_bytes())) { role=Some(candidate); break; }
+        }
     }
-
-    let expected = std::env::var("CONTROL_PLANE_TOKEN").map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let provided = request
-        .headers()
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .filter(|value| !value.is_empty());
-
-    let valid = provided
-        .map(|value| bool::from(expected.as_bytes().ct_eq(value.as_bytes())))
-        .unwrap_or(false);
-
-    if valid {
-        Ok(next.run(request).await)
-    } else {
-        Err(StatusCode::UNAUTHORIZED)
+    if role.is_none() {
+        if let (Ok(expected),Some(value))=(std::env::var("CONTROL_PLANE_TOKEN"),provided) {
+            if bool::from(expected.as_bytes().ct_eq(value.as_bytes())) { role=Some(ControlRole::Admin); }
+        }
     }
+    let Some(role)=role else {
+        let _=state.store.record_control_plane_audit(&state.company_id,"anonymous","UNKNOWN",request.method().as_str(),&path,"AUTHENTICATE","DENIED",None).await;
+        return Err(StatusCode::UNAUTHORIZED);
+    };
+    let allowed=match role {
+        ControlRole::Admin=>true,
+        ControlRole::Operator=>request.method()!=axum::http::Method::DELETE && !path.starts_with("/api/business-units"),
+        ControlRole::Viewer=>request.method()==axum::http::Method::GET,
+    };
+    if !allowed {
+        let _=state.store.record_control_plane_audit(&state.company_id,"token",role.as_str(),request.method().as_str(),&path,"AUTHORIZE","DENIED",None).await;
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let _=state.store.record_control_plane_audit(&state.company_id,"token",role.as_str(),request.method().as_str(),&path,"AUTHORIZE","ALLOWED",None).await;
+    Ok(next.run(request).await)
 }
 
-
-async fn outbound_email_queue_api(State(state): State<AppState>, Json(req): Json<OutboundEmailRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
-    state.store.queue_outbound_email(&state.company_id, uuid::Uuid::new_v4(), &req.recipient, &req.subject, &req.html_body, &req.idempotency_key, &req.consent_basis, req.unsubscribe_url.as_deref()).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
-}
-async fn outbound_email_approve_api(State(state): State<AppState>, Json(req): Json<OutboundEmailApproveRequest>) -> Result<StatusCode, StatusCode> {
-    state.store.approve_outbound_email(&state.company_id, &req.message_id.to_string(), &req.approved_by, &req.approval_reference).await.map(|_| StatusCode::ACCEPTED).map_err(|_| StatusCode::BAD_REQUEST)
-}
 
 async fn customer_api(
     State(state): State<AppState>,
@@ -1041,16 +1045,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/commercial/invoices/issue", post(invoice_issue_api))
         .route("/api/commercial/invoice-payments", post(invoice_payment_api))
         .route("/api/commercial/payments/reconcile", post(payment_reconciliation_evidence_api))
-        .route("/api/outbound/email", post(outbound_email_queue_api))
-        .route("/api/outbound/email/approve", post(outbound_email_approve_api))
         .route("/api/business-units", get(business_units_api))
         .route("/api/portfolio/metrics", get(portfolio_metrics_api))
         .route("/api/journal", get(journal_api))
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .route("/metrics", get(metrics))
-        .with_state(state)
-        .layer(middleware::from_fn(require_control_plane_auth));
+        .with_state(state.clone())
+        .layer(middleware::from_fn_with_state(state, require_control_plane_auth));
 
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", 8080)).await?;
 
