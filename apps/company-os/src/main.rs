@@ -143,6 +143,9 @@ struct AffiliateSearchParams {
 #[derive(Debug, Deserialize)] struct InvoiceIssueRequest { invoice_id: uuid::Uuid }
 #[derive(Debug, Deserialize)] struct PaymentReconciliationEvidenceRequest { invoice_id: uuid::Uuid, provider: String, provider_event_id: String, external_ref: Option<String>, amount_minor: i128, currency: String, observed_at_epoch: i64, evidence_hash: String }
 #[derive(Debug, Deserialize)] struct InvoicePaymentRequest { invoice_id: uuid::Uuid, payment_id: uuid::Uuid, amount_minor: i128, occurred_at_epoch: i64, external_ref: Option<String> }
+#[derive(Debug, Deserialize)] struct PaymentExecutionIntentRequest { invoice_id: uuid::Uuid, amount_minor: i128, currency: String, provider: String, payment_method_ref: String, idempotency_key: String }
+#[derive(Debug, Deserialize)] struct PaymentExecutionApprovalRequest { intent_id: uuid::Uuid, approved_by: String, approval_reference: String, approved_at_epoch: i64 }
+#[derive(Debug, Deserialize)] struct PaymentExecutionRunRequest { intent_id: uuid::Uuid, observed_at_epoch: i64 }
 #[derive(Debug, Deserialize)] struct ProposalTransitionRequest { proposal_id: uuid::Uuid, status: commercial_sales::ProposalStatus }
 #[derive(Debug, Deserialize)] struct SponsorshipTransitionRequest { sponsorship_id: uuid::Uuid, status: String }
 #[derive(Debug, Deserialize)] struct SponsorshipDeliveryRequest { sponsorship_id: uuid::Uuid, delivered_minor: i128 }
@@ -759,6 +762,32 @@ async fn invoice_payment_api(State(state): State<AppState>, Json(req): Json<Invo
 }
 
 
+async fn payment_execution_intent_api(
+    State(state): State<AppState>, Json(req): Json<PaymentExecutionIntentRequest>
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.create_payment_execution_intent(
+        &state.company_id, uuid::Uuid::new_v4(), &req.invoice_id.to_string(), req.amount_minor,
+        &req.currency, &req.provider, &req.payment_method_ref, &req.idempotency_key
+    ).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn payment_execution_approve_api(
+    State(state): State<AppState>, Json(req): Json<PaymentExecutionApprovalRequest>
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.approve_payment_execution(
+        &state.company_id, &req.intent_id.to_string(), &req.approved_by,
+        &req.approval_reference, req.approved_at_epoch
+    ).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn payment_execution_run_api(
+    State(state): State<AppState>, Json(req): Json<PaymentExecutionRunRequest>
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.execute_payment_intent(
+        &state.company_id, &req.intent_id.to_string(), req.observed_at_epoch
+    ).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
 async fn payment_reconciliation_evidence_api(
     State(state): State<AppState>,
     Json(req): Json<PaymentReconciliationEvidenceRequest>,
@@ -1077,6 +1106,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/commercial/invoices/issue", post(invoice_issue_api))
         .route("/api/commercial/invoice-payments", post(invoice_payment_api))
         .route("/api/commercial/payments/reconcile", post(payment_reconciliation_evidence_api))
+        .route("/api/commercial/payments/intents", post(payment_execution_intent_api))
+        .route("/api/commercial/payments/intents/approve", post(payment_execution_approve_api))
+        .route("/api/commercial/payments/intents/execute", post(payment_execution_run_api))
         .route("/api/business-units", get(business_units_api))
         .route("/api/portfolio/metrics", get(portfolio_metrics_api))
         .route("/api/journal", get(journal_api))
