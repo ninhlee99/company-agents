@@ -76,6 +76,62 @@ pub struct CreativeVariant {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContentObservation {
+    pub observation_key: String,
+    pub content_id: Uuid,
+    pub company_id: Uuid,
+    pub source: String,
+    pub evidence_hash: String,
+    pub observed_at_epoch: i64,
+    pub sample_count: u64,
+    pub spend_minor: i128,
+    pub metric_bps: u32,
+    pub views: u64,
+    pub clicks: u64,
+    pub conversions: u64,
+    pub commission_minor: i128,
+    pub contribution_margin_minor: i128,
+}
+
+pub fn validate_observation(observation: &ContentObservation) -> Result<(), String> {
+    require_text("observation_key", &observation.observation_key, 256)?;
+    require_text("source", &observation.source, 256)?;
+    require_text("evidence_hash", &observation.evidence_hash, 256)?;
+    if observation.content_id == Uuid::nil() || observation.company_id == Uuid::nil() {
+        return Err("content observation identifiers are required".into());
+    }
+    if observation.observed_at_epoch <= 0 || observation.sample_count == 0 {
+        return Err("observation timestamp and sample count are required".into());
+    }
+    if observation.metric_bps > 10_000 {
+        return Err("metric must be between 0 and 10000 bps".into());
+    }
+    if observation.spend_minor < 0 || observation.commission_minor < 0 {
+        return Err("spend and commission cannot be negative".into());
+    }
+    if observation.views < observation.clicks || observation.clicks < observation.conversions {
+        return Err("content funnel counts are inconsistent".into());
+    }
+    Ok(())
+}
+
+pub fn decide_from_observation(
+    brief: &ContentBrief,
+    observation: &ContentObservation,
+) -> Result<ContentDecision, String> {
+    validate_brief(brief)?;
+    validate_observation(observation)?;
+    if observation.spend_minor > brief.max_loss_minor {
+        return Ok(ContentDecision::Kill);
+    }
+    if observation.metric_bps >= brief.success_threshold_bps {
+        Ok(ContentDecision::Scale)
+    } else {
+        Ok(ContentDecision::Iterate)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ContentItem {
     pub id: Uuid,
     pub company_id: Uuid,
@@ -232,6 +288,50 @@ mod tests {
             decision: None,
         };
         assert!(validate_item(&item).is_err());
+    }
+
+    #[test]
+    fn observation_rejects_inconsistent_funnel() {
+        let observation = ContentObservation {
+            observation_key: "obs-1".into(),
+            content_id: Uuid::new_v4(),
+            company_id: Uuid::new_v4(),
+            source: "verified-analytics".into(),
+            evidence_hash: "sha256:test".into(),
+            observed_at_epoch: 1_700_000_000,
+            sample_count: 100,
+            spend_minor: 10,
+            metric_bps: 500,
+            views: 10,
+            clicks: 20,
+            conversions: 1,
+            commission_minor: 0,
+            contribution_margin_minor: 0,
+        };
+        assert!(validate_observation(&observation).is_err());
+    }
+
+    #[test]
+    fn observation_above_loss_limit_is_killed() {
+        let mut observation = ContentObservation {
+            observation_key: "obs-1".into(),
+            content_id: Uuid::new_v4(),
+            company_id: Uuid::new_v4(),
+            source: "verified-analytics".into(),
+            evidence_hash: "sha256:test".into(),
+            observed_at_epoch: 1_700_000_000,
+            sample_count: 100,
+            spend_minor: 600,
+            metric_bps: 9_000,
+            views: 100,
+            clicks: 10,
+            conversions: 1,
+            commission_minor: 20,
+            contribution_margin_minor: -580,
+        };
+        assert_eq!(decide_from_observation(&brief(), &observation).unwrap(), ContentDecision::Kill);
+        observation.spend_minor = 100;
+        assert_eq!(decide_from_observation(&brief(), &observation).unwrap(), ContentDecision::Scale);
     }
 
     #[test]
