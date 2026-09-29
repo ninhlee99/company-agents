@@ -19,7 +19,9 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
       - name: Format
-        run: cargo fmt --all -- --check
+        env:
+          FORMAT_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: bash scripts/check_rust_format.sh
       - name: Tests
         run: cargo test --workspace
       - name: Clippy
@@ -32,6 +34,7 @@ jobs:
       - name: Shell syntax
         run: |
           bash -n scripts/verify.sh
+          bash -n scripts/check_rust_format.sh
           bash -n scripts/check_migrations.sh
           bash -n scripts/check_secret_hygiene.sh
           bash -n scripts/postgres_backup_restore_drill.sh

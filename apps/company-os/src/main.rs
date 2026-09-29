@@ -123,6 +123,16 @@ struct AffiliateConversionRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct GrowthTrendRequest {
+    signal: company_growth::TrendSignal,
+}
+
+#[derive(Debug, Deserialize)]
+struct GrowthContentRequest {
+    opportunity_id: uuid::Uuid,
+}
+
+#[derive(Debug, Deserialize)]
 struct ContentCreateRequest {
     brief: company_content::ContentBrief,
     variant: company_content::CreativeVariant,
@@ -174,6 +184,15 @@ struct AffiliateSearchParams {
 #[derive(Debug, Deserialize)] struct PurchaseRequest { vendor_id:uuid::Uuid, title:String, currency:String, amount_minor:i128, requester:String, idempotency_key:String }
 #[derive(Debug, Deserialize)] struct PurchaseApproveRequest { request_id:uuid::Uuid, approved_by:String, approval_reference:String }
 #[derive(Debug, Deserialize)] struct VendorDeliveryRequest { purchase_request_id:uuid::Uuid, external_ref:Option<String>, received_at_epoch:i64, evidence_hash:String }
+
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\\', "&#92;")
+}
 
 fn format_minor(value: i128, currency: &str) -> String {
     let negative = value < 0;
@@ -412,6 +431,45 @@ async fn index(
                 partial_or_rejected_count_mtd: 0,
             }
         });
+    let mut growth_data_available = true;
+    let growth_opportunities = match state
+        .store
+        .list_growth_opportunities(&state.company_id, 5)
+        .await
+    {
+        Ok(value) => value,
+        Err(error) => {
+            growth_data_available = false;
+            tracing::warn!(%error, "growth opportunity metrics unavailable");
+            Vec::new()
+        }
+    };
+    let mut growth_html = String::new();
+    for record in &growth_opportunities {
+        let score_pct = record.opportunity.score_bps / 100;
+        let status = match record.status {
+            company_growth::OpportunityStatus::Ready => "READY",
+            company_growth::OpportunityStatus::ContentCreated => "CONTENT CREATED",
+        };
+        let ttfc = record
+            .ttfc_seconds
+            .map(|seconds| format!("TTFC {}s", seconds))
+            .unwrap_or_else(|| "TTFC pending".into());
+        growth_html.push_str(&format!(
+            r#"<div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #26304a"><div><strong>{}</strong><div class="muted">{} · {}% confidence · {}</div></div><div class="metric" style="font-size:18px">{}</div></div>"#,
+            escape_html(&record.opportunity.title),
+            status,
+            record.opportunity.confidence_bps / 100,
+            ttfc,
+            score_pct
+        ));
+    }
+    if !growth_data_available {
+        growth_html.push_str(r#"<p class="muted">Growth pipeline data is unavailable. The dashboard is not treating this as “no opportunities.”</p>"#);
+    } else if growth_html.is_empty() {
+        growth_html.push_str(r#"<p class="muted">No evidence-backed opportunities have been accepted yet. Ingest a verified trend signal first.</p>"#);
+    }
+
     let contribution_margin_label = contribution_margin
         .month_to_date_contribution_margin_minor
         .map(|value| format_minor(value, &state.currency))
@@ -485,6 +543,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 </div>
 <div class="card"><small>Contribution margin MTD</small><div class="metric">{}</div><small>{}</small></div>
 <div class="card"><small>Affiliate reconciliation MTD</small><div class="metric">{}</div><small>variance · reported · attributed · paid: {} · {} · {} · {}</small></div>
+<div class="card"><h2>Growth pipeline</h2><p class="muted">Evidence-backed trend signals become scored opportunities before any content plan is created.</p>{}</div>
 <div class="grid"><div class="card"><small>Status</small><div class="metric">{:?}</div></div><div class="card"><small>Agent cycle</small><div class="metric">{}</div></div><div class="card"><small>Backlog / capacity</small><div class="metric">{}%</div></div><div class="card"><small>Agent results</small><div class="metric">{}</div></div></div>
 <div class="grid"><div class="card"><small>Active workforce</small><div class="metric">{}</div></div><div class="card"><small>Payroll due</small><div class="metric">{}</div></div><div class="card"><small>Business units</small><div class="metric">{}</div></div><div class="card"><small>Operating loop</small><div class="metric">observe → act → learn</div></div></div>
 <div class="card"><h2>Operate</h2>
@@ -512,6 +571,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         format_minor(affiliate_reconciliation.reported_commission_mtd_minor, &state.currency),
         format_minor(affiliate_reconciliation.attributed_commission_mtd_minor, &state.currency),
         format_minor(affiliate_reconciliation.recorded_payout_mtd_minor, &state.currency),
+        growth_html,
         company.runway_days,
         company.status,
         cycle_state,
@@ -614,6 +674,55 @@ async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, S
 
 async fn agents_api(State(state): State<AppState>) -> Json<Vec<AgentRunResult>> {
     Json(state.latest.read().await.clone())
+}
+
+async fn growth_trend_api(
+    State(state): State<AppState>,
+    Json(request): Json<GrowthTrendRequest>,
+) -> Result<Json<(company_store::GrowthTrendRecord, Option<company_store::GrowthOpportunityRecord>)>, StatusCode> {
+    if request.signal.company_id.to_string() != state.company_id {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    state
+        .store
+        .record_growth_trend(&request.signal)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn growth_trends_api(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<company_store::GrowthTrendRecord>>, StatusCode> {
+    state
+        .store
+        .list_growth_trends(&state.company_id, 100)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn growth_opportunities_api(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<company_store::GrowthOpportunityRecord>>, StatusCode> {
+    state
+        .store
+        .list_growth_opportunities(&state.company_id, 100)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn growth_content_api(
+    State(state): State<AppState>,
+    Json(request): Json<GrowthContentRequest>,
+) -> Result<Json<company_store::ContentRecord>, StatusCode> {
+    state
+        .store
+        .create_content_from_growth_opportunity(&state.company_id, request.opportunity_id)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
 }
 
 async fn content_create_api(
@@ -1308,6 +1417,9 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/content/items", get(content_list_api).post(content_create_api))
         .route("/api/content/observations", post(content_observation_api))
         .route("/api/content/status", post(content_status_transition_api))
+        .route("/api/growth/trends", get(growth_trends_api).post(growth_trend_api))
+        .route("/api/growth/opportunities", get(growth_opportunities_api))
+        .route("/api/growth/content", post(growth_content_api))
         .route("/api/affiliate/search", get(affiliate_search_api))
         .route("/api/affiliate/click", post(affiliate_click_api))
         .route("/api/affiliate/conversion", post(affiliate_conversion_api))

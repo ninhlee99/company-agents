@@ -1,6 +1,6 @@
 use crate::{model::Model, types::*};
 use async_trait::async_trait;
-use std::{fmt, sync::Arc, time::Duration};
+use std::{fmt, sync::Arc};
 
 #[derive(Debug, Clone)]
 pub struct AgentContext {

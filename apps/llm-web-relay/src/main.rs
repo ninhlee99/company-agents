@@ -158,7 +158,11 @@ fn request_hash(request: &GenerateRequest) -> String {
         request.response_format,
         request.allow_tools
     );
-    format!("sha256:{:x}", Sha256::digest(canonical.as_bytes()))
+    format!("sha256:{}", hex_digest(&Sha256::digest(canonical.as_bytes())))
+}
+
+fn hex_digest(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn validate_request(request: &GenerateRequest) -> Result<(), ApiError> {
@@ -249,7 +253,7 @@ async fn generate(
     }
 
     {
-        let client = state.db.lock().await;
+        let client = state.db.lock().await.clone();
         let inserted = client
             .execute(
                 "INSERT INTO llm_web_relay_jobs
@@ -321,7 +325,7 @@ async fn wait_for_job(
 
     loop {
         let row = {
-            let client = state.db.lock().await;
+            let client = state.db.lock().await.clone();
             client
                 .query_opt(
                     "SELECT status, output_json
@@ -366,7 +370,7 @@ async fn claim(
 ) -> Result<Json<Option<WorkerJob>>, ApiError> {
     authorize(&headers, &state.worker_token)?;
 
-    let mut client = state.db.lock().await;
+    let mut client = state.db.lock().await.clone();
     let tx = client.transaction().await.map_err(|_| ApiError::Internal)?;
 
     tx.execute(
@@ -411,7 +415,6 @@ async fn claim(
     let user: String = row.get(4);
     let response_format: String = row.get(5);
     let allow_tools: bool = row.get(6);
-    let attempt: i32 = row.get(7);
     let lease_token = Uuid::new_v4();
 
     let row = tx
@@ -468,7 +471,7 @@ async fn complete(
     authorize(&headers, &state.worker_token)?;
     validate_output(&request.output)?;
 
-    let client = state.db.lock().await;
+    let client = state.db.lock().await.clone();
     let changed = client
         .execute(
             "UPDATE llm_web_relay_jobs
@@ -542,7 +545,7 @@ async fn metrics(
 ) -> Result<Json<Metrics>, ApiError> {
     authorize(&headers, &state.api_token)?;
 
-    let client = state.db.lock().await;
+    let client = state.db.lock().await.clone();
     let row = client
         .query_one(
             "SELECT

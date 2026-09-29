@@ -24,3 +24,4 @@ uuid = { version = "1", features = ["v4"] }
 
 company-experiments = { path = "../company-experiments" }
 company-content = { path = "../company-content" }
+company-growth = { path = "../company-growth" }
