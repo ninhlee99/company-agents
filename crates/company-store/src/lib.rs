@@ -364,12 +364,13 @@ impl CompanyStore {
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
 
-        tx.execute(
+        let inserted = tx.query_opt(
             "INSERT INTO policy_snapshots
              (id,company_id,policy_key,platform,jurisdiction,version,source_reference,
               evidence_hash,observed_at_epoch,effective_at_epoch,active,rules_json)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-             ON CONFLICT(company_id,policy_key,version) DO NOTHING",
+             ON CONFLICT(company_id,policy_key,version) DO NOTHING
+             RETURNING id",
             &[
                 &snapshot.id,
                 &snapshot.company_id,
@@ -409,6 +410,27 @@ impl CompanyStore {
                   WHERE company_id=$1 AND policy_key=$2 AND id<>$3",
                 &[&snapshot.company_id, &snapshot.policy_key, &snapshot.id],
             ).await?;
+            if inserted.is_some() {
+                tx.execute(
+                    "INSERT INTO outbox_events
+                     (company_id,event_type,aggregate_id,idempotency_key,payload)
+                     VALUES ($1,'POLICY_SNAPSHOT_ACTIVATED',$2,$3,$4)
+                     ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+                    &[
+                        &snapshot.company_id,
+                        &snapshot.id.to_string(),
+                        &format!("outbox:policy-activated:{}:{}", snapshot.policy_key, snapshot.version),
+                        &serde_json::json!({
+                            "policy_key": snapshot.policy_key,
+                            "platform": snapshot.platform,
+                            "jurisdiction": snapshot.jurisdiction,
+                            "version": snapshot.version,
+                            "effective_at_epoch": snapshot.effective_at_epoch,
+                            "evidence_hash": snapshot.evidence_hash,
+                        }),
+                    ],
+                ).await?;
+            }
         }
 
         tx.commit().await?;
