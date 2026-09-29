@@ -23,7 +23,7 @@ This document intentionally separates implemented behavior from contracts, simul
 | Media production | Implemented | Media jobs run through isolated FFmpeg/FFprobe QA in the media worker. |
 | Publishing approval contract | Implemented | Publish intent, approval, lease, completion and revocation are durable and guarded. |
 | TikTok publishing adapter | Implemented, environment-gated | Approved TikTok intents can be executed through the Content Posting API adapter with local media hash verification and provider status polling; real use requires valid TikTok authorization, app approval/audit and operator configuration. |
-| External email/message sending | NOT achieved | SendExternalMessage is a declared capability, but there is no production message provider executor. |
+| External email/message sending | Implemented, environment-gated | Governed email messages persist approval/consent metadata, enter the durable outbox only after approval, and can execute through the Resend adapter with provider reference, idempotency, retry and failure reconciliation. Real sending requires RESEND_API_KEY/RESEND_FROM and a verified sender/domain; broader messaging providers remain unimplemented. |
 | External payment execution | NOT achieved | The system can model invoices and record externally evidenced payments, but does not initiate bank/card/Stripe settlement. |
 | Commercial proposals | Implemented baseline | Durable proposal creation exists with idempotency. Status workflow endpoints are still limited. |
 | Sponsorship management | Implemented baseline | Contracted/delivered value is bounded, but CRM delivery/reporting workflow is incomplete. |
