@@ -676,6 +676,17 @@ async fn growth_trend_api(
         .map_err(|_| StatusCode::BAD_REQUEST)
 }
 
+async fn growth_trends_api(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<company_store::GrowthTrendRecord>>, StatusCode> {
+    state
+        .store
+        .list_growth_trends(&state.company_id, 100)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 async fn growth_opportunities_api(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<company_store::GrowthOpportunityRecord>>, StatusCode> {
