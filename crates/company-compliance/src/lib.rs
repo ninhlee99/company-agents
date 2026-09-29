@@ -515,6 +515,35 @@ mod tests {
     }
 
     #[test]
+    fn future_policy_is_unknown() {
+        let company = Uuid::new_v4();
+        let mut value = snapshot_for(company);
+        value.effective_at_epoch = 2_000_000_000;
+        let result = evaluate(Some(&value), &input(company), 1_750_000_010).unwrap();
+        assert_eq!(result.decision, ComplianceDecision::Unknown);
+        assert!(result.requires_human);
+    }
+
+    #[test]
+    fn missing_rights_evidence_requires_review() {
+        let company = Uuid::new_v4();
+        let mut value = input(company);
+        value.rights_evidence_present = false;
+        let result = evaluate(Some(&snapshot_for(company)), &value, 1_750_000_010).unwrap();
+        assert_eq!(result.decision, ComplianceDecision::Review);
+        assert_eq!(result.reason, ComplianceReason::MissingRightsEvidence);
+        assert!(result.requires_human);
+    }
+
+    #[test]
+    fn policy_snapshot_mismatch_is_rejected() {
+        let company = Uuid::new_v4();
+        let mut value = input(company);
+        value.policy_snapshot_key = "TIKTOK_SHOP_VN:old".into();
+        assert!(evaluate(Some(&snapshot_for(company)), &value, 1_750_000_010).is_err());
+    }
+
+    #[test]
     fn rules_can_be_diffed() {
         let company = Uuid::new_v4();
         let previous = snapshot_for(company);
