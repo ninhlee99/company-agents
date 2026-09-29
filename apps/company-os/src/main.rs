@@ -151,6 +151,9 @@ struct AffiliateSearchParams {
 #[derive(Debug, Deserialize)] struct CustomerSuccessCompleteRequest { task_id:uuid::Uuid, outcome:String }
 #[derive(Debug, Deserialize)] struct BudgetRequest { name:String, currency:String, limit_minor:i128 }
 #[derive(Debug, Deserialize)] struct BudgetSpendRequest { budget_id:uuid::Uuid, amount_minor:i128, currency:String, idempotency_key:String }
+#[derive(Debug, Deserialize)] struct ForecastRequest { name:String, currency:String, horizon_months:i32, methodology:String, idempotency_key:String }
+#[derive(Debug, Deserialize)] struct ForecastPeriodRequest { forecast_id:uuid::Uuid, period_start_epoch:i64, revenue_minor:i128, operating_inflow_minor:i128, operating_outflow_minor:i128, capex_minor:i128, financing_inflow_minor:i128, financing_outflow_minor:i128, notes:Option<String> }
+#[derive(Debug, Deserialize)] struct CashflowObservationRequest { period_start_epoch:i64, currency:String, inflow_minor:i128, outflow_minor:i128, closing_cash_minor:i128, source:String, evidence_hash:String, idempotency_key:String }
 
 fn format_minor(value: i128, currency: &str) -> String {
     let negative = value < 0;
@@ -818,6 +821,22 @@ async fn budget_spend_api(
         .await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
 }
 
+async fn forecast_api(State(state): State<AppState>, Json(req): Json<ForecastRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.create_financial_forecast(&state.company_id, uuid::Uuid::new_v4(), &req.name, &req.currency, req.horizon_months, &req.methodology, &req.idempotency_key)
+        .await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
+async fn forecast_period_api(State(state): State<AppState>, Json(req): Json<ForecastPeriodRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.record_financial_forecast_period(&state.company_id, &req.forecast_id.to_string(), req.period_start_epoch, req.revenue_minor, req.operating_inflow_minor, req.operating_outflow_minor, req.capex_minor, req.financing_inflow_minor, req.financing_outflow_minor, req.notes.as_deref())
+        .await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
+async fn forecast_summary_api(State(state): State<AppState>, axum::extract::Path(forecast_id): axum::extract::Path<uuid::Uuid>) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.forecast_cashflow_summary(&state.company_id, &forecast_id.to_string()).await.map(Json).map_err(|_| StatusCode::NOT_FOUND)
+}
+async fn cashflow_observation_api(State(state): State<AppState>, Json(req): Json<CashflowObservationRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.record_cashflow_observation(&state.company_id, uuid::Uuid::new_v4(), req.period_start_epoch, &req.currency, req.inflow_minor, req.outflow_minor, req.closing_cash_minor, &req.source, &req.evidence_hash, &req.idempotency_key)
+        .await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
 async fn customer_api(
     State(state): State<AppState>,
     Json(req): Json<CustomerRequest>,
@@ -1041,6 +1060,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/publishing/tiktok/webhook", post(publishing::tiktok_webhook))
         .route("/api/customers", get(customers_api).post(customer_api))
         .route("/api/finance/budgets", get(budgets_api).post(budget_api))
+        .route("/api/finance/forecasts", post(forecast_api))
+        .route("/api/finance/forecasts/periods", post(forecast_period_api))
+        .route("/api/finance/forecasts/:forecast_id/summary", get(forecast_summary_api))
+        .route("/api/finance/cashflow/observations", post(cashflow_observation_api))
         .route("/api/finance/budgets/spend", post(budget_spend_api))
         .route("/api/employees", get(employees_api))
         .route("/api/payroll/due", get(payroll_due_api))
