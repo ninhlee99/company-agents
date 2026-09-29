@@ -3059,18 +3059,19 @@ impl CompanyStore {
         if event.gift_quantity > i64::MAX as u64 || event.pk_score.is_some_and(|value| value > i64::MAX as u64) {
             return Err("LIVE event numeric fields exceed database range".into());
         }
-        let session_exists = {
-            let row = client
-                .query_opt(
-                    "SELECT 1 FROM tiktok_live_sessions WHERE id=$1 AND company_id=$2",
-                    &[&session_uuid, &company_uuid],
-                )
-                .await?;
-            row.is_some()
-        };;
         let kind = format!("{:?}", event.kind).to_ascii_uppercase();
         let gift_value = event.gift_value_minor.to_string();
         let client = self.client.lock().await;
+        let session_exists = client
+            .query_opt(
+                "SELECT 1 FROM tiktok_live_sessions WHERE id=$1 AND company_id=$2",
+                &[&session_uuid, &company_uuid],
+            )
+            .await?
+            .is_some();
+        if !session_exists {
+            return Err("LIVE session is not owned by company".into());
+        }
         let changed = client
             .execute(
                 "INSERT INTO tiktok_live_events
