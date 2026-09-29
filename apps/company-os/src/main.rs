@@ -759,7 +759,7 @@ fn control_plane_auth_disabled() -> bool {
 
 async fn require_control_plane_auth(request: Request, next: Next) -> Result<Response, StatusCode> {
     let path = request.uri().path();
-    if matches!(path, "/healthz" | "/readyz" | "/metrics") {
+    if matches!(path, "/healthz" | "/readyz" | "/metrics" | "/api/publishing/tiktok/webhook") {
         return Ok(next.run(request).await);
     }
     if control_plane_auth_disabled() {
@@ -1006,6 +1006,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/publishing/intents/revoke", post(publish_revoke_api))
         .route("/api/publishing/tiktok/execute", post(publishing::execute_tiktok))
         .route("/api/publishing/tiktok/status", post(publishing::tiktok_status))
+        .route("/api/publishing/tiktok/webhook", post(publishing::tiktok_webhook))
         .route("/api/customers", get(customers_api).post(customer_api))
         .route("/api/employees", get(employees_api))
         .route("/api/payroll/due", get(payroll_due_api))
