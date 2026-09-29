@@ -34,6 +34,7 @@ jobs:
       - name: Shell syntax
         run: |
           bash -n scripts/verify.sh
+          bash -n scripts/check_rust_format.sh
           bash -n scripts/check_migrations.sh
           bash -n scripts/check_secret_hygiene.sh
           bash -n scripts/postgres_backup_restore_drill.sh
