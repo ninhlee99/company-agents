@@ -101,3 +101,13 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - Revenue/payment linkage requires a SATISFIED compliance obligation: implemented
 - Automated legal interpretation or autonomous approval: not implemented
 - Jurisdiction-specific legal advice: not implemented
+
+
+## Incident / SLA / Learning
+
+- Incident lifecycle with severity and SLA target: implemented
+- Evidence-backed incident transitions: implemented
+- Incident event history: implemented
+- Postmortem and corrective/prevention actions: implemented
+- Automated SLA breach detection/escalation: next
+- Cross-incident reliability analytics: next
