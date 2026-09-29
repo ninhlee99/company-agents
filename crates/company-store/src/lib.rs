@@ -194,6 +194,11 @@ impl CompanyStore {
                 "../../../infra/db/migrations/022_fpa_forecasts_cashflow.sql"
             ))
             .await
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/028_fpa_variance_alerts.sql"
+            ))
+            .await?;
     }
 
     pub async fn ensure_company(
@@ -4152,5 +4157,67 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             "closing_cash_minor":parse_i128_numeric(&row.get::<_,String>(2))?
         }))
     }
+
+    pub async fn financial_variance_report(
+        &self, company_id:&str, forecast_id:&str, period_start_epoch:i64
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let forecast=Uuid::parse_str(forecast_id)?;
+        let client=self.client.lock().await;
+        let f=client.query_one(
+            "SELECT currency, revenue_minor::text, operating_inflow_minor::text, operating_outflow_minor::text,
+                    capex_minor::text, financing_inflow_minor::text, financing_outflow_minor::text
+               FROM financial_forecast_periods p JOIN financial_forecasts f ON f.id=p.forecast_id
+              WHERE f.company_id=$1 AND p.forecast_id=$2 AND p.period_start_epoch=$3",
+            &[&company,&forecast,&period_start_epoch]).await?;
+        let o=client.query_opt(
+            "SELECT inflow_minor::text,outflow_minor::text,closing_cash_minor::text,currency
+               FROM cashflow_observations WHERE company_id=$1 AND period_start_epoch=$2
+              ORDER BY created_at DESC LIMIT 1",
+            &[&company,&period_start_epoch]).await?;
+        let currency:String=f.get(0);
+        let forecast_in=parse_i128_numeric(&f.get::<_,String>(2))?;
+        let forecast_out=parse_i128_numeric(&f.get::<_,String>(3))?;
+        let (actual_in,actual_out,closing_cash)=match o {
+            Some(x)=>(parse_i128_numeric(&x.get::<_,String>(0))?,parse_i128_numeric(&x.get::<_,String>(1))?,parse_i128_numeric(&x.get::<_,String>(2))?),
+            None=>(0,0,0)
+        };
+        let variance_in=actual_in-forecast_in; let variance_out=actual_out-forecast_out;
+        let net_forecast=forecast_in-forecast_out; let net_actual=actual_in-actual_out;
+        Ok(serde_json::json!({
+            "forecast_id":forecast,"period_start_epoch":period_start_epoch,"currency":currency,
+            "forecast_inflow_minor":forecast_in,"actual_inflow_minor":actual_in,"inflow_variance_minor":variance_in,
+            "forecast_outflow_minor":forecast_out,"actual_outflow_minor":actual_out,"outflow_variance_minor":variance_out,
+            "forecast_net_cashflow_minor":net_forecast,"actual_net_cashflow_minor":net_actual,
+            "closing_cash_minor":closing_cash
+        }))
+    }
+
+    pub async fn assess_liquidity(
+        &self, company_id:&str, period_start_epoch:i64, warning_months:i128, critical_months:i128
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        if warning_months<=critical_months || critical_months<1 { return Err("invalid liquidity thresholds".into()); }
+        let company=Uuid::parse_str(company_id)?;
+        let client=self.client.lock().await;
+        let row=client.query_one(
+            "SELECT currency, closing_cash_minor::text FROM cashflow_observations
+              WHERE company_id=$1 ORDER BY period_start_epoch DESC, created_at DESC LIMIT 1",&[&company]).await?;
+        let currency:String=row.get(0); let cash=parse_i128_numeric(&row.get::<_,String>(1))?;
+        let avg=client.query_opt(
+            "SELECT AVG((outflow_minor)::numeric) FROM cashflow_observations
+              WHERE company_id=$1 AND period_start_epoch >= $2",&[&company,&(period_start_epoch-7776000)]).await?;
+        let avg_out=avg.and_then(|r| r.get::<_,Option<f64>>(0)).unwrap_or(0.0);
+        let runway=if avg_out>0.0 { cash as f64/avg_out } else { f64::INFINITY };
+        let severity=if runway < critical_months as f64 {"CRITICAL"} else if runway < warning_months as f64 {"WARNING"} else {"INFO"};
+        let id=Uuid::new_v4(); let key=format!("cash-runway:{}:{}",company,period_start_epoch);
+        client.execute(
+            "INSERT INTO financial_alerts(id,company_id,alert_type,severity,period_start_epoch,metric_name,actual_minor,threshold_minor,message,status,idempotency_key)
+             VALUES($1,$2,'CASH_RUNWAY',$3,$4,'runway_months',$5,$6,$7,'OPEN',$8)
+             ON CONFLICT(company_id,idempotency_key) DO UPDATE SET severity=EXCLUDED.severity,message=EXCLUDED.message",
+            &[&id,&company,&severity,&period_start_epoch,&(if runway.is_finite(){runway}else{0.0}),
+              &(critical_months as f64),&format!("Cash runway assessment: {:.2} months",runway),&key]).await?;
+        Ok(serde_json::json!({"currency":currency,"closing_cash_minor":cash,"average_outflow_minor":avg_out,
+            "runway_months":runway,"severity":severity,"alert_id":id}))
+    }
+
 
 }
