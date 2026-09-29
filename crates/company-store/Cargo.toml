@@ -10,6 +10,7 @@ company-execution = { path = "../company-execution" }
 publishing-contract = { path = "../publishing-contract" }
 company-organization = { path = "../company-organization" }
 affiliate-attribution = { path = "../affiliate-attribution" }
+commercial-sales = { path = "../commercial-sales" }
 media-pipeline = { path = "../media-pipeline" }
 economic-core = { path = "../economic-core" }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
