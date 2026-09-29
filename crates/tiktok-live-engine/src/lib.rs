@@ -212,5 +212,22 @@ mod tests {
     #[test] fn gift_gets_priority_response_without_promising_money() { let mut ledger = LiveLedger::default(); let e = event(LiveEventKind::Gift); ledger.ingest(&e).unwrap(); let response = decide_response(LiveMode::Solo, &e, &ledger, &EngagementPolicy::default()); assert_eq!(response.action, ResponseAction::ThankGift); assert!(response.text.contains("Cảm ơn")); assert!(!response.text.to_ascii_lowercase().contains("thưởng tiền")); }
     #[test] fn mode_switches_enable_story_game_music_and_shopping() { let e = event(LiveEventKind::System); let policy = EngagementPolicy::default(); assert_eq!(decide_response(LiveMode::Story, &e, &LiveLedger::default(), &policy).action, ResponseAction::StartStoryBeat); assert_eq!(decide_response(LiveMode::Game, &e, &LiveLedger::default(), &policy).action, ResponseAction::StartGameRound); assert_eq!(decide_response(LiveMode::Music, &e, &LiveLedger::default(), &policy).action, ResponseAction::TransitionMusic); assert_eq!(decide_response(LiveMode::Shopping, &e, &LiveLedger::default(), &policy).action, ResponseAction::ProductMoment); }
     #[test] fn launch_gate_rejects_unavailable_external_publish() { let gate = LiveLaunchGate { capability: ExternalLiveCapability::production_default(), approved: true, stream_destination: Some("rtmps://example.invalid/live".into()), reason: "test".into() }; assert!(gate.validate().is_err()); }
+    #[test]
+    fn provider_statement_reconciles_recorded_gifts() {
+        let mut ledger = LiveLedger::default();
+        let e = event(LiveEventKind::Gift);
+        ledger.ingest(&e).unwrap();
+        let statement = ProviderGiftStatement {
+            statement_id: "stmt-1".into(),
+            room_id: "room-1".into(),
+            gift_count: 1,
+            gross_value_minor: 10,
+            currency: "USD".into(),
+        };
+        let reconciliation = reconcile_gifts(&ledger, &statement).unwrap();
+        assert!(reconciliation.matched);
+        assert_eq!(reconciliation.value_delta_minor, 0);
+    }
+
     #[test] fn invalid_events_fail_closed() { let mut e = event(LiveEventKind::Comment); e.event_id.clear(); assert!(LiveLedger::default().ingest(&e).is_err()); }
 }
