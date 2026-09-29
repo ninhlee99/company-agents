@@ -24,10 +24,11 @@ Rust owns the safety-critical path. Go can be used for isolated operational serv
 ```
 apps/
   company-os/            # Rust control plane
-workers/
-  company-worker/        # Rust durable background work
-  analytics-worker/      # Python analytics/forecasting/ML
-  media-worker/          # FFmpeg + optional Rust/Python orchestration
+apps/
+  media-worker/          # Rust worker around FFmpeg
+  llm-web-relay/         # Rust browser/web relay control plane
+  llm-web-worker/        # Rust relay worker
+  outbox-worker/         # Rust durable outbound delivery worker
 crates/
   economic-core/         # Rust deterministic economics
   agent-runtime/         # Rust Agent Runtime
@@ -64,3 +65,24 @@ Every external provider sits behind an adapter contract:
 `Agent intent -> typed command -> policy check -> adapter -> verified result -> audit event`
 
 No provider SDK is allowed to leak directly into Agent prompts or critical domain logic.
+
+
+## Current repository shape
+
+The checked-in implementation is a Rust-first monorepo:
+- `apps/company-os`: operator control plane and agent orchestration.
+- `apps/media-worker`: media processing worker; FFmpeg is the heavy native dependency.
+- `apps/llm-web-relay` + `apps/llm-web-worker`: isolated web/LLM relay path.
+- `apps/outbox-worker`: durable outbound delivery.
+- `crates/*`: domain, governance, economics, attribution, publishing and integration contracts.
+- PostgreSQL: durable state, idempotency, event/outbox evidence and audit data.
+- Server-rendered HTML: intentionally avoids a permanent Node/SPA runtime for the operator cockpit.
+
+## Resource hierarchy
+
+The dominant resource consumers are expected to be external model inference, PostgreSQL and FFmpeg—not the Rust HTTP/control layer. Therefore optimization work should target:
+1. model size/quantization and inference concurrency;
+2. media resolution/FPS/codec settings and process limits;
+3. database indexes, connection pooling and query shape;
+4. Tokio concurrency and queue bounds;
+5. only then micro-optimizations in Rust code.
