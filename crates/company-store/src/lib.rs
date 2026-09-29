@@ -3373,8 +3373,8 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             "status": row.get::<_, String>(4),
             "notes": row.get::<_, Option<String>>(5),
             "lifetime_revenue_minor": row.get::<_, String>(6),
-            "created_at": row.get::<_, time::OffsetDateTime>(7),
-            "updated_at": row.get::<_, chrono::DateTime<chrono::Utc>>(8)
+            "created_at": row.get::<_, time::OffsetDateTime>(7).to_string(),
+            "updated_at": row.get::<_, time::OffsetDateTime>(8).to_string()
         }))
     }
 
