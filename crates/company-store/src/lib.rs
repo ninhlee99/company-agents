@@ -4790,6 +4790,31 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         Ok((trend, opportunity))
     }
 
+    pub async fn list_growth_trends(
+        &self,
+        company_id: &str,
+        limit: i64,
+    ) -> Result<Vec<GrowthTrendRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=200).contains(&limit) {
+            return Err("growth trend limit must be between 1 and 200".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client.query(
+            "SELECT id,company_id,trend_key,topic,source,evidence_ref,observed_at_epoch,
+                    velocity_bps,audience_fit_bps,product_fit_bps,contentability_bps,competition_bps,
+                    confidence_bps,product_ref,offer_ref,content_format,max_budget_minor,max_loss_minor,
+                    max_duration_seconds,success_metric,success_threshold_bps,policy_evidence_ref,
+                    score_bps,decision,created_at::text
+               FROM growth_trends
+              WHERE company_id=$1
+              ORDER BY observed_at_epoch DESC,created_at DESC
+              LIMIT $2",
+            &[&company, &limit],
+        ).await?;
+        rows.into_iter().map(growth_trend_from_row).collect()
+    }
+
     pub async fn list_growth_opportunities(
         &self,
         company_id: &str,
