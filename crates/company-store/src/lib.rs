@@ -193,6 +193,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/022_fpa_forecasts_cashflow.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/025_legal_compliance.sql"
+            ))
             .await
     }
 
@@ -4151,6 +4156,45 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             "id":row.get::<_,Uuid>(0),"period_start_epoch":row.get::<_,i64>(1),
             "closing_cash_minor":parse_i128_numeric(&row.get::<_,String>(2))?
         }))
+    }
+
+    pub async fn create_compliance_obligation(&self, company_id:&str, obligation_id:Uuid, title:&str, obligation_type:&str, jurisdiction:Option<&str>, due_at_epoch:i64, owner:Option<&str>, source_reference:Option<&str>, idempotency_key:&str) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?;
+        if title.trim().is_empty() || obligation_type.trim().is_empty() || due_at_epoch<=0 || idempotency_key.trim().is_empty() { return Err("invalid compliance obligation".into()); }
+        let client=self.client.lock().await;
+        let row=client.query_opt("INSERT INTO compliance_obligations(id,company_id,title,obligation_type,jurisdiction,status,due_at_epoch,owner,source_reference,idempotency_key) VALUES($1,$2,$3,$4,$5,'OPEN',$6,$7,$8,$9) ON CONFLICT(company_id,idempotency_key) DO NOTHING RETURNING id,status,due_at_epoch",&[&obligation_id,&company,&title,&obligation_type,&jurisdiction,&due_at_epoch,&owner,&source_reference,&idempotency_key]).await?;
+        let row=match row { Some(r)=>r, None=>client.query_one("SELECT id,status,due_at_epoch FROM compliance_obligations WHERE company_id=$1 AND idempotency_key=$2",&[&company,&idempotency_key]).await? };
+        Ok(serde_json::json!({"id":row.get::<_,Uuid>(0),"status":row.get::<_,String>(1),"due_at_epoch":row.get::<_,i64>(2)}))
+    }
+    pub async fn record_compliance_evidence(&self, company_id:&str, obligation_id:&str, evidence_id:Uuid, evidence_type:&str, evidence_hash:&str, reference:Option<&str>, submitted_by:&str) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let obligation=Uuid::parse_str(obligation_id)?;
+        if evidence_type.trim().is_empty() || evidence_hash.trim().is_empty() || submitted_by.trim().is_empty() { return Err("invalid compliance evidence".into()); }
+        let client=self.client.lock().await;
+        if client.query_opt("SELECT 1 FROM compliance_obligations WHERE id=$1 AND company_id=$2",&[&obligation,&company]).await?.is_none() { return Err("obligation not found".into()); }
+        let row=client.query_one("INSERT INTO compliance_evidence(id,company_id,obligation_id,evidence_type,evidence_hash,reference,submitted_by) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id",&[&evidence_id,&company,&obligation,&evidence_type,&evidence_hash,&reference,&submitted_by]).await?;
+        client.execute("INSERT INTO compliance_audit_events(id,company_id,obligation_id,event_type,actor,evidence_hash,metadata) VALUES($1,$2,$3,'EVIDENCE_RECORDED',$4,$5,$6)",&[&Uuid::new_v4(),&company,&obligation,&submitted_by,&evidence_hash,&serde_json::json!({"evidence_type":evidence_type})]).await?;
+        Ok(serde_json::json!({"id":row.get::<_,Uuid>(0),"obligation_id":obligation}))
+    }
+    pub async fn approve_compliance_obligation(&self, company_id:&str, obligation_id:&str, decision:&str, approver:&str, approval_reference:&str, notes:Option<&str>) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let obligation=Uuid::parse_str(obligation_id)?; let decision=decision.trim().to_ascii_uppercase();
+        if !matches!(decision.as_str(),"APPROVED"|"REJECTED") || approver.trim().is_empty() || approval_reference.trim().is_empty() { return Err("invalid compliance approval".into()); }
+        let client=self.client.lock().await; let tx=client.transaction().await?;
+        tx.query_one("SELECT id FROM compliance_obligations WHERE id=$1 AND company_id=$2 FOR UPDATE",&[&obligation,&company]).await?;
+        let new_status=if decision=="APPROVED" {"SATISFIED"} else {"IN_REVIEW"};
+        tx.execute("INSERT INTO compliance_approvals(id,company_id,obligation_id,decision,approver,approval_reference,notes) VALUES($1,$2,$3,$4,$5,$6,$7)",&[&Uuid::new_v4(),&company,&obligation,&decision,&approver,&approval_reference,&notes]).await?;
+        tx.execute("UPDATE compliance_obligations SET status=$1 WHERE id=$2",&[&new_status,&obligation]).await?;
+        tx.execute("INSERT INTO compliance_audit_events(id,company_id,obligation_id,event_type,actor,metadata) VALUES($1,$2,$3,'APPROVAL_RECORDED',$4,$5)",&[&Uuid::new_v4(),&company,&obligation,&approver,&serde_json::json!({"decision":decision,"approval_reference":approval_reference})]).await?;
+        tx.commit().await?;
+        Ok(serde_json::json!({"obligation_id":obligation,"status":new_status,"decision":decision}))
+    }
+    pub async fn list_compliance_obligations(&self, company_id:&str) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let client=self.client.lock().await;
+        let rows=client.query("SELECT id,title,obligation_type,jurisdiction,status,due_at_epoch,owner,source_reference FROM compliance_obligations WHERE company_id=$1 ORDER BY due_at_epoch ASC LIMIT 200",&[&company]).await?;
+        Ok(rows.into_iter().map(|r| serde_json::json!({"id":r.get::<_,Uuid>(0),"title":r.get::<_,String>(1),"obligation_type":r.get::<_,String>(2),"jurisdiction":r.get::<_,Option<String>>(3),"status":r.get::<_,String>(4),"due_at_epoch":r.get::<_,i64>(5),"owner":r.get::<_,Option<String>>(6),"source_reference":r.get::<_,Option<String>>(7)})).collect())
+    }
+    pub async fn mark_overdue_compliance(&self, company_id:&str, now_epoch:i64) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let client=self.client.lock().await;
+        Ok(client.execute("UPDATE compliance_obligations SET status='OVERDUE' WHERE company_id=$1 AND due_at_epoch < $2 AND status IN ('OPEN','IN_REVIEW')",&[&company,&now_epoch]).await?)
     }
 
 }
