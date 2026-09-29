@@ -24,6 +24,14 @@ pub struct RevenuePeriodMetrics {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExperimentRecord {
+    pub id: Uuid,
+    pub company_id: Uuid,
+    pub spec: company_experiments::ExperimentSpec,
+    pub status: company_experiments::ExperimentStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AffiliateReconciliationMetrics {
     pub reported_commission_mtd_minor: i128,
     pub attributed_commission_mtd_minor: i128,
@@ -232,6 +240,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/023_ledger_cost_class.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/024_growth_experiments.sql"
+            ))
             .await
     }
 
@@ -287,6 +300,73 @@ impl CompanyStore {
             lifetime_minor: parse_i128_numeric(&row.get::<_, String>(2))?,
             revenue_transaction_count: row.get(3),
         })
+    }
+
+    pub async fn create_experiment(
+        &self,
+        company_id: &str,
+        id: Uuid,
+        spec: &company_experiments::ExperimentSpec,
+    ) -> Result<ExperimentRecord, Box<dyn std::error::Error + Send + Sync>> {
+        company_experiments::validate_spec(spec).map_err(|error| error.to_string())?;
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        client.execute(
+            "INSERT INTO growth_experiments
+             (id,company_id,hypothesis,control_variant,treatment_variant,max_budget_minor,min_observations,duration_seconds,success_metric_bps,kill_metric_bps,status)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PROPOSED')",
+            &[&id,&company,&spec.hypothesis,&spec.control,&spec.treatment,&spec.max_budget_minor.to_string(),
+              &(spec.min_observations as i64),&(spec.duration_seconds as i64),&spec.success_metric_bps,&spec.kill_metric_bps],
+        ).await?;
+        Ok(ExperimentRecord { id, company_id: company, spec: spec.clone(), status: company_experiments::ExperimentStatus::Proposed })
+    }
+
+    pub async fn record_experiment_observation(
+        &self,
+        company_id: &str,
+        experiment_id: Uuid,
+        observation: &company_experiments::ExperimentObservation,
+    ) -> Result<company_experiments::ExperimentDecision, Box<dyn std::error::Error + Send + Sync>> {
+        if observation.spend_minor < 0 { return Err("experiment spend cannot be negative".into()); }
+        let company = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let row = tx.query_opt(
+            "SELECT hypothesis,control_variant,treatment_variant,max_budget_minor::text,min_observations,duration_seconds,success_metric_bps,kill_metric_bps,status
+               FROM growth_experiments WHERE company_id=$1 AND id=$2 FOR UPDATE",
+            &[&company,&experiment_id],
+        ).await?.ok_or("experiment not found")?;
+        let spec = company_experiments::ExperimentSpec {
+            hypothesis: row.get(0), control: row.get(1), treatment: row.get(2),
+            max_budget_minor: row.get::<_,String>(3).parse()?,
+            min_observations: row.get::<_,i64>(4) as u64,
+            duration_seconds: row.get::<_,i64>(5) as u64,
+            success_metric_bps: row.get(6), kill_metric_bps: row.get(7),
+        };
+        let decision = company_experiments::decide(&spec, observation).map_err(|error| error.to_string())?;
+        let status = match decision {
+            company_experiments::ExperimentDecision::Continue => "RUNNING",
+            company_experiments::ExperimentDecision::Succeed => "SUCCEEDED",
+            company_experiments::ExperimentDecision::Kill => "KILLED",
+            company_experiments::ExperimentDecision::Expire => "EXPIRED",
+        };
+        tx.execute(
+            "INSERT INTO growth_experiment_observations
+             (company_id,experiment_id,control_observations,treatment_observations,control_metric_bps,treatment_metric_bps,spend_minor,elapsed_seconds,decision)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+            &[&company,&experiment_id,&(observation.control_observations as i64),&(observation.treatment_observations as i64),
+              &observation.control_metric_bps,&observation.treatment_metric_bps,&observation.spend_minor.to_string(),
+              &(observation.elapsed_seconds as i64),&format!("{:?}",decision).to_uppercase()],
+        ).await?;
+        tx.execute(
+            "UPDATE growth_experiments SET status=$3,
+                started_at=COALESCE(started_at,CASE WHEN $3='RUNNING' THEN now() ELSE started_at END),
+                completed_at=CASE WHEN $3 IN ('SUCCEEDED','KILLED','EXPIRED') THEN now() ELSE completed_at END
+              WHERE company_id=$1 AND id=$2",
+            &[&company,&experiment_id,&status],
+        ).await?;
+        tx.commit().await?;
+        Ok(decision)
     }
 
     pub async fn affiliate_reconciliation_metrics(
