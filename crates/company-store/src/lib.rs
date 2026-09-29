@@ -4197,4 +4197,17 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         Ok(client.execute("UPDATE compliance_obligations SET status='OVERDUE' WHERE company_id=$1 AND due_at_epoch < $2 AND status IN ('OPEN','IN_REVIEW')",&[&company,&now_epoch]).await?)
     }
 
+    pub async fn link_compliance_to_invoice(&self, company_id:&str, obligation_id:&str, invoice_id:&str, actor:&str) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let obligation=Uuid::parse_str(obligation_id)?; let invoice=Uuid::parse_str(invoice_id)?;
+        if actor.trim().is_empty() { return Err("actor required".into()); }
+        let client=self.client.lock().await; let tx=client.transaction().await?;
+        let status=tx.query_one("SELECT status FROM compliance_obligations WHERE id=$1 AND company_id=$2",&[&obligation,&company]).await?.get::<_,String>(0);
+        if status!="SATISFIED" { return Err("compliance obligation must be satisfied before revenue/payment linkage".into()); }
+        if tx.query_opt("SELECT 1 FROM invoices WHERE id=$1 AND company_id=$2",&[&invoice,&company]).await?.is_none() { return Err("invoice not found".into()); }
+        tx.execute("INSERT INTO compliance_revenue_links(id,company_id,obligation_id,invoice_id,linked_by) VALUES($1,$2,$3,$4,$5) ON CONFLICT(company_id,obligation_id,invoice_id) DO NOTHING",&[&Uuid::new_v4(),&company,&obligation,&invoice,&actor]).await?;
+        tx.execute("INSERT INTO compliance_payment_links(id,company_id,obligation_id,invoice_id,linked_by) VALUES($1,$2,$3,$4,$5) ON CONFLICT(company_id,obligation_id,invoice_id) DO NOTHING",&[&Uuid::new_v4(),&company,&obligation,&invoice,&actor]).await?;
+        tx.execute("INSERT INTO compliance_audit_events(id,company_id,obligation_id,event_type,actor,metadata) VALUES($1,$2,$3,'REVENUE_PAYMENT_LINKED',$4,$5)",&[&Uuid::new_v4(),&company,&obligation,&actor,&serde_json::json!({"invoice_id":invoice})]).await?;
+        tx.commit().await?; Ok(serde_json::json!({"obligation_id":obligation,"invoice_id":invoice,"status":"LINKED"}))
+    }
+
 }
