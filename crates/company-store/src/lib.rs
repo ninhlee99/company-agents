@@ -2942,7 +2942,8 @@ impl CompanyStore {
                     &transaction_id,
                     &company_uuid,
                     &format!(
-                        "affiliate:provider-verify:{conversion_id}:{status}:{delta}"
+                        "affiliate:provider-verify:{conversion_id}:{}:{delta}",
+                        status.as_str()
                     ),
                 ],
             )
