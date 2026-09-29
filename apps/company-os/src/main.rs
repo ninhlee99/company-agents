@@ -346,6 +346,7 @@ async fn index(State(state): State<AppState>) -> Html<String> {
                 month_to_date_variable_cost_minor: 0,
                 month_to_date_contribution_margin_minor: None,
                 unclassified_expense_minor: 0,
+                unclassified_expense_entry_count: 0,
                 variable_cost_transaction_count: 0,
             }
         });
@@ -353,10 +354,11 @@ async fn index(State(state): State<AppState>) -> Html<String> {
         .month_to_date_contribution_margin_minor
         .map(|value| format_minor(value, &state.currency))
         .unwrap_or_else(|| "Incomplete".into());
-    let contribution_margin_detail = if contribution_margin.unclassified_expense_minor > 0 {
+    let contribution_margin_detail = if contribution_margin.unclassified_expense_entry_count > 0 {
         format!(
-            "{} unclassified expense",
-            format_minor(contribution_margin.unclassified_expense_minor, &state.currency)
+            "{} unclassified expense across {} entries",
+            format_minor(contribution_margin.unclassified_expense_minor, &state.currency),
+            contribution_margin.unclassified_expense_entry_count
         )
     } else {
         format!(
