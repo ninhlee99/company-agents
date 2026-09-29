@@ -90,3 +90,15 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - Idempotent cash-flow observations with evidence: implemented
 - Forecast-vs-actual variance analysis: next
 - Automated cash runway / liquidity alerts: next
+
+
+## Recurring Revenue
+
+- Subscription plans with monthly/yearly cadence: implemented
+- Customer subscriptions and billing periods: implemented
+- Idempotent recurring billing period creation: implemented
+- Invoice issuance from a billing period: implemented
+- Compliance reference required before invoice issuance: implemented
+- Existing payment reconciliation evidence attaches to the generated invoice: supported by invoice_id linkage
+- Automated payment execution/settlement: not implemented
+- Automated renewal/dunning: next
