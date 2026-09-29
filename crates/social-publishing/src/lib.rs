@@ -330,7 +330,18 @@ impl TikTokPublisher {
         self.validate_request(&request, creator)?;
         self.approval
             .verify(approval, "tiktok.video.publish", &request.artifact_id)?;
+        self.publish_video_authorized(request, creator).await
+    }
 
+    /// Execute a publish after the durable CompanyStore approval gate has
+    /// already been consumed. The caller must have obtained a valid
+    /// execution lease from CompanyStore before invoking this method.
+    pub async fn publish_video_authorized(
+        &self,
+        request: VideoPublishRequest,
+        creator: &CreatorInfo,
+    ) -> Result<PublishReceipt, PublishError> {
+        self.validate_request(&request, creator)?;
         let metadata = tokio::fs::metadata(&request.video_path)
             .await
             .map_err(|e| PublishError::File(e.to_string()))?;
@@ -395,6 +406,8 @@ impl TikTokPublisher {
             publish_id,
             status: "PROCESSING".into(),
         })
+    }
+
     }
 
     pub async fn fetch_status(&self, publish_id: &str) -> Result<String, PublishError> {
