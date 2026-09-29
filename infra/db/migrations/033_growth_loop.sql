@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS growth_opportunities (
   plan_json jsonb NOT NULL,
   status text NOT NULL CHECK (status IN ('READY','CONTENT_CREATED')),
   content_item_id uuid REFERENCES content_items(id),
+  content_created_at_epoch bigint CHECK (content_created_at_epoch > 0),
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE(company_id, opportunity_key)
 );
