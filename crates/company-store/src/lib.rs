@@ -3206,6 +3206,43 @@ impl CompanyStore {
     }
 }
 
+async fn tx_store_live_gift_statement(
+    client: &Client,
+    company_id: Uuid,
+    session_id: Uuid,
+    reconciliation: &tiktok_live_engine::GiftReconciliation,
+    currency: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    client
+        .execute(
+            "INSERT INTO tiktok_live_gift_statements
+             (id, company_id, session_id, statement_id, gift_count,
+              gross_value_minor, currency, matched, count_delta, value_delta_minor)
+             VALUES ($1,$2,$3,$4,$5,$6::numeric,$7,$8,$9,$10::numeric)
+             ON CONFLICT (company_id, statement_id) DO UPDATE
+             SET gift_count=EXCLUDED.gift_count,
+                 gross_value_minor=EXCLUDED.gross_value_minor,
+                 currency=EXCLUDED.currency,
+                 matched=EXCLUDED.matched,
+                 count_delta=EXCLUDED.count_delta,
+                 value_delta_minor=EXCLUDED.value_delta_minor",
+            &[
+                &Uuid::new_v4(),
+                &company_id,
+                &session_id,
+                &reconciliation.statement_id,
+                &(reconciliation.provider_gift_count as i64),
+                &reconciliation.provider_value_minor.to_string(),
+                &currency,
+                &reconciliation.matched,
+                &(reconciliation.count_delta as i64),
+                &reconciliation.value_delta_minor.to_string(),
+            ],
+        )
+        .await?;
+    Ok(())
+}
+
 fn parse_reconciliation_status(
     value: &str,
 ) -> Result<affiliate_attribution::ReconciliationStatus, Box<dyn std::error::Error + Send + Sync>> {
