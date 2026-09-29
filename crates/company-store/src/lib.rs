@@ -538,6 +538,12 @@ impl CompanyStore {
         }))
     }
 
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/035_policy_intelligence.sql"
+            ))
+            .await?;
+
     pub async fn ensure_company(
         &self,
         company_id: &str,
