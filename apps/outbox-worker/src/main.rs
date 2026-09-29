@@ -128,6 +128,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             };
 
             let result = if event.event_type == "EXTERNAL_EMAIL_SEND" {
+                if let Some(message_id) = delivery.payload.get("message_id").and_then(|v| v.as_str()) {
+                    store.mark_outbound_email_processing(&event.company_id, message_id).await?;
+                }
                 match resend.as_ref() {
                     Some(provider) => match deliver_email(provider, &delivery).await {
                         Ok(receipt) => {
