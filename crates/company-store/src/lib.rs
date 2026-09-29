@@ -3670,6 +3670,118 @@ impl CompanyStore {
         Ok(changed == 1)
     }
 
+    pub async fn record_tiktok_live_attention(
+        &self,
+        company_id: &str,
+        session_id: &str,
+        event: &tiktok_live_engine::LiveEvent,
+    ) -> Result<company_live_attention::AttentionDecision, Box<dyn std::error::Error + Send + Sync>> {
+        event.validate().map_err(|error| error.to_string())?;
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let session_uuid = Uuid::parse_str(session_id)?;
+        let mode = self.tiktok_live_mode(company_id, session_id).await?;
+
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        tx.query_one(
+            "SELECT 1 FROM tiktok_live_events
+              WHERE company_id=$1 AND session_id=$2 AND event_id=$3",
+            &[&company_uuid, &session_uuid, &event.event_id],
+        ).await?;
+
+        if let Some(row) = tx.query_opt(
+            "SELECT id,company_id,session_id,event_id,action,reason,priority,decided_at_epoch,requires_human
+               FROM live_attention_decisions
+              WHERE company_id=$1 AND session_id=$2 AND event_id=$3",
+            &[&company_uuid, &session_uuid, &event.event_id],
+        ).await? {
+            let decision = attention_decision_from_row(row)?;
+            tx.commit().await?;
+            return Ok(decision);
+        }
+
+        let policy = company_live_attention::AttentionPolicy::default();
+        let now_epoch: i64 = tx
+            .query_one(
+                "SELECT EXTRACT(EPOCH FROM now())::bigint",
+                &[],
+            )
+            .await?
+            .get(0);
+        let window_start = now_epoch.saturating_sub(policy.response_window_seconds);
+        let context_row = tx
+            .query_one(
+                "SELECT
+                    COALESCE(MAX(decided_at_epoch) FILTER (WHERE action IN ('RESPOND','ESCALATE')), 0),
+                    COUNT(*) FILTER (WHERE action IN ('RESPOND','ESCALATE') AND decided_at_epoch >= $3)
+                 FROM live_attention_decisions
+                WHERE company_id=$1 AND session_id=$2",
+                &[&company_uuid, &session_uuid, &window_start],
+            )
+            .await?;
+        let last_value: i64 = context_row.get(0);
+        let responses: i64 = context_row.get(1);
+        let context = company_live_attention::AttentionContext {
+            last_response_at_epoch: if last_value > 0 { Some(last_value) } else { None },
+            window_started_at_epoch: Some(window_start),
+            responses_in_window: responses.clamp(0, u32::MAX as i64) as u32,
+        };
+
+        let decision = company_live_attention::decide_attention(
+            company_uuid,
+            session_uuid,
+            mode,
+            event,
+            &context,
+            now_epoch,
+            &policy,
+        )
+        .map_err(|error| error.to_string())?;
+
+        tx.execute(
+            "INSERT INTO live_attention_decisions
+             (id,company_id,session_id,event_id,action,reason,priority,decided_at_epoch,requires_human,viewer_value_bps)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+             ON CONFLICT(company_id,session_id,event_id) DO NOTHING",
+            &[
+                &decision.decision_id,
+                &company_uuid,
+                &session_uuid,
+                &decision.event_id,
+                &attention_action_name(decision.action),
+                &attention_reason_name(decision.reason),
+                &(decision.priority as i16),
+                &decision.decided_at_epoch,
+                &decision.requires_human,
+                &event.viewer_value_bps.map(|value| value as i32),
+            ],
+        ).await?;
+
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'LIVE_ATTENTION_DECIDED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[
+                &company_uuid,
+                &session_uuid,
+                &format!("outbox:live-attention:{}:{}", session_uuid, decision.event_id),
+                &serde_json::to_value(&decision)?,
+            ],
+        ).await?;
+
+        let persisted = tx.query_one(
+            "SELECT id,company_id,session_id,event_id,action,reason,priority,decided_at_epoch,requires_human
+               FROM live_attention_decisions
+              WHERE company_id=$1 AND session_id=$2 AND event_id=$3",
+            &[&company_uuid, &session_uuid, &event.event_id],
+        ).await?;
+        let decision = attention_decision_from_row(persisted)?;
+        tx.commit().await?;
+        Ok(decision)
+    }
+
     pub async fn tiktok_live_summary(
         &self,
         company_id: &str,
