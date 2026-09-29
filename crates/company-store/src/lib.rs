@@ -314,6 +314,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/031_content_performance.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/032_content_status_evidence.sql"
+            ))
             .await
     }
 
@@ -448,6 +453,47 @@ impl CompanyStore {
             &[&company, &limit],
         ).await?;
         rows.into_iter().map(content_record_from_row).collect()
+    }
+
+    pub async fn transition_content_status(
+        &self,
+        company_id: &str,
+        content_id: Uuid,
+        next: company_content::ContentStatus,
+        evidence_ref: Option<&str>,
+    ) -> Result<ContentRecord, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client.query_opt(
+            "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
+                    expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
+                    success_threshold_bps,variant_key,hook,first_frame,emotion,pacing,scene_count,
+                    text_density,voice_speed,product_placement,cta,comment_trigger,music_style,
+                    visual_style,status,decision,created_at::text
+               FROM content_items
+              WHERE company_id=$1 AND id=$2",
+            &[&company, &content_id],
+        ).await?.ok_or("content item not found")?;
+        let current = parse_content_status(row.get::<_, String>(26))?;
+        company_content::validate_status_transition(current, next, evidence_ref)
+            .map_err(|error| error.to_string())?;
+        let next_name = content_status_name(next);
+        client.execute(
+            "UPDATE content_items
+                SET status=$3, status_evidence_ref=$4
+              WHERE company_id=$1 AND id=$2",
+            &[&company, &content_id, &next_name, &evidence_ref],
+        ).await?;
+        let refreshed = client.query_one(
+            "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
+                    expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
+                    success_threshold_bps,variant_key,hook,first_frame,emotion,pacing,scene_count,
+                    text_density,voice_speed,product_placement,cta,comment_trigger,music_style,
+                    visual_style,status,decision,created_at::text
+               FROM content_items WHERE company_id=$1 AND id=$2",
+            &[&company, &content_id],
+        ).await?;
+        content_record_from_row(refreshed)
     }
 
     pub async fn record_content_observation(
