@@ -11,7 +11,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: bash scripts/lint_infra.sh
       - run: bash scripts/secret_hygiene.sh
-      - run: bash scripts/verify.sh
+      - name: Verify workspace
+        env:
+          FORMAT_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: bash scripts/verify.sh
 
   package-tests:
     runs-on: ubuntu-latest
