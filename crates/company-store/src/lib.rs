@@ -3318,5 +3318,97 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
     }
 
 
+    pub async fn create_customer(
+        &self,
+        company_id: &str,
+        customer_id: Uuid,
+        name: &str,
+        email: Option<&str>,
+        external_ref: Option<&str>,
+        status: &str,
+        notes: Option<&str>,
+        idempotency_key: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        if name.trim().is_empty() || name.len() > 200 || idempotency_key.trim().is_empty() || idempotency_key.len() > 256 {
+            return Err("invalid customer identity".into());
+        }
+        if !matches!(status, "LEAD" | "ACTIVE" | "INACTIVE" | "CHURNED") {
+            return Err("invalid customer status".into());
+        }
+        if let Some(value) = email {
+            if value.len() > 320 || !value.contains('@') {
+                return Err("invalid customer email".into());
+            }
+        }
+        let mut client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "INSERT INTO customers
+                    (id, company_id, name, email, external_ref, status, notes, idempotency_key)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                 ON CONFLICT (company_id, idempotency_key) WHERE idempotency_key IS NOT NULL
+                 DO NOTHING
+                 RETURNING id, name, email, external_ref, status, notes, lifetime_revenue_minor::text, created_at, updated_at",
+                &[&customer_id, &company, &name, &email, &external_ref, &status, &notes, &idempotency_key],
+            )
+            .await?;
+        let row = match row {
+            Some(row) => row,
+            None => client
+                .query_one(
+                    "SELECT id, name, email, external_ref, status, notes,
+                            lifetime_revenue_minor::text, created_at, updated_at
+                       FROM customers
+                      WHERE company_id=$1 AND idempotency_key=$2",
+                    &[&company, &idempotency_key],
+                )
+                .await?,
+        };
+        Ok(serde_json::json!({
+            "id": row.get::<_, Uuid>(0),
+            "name": row.get::<_, String>(1),
+            "email": row.get::<_, Option<String>>(2),
+            "external_ref": row.get::<_, Option<String>>(3),
+            "status": row.get::<_, String>(4),
+            "notes": row.get::<_, Option<String>>(5),
+            "lifetime_revenue_minor": row.get::<_, String>(6),
+            "created_at": row.get::<_, chrono::DateTime<chrono::Utc>>(7),
+            "updated_at": row.get::<_, chrono::DateTime<chrono::Utc>>(8)
+        }))
+    }
+
+    pub async fn list_customers(
+        &self,
+        company_id: &str,
+        limit: i64,
+    ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=200).contains(&limit) {
+            return Err("customer limit must be between 1 and 200".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client.query(
+            "SELECT id, name, email, external_ref, status, notes,
+                    lifetime_revenue_minor::text, created_at, updated_at
+               FROM customers
+              WHERE company_id=$1
+              ORDER BY created_at DESC, id DESC
+              LIMIT $2",
+            &[&company, &limit],
+        ).await?;
+        Ok(rows.into_iter().map(|row| serde_json::json!({
+            "id": row.get::<_, Uuid>(0),
+            "name": row.get::<_, String>(1),
+            "email": row.get::<_, Option<String>>(2),
+            "external_ref": row.get::<_, Option<String>>(3),
+            "status": row.get::<_, String>(4),
+            "notes": row.get::<_, Option<String>>(5),
+            "lifetime_revenue_minor": row.get::<_, String>(6),
+            "created_at": row.get::<_, chrono::DateTime<chrono::Utc>>(7),
+            "updated_at": row.get::<_, chrono::DateTime<chrono::Utc>>(8)
+        })).collect())
+    }
+
 }
 
