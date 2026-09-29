@@ -4782,7 +4782,9 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
                         ],
                     ).await?;
                 }
-                load_growth_opportunity_by_trend(&tx, &company, trend.id).await?
+                load_growth_opportunity_by_trend(&tx, &company, trend.id)
+                    .await?
+                    .ok_or("growth opportunity persistence failed")?
             }
         } else {
             None
