@@ -3046,6 +3046,33 @@ impl CompanyStore {
         Ok(())
     }
 
+    pub async fn tiktok_live_mode(
+        &self,
+        company_id: &str,
+        session_id: &str,
+    ) -> Result<tiktok_live_engine::LiveMode, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let session_uuid = Uuid::parse_str(session_id)?;
+        let client = self.client.lock().await;
+        let mode: String = client
+            .query_one(
+                "SELECT mode FROM tiktok_live_sessions WHERE id=$1 AND company_id=$2",
+                &[&session_uuid, &company_uuid],
+            )
+            .await?
+            .get(0);
+        match mode.as_str() {
+            "SOLO" => Ok(tiktok_live_engine::LiveMode::Solo),
+            "COHOST" | "CO_HOST" => Ok(tiktok_live_engine::LiveMode::CoHost),
+            "PK" => Ok(tiktok_live_engine::LiveMode::Pk),
+            "GAME" => Ok(tiktok_live_engine::LiveMode::Game),
+            "STORY" => Ok(tiktok_live_engine::LiveMode::Story),
+            "MUSIC" => Ok(tiktok_live_engine::LiveMode::Music),
+            "SHOPPING" | "SHOP" => Ok(tiktok_live_engine::LiveMode::Shopping),
+            other => Err(format!("unknown LIVE mode: {other}").into()),
+        }
+    }
+
     pub async fn record_tiktok_live_event(
         &self,
         company_id: &str,
