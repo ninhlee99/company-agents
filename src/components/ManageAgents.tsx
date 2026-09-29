@@ -13,7 +13,8 @@ import {
   Clock,
   Sparkles,
   Layers,
-  ArrowRight
+  ArrowRight,
+  Download
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -170,6 +171,49 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
     };
   });
 
+  // Export Agent Performance Breakdown Data to CSV
+  const exportPerformanceToCSV = () => {
+    const headers = [
+      'Mã Nhân Sự (Agent ID)',
+      'Tên Nhân Sự (Agent Name)',
+      'Chức Danh (Role)',
+      'Phòng Ban (Department)',
+      'Số Tác Vụ Hoàn Thành (Tasks Completed)',
+      'Chi Phí Duy Trì Tháng (USD)',
+      'Điểm Hiệu Suất / Lương (%)',
+      'Đánh Giá (Performance Rating)',
+      'Trạng Thái (Status)',
+      'Chu Kỳ Gia Nhập (Hired Cycle)',
+    ];
+
+    const rows = agents.map((a) => {
+      const eff = getEfficiencyScore(a);
+      return [
+        `"${a.id}"`,
+        `"${a.name.replace(/"/g, '""')}"`,
+        `"${a.role.replace(/"/g, '""')}"`,
+        `"${a.department}"`,
+        a.tasksCompleted,
+        eff.cost,
+        eff.score,
+        `"${eff.label}"`,
+        `"${a.status === 'Active' ? 'Đang hoạt động' : 'Tạm dừng'}"`,
+        a.hiredAtCycle,
+      ].join(',');
+    });
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `bao_cao_hieu_suat_nhan_su_ky_${snapshot.cycle_count}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-4 max-w-5xl mx-auto pb-10">
       {/* Top Header */}
@@ -220,10 +264,19 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
           </div>
 
           <div className="flex items-center gap-3 text-[11px]">
-            <span className="flex items-center gap-1 text-indigo-400 font-mono">
+            <button
+              onClick={exportPerformanceToCSV}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 text-[11px] font-semibold transition-all active:scale-95 shadow-sm"
+              title="Xuất file CSV báo cáo hiệu suất nhân sự để phân tích trên Excel / Google Sheets"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Xuất CSV</span>
+            </button>
+
+            <span className="hidden sm:flex items-center gap-1 text-indigo-400 font-mono">
               <span className="w-2.5 h-2.5 rounded-sm bg-indigo-500 inline-block" /> Việc hoàn thành
             </span>
-            <span className="flex items-center gap-1 text-rose-400 font-mono">
+            <span className="hidden sm:flex items-center gap-1 text-rose-400 font-mono">
               <span className="w-2.5 h-2.5 rounded-sm bg-rose-500 inline-block" /> Chi phí ($)
             </span>
           </div>

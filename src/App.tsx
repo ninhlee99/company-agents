@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CompanySnapshot, GovernedProposal, ExecutionReceipt, LedgerEntry, CustomAgent, CycleTrendPoint } from './types/company';
+import { CompanySnapshot, GovernedProposal, ExecutionReceipt, LedgerEntry, CustomAgent, CycleTrendPoint, AutoAuditReport } from './types/company';
 import { Header } from './components/Header';
 import { BasicDashboard } from './components/BasicDashboard';
 import { ManageAgents } from './components/ManageAgents';
@@ -73,6 +73,7 @@ export default function App() {
   ]);
 
   const [cycleHistory, setCycleHistory] = useState<CycleTrendPoint[]>([]);
+  const [auditReports, setAuditReports] = useState<AutoAuditReport[]>([]);
 
   const loadState = async () => {
     try {
@@ -88,6 +89,9 @@ export default function App() {
         }
         if (data.cycleHistory) {
           setCycleHistory(data.cycleHistory);
+        }
+        if (data.auditReports) {
+          setAuditReports(data.auditReports);
         }
         setHasGeminiKey(data.hasGeminiKey);
       }
@@ -114,7 +118,14 @@ export default function App() {
         setSnapshot(data.snapshot);
         setProposals(data.proposals);
         setReceipts((prev) => [...data.receipts, ...prev]);
-        triggerToast(`Chu kỳ #${data.cycleNumber} đã xong! AI đã ra quyết định.`);
+        if (data.auditReports) {
+          setAuditReports(data.auditReports);
+        }
+        if (data.auditReport) {
+          triggerToast(`Kiểm toán định kỳ Kỳ #${data.auditReport.cycleMilestone}: Doanh thu ${data.auditReport.variancePercent >= 0 ? '+' : ''}${data.auditReport.variancePercent}% vs ngân sách!`);
+        } else {
+          triggerToast(`Chu kỳ #${data.cycleNumber} đã xong! AI đã ra quyết định.`);
+        }
         loadState();
       }
     } catch (err) {
@@ -122,6 +133,19 @@ export default function App() {
       triggerToast('Đã ghi nhận chu kỳ.');
     } finally {
       setIsRunningCycle(false);
+    }
+  };
+
+  const handleTriggerAudit = async () => {
+    try {
+      const res = await fetch('/api/trigger-audit', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.reports) setAuditReports(data.reports);
+        triggerToast('Báo cáo kiểm toán 10 chu kỳ đã hoàn tất!');
+      }
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -362,10 +386,12 @@ export default function App() {
                 snapshot={snapshot}
                 recentProposals={proposals}
                 cycleHistory={cycleHistory}
+                auditReports={auditReports}
                 onRunCycle={handleRunCycle}
                 isRunningCycle={isRunningCycle}
                 onOverride={handleOverride}
                 onNavigate={(view) => setBasicTab(view)}
+                onTriggerAudit={handleTriggerAudit}
               />
             )}
             {basicTab === 'agents' && (

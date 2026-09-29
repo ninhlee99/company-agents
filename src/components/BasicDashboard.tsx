@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CompanySnapshot, GovernedProposal, CycleTrendPoint } from '../types/company';
+import { CompanySnapshot, GovernedProposal, CycleTrendPoint, AutoAuditReport } from '../types/company';
 import { 
   RotateCw, 
   CheckCircle2, 
@@ -12,7 +12,11 @@ import {
   ArrowRight, 
   ShieldCheck, 
   Activity,
-  Layers
+  Layers,
+  FileCheck2,
+  CalendarCheck,
+  Scale,
+  X
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -29,22 +33,28 @@ interface BasicDashboardProps {
   snapshot: CompanySnapshot;
   recentProposals: GovernedProposal[];
   cycleHistory?: CycleTrendPoint[];
+  auditReports?: AutoAuditReport[];
   onRunCycle: () => void;
   isRunningCycle: boolean;
   onOverride: (proposalId: string, decision: 'Approve' | 'Reject') => void;
   onNavigate: (view: 'dashboard' | 'agents' | 'finances' | 'pipeline') => void;
+  onTriggerAudit?: () => Promise<void>;
 }
 
 export const BasicDashboard: React.FC<BasicDashboardProps> = ({
   snapshot,
   recentProposals,
   cycleHistory,
+  auditReports,
   onRunCycle,
   isRunningCycle,
   onOverride,
   onNavigate,
+  onTriggerAudit,
 }) => {
   const [chartMetric, setChartMetric] = useState<'all' | 'revenue_expense' | 'cash'>('all');
+  const [showAuditModal, setShowAuditModal] = useState(false);
+  const [isAuditing, setIsAuditing] = useState(false);
 
   const formatMoney = (minor: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -57,7 +67,40 @@ export const BasicDashboard: React.FC<BasicDashboardProps> = ({
   const netMonthly = snapshot.revenue_minor - snapshot.expenses_minor;
   const pendingApprovals = recentProposals.filter((p) => p.decision === 'EscalateToHuman' && !p.executed);
 
-  // Fallback 10-cycle trend if not provided by backend
+  // Latest Auto-Audit Report (or calculated live if not loaded yet)
+  const defaultAudit: AutoAuditReport = {
+    id: 'audit-cycle-10-default',
+    cycleMilestone: 10,
+    timestamp: new Date().toISOString(),
+    plannedRevenueMinor: 800000, // $8,000 baseline budget
+    actualRevenueMinor: snapshot.revenue_minor,
+    varianceRevenueMinor: snapshot.revenue_minor - 800000,
+    variancePercent: Math.round(((snapshot.revenue_minor - 800000) / 800000) * 1000) / 10,
+    plannedExpensesMinor: 600000,
+    actualExpensesMinor: snapshot.expenses_minor,
+    cashReserveMinor: snapshot.cash_minor,
+    verdict: snapshot.revenue_minor >= 800000 ? 'ExceededTarget' : 'UnderTarget',
+    summary: `Kỳ kiểm toán #10: Doanh thu thực tế ($${(snapshot.revenue_minor / 100).toLocaleString()}/th) so với ngân sách kế hoạch ($8,000/th) đạt mức lệch ${
+      snapshot.revenue_minor >= 800000 ? '+' : ''
+    }${Math.round(((snapshot.revenue_minor - 800000) / 800000) * 1000) / 10}%.`,
+    governorNote: 'Hiến pháp: Đạt chuẩn bảo toàn vốn và tăng trưởng tự trị. Được phép tiếp tục mở rộng.',
+  };
+
+  const latestAudit: AutoAuditReport = auditReports && auditReports.length > 0 ? auditReports[0] : defaultAudit;
+  const nextMilestone = Math.ceil((snapshot.cycle_count + 0.1) / 10) * 10;
+
+  const handleRunManualAudit = async () => {
+    if (onTriggerAudit) {
+      setIsAuditing(true);
+      await onTriggerAudit();
+      setIsAuditing(false);
+      setShowAuditModal(true);
+    } else {
+      setShowAuditModal(true);
+    }
+  };
+
+  // 10-cycle trend
   const trendData: CycleTrendPoint[] = cycleHistory && cycleHistory.length > 0 ? cycleHistory : [
     { cycle: 'Kỳ 5', cycleNum: 5, cash: 38000, revenue: 5200, expenses: 4900, netCashFlow: 300 },
     { cycle: 'Kỳ 6', cycleNum: 6, cash: 39500, revenue: 5800, expenses: 5100, netCashFlow: 700 },
@@ -159,6 +202,43 @@ export const BasicDashboard: React.FC<BasicDashboardProps> = ({
           <div className="text-[11px] text-slate-400 mt-0.5">
             {netMonthly >= 0 ? '🟢 Có lãi' : '🔴 Bù lỗ'}
           </div>
+        </div>
+      </div>
+
+      {/* AUTO-AUDIT SUMMARY CARD: COMPARING REVENUE VS INITIAL BUDGET PLAN */}
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950/20 to-slate-900 border border-indigo-500/30 rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0 mt-0.5">
+            <FileCheck2 className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-white text-xs">Kiểm Toán Tự Động Định Kỳ (Auto-Audit Routine)</span>
+              <span className="px-2 py-0.2 rounded-full font-mono text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
+                Mỗi 10 Chu Kỳ
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 mt-0.5">
+              Doanh thu thực tế: <strong className="text-white">${(snapshot.revenue_minor / 100).toLocaleString()}/th</strong> vs Kế hoạch ngân sách ban đầu (<strong className="text-slate-400">$8,000/th</strong>).
+              Độ lệch: <strong className={latestAudit.variancePercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                {latestAudit.variancePercent >= 0 ? `+${latestAudit.variancePercent}% (Vượt Kế Hoạch)` : `${latestAudit.variancePercent}% (Dưới Kế Hoạch)`}
+              </strong>
+            </p>
+            <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1 font-mono">
+              <span>Đợt gần nhất: Kỳ #{latestAudit.cycleMilestone}</span>
+              <span>•</span>
+              <span>Kỳ kiểm toán tiếp theo: Kỳ #{nextMilestone}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => setShowAuditModal(true)}
+            className="flex-1 md:flex-none px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition-all shadow-sm flex items-center justify-center gap-1.5"
+          >
+            <Scale className="w-3.5 h-3.5" /> Xem Báo Cáo Kiểm Toán
+          </button>
         </div>
       </div>
 
@@ -426,6 +506,115 @@ export const BasicDashboard: React.FC<BasicDashboardProps> = ({
           </div>
         </div>
       </div>
+
+      {/* AUTO-AUDIT DETAIL MODAL */}
+      {showAuditModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-2xl w-full p-5 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
+              <div className="flex items-center gap-2">
+                <Scale className="w-5 h-5 text-indigo-400" />
+                <div>
+                  <h3 className="font-bold text-white text-sm">
+                    Báo Cáo Kiểm Toán Định Kỳ 10 Chu Kỳ (Auto-Audit Report)
+                  </h3>
+                  <p className="text-[11px] text-slate-400">Đối chiếu Doanh Thu Thực Tế vs Kế Hoạch Ngân Sách Ban Đầu</p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowAuditModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-all"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1 text-xs">
+              {/* Variance Comparison Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                <div className="p-3 rounded-lg bg-slate-950 border border-slate-800">
+                  <span className="text-[11px] text-slate-400 block font-medium">Doanh Thu Kế Hoạch</span>
+                  <div className="text-lg font-bold text-slate-300 font-mono mt-0.5">
+                    ${(latestAudit.plannedRevenueMinor / 100).toLocaleString()}
+                  </div>
+                  <span className="text-[10px] text-slate-500 font-mono">Chỉ tiêu tháng</span>
+                </div>
+
+                <div className="p-3 rounded-lg bg-slate-950 border border-slate-800">
+                  <span className="text-[11px] text-slate-400 block font-medium">Doanh Thu Thực Tế</span>
+                  <div className="text-lg font-bold text-emerald-400 font-mono mt-0.5">
+                    ${(latestAudit.actualRevenueMinor / 100).toLocaleString()}
+                  </div>
+                  <span className="text-[10px] text-emerald-400/90 font-mono font-bold">
+                    {latestAudit.variancePercent >= 0 ? `+${latestAudit.variancePercent}%` : `${latestAudit.variancePercent}%`}
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 col-span-2 sm:col-span-1">
+                  <span className="text-[11px] text-slate-400 block font-medium">Đánh Giá (Verdict)</span>
+                  <div className={`text-sm font-bold font-mono mt-1 ${latestAudit.variancePercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {latestAudit.variancePercent >= 0 ? 'VƯỢT KẾ HOẠCH' : 'DƯỚI CHỈ TIÊU'}
+                  </div>
+                  <span className="text-[10px] text-slate-500 font-mono">Kiểm toán tự động</span>
+                </div>
+              </div>
+
+              {/* Summary narrative */}
+              <div className="p-3.5 rounded-lg bg-slate-950 border border-slate-800/80 space-y-2">
+                <span className="font-bold text-white text-xs block flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Kết Quả Thẩm Tra Tài Chính
+                </span>
+                <p className="text-slate-300 leading-relaxed text-xs">
+                  {latestAudit.summary}
+                </p>
+              </div>
+
+              {/* Governor Constitutional Note */}
+              <div className="p-3.5 rounded-lg bg-indigo-950/20 border border-indigo-500/30 space-y-1.5">
+                <span className="font-bold text-indigo-300 text-xs block flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-indigo-400" /> Phán Quyết Fiduciary Của Governor
+                </span>
+                <p className="text-slate-300 text-xs">
+                  {latestAudit.governorNote}
+                </p>
+              </div>
+
+              {/* Historical Audit List */}
+              {auditReports && auditReports.length > 1 && (
+                <div className="space-y-2 pt-2">
+                  <span className="font-bold text-white text-xs block">Lịch Sử Các Đợt Kiểm Toán Trước:</span>
+                  <div className="space-y-1.5">
+                    {auditReports.slice(1).map((rep) => (
+                      <div key={rep.id} className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between text-[11px]">
+                        <div>
+                          <strong className="text-white mr-2">Kỳ #{rep.cycleMilestone}:</strong>
+                          <span className="text-slate-400">Doanh thu ${(rep.actualRevenueMinor / 100).toLocaleString()} (Kế hoạch: ${(rep.plannedRevenueMinor / 100).toLocaleString()})</span>
+                        </div>
+                        <span className={`font-mono font-bold ${rep.variancePercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {rep.variancePercent >= 0 ? `+${rep.variancePercent}%` : `${rep.variancePercent}%`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-slate-800 pt-3 flex items-center justify-between shrink-0">
+              <span className="text-[11px] text-slate-500 font-mono">
+                Chu kỳ kiểm toán tiếp theo: Kỳ #{nextMilestone}
+              </span>
+              <button
+                onClick={() => setShowAuditModal(false)}
+                className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-all"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

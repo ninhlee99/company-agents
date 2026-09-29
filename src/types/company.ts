@@ -132,6 +132,22 @@ export interface AgentTaskItem {
   timestamp: string;
 }
 
+export interface AutoAuditReport {
+  id: string;
+  cycleMilestone: number;
+  timestamp: string;
+  plannedRevenueMinor: number;
+  actualRevenueMinor: number;
+  varianceRevenueMinor: number;
+  variancePercent: number;
+  plannedExpensesMinor: number;
+  actualExpensesMinor: number;
+  cashReserveMinor: number;
+  verdict: 'ExceededTarget' | 'OnTrack' | 'UnderTarget';
+  summary: string;
+  governorNote: string;
+}
+
 export interface MediaContentGenerated {
   title: string;
   hook: string;

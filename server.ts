@@ -136,6 +136,21 @@ const state: {
   employees: { id: string; role: string; name: string; salary_minor: number; hiredAtCycle: number }[];
   customAgents: { id: string; name: string; role: string; department: string; description: string; salary_minor: number; tasksCompleted: number; status: 'Active' | 'Paused'; hiredAtCycle: number }[];
   activeExperiments: { id: string; name: string; budget_minor: number; startCycle: number; status: string; roi_bps: number }[];
+  auditReports: {
+    id: string;
+    cycleMilestone: number;
+    timestamp: string;
+    plannedRevenueMinor: number;
+    actualRevenueMinor: number;
+    varianceRevenueMinor: number;
+    variancePercent: number;
+    plannedExpensesMinor: number;
+    actualExpensesMinor: number;
+    cashReserveMinor: number;
+    verdict: 'ExceededTarget' | 'OnTrack' | 'UnderTarget';
+    summary: string;
+    governorNote: string;
+  }[];
 } = {
   snapshot: {
     status: 'Active',
@@ -225,6 +240,23 @@ const state: {
   activeExperiments: [
     { id: 'exp-1', name: 'Short-Form Hook Multi-Variant Video Engine', budget_minor: 150000, startCycle: 11, status: 'In Progress', roi_bps: 1420 },
     { id: 'exp-2', name: 'Micro-Affiliate Niche Directory SEO Loop', budget_minor: 80000, startCycle: 13, status: 'In Progress', roi_bps: 980 },
+  ],
+  auditReports: [
+    {
+      id: 'audit-cycle-10-init',
+      cycleMilestone: 10,
+      timestamp: new Date(Date.now() - 86400000 * 4).toISOString(),
+      plannedRevenueMinor: 800000, // $8,000 baseline
+      actualRevenueMinor: 880000, // $8,800
+      varianceRevenueMinor: 80000, // +$800
+      variancePercent: 10.0,
+      plannedExpensesMinor: 600000, // $6,000
+      actualExpensesMinor: 590000, // $5,900
+      cashReserveMinor: 4460000,
+      verdict: 'ExceededTarget',
+      summary: 'Kỳ kiểm toán #10: Doanh thu thực tế ($8,800/th) vượt kế hoạch ngân sách ($8,000/th) thêm +10.0%. Tỷ lệ thặng dư duy trì xuất sắc.',
+      governorNote: 'Hiến pháp: Đạt chuẩn tăng trưởng bền vững. Ủy quyền tiếp tục chuỗi tự động hóa affiliate.',
+    },
   ],
 };
 
@@ -744,6 +776,53 @@ function getCycleTrendHistory() {
   return history;
 }
 
+// Auto-Audit routine that generates a summary report every 10 business cycles
+function generateAutoAuditReport(milestoneCycle: number) {
+  const plannedRevenueMinor = 800000; // $8,000 / month baseline budget
+  const plannedExpensesMinor = 600000; // $6,000 / month baseline expenses
+  const actualRevenueMinor = state.snapshot.revenue_minor;
+  const actualExpensesMinor = state.snapshot.expenses_minor;
+  const varianceRevenueMinor = actualRevenueMinor - plannedRevenueMinor;
+  const variancePercent = Math.round((varianceRevenueMinor / plannedRevenueMinor) * 1000) / 10;
+
+  let verdict: 'ExceededTarget' | 'OnTrack' | 'UnderTarget' = 'OnTrack';
+  let summary = '';
+  let governorNote = '';
+
+  if (variancePercent >= 10) {
+    verdict = 'ExceededTarget';
+    summary = `Kỳ kiểm toán #${milestoneCycle}: Doanh thu thực tế ($${(actualRevenueMinor / 100).toLocaleString()}/th) vượt kế hoạch ngân sách ($${(plannedRevenueMinor / 100).toLocaleString()}/th) thêm +${variancePercent}%. Dòng tiền ròng duy trì thặng dư xuất sắc.`;
+    governorNote = 'Hiến pháp: Đạt chuẩn tăng trưởng bền vững. Ủy quyền tiếp tục mở rộng chuỗi tự động hóa affiliate.';
+  } else if (variancePercent >= -10) {
+    verdict = 'OnTrack';
+    summary = `Kỳ kiểm toán #${milestoneCycle}: Doanh thu thực tế ($${(actualRevenueMinor / 100).toLocaleString()}/th) bám sát kế hoạch ngân sách ($${(plannedRevenueMinor / 100).toLocaleString()}/th) với độ lệch ${variancePercent}%.`;
+    governorNote = 'Hiến pháp: Nằm trong biên độ dung sai an toàn. Duy trì chính sách kiểm soát chi phí hiện hành.';
+  } else {
+    verdict = 'UnderTarget';
+    summary = `Kỳ kiểm toán #${milestoneCycle}: Doanh thu thực tế thấp hơn kế hoạch ngân sách ${Math.abs(variancePercent)}%. Cần kích hoạt quy trình thắt lưng buộc bụng.`;
+    governorNote = 'Hiến pháp: Cảnh báo thâm hụt. Yêu cầu CFO kích hoạt điều khoản cắt giảm ngân sách thử nghiệm.';
+  }
+
+  const report = {
+    id: `audit-cycle-${milestoneCycle}-${Date.now().toString(36)}`,
+    cycleMilestone: milestoneCycle,
+    timestamp: new Date().toISOString(),
+    plannedRevenueMinor,
+    actualRevenueMinor,
+    varianceRevenueMinor,
+    variancePercent,
+    plannedExpensesMinor,
+    actualExpensesMinor,
+    cashReserveMinor: state.snapshot.cash_minor,
+    verdict,
+    summary,
+    governorNote,
+  };
+
+  state.auditReports.unshift(report);
+  return report;
+}
+
 // REST Endpoints
 app.get('/api/state', (req, res) => {
   res.json({
@@ -755,8 +834,23 @@ app.get('/api/state', (req, res) => {
     activeExperiments: state.activeExperiments,
     recentCycles: state.cycles.slice(-5),
     cycleHistory: getCycleTrendHistory(),
+    auditReports: state.auditReports,
     hasGeminiKey: Boolean(apiKey && apiKey !== 'MY_GEMINI_API_KEY'),
   });
+});
+
+app.get('/api/auto-audit', (req, res) => {
+  res.json({
+    reports: state.auditReports,
+    latestReport: state.auditReports[0] || null,
+    nextAuditCycle: Math.ceil((state.snapshot.cycle_count + 0.1) / 10) * 10,
+    currentCycle: state.snapshot.cycle_count,
+  });
+});
+
+app.post('/api/trigger-audit', (req, res) => {
+  const report = generateAutoAuditReport(state.snapshot.cycle_count);
+  res.json({ success: true, report, reports: state.auditReports });
 });
 
 // Run a complete autonomous cycle
@@ -795,6 +889,22 @@ app.post('/api/run-cycle', async (req, res) => {
 
   recalculateCompanyHealth();
 
+  // Auto-Audit Routine: Triggers a formal fiduciary summary report every 10 business cycles
+  let latestAuditReport = null;
+  if (state.snapshot.cycle_count % 10 === 0) {
+    latestAuditReport = generateAutoAuditReport(state.snapshot.cycle_count);
+    // Log entry in double-entry ledger
+    state.ledger.unshift({
+      id: `tx-audit-${state.snapshot.cycle_count}`,
+      timestamp: new Date().toISOString(),
+      description: `Báo Cáo Kiểm Toán Định Kỳ 10 Chu Kỳ (Kỳ #${state.snapshot.cycle_count}): Doanh thu ${latestAuditReport.variancePercent >= 0 ? '+' : ''}${latestAuditReport.variancePercent}% so với kế hoạch ngân sách`,
+      debitAccount: 'Chi Phí Kiểm Toán Fiduciary & Tuân Thủ',
+      creditAccount: 'Cash & Cash Equivalents',
+      amount_minor: 0,
+      cycle: state.snapshot.cycle_count,
+    });
+  }
+
   const cycleRecord = {
     cycleNumber: state.snapshot.cycle_count,
     timestamp: new Date().toISOString(),
@@ -811,6 +921,8 @@ app.post('/api/run-cycle', async (req, res) => {
     receipts: cycleReceipts,
     snapshot: state.snapshot,
     cycleHistory: getCycleTrendHistory(),
+    auditReport: latestAuditReport,
+    auditReports: state.auditReports,
   });
 });
 
