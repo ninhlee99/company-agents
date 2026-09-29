@@ -3492,5 +3492,229 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         })).collect())
     }
 
+    pub async fn list_commercial_pipeline(
+        &self,
+        company_id: &str,
+        limit: i64,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=200).contains(&limit) {
+            return Err("commercial pipeline limit must be between 1 and 200".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let proposals = client.query(
+            "SELECT id, customer_id, title, currency, total_minor::text, status,
+                    valid_until_epoch, created_at, updated_at
+               FROM service_proposals
+              WHERE company_id=$1
+              ORDER BY created_at DESC, id DESC
+              LIMIT $2",
+            &[&company, &limit],
+        ).await?;
+        let sponsorships = client.query(
+            "SELECT id, customer_id, title, currency, committed_minor::text,
+                    delivered_minor::text, status, created_at, updated_at
+               FROM sponsorships
+              WHERE company_id=$1
+              ORDER BY created_at DESC, id DESC
+              LIMIT $2",
+            &[&company, &limit],
+        ).await?;
+        let invoices = client.query(
+            "SELECT id, customer_id, currency, subtotal_minor::text,
+                    paid_minor::text, status, due_epoch, created_at, updated_at
+               FROM invoices
+              WHERE company_id=$1
+              ORDER BY created_at DESC, id DESC
+              LIMIT $2",
+            &[&company, &limit],
+        ).await?;
+
+        Ok(serde_json::json!({
+            "proposals": proposals.into_iter().map(|row| serde_json::json!({
+                "id": row.get::<_, Uuid>(0),
+                "customer_id": row.get::<_, Uuid>(1),
+                "title": row.get::<_, String>(2),
+                "currency": row.get::<_, String>(3),
+                "total_minor": row.get::<_, String>(4),
+                "status": row.get::<_, String>(5),
+                "valid_until_epoch": row.get::<_, i64>(6),
+                "created_at": row.get::<_, time::OffsetDateTime>(7).to_string(),
+                "updated_at": row.get::<_, time::OffsetDateTime>(8).to_string()
+            })).collect::<Vec<_>>(),
+            "sponsorships": sponsorships.into_iter().map(|row| serde_json::json!({
+                "id": row.get::<_, Uuid>(0),
+                "customer_id": row.get::<_, Uuid>(1),
+                "title": row.get::<_, String>(2),
+                "currency": row.get::<_, String>(3),
+                "committed_minor": row.get::<_, String>(4),
+                "delivered_minor": row.get::<_, String>(5),
+                "status": row.get::<_, String>(6),
+                "created_at": row.get::<_, time::OffsetDateTime>(7).to_string(),
+                "updated_at": row.get::<_, time::OffsetDateTime>(8).to_string()
+            })).collect::<Vec<_>>(),
+            "invoices": invoices.into_iter().map(|row| serde_json::json!({
+                "id": row.get::<_, Uuid>(0),
+                "customer_id": row.get::<_, Uuid>(1),
+                "currency": row.get::<_, String>(2),
+                "subtotal_minor": row.get::<_, String>(3),
+                "paid_minor": row.get::<_, String>(4),
+                "status": row.get::<_, String>(5),
+                "due_epoch": row.get::<_, i64>(6),
+                "created_at": row.get::<_, time::OffsetDateTime>(7).to_string(),
+                "updated_at": row.get::<_, time::OffsetDateTime>(8).to_string()
+            })).collect::<Vec<_>>()
+        }))
+    }
+
+    pub async fn transition_service_proposal(
+        &self,
+        company_id: &str,
+        proposal_id: &str,
+        next: commercial_sales::ProposalStatus,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let proposal = Uuid::parse_str(proposal_id)?;
+        let next_status = format!("{:?}", next).to_uppercase();
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let row = tx.query_opt(
+            "SELECT status FROM service_proposals
+              WHERE company_id=$1 AND id=$2 FOR UPDATE",
+            &[&company, &proposal],
+        ).await?.ok_or("service proposal not found")?;
+        let current = match row.get::<_, String>(0).as_str() {
+            "DRAFT" => commercial_sales::ProposalStatus::Draft,
+            "SENT" => commercial_sales::ProposalStatus::Sent,
+            "ACCEPTED" => commercial_sales::ProposalStatus::Accepted,
+            "REJECTED" => commercial_sales::ProposalStatus::Rejected,
+            "EXPIRED" => commercial_sales::ProposalStatus::Expired,
+            _ => return Err("invalid stored proposal status".into()),
+        };
+        let resolved = commercial_sales::transition_proposal(current, next)?;
+        let resolved_status = format!("{:?}", resolved).to_uppercase();
+        tx.execute(
+            "UPDATE service_proposals SET status=$3, updated_at=now()
+              WHERE company_id=$1 AND id=$2",
+            &[&company, &proposal, &resolved_status],
+        ).await?;
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'SERVICE_PROPOSAL_STATUS_CHANGED',$2,$3,$4)
+             ON CONFLICT (company_id,idempotency_key) DO NOTHING",
+            &[
+                &company,
+                &proposal,
+                &format!("outbox:proposal-status:{}:{}", proposal, resolved_status),
+                &serde_json::json!({
+                    "proposal_id": proposal,
+                    "from": format!("{:?}", current),
+                    "to": format!("{:?}", resolved)
+                })
+            ],
+        ).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn transition_sponsorship(
+        &self,
+        company_id: &str,
+        sponsorship_id: &str,
+        next: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let sponsorship = Uuid::parse_str(sponsorship_id)?;
+        let next = next.trim().to_uppercase();
+        if !matches!(next.as_str(), "PROSPECT" | "CONTRACTED" | "DELIVERING" | "COMPLETED" | "CANCELLED") {
+            return Err("invalid sponsorship status".into());
+        }
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let row = tx.query_opt(
+            "SELECT status FROM sponsorships
+              WHERE company_id=$1 AND id=$2 FOR UPDATE",
+            &[&company, &sponsorship],
+        ).await?.ok_or("sponsorship not found")?;
+        let current: String = row.get(0);
+        let resolved = commercial_sales::transition_sponsorship(&current, &next)?;
+        tx.execute(
+            "UPDATE sponsorships SET status=$3, updated_at=now()
+              WHERE company_id=$1 AND id=$2",
+            &[&company, &sponsorship, &resolved],
+        ).await?;
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'SPONSORSHIP_STATUS_CHANGED',$2,$3,$4)
+             ON CONFLICT (company_id,idempotency_key) DO NOTHING",
+            &[
+                &company,
+                &sponsorship,
+                &format!("outbox:sponsorship-status:{}:{}", sponsorship, resolved),
+                &serde_json::json!({"sponsorship_id": sponsorship, "from": current, "to": resolved})
+            ],
+        ).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn record_sponsorship_delivery(
+        &self,
+        company_id: &str,
+        sponsorship_id: &str,
+        delivered_minor: i128,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if delivered_minor <= 0 {
+            return Err("sponsorship delivery must be positive".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let sponsorship = Uuid::parse_str(sponsorship_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let row = tx.query_opt(
+            "SELECT committed_minor::text, delivered_minor::text, status
+               FROM sponsorships
+              WHERE company_id=$1 AND id=$2 FOR UPDATE",
+            &[&company, &sponsorship],
+        ).await?.ok_or("sponsorship not found")?;
+        let committed = parse_i128_numeric(&row.get::<_, String>(0))?;
+        let delivered = parse_i128_numeric(&row.get::<_, String>(1))?;
+        let status: String = row.get(2);
+        if !matches!(status.as_str(), "CONTRACTED" | "DELIVERING") {
+            return Err("sponsorship is not in a deliverable state".into());
+        }
+        let next_delivered = delivered.checked_add(delivered_minor).ok_or("sponsorship delivery overflow")?;
+        if next_delivered > committed {
+            return Err("sponsorship delivery exceeds committed value".into());
+        }
+        let next_status = if next_delivered == committed { "COMPLETED" } else { "DELIVERING" };
+        tx.execute(
+            "UPDATE sponsorships SET delivered_minor=$3::numeric,status=$4,updated_at=now()
+              WHERE company_id=$1 AND id=$2",
+            &[&company, &sponsorship, &next_delivered.to_string(), &next_status],
+        ).await?;
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'SPONSORSHIP_DELIVERY_RECORDED',$2,$3,$4)
+             ON CONFLICT (company_id,idempotency_key) DO NOTHING",
+            &[
+                &company,
+                &sponsorship,
+                &format!("outbox:sponsorship-delivery:{}:{}", sponsorship, next_delivered),
+                &serde_json::json!({
+                    "sponsorship_id": sponsorship,
+                    "delivered_minor": delivered_minor,
+                    "total_delivered_minor": next_delivered,
+                    "status": next_status
+                })
+            ],
+        ).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
 }
 

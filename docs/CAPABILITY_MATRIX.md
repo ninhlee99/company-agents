@@ -65,3 +65,8 @@ It should not be described as an AI company that can independently operate every
 - Workforce/payroll/business-unit operational visibility: **Implemented**
 - Verified external revenue generation: **Environment-gated / not guaranteed**
 - Autonomous external publishing, messaging and payment initiation: **Not achieved**
+
+
+### Commercial lifecycle hardening
+
+The commercial control plane now exposes a read-only pipeline view plus deterministic proposal and sponsorship transitions. Sponsorship delivery is bounded by the contracted value and emits durable outbox events. These APIs do not execute external contracts or payment settlement; those remain provider/reconciliation boundaries.
