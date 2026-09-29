@@ -686,6 +686,47 @@ async fn agents_api(State(state): State<AppState>) -> Json<Vec<AgentRunResult>> 
     Json(state.latest.read().await.clone())
 }
 
+async fn policy_snapshot_api(
+    State(state): State<AppState>,
+    Json(request): Json<PolicySnapshotRequest>,
+) -> Result<Json<company_compliance::PolicySnapshot>, StatusCode> {
+    if request.snapshot.company_id.to_string() != state.company_id {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    state
+        .store
+        .record_policy_snapshot(&request.snapshot)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn compliance_check_api(
+    State(state): State<AppState>,
+    Json(request): Json<ComplianceCheckRequest>,
+) -> Result<Json<company_compliance::ComplianceCheck>, StatusCode> {
+    if request.input.company_id.to_string() != state.company_id {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    state
+        .store
+        .record_compliance_check(&request.input)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn compliance_status_api(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    state
+        .store
+        .compliance_status(&state.company_id)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 async fn growth_trend_api(
     State(state): State<AppState>,
     Json(request): Json<GrowthTrendRequest>,
