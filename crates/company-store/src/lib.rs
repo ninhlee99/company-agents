@@ -3945,4 +3945,89 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         Ok(())
     }
 
+    pub async fn create_budget(
+        &self, company_id:&str, budget_id:Uuid, name:&str, currency:&str, limit_minor:i128
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?;
+        let currency=currency.trim().to_uppercase();
+        if name.trim().is_empty() || currency.len()!=3 || limit_minor < 0 { return Err("invalid budget".into()); }
+        let client=self.client.lock().await;
+        let row=client.query_one(
+            "INSERT INTO budgets(id,company_id,name,currency,limit_minor)
+             VALUES($1,$2,$3,$4,$5::numeric) RETURNING id,name,currency,limit_minor::text,spent_minor::text,active",
+            &[&budget_id,&company,&name,&currency,&limit_minor.to_string()]
+        ).await?;
+        Ok(serde_json::json!({
+            "id":row.get::<_,Uuid>(0),"name":row.get::<_,String>(1),"currency":row.get::<_,String>(2),
+            "limit_minor":row.get::<_,String>(3),"spent_minor":row.get::<_,String>(4),"active":row.get::<_,bool>(5)
+        }))
+    }
+
+    pub async fn list_budgets(
+        &self, company_id:&str
+    ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?;
+        let client=self.client.lock().await;
+        let rows=client.query(
+            "SELECT id,name,currency,limit_minor::text,spent_minor::text,active
+             FROM budgets WHERE company_id=$1 ORDER BY created_at DESC,id DESC",
+            &[&company]
+        ).await?;
+        Ok(rows.into_iter().map(|r| serde_json::json!({
+            "id":r.get::<_,Uuid>(0),"name":r.get::<_,String>(1),"currency":r.get::<_,String>(2),
+            "limit_minor":r.get::<_,String>(3),"spent_minor":r.get::<_,String>(4),"active":r.get::<_,bool>(5)
+        })).collect())
+    }
+
+    pub async fn record_budget_spend(
+        &self, company_id:&str, budget_id:&str, amount_minor:i128, currency:&str, idempotency_key:&str
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?;
+        let budget=Uuid::parse_str(budget_id)?;
+        let currency=currency.trim().to_uppercase();
+        if amount_minor<=0 || currency.len()!=3 || idempotency_key.trim().is_empty() { return Err("invalid budget spend".into()); }
+        let mut client=self.client.lock().await;
+        let tx=client.transaction().await?;
+        let row=tx.query_opt(
+            "SELECT currency,limit_minor::text,spent_minor::text,active FROM budgets
+             WHERE company_id=$1 AND id=$2 FOR UPDATE",
+            &[&company,&budget]
+        ).await?.ok_or("budget not found")?;
+        let budget_currency:String=row.get(0);
+        if budget_currency!=currency { return Err("budget currency mismatch".into()); }
+        if !row.get::<_,bool>(3) { return Err("budget is inactive".into()); }
+        let limit=parse_i128_numeric(&row.get::<_,String>(1))?;
+        let spent=parse_i128_numeric(&row.get::<_,String>(2))?;
+        let next=spent.checked_add(amount_minor).ok_or("budget spend overflow")?;
+        if next>limit { return Err("budget limit exceeded".into()); }
+        let event_id=tx.query_opt(
+            "SELECT response_json FROM idempotency_keys WHERE company_id=$1 AND key=$2 FOR UPDATE",
+            &[&company,&idempotency_key]
+        ).await?;
+        if let Some(r)=event_id {
+            let status:String=tx.query_one(
+                "SELECT status FROM idempotency_keys WHERE company_id=$1 AND key=$2",
+                &[&company,&idempotency_key]).await?.get(0);
+            if status=="SUCCEEDED" { return Ok(r.get::<_,Option<serde_json::Value>>(0).unwrap_or_default()); }
+            return Err("budget spend idempotency key already used".into());
+        }
+        let response=serde_json::json!({"budget_id":budget,"amount_minor":amount_minor,"currency":currency,"spent_minor":next,"remaining_minor":limit-next});
+        tx.execute(
+            "INSERT INTO idempotency_keys(company_id,key,command_type,status,response_json)
+             VALUES($1,$2,'budget_spend','SUCCEEDED',$3)",
+            &[&company,&idempotency_key,&response]
+        ).await?;
+        tx.execute(
+            "UPDATE budgets SET spent_minor=$3::numeric WHERE company_id=$1 AND id=$2",
+            &[&company,&budget,&next.to_string()]
+        ).await?;
+        tx.execute(
+            "INSERT INTO audit_log(company_id,actor_type,actor_id,action,resource_type,resource_id,decision,metadata)
+             VALUES($1,'CONTROL_PLANE','budget-spend','RECORD_SPEND','BUDGET',$2,'ALLOWED',$3)",
+            &[&company,&budget,&response]
+        ).await?;
+        tx.commit().await?;
+        Ok(response)
+    }
+
 }
