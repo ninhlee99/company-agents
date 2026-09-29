@@ -4683,6 +4683,221 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         Ok(())
     }
 
+    pub async fn record_growth_trend(
+        &self,
+        signal: &company_growth::TrendSignal,
+    ) -> Result<(GrowthTrendRecord, Option<GrowthOpportunityRecord>), Box<dyn std::error::Error + Send + Sync>> {
+        company_growth::validate_trend(signal).map_err(|error| error.to_string())?;
+        let evaluation = company_growth::evaluate_trend(signal).map_err(|error| error.to_string())?;
+        let company = signal.company_id;
+        let trend_id = Uuid::new_v4();
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        let inserted = tx.query_opt(
+            "INSERT INTO growth_trends
+             (id,company_id,trend_key,topic,source,evidence_ref,observed_at_epoch,
+              velocity_bps,audience_fit_bps,product_fit_bps,contentability_bps,competition_bps,
+              confidence_bps,product_ref,offer_ref,content_format,max_budget_minor,max_loss_minor,
+              max_duration_seconds,success_metric,success_threshold_bps,policy_evidence_ref,score_bps,decision)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+             ON CONFLICT(company_id,trend_key) DO NOTHING
+             RETURNING id,created_at::text",
+            &[
+                &trend_id, &company, &signal.trend_key, &signal.topic, &signal.source,
+                &signal.evidence_ref, &signal.observed_at_epoch, &(signal.velocity_bps as i32),
+                &(signal.audience_fit_bps as i32), &(signal.product_fit_bps as i32),
+                &(signal.contentability_bps as i32), &(signal.competition_bps as i32),
+                &(signal.confidence_bps as i32), &signal.product_ref, &signal.offer_ref,
+                &content_format_name(signal.content_format), &signal.max_budget_minor.to_string(),
+                &signal.max_loss_minor.to_string(), &(signal.max_duration_seconds as i64),
+                &success_metric_name(signal.success_metric), &(signal.success_threshold_bps as i32),
+                &signal.policy_evidence_ref, &(evaluation.score_bps as i32),
+                &growth_trend_decision_name(evaluation.decision),
+            ],
+        ).await?;
+
+        let (stored_trend_id, created_at) = match inserted {
+            Some(row) => (row.get::<_, Uuid>(0), row.get::<_, String>(1)),
+            None => {
+                let row = tx.query_one(
+                    "SELECT id,created_at::text
+                       FROM growth_trends
+                      WHERE company_id=$1 AND trend_key=$2",
+                    &[&company, &signal.trend_key],
+                ).await?;
+                (row.get(0), row.get(1))
+            }
+        };
+
+        let trend = GrowthTrendRecord {
+            id: stored_trend_id,
+            signal: signal.clone(),
+            score_bps: evaluation.score_bps,
+            decision: evaluation.decision,
+            created_at,
+        };
+
+        let opportunity = if evaluation.decision == company_growth::TrendDecision::Pursue {
+            let opportunity = company_growth::opportunity_from_trend(stored_trend_id, signal)?
+                .ok_or("pursue trend must create an opportunity")?;
+            let plan_json = serde_json::to_value(&opportunity.plan)?;
+            let inserted = tx.query_opt(
+                "INSERT INTO growth_opportunities
+                 (id,company_id,trend_id,opportunity_key,title,score_bps,confidence_bps,
+                  policy_evidence_ref,plan_json,status)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'READY')
+                 ON CONFLICT(company_id,opportunity_key) DO NOTHING
+                 RETURNING id,created_at::text",
+                &[
+                    &opportunity.id, &company, &stored_trend_id, &opportunity.opportunity_key,
+                    &opportunity.title, &(opportunity.score_bps as i32), &(opportunity.confidence_bps as i32),
+                    &opportunity.policy_evidence_ref, &plan_json,
+                ],
+            ).await?;
+
+            let (opportunity_id, opportunity_created_at) = match inserted {
+                Some(row) => (row.get::<_, Uuid>(0), row.get::<_, String>(1)),
+                None => {
+                    let row = tx.query_one(
+                        "SELECT id,created_at::text
+                           FROM growth_opportunities
+                          WHERE company_id=$1 AND opportunity_key=$2",
+                        &[&company, &opportunity.opportunity_key],
+                    ).await?;
+                    (row.get(0), row.get(1))
+                }
+            };
+
+            Some(GrowthOpportunityRecord {
+                opportunity: if opportunity_id == opportunity.id {
+                    opportunity
+                } else {
+                    load_growth_opportunity(&tx, &company, opportunity_id).await?
+                        .ok_or("persisted growth opportunity not found")?
+                        .opportunity
+                },
+                status: load_growth_opportunity(&tx, &company, opportunity_id).await?
+                    .map(|record| record.status)
+                    .unwrap_or(company_growth::OpportunityStatus::Ready),
+                content_item_id: load_growth_opportunity(&tx, &company, opportunity_id).await?
+                    .and_then(|record| record.content_item_id),
+                created_at: opportunity_created_at,
+            })
+        } else {
+            None
+        };
+
+        tx.commit().await?;
+        Ok((trend, opportunity))
+    }
+
+    pub async fn list_growth_opportunities(
+        &self,
+        company_id: &str,
+        limit: i64,
+    ) -> Result<Vec<GrowthOpportunityRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=200).contains(&limit) {
+            return Err("growth opportunity limit must be between 1 and 200".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client.query(
+            "SELECT id,company_id,trend_id,opportunity_key,title,score_bps,confidence_bps,
+                    policy_evidence_ref,plan_json,status,content_item_id,created_at::text
+               FROM growth_opportunities
+              WHERE company_id=$1
+              ORDER BY score_bps DESC,created_at DESC
+              LIMIT $2",
+            &[&company, &limit],
+        ).await?;
+        rows.into_iter().map(growth_opportunity_from_row).collect()
+    }
+
+    pub async fn create_content_from_growth_opportunity(
+        &self,
+        company_id: &str,
+        opportunity_id: Uuid,
+    ) -> Result<ContentRecord, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let row = tx.query_one(
+            "SELECT id,company_id,trend_id,opportunity_key,title,score_bps,confidence_bps,
+                    policy_evidence_ref,plan_json,status,content_item_id,created_at::text
+               FROM growth_opportunities
+              WHERE company_id=$1 AND id=$2
+              FOR UPDATE",
+            &[&company, &opportunity_id],
+        ).await?;
+
+        if let Some(content_id) = row.get::<_, Option<Uuid>>(10) {
+            let content_row = tx.query_one(
+                "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
+                        expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
+                        success_threshold_bps,variant_key,hook,first_frame,emotion,pacing,scene_count,
+                        text_density,voice_speed,product_placement,cta,comment_trigger,music_style,
+                        visual_style,status,decision,created_at::text
+                   FROM content_items
+                  WHERE company_id=$1 AND id=$2",
+                &[&company, &content_id],
+            ).await?;
+            tx.commit().await?;
+            return content_record_from_row(content_row);
+        }
+
+        let opportunity = growth_opportunity_from_row(row)?.opportunity;
+        let item = company_content::ContentItem {
+            id: Uuid::new_v4(),
+            company_id: company,
+            brief: opportunity.plan.brief,
+            variant: opportunity.plan.variant,
+            status: company_content::ContentStatus::Draft,
+            decision: None,
+        };
+        company_content::validate_item(&item).map_err(|error| error.to_string())?;
+        let brief = &item.brief;
+        let variant = &item.variant;
+        tx.execute(
+            "INSERT INTO content_items
+             (id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
+              expected_cost_minor,max_loss_minor,max_duration_seconds,success_metric,success_threshold_bps,
+              variant_key,hook,first_frame,emotion,pacing,scene_count,text_density,voice_speed,
+              product_placement,cta,comment_trigger,music_style,visual_style,status,decision)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)",
+            &[
+                &item.id, &company, &brief.hypothesis, &brief.audience,
+                &content_format_name(brief.format), &brief.product_ref, &brief.offer_ref,
+                &brief.disclosure_required, &brief.expected_cost_minor.to_string(),
+                &brief.max_loss_minor.to_string(), &(brief.max_duration_seconds as i64),
+                &success_metric_name(brief.success_metric), &(brief.success_threshold_bps as i32),
+                &variant.variant_key, &variant.hook, &variant.first_frame, &variant.emotion,
+                &variant.pacing, &(variant.scene_count as i32), &variant.text_density,
+                &variant.voice_speed, &variant.product_placement, &variant.cta,
+                &variant.comment_trigger, &variant.music_style, &variant.visual_style,
+                &"DRAFT", &Option::<String>::None,
+            ],
+        ).await?;
+        tx.execute(
+            "UPDATE growth_opportunities
+                SET status='CONTENT_CREATED', content_item_id=$3
+              WHERE company_id=$1 AND id=$2",
+            &[&company, &opportunity_id, &item.id],
+        ).await?;
+        let content_row = tx.query_one(
+            "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
+                    expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
+                    success_threshold_bps,variant_key,hook,first_frame,emotion,pacing,scene_count,
+                    text_density,voice_speed,product_placement,cta,comment_trigger,music_style,
+                    visual_style,status,decision,created_at::text
+               FROM content_items
+              WHERE company_id=$1 AND id=$2",
+            &[&company, &item.id],
+        ).await?;
+        tx.commit().await?;
+        content_record_from_row(content_row)
+    }
+
     pub async fn create_customer_success_task(
         &self, company_id:&str, task_id:Uuid, customer_id:&str, task_type:&str,
         due_at_epoch:i64, owner:Option<&str>, notes:Option<&str>, idempotency_key:&str
