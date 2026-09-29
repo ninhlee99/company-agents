@@ -154,6 +154,9 @@ struct AffiliateSearchParams {
 #[derive(Debug, Deserialize)] struct ForecastRequest { name:String, currency:String, horizon_months:i32, methodology:String, idempotency_key:String }
 #[derive(Debug, Deserialize)] struct ForecastPeriodRequest { forecast_id:uuid::Uuid, period_start_epoch:i64, revenue_minor:i128, operating_inflow_minor:i128, operating_outflow_minor:i128, capex_minor:i128, financing_inflow_minor:i128, financing_outflow_minor:i128, notes:Option<String> }
 #[derive(Debug, Deserialize)] struct CashflowObservationRequest { period_start_epoch:i64, currency:String, inflow_minor:i128, outflow_minor:i128, closing_cash_minor:i128, source:String, evidence_hash:String, idempotency_key:String }
+#[derive(Debug, Deserialize)] struct ComplianceObligationRequest { title:String, obligation_type:String, jurisdiction:Option<String>, due_at_epoch:i64, owner:Option<String>, source_reference:Option<String>, idempotency_key:String }
+#[derive(Debug, Deserialize)] struct ComplianceEvidenceRequest { obligation_id:uuid::Uuid, evidence_type:String, evidence_hash:String, reference:Option<String>, submitted_by:String }
+#[derive(Debug, Deserialize)] struct ComplianceApprovalRequest { obligation_id:uuid::Uuid, decision:String, approver:String, approval_reference:String, notes:Option<String> }
 
 fn format_minor(value: i128, currency: &str) -> String {
     let negative = value < 0;
@@ -821,6 +824,18 @@ async fn budget_spend_api(
         .await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
 }
 
+async fn compliance_create_api(State(state): State<AppState>, Json(req): Json<ComplianceObligationRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.create_compliance_obligation(&state.company_id, uuid::Uuid::new_v4(), &req.title, &req.obligation_type, req.jurisdiction.as_deref(), req.due_at_epoch, req.owner.as_deref(), req.source_reference.as_deref(), &req.idempotency_key).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
+async fn compliance_evidence_api(State(state): State<AppState>, Json(req): Json<ComplianceEvidenceRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.record_compliance_evidence(&state.company_id, &req.obligation_id.to_string(), uuid::Uuid::new_v4(), &req.evidence_type, &req.evidence_hash, req.reference.as_deref(), &req.submitted_by).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
+async fn compliance_approval_api(State(state): State<AppState>, Json(req): Json<ComplianceApprovalRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.approve_compliance_obligation(&state.company_id, &req.obligation_id.to_string(), &req.decision, &req.approver, &req.approval_reference, req.notes.as_deref()).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
+async fn compliance_list_api(State(state): State<AppState>) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    state.store.list_compliance_obligations(&state.company_id).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
 async fn forecast_api(State(state): State<AppState>, Json(req): Json<ForecastRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
     state.store.create_financial_forecast(&state.company_id, uuid::Uuid::new_v4(), &req.name, &req.currency, req.horizon_months, &req.methodology, &req.idempotency_key)
         .await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
@@ -1064,6 +1079,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/finance/forecasts/periods", post(forecast_period_api))
         .route("/api/finance/forecasts/:forecast_id/summary", get(forecast_summary_api))
         .route("/api/finance/cashflow/observations", post(cashflow_observation_api))
+        .route("/api/legal/compliance", get(compliance_list_api).post(compliance_create_api))
+        .route("/api/legal/compliance/evidence", post(compliance_evidence_api))
+        .route("/api/legal/compliance/approve", post(compliance_approval_api))
         .route("/api/finance/budgets/spend", post(budget_spend_api))
         .route("/api/employees", get(employees_api))
         .route("/api/payroll/due", get(payroll_due_api))
