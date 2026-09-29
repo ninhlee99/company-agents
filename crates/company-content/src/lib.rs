@@ -358,7 +358,7 @@ mod tests {
 
     #[test]
     fn observation_above_loss_limit_is_killed() {
-        let observation = ContentObservation {
+        let mut observation = ContentObservation {
             observation_key: "obs-1".into(),
             content_id: Uuid::new_v4(),
             company_id: Uuid::new_v4(),
