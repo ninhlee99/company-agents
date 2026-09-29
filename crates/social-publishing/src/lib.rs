@@ -96,6 +96,48 @@ impl ApprovalAuthority {
     }
 }
 
+pub fn verify_tiktok_webhook_signature(
+    client_secret: &[u8],
+    signature_header: &str,
+    body: &[u8],
+    max_age_seconds: i64,
+) -> Result<(), PublishError> {
+    if client_secret.len() < 32 {
+        return Err(PublishError::Configuration("TikTok client secret must be at least 32 bytes".into()));
+    }
+    let mut timestamp = None;
+    let mut signature = None;
+    for part in signature_header.split(',') {
+        let mut pieces = part.trim().splitn(2, '=');
+        match (pieces.next(), pieces.next()) {
+            (Some("t"), Some(value)) => timestamp = Some(value),
+            (Some("s"), Some(value)) => signature = Some(value),
+            _ => {}
+        }
+    }
+    let timestamp = timestamp
+        .ok_or_else(|| PublishError::InvalidRequest("TikTok-Signature timestamp is missing".into()))?
+        .parse::<i64>()
+        .map_err(|_| PublishError::InvalidRequest("TikTok-Signature timestamp is invalid".into()))?;
+    let signature = signature
+        .ok_or_else(|| PublishError::InvalidRequest("TikTok-Signature signature is missing".into()))?;
+    let now = epoch_now();
+    if (now - timestamp).abs() > max_age_seconds {
+        return Err(PublishError::InvalidRequest("TikTok webhook timestamp is outside the replay window".into()));
+    }
+
+    let signed_payload = format!("{timestamp}.{}", String::from_utf8_lossy(body));
+    let mut mac = HmacSha256::new_from_slice(client_secret)
+        .map_err(|_| PublishError::Configuration("invalid TikTok client secret".into()))?;
+    mac.update(signed_payload.as_bytes());
+    let expected = hex(&mac.finalize().into_bytes());
+    if expected.as_bytes().ct_eq(signature.as_bytes()).into() {
+        Ok(())
+    } else {
+        Err(PublishError::Unauthorized)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CreatorInfo {
     pub username: String,
