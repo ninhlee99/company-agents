@@ -335,6 +335,35 @@ async fn index(State(state): State<AppState>) -> Html<String> {
                 revenue_transaction_count: 0,
             }
         });
+    let contribution_margin = state
+        .store
+        .contribution_margin_metrics(&state.company_id)
+        .await
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, "contribution margin metrics unavailable");
+            company_store::ContributionMarginMetrics {
+                month_to_date_revenue_minor: 0,
+                month_to_date_variable_cost_minor: 0,
+                month_to_date_contribution_margin_minor: None,
+                unclassified_expense_minor: 0,
+                variable_cost_transaction_count: 0,
+            }
+        });
+    let contribution_margin_label = contribution_margin
+        .month_to_date_contribution_margin_minor
+        .map(|value| format_minor(value, &state.currency))
+        .unwrap_or_else(|| "Incomplete".into());
+    let contribution_margin_detail = if contribution_margin.unclassified_expense_minor > 0 {
+        format!(
+            "{} unclassified expense",
+            format_minor(contribution_margin.unclassified_expense_minor, &state.currency)
+        )
+    } else {
+        format!(
+            "{} variable-cost transactions",
+            contribution_margin.variable_cost_transaction_count
+        )
+    };
     let target_pct = if revenue_periods.month_to_date_minor > 0 {
         ((revenue_periods.month_to_date_minor as f64 / target_minor as f64) * 100.0).round().min(999.0) as u64
     } else {
@@ -390,6 +419,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <div class="card"><small>Monthly target</small><div class="metric">{}</div><div class="progress"><span style="width:{}%"></span></div><small>{}% of planning target · last 30d: {}</small></div>
 <div class="card"><small>Runway</small><div class="metric">{} days</div></div>
 </div>
+<div class="card"><small>Contribution margin MTD</small><div class="metric">{}</div><small>{}</small></div>
 <div class="grid"><div class="card"><small>Status</small><div class="metric">{:?}</div></div><div class="card"><small>Agent cycle</small><div class="metric">{}</div></div><div class="card"><small>Backlog / capacity</small><div class="metric">{}%</div></div><div class="card"><small>Agent results</small><div class="metric">{}</div></div></div>
 <div class="grid"><div class="card"><small>Active workforce</small><div class="metric">{}</div></div><div class="card"><small>Payroll due</small><div class="metric">{}</div></div><div class="card"><small>Business units</small><div class="metric">{}</div></div><div class="card"><small>Operating loop</small><div class="metric">observe → act → learn</div></div></div>
 <div class="card"><h2>Operate</h2>
@@ -411,6 +441,8 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         target_pct,
         target_pct,
         format_minor(revenue_periods.last_30_days_minor, &state.currency),
+        contribution_margin_label,
+        contribution_margin_detail,
         company.runway_days,
         company.status,
         cycle_state,
