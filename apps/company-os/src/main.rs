@@ -431,6 +431,30 @@ async fn index(
                 partial_or_rejected_count_mtd: 0,
             }
         });
+    let growth_opportunities = state
+        .store
+        .list_growth_opportunities(&state.company_id, 5)
+        .await
+        .unwrap_or_default();
+    let mut growth_html = String::new();
+    for record in &growth_opportunities {
+        let score_pct = record.opportunity.score_bps / 100;
+        let status = match record.status {
+            company_growth::OpportunityStatus::Ready => "READY",
+            company_growth::OpportunityStatus::ContentCreated => "CONTENT CREATED",
+        };
+        growth_html.push_str(&format!(
+            r#"<div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #26304a"><div><strong>{}</strong><div class="muted">{} · {}% confidence</div></div><div class="metric" style="font-size:18px">{}</div></div>"#,
+            escape_html(&record.opportunity.title),
+            status,
+            record.opportunity.confidence_bps / 100,
+            score_pct
+        ));
+    }
+    if growth_html.is_empty() {
+        growth_html.push_str(r#"<p class="muted">No evidence-backed opportunities have been accepted yet. Ingest a verified trend signal first.</p>"#);
+    }
+
     let contribution_margin_label = contribution_margin
         .month_to_date_contribution_margin_minor
         .map(|value| format_minor(value, &state.currency))
