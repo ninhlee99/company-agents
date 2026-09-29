@@ -142,6 +142,19 @@ struct AffiliateSearchParams {
 #[derive(Debug, Deserialize)] struct InvoiceRequest { customer_id: uuid::Uuid, currency: String, due_epoch: i64, idempotency_key: String, lines: Vec<InvoiceLineRequest> }
 #[derive(Debug, Deserialize)] struct InvoiceIssueRequest { invoice_id: uuid::Uuid }
 #[derive(Debug, Deserialize)] struct InvoicePaymentRequest { invoice_id: uuid::Uuid, payment_id: uuid::Uuid, amount_minor: i128, occurred_at_epoch: i64, external_ref: Option<String> }
+#[derive(Debug, Deserialize)] struct OutboundEmailRequest {
+    recipient: String,
+    subject: String,
+    html_body: String,
+    consent_basis: String,
+    unsubscribe_url: Option<String>,
+    idempotency_key: String,
+}
+#[derive(Debug, Deserialize)] struct OutboundEmailApproveRequest {
+    message_id: uuid::Uuid,
+    approved_by: String,
+    approval_reference: String,
+}
 #[derive(Debug, Deserialize)] struct CustomerRequest { name: String, email: Option<String>, external_ref: Option<String>, status: Option<String>, notes: Option<String>, idempotency_key: String }
 
 fn format_minor(value: i128, currency: &str) -> String {
@@ -742,6 +755,34 @@ async fn require_control_plane_auth(request: Request, next: Next) -> Result<Resp
 }
 
 
+async fn outbound_email_queue_api(
+    State(state): State<AppState>,
+    Json(req): Json<OutboundEmailRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.queue_outbound_email(
+        &state.company_id,
+        uuid::Uuid::new_v4(),
+        &req.recipient,
+        &req.subject,
+        &req.html_body,
+        &req.idempotency_key,
+        &req.consent_basis,
+        req.unsubscribe_url.as_deref(),
+    ).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn outbound_email_approve_api(
+    State(state): State<AppState>,
+    Json(req): Json<OutboundEmailApproveRequest>,
+) -> Result<StatusCode, StatusCode> {
+    state.store.approve_outbound_email(
+        &state.company_id,
+        &req.message_id.to_string(),
+        &req.approved_by,
+        &req.approval_reference,
+    ).await.map(|_| StatusCode::ACCEPTED).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
 async fn customer_api(
     State(state): State<AppState>,
     Json(req): Json<CustomerRequest>,
@@ -970,6 +1011,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/commercial/invoices", post(invoice_api))
         .route("/api/commercial/invoices/issue", post(invoice_issue_api))
         .route("/api/commercial/invoice-payments", post(invoice_payment_api))
+        .route("/api/outbound/email", post(outbound_email_queue_api))
+        .route("/api/outbound/email/approve", post(outbound_email_approve_api))
         .route("/api/business-units", get(business_units_api))
         .route("/api/portfolio/metrics", get(portfolio_metrics_api))
         .route("/api/journal", get(journal_api))
