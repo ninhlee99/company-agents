@@ -22,7 +22,7 @@ This document intentionally separates implemented behavior from contracts, simul
 | Affiliate attribution/reconciliation | Implemented + environment-gated | Click/conversion state and provider verification/accounting are durable; real provider verification requires provider data. |
 | Media production | Implemented | Media jobs run through isolated FFmpeg/FFprobe QA in the media worker. |
 | Publishing approval contract | Implemented | Publish intent, approval, lease, completion and revocation are durable and guarded. |
-| TikTok publishing adapter | Implemented, environment-gated | Approved TikTok intents can be executed through the Content Posting API adapter with local media hash verification and provider status polling; real use requires valid TikTok authorization, app approval/audit and operator configuration. |
+| TikTok publishing adapter | Implemented + webhook reconciliation, environment-gated | Approved TikTok intents can be executed through the Content Posting API adapter; publish IDs are persisted, signed TikTok webhooks are verified with replay protection, terminal outcomes reconcile idempotently, and status polling remains available as fallback. Real use requires valid TikTok authorization, app approval/audit and operator configuration. |
 | External email/message sending | NOT achieved | SendExternalMessage is a declared capability, but there is no production message provider executor. |
 | External payment execution | NOT achieved | The system can model invoices and record externally evidenced payments, but does not initiate bank/card/Stripe settlement. |
 | Commercial proposals | Implemented baseline | Durable proposal creation exists with idempotency. Status workflow endpoints are still limited. |
@@ -51,7 +51,7 @@ It should not be described as an AI company that can independently operate every
 
 ## Next implementation priority
 
-1. Extend the TikTok adapter from authenticated execution to durable background polling/webhooks, then add other provider adapters behind the same contract.
+1. Extend the TikTok adapter from authenticated execution to OAuth/token lifecycle management and durable background polling workers; webhook reconciliation is now implemented.
 2. Build an authenticated outbound messaging adapter behind approval + outbox.
 3. Add proposal/sponsorship lifecycle transitions and delivery evidence.
 4. Add real payment-provider reconciliation before any payment initiation capability.
@@ -64,7 +64,7 @@ It should not be described as an AI company that can independently operate every
 - Revenue planning target visibility: **Implemented** (planning metric only)
 - Workforce/payroll/business-unit operational visibility: **Implemented**
 - Verified external revenue generation: **Environment-gated / not guaranteed**
-- Autonomous external publishing, messaging and payment initiation: **Not achieved**
+- Autonomous external publishing, messaging and payment initiation: **Publishing adapter + reconciliation implemented for TikTok; messaging and payment initiation not achieved**
 
 
 ### Commercial lifecycle hardening
