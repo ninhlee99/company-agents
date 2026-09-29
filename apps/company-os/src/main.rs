@@ -157,6 +157,7 @@ struct AffiliateSearchParams {
 #[derive(Debug, Deserialize)] struct ComplianceObligationRequest { title:String, obligation_type:String, jurisdiction:Option<String>, due_at_epoch:i64, owner:Option<String>, source_reference:Option<String>, idempotency_key:String }
 #[derive(Debug, Deserialize)] struct ComplianceEvidenceRequest { obligation_id:uuid::Uuid, evidence_type:String, evidence_hash:String, reference:Option<String>, submitted_by:String }
 #[derive(Debug, Deserialize)] struct ComplianceApprovalRequest { obligation_id:uuid::Uuid, decision:String, approver:String, approval_reference:String, notes:Option<String> }
+#[derive(Debug, Deserialize)] struct ComplianceInvoiceLinkRequest { obligation_id:uuid::Uuid, invoice_id:uuid::Uuid, actor:String }
 
 fn format_minor(value: i128, currency: &str) -> String {
     let negative = value < 0;
@@ -836,6 +837,9 @@ async fn compliance_approval_api(State(state): State<AppState>, Json(req): Json<
 async fn compliance_list_api(State(state): State<AppState>) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
     state.store.list_compliance_obligations(&state.company_id).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
 }
+async fn compliance_invoice_link_api(State(state): State<AppState>, Json(req): Json<ComplianceInvoiceLinkRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.link_compliance_to_invoice(&state.company_id, &req.obligation_id.to_string(), &req.invoice_id.to_string(), &req.actor).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
 async fn forecast_api(State(state): State<AppState>, Json(req): Json<ForecastRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
     state.store.create_financial_forecast(&state.company_id, uuid::Uuid::new_v4(), &req.name, &req.currency, req.horizon_months, &req.methodology, &req.idempotency_key)
         .await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
@@ -1082,6 +1086,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/legal/compliance", get(compliance_list_api).post(compliance_create_api))
         .route("/api/legal/compliance/evidence", post(compliance_evidence_api))
         .route("/api/legal/compliance/approve", post(compliance_approval_api))
+        .route("/api/legal/compliance/link-invoice", post(compliance_invoice_link_api))
         .route("/api/finance/budgets/spend", post(budget_spend_api))
         .route("/api/employees", get(employees_api))
         .route("/api/payroll/due", get(payroll_due_api))
