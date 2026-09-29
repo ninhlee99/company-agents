@@ -24,6 +24,7 @@ use std::{
 };
 use tokio::sync::{Mutex, RwLock};
 use subtle::ConstantTimeEq;
+use tiktok_live_streaming::LiveStreamController;
 
 #[derive(Default)]
 struct RuntimeMetrics {
@@ -80,6 +81,7 @@ struct AppState {
     company_id: String,
     currency: String,
     metrics: Arc<RuntimeMetrics>,
+    live_stream: Option<Arc<LiveStreamController>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -982,6 +984,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .ok();
 
     let runtime = Arc::new(AgentRuntime::new(model_from_env()));
+    let live_stream_enabled = std::env::var("TIKTOK_LIVE_ENABLED")
+        .ok()
+        .is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"));
+    let live_stream = if live_stream_enabled {
+        Some(Arc::new(LiveStreamController::from_env().map_err(|error| format!("TikTok LIVE configuration error: {error}"))?))
+    } else {
+        None
+    };
     let state = AppState {
         runtime,
         company: Arc::new(RwLock::new(company)),
@@ -993,6 +1003,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         company_id: company_id.clone(),
         currency: currency.clone(),
         metrics: Arc::new(RuntimeMetrics::default()),
+        live_stream,
     };
 
     let interval_secs = std::env::var("AGENT_CYCLE_SECONDS")
@@ -1077,6 +1088,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/live/sessions/:session_id/events", post(live::record_event))
         .route("/api/live/sessions/:session_id/summary", get(live::summary))
         .route("/api/live/sessions/:session_id/reconcile-gifts", post(live::reconcile_gifts))
+        .route("/api/live/stream/start", post(live::start_stream))
+        .route("/api/live/stream/overlay", post(live::update_overlay))
+        .route("/api/live/stream/stop", post(live::stop_stream))
+        .route("/api/live/stream/status", get(live::stream_status))
         .route("/api/customers", get(customers_api).post(customer_api))
         .route("/api/vendors", get(vendors_api).post(vendor_api))
         .route("/api/procurement/requests", post(purchase_request_api))
