@@ -524,6 +524,94 @@ impl CompanyStore {
         }))
     }
 
+    pub async fn check_tiktok_compliance_for_publish(
+        &self,
+        company_id: &str,
+        intent_id: &str,
+        policy_snapshot_key: &str,
+        evidence_ref: &str,
+        disclosure_present: bool,
+        claim_evidence_present: bool,
+        product_eligibility_verified: bool,
+        rights_evidence_present: bool,
+    ) -> Result<company_compliance::ComplianceCheck, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let intent = Uuid::parse_str(intent_id)?;
+        let policy_key = std::env::var("TIKTOK_POLICY_KEY")
+            .unwrap_or_else(|_| "TIKTOK_SHOP_VN".into());
+        let jurisdiction =
+            std::env::var("COMPLIANCE_JURISDICTION").unwrap_or_else(|_| "VN".into());
+        let client = self.client.lock().await;
+        let row = client
+            .query_one(
+                "SELECT content_id,title,caption
+                   FROM publish_intents
+                  WHERE company_id=$1 AND id=$2",
+                &[&company, &intent],
+            )
+            .await?;
+        let content_id: String = row.get(0);
+        let title: String = row.get(1);
+        let caption: String = row.get(2);
+        let input = company_compliance::ComplianceInput {
+            company_id: company,
+            surface: company_compliance::ComplianceSurface::Content,
+            platform: "TIKTOK_SHOP".into(),
+            jurisdiction,
+            policy_key,
+            policy_snapshot_key: policy_snapshot_key.trim().into(),
+            evidence_ref: evidence_ref.trim().into(),
+            text: format!("{title}\n{caption}"),
+            product_category: None,
+            disclosure_present,
+            claim_evidence_present,
+            product_eligibility_verified,
+            simulcast: false,
+            fake_engagement_detected: false,
+            rights_evidence_present,
+        };
+        drop(client);
+        let _ = content_id;
+        self.record_compliance_check(&input).await
+    }
+
+    pub async fn check_tiktok_compliance_for_live(
+        &self,
+        company_id: &str,
+        title: &str,
+        policy_snapshot_key: &str,
+        evidence_ref: &str,
+        disclosure_present: bool,
+        claim_evidence_present: bool,
+        product_eligibility_verified: bool,
+        rights_evidence_present: bool,
+        simulcast: bool,
+    ) -> Result<company_compliance::ComplianceCheck, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let policy_key = std::env::var("TIKTOK_POLICY_KEY")
+            .unwrap_or_else(|_| "TIKTOK_SHOP_VN".into());
+        let jurisdiction =
+            std::env::var("COMPLIANCE_JURISDICTION").unwrap_or_else(|_| "VN".into());
+        let input = company_compliance::ComplianceInput {
+            company_id: company,
+            surface: company_compliance::ComplianceSurface::Live,
+            platform: "TIKTOK_SHOP".into(),
+            jurisdiction,
+            policy_key,
+            policy_snapshot_key: policy_snapshot_key.trim().into(),
+            evidence_ref: evidence_ref.trim().into(),
+            text: title.trim().into(),
+            product_category: None,
+            disclosure_present,
+            claim_evidence_present,
+            product_eligibility_verified,
+            simulcast,
+            fake_engagement_detected: false,
+            rights_evidence_present,
+        };
+        self.record_compliance_check(&input).await
+    }
+
     pub async fn ensure_company(
         &self,
         company_id: &str,
