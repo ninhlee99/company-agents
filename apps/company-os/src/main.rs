@@ -464,7 +464,9 @@ async fn index(
             score_pct
         ));
     }
-    if growth_html.is_empty() {
+    if !growth_data_available {
+        growth_html.push_str(r#"<p class="muted">Growth pipeline data is unavailable. The dashboard is not treating this as “no opportunities.”</p>"#);
+    } else if growth_html.is_empty() {
         growth_html.push_str(r#"<p class="muted">No evidence-backed opportunities have been accepted yet. Ingest a verified trend signal first.</p>"#);
     }
 
