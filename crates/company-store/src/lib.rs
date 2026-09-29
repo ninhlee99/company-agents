@@ -38,6 +38,14 @@ pub struct ContentRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContentObservationRecord {
+    pub id: Uuid,
+    pub observation: company_content::ContentObservation,
+    pub decision: company_content::ContentDecision,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AffiliateReconciliationMetrics {
     pub reported_commission_mtd_minor: i128,
     pub attributed_commission_mtd_minor: i128,
