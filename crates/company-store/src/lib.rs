@@ -3765,7 +3765,7 @@ impl CompanyStore {
              ON CONFLICT(company_id,idempotency_key) DO NOTHING",
             &[
                 &company_uuid,
-                &session_uuid,
+                &session_uuid.to_string(),
                 &format!("outbox:live-attention:{}:{}", session_uuid, decision.event_id),
                 &serde_json::to_value(&decision)?,
             ],
