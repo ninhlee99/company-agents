@@ -1391,7 +1391,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/content/items", get(content_list_api).post(content_create_api))
         .route("/api/content/observations", post(content_observation_api))
         .route("/api/content/status", post(content_status_transition_api))
-        .route("/api/growth/trends", post(growth_trend_api))
+        .route("/api/growth/trends", get(growth_trends_api).post(growth_trend_api))
         .route("/api/growth/opportunities", get(growth_opportunities_api))
         .route("/api/growth/content", post(growth_content_api))
         .route("/api/affiliate/search", get(affiliate_search_api))
