@@ -374,7 +374,7 @@ impl CompanyStore {
         };
         tx.execute(
             "INSERT INTO growth_experiment_observations
-             (company_id,experiment_id,control_observations,treatment_observations,control_metric_bps,treatment_metric_bps,spend_minor,elapsed_seconds,decision)
+             (company_id,experiment_id,control_observations,treatment_observations,control_metric_bps,treatment_metric_bps,spend_minor,elapsed_seconds,decision,observation_key)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
             &[&company,&experiment_id,&(observation.control_observations as i64),&(observation.treatment_observations as i64),
               &observation.control_metric_bps,&observation.treatment_metric_bps,&observation.spend_minor.to_string(),
