@@ -185,6 +185,15 @@ struct AffiliateSearchParams {
 #[derive(Debug, Deserialize)] struct PurchaseApproveRequest { request_id:uuid::Uuid, approved_by:String, approval_reference:String }
 #[derive(Debug, Deserialize)] struct VendorDeliveryRequest { purchase_request_id:uuid::Uuid, external_ref:Option<String>, received_at_epoch:i64, evidence_hash:String }
 
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\\', "&#92;")
+}
+
 fn format_minor(value: i128, currency: &str) -> String {
     let negative = value < 0;
     let absolute = value.unsigned_abs();
