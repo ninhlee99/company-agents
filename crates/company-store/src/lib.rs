@@ -3890,5 +3890,59 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         Ok(())
     }
 
-}
+    pub async fn create_customer_success_task(
+        &self, company_id:&str, task_id:Uuid, customer_id:&str, task_type:&str,
+        due_at_epoch:i64, owner:Option<&str>, notes:Option<&str>, idempotency_key:&str
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let customer=Uuid::parse_str(customer_id)?;
+        if !matches!(task_type,"ONBOARDING"|"HEALTH_REVIEW"|"RENEWAL"|"EXPANSION"|"RISK_REVIEW")
+            || idempotency_key.trim().is_empty() { return Err("invalid customer success task".into()); }
+        let client=self.client.lock().await;
+        let row=client.query_opt(
+            "INSERT INTO customer_success_tasks
+             (id,company_id,customer_id,task_type,due_at_epoch,owner,status,notes,idempotency_key)
+             VALUES ($1,$2,$3,$4,$5,$6,'OPEN',$7,$8)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING
+             RETURNING id,status,due_at_epoch",
+            &[&task_id,&company,&customer,&task_type,&due_at_epoch,&owner,&notes,&idempotency_key]
+        ).await?;
+        let row=match row { Some(r)=>r, None=>client.query_one(
+            "SELECT id,status,due_at_epoch FROM customer_success_tasks WHERE company_id=$1 AND idempotency_key=$2",
+            &[&company,&idempotency_key]).await? };
+        Ok(serde_json::json!({"id":row.get::<_,Uuid>(0),"status":row.get::<_,String>(1),"due_at_epoch":row.get::<_,i64>(2)}))
+    }
 
+    pub async fn list_due_customer_success_tasks(
+        &self, company_id:&str, now_epoch:i64, limit:i64
+    ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let client=self.client.lock().await;
+        let rows=client.query(
+            "SELECT id,customer_id,task_type,due_at_epoch,owner,status,notes,outcome
+             FROM customer_success_tasks
+             WHERE company_id=$1 AND status IN ('OPEN','IN_PROGRESS') AND due_at_epoch <= $2
+             ORDER BY due_at_epoch ASC LIMIT $3",
+            &[&company,&now_epoch,&limit.max(1).min(500)]
+        ).await?;
+        Ok(rows.into_iter().map(|r| serde_json::json!({
+            "id":r.get::<_,Uuid>(0),"customer_id":r.get::<_,Uuid>(1),"task_type":r.get::<_,String>(2),
+            "due_at_epoch":r.get::<_,i64>(3),"owner":r.get::<_,Option<String>>(4),
+            "status":r.get::<_,String>(5),"notes":r.get::<_,Option<String>>(6),"outcome":r.get::<_,Option<String>>(7)
+        })).collect())
+    }
+
+    pub async fn complete_customer_success_task(
+        &self, company_id:&str, task_id:&str, outcome:&str
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let task=Uuid::parse_str(task_id)?;
+        if outcome.trim().is_empty() { return Err("task outcome is required".into()); }
+        let client=self.client.lock().await;
+        let changed=client.execute(
+            "UPDATE customer_success_tasks SET status='COMPLETED',outcome=$3,updated_at=now()
+             WHERE company_id=$1 AND id=$2 AND status IN ('OPEN','IN_PROGRESS')",
+            &[&company,&task,&outcome]
+        ).await?;
+        if changed!=1 { return Err("customer success task not found or already terminal".into()); }
+        Ok(())
+    }
+
+}
