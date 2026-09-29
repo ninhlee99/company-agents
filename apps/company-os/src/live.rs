@@ -217,11 +217,48 @@ pub struct OverlayRequest {
 pub async fn start_stream(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let controller = state.live_stream.as_ref().ok_or(StatusCode::PRECONDITION_FAILED)?;
+    let controller = state
+        .live_stream
+        .as_ref()
+        .ok_or(StatusCode::PRECONDITION_FAILED)?;
+
+    let policy_snapshot_key = std::env::var("TIKTOK_LIVE_POLICY_SNAPSHOT_KEY")
+        .map_err(|_| StatusCode::PRECONDITION_FAILED)?;
+    let policy_evidence_ref = std::env::var("TIKTOK_LIVE_POLICY_EVIDENCE_REF")
+        .map_err(|_| StatusCode::PRECONDITION_FAILED)?;
+    let compliance = state
+        .store
+        .check_tiktok_compliance_for_live(
+            &state.company_id,
+            "Veridara AI LIVE",
+            &policy_snapshot_key,
+            &policy_evidence_ref,
+            env_bool("TIKTOK_LIVE_DISCLOSURE_PRESENT")?,
+            env_bool("TIKTOK_LIVE_CLAIM_EVIDENCE_PRESENT")?,
+            env_bool("TIKTOK_LIVE_PRODUCT_ELIGIBILITY_VERIFIED")?,
+            env_bool("TIKTOK_LIVE_RIGHTS_EVIDENCE_PRESENT")?,
+            env_bool("TIKTOK_LIVE_SIMULCAST")?,
+        )
+        .await
+        .map_err(|_| StatusCode::PRECONDITION_FAILED)?;
+
+    if compliance.decision != company_compliance::ComplianceDecision::Allowed {
+        return Err(StatusCode::PRECONDITION_FAILED);
+    }
+
     controller
         .start("Veridara AI LIVE — đang khởi động...")
         .map_err(|_| StatusCode::BAD_REQUEST)?;
     Ok(Json(serde_json::json!({"running": true})))
+}
+
+fn env_bool(name: &str) -> Result<bool, StatusCode> {
+    let value = std::env::var(name).map_err(|_| StatusCode::PRECONDITION_FAILED)?;
+    match value.to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Ok(true),
+        "0" | "false" | "no" | "off" => Ok(false),
+        _ => Err(StatusCode::PRECONDITION_FAILED),
+    }
 }
 
 pub async fn update_overlay(
