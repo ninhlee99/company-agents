@@ -24,7 +24,7 @@ This document intentionally separates implemented behavior from contracts, simul
 | Publishing approval contract | Implemented | Publish intent, approval, lease, completion and revocation are durable and guarded. |
 | TikTok publishing adapter | Implemented + webhook reconciliation, environment-gated | Approved TikTok intents can be executed through the Content Posting API adapter; publish IDs are persisted, signed TikTok webhooks are verified with replay protection, terminal outcomes reconcile idempotently, and status polling remains available as fallback. Real use requires valid TikTok authorization, app approval/audit and operator configuration. |
 | External email/message sending | NOT achieved | SendExternalMessage is a declared capability, but there is no production message provider executor. |
-| External payment execution | NOT achieved | The system can model invoices and record externally evidenced payments, but does not initiate bank/card/Stripe settlement. |
+| Payment execution control plane | Implemented baseline (simulated provider) | Explicit approval, durable execution intent, provider adapter boundary, idempotent simulated execution, execution evidence and reconciliation into the existing invoice/payment evidence flow are implemented; real bank/card/Stripe settlement remains disabled. |
 | Commercial proposals | Implemented baseline | Durable proposal creation exists with idempotency. Status workflow endpoints are still limited. |
 | Sponsorship management | Implemented baseline | Contracted/delivered value is bounded, but CRM delivery/reporting workflow is incomplete. |
 | Invoicing | Implemented | Invoice creation, issuance and payment lifecycle are durable and idempotent. |
