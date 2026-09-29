@@ -163,6 +163,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/012_publish_intents.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/013_commercial_sales.sql"
+            ))
             .await
     }
 
@@ -3245,5 +3250,68 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             ))
         }
     }
+    pub async fn create_service_proposal(&self, p: &commercial_sales::ServiceProposal) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if p.title.trim().is_empty() || p.idempotency_key.trim().is_empty() || p.total_minor < 0 || p.currency.len() != 3 { return Err("invalid service proposal".into()); }
+        let mut c = self.client.lock().await;
+        c.execute("INSERT INTO service_proposals (id,company_id,customer_id,title,currency,total_minor,status,valid_until_epoch,idempotency_key) VALUES ($1,$2,$3,$4,$5,$6::numeric,$7,$8,$9) ON CONFLICT (company_id,idempotency_key) DO NOTHING",
+            &[&p.id,&p.company_id,&p.customer_id,&p.title,&p.currency,&p.total_minor.to_string(),&format!("{:?}",p.status).to_uppercase(),&p.valid_until_epoch,&p.idempotency_key]).await?; Ok(())
+    }
+
+    pub async fn create_sponsorship(&self, s: &commercial_sales::Sponsorship) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if s.title.trim().is_empty() || s.committed_minor < 0 || s.delivered_minor < 0 || s.delivered_minor > s.committed_minor || s.currency.len() != 3 { return Err("invalid sponsorship".into()); }
+        let mut c = self.client.lock().await;
+        c.execute("INSERT INTO sponsorships (id,company_id,customer_id,title,currency,committed_minor,delivered_minor,status) VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8)",
+            &[&s.id,&s.company_id,&s.customer_id,&s.title,&s.currency,&s.committed_minor.to_string(),&s.delivered_minor.to_string(),&s.status]).await?; Ok(())
+    }
+
+    pub async fn create_invoice(&self, invoice: &commercial_sales::Invoice, lines: &[commercial_sales::InvoiceLine]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if invoice.idempotency_key.trim().is_empty() || invoice.currency.len() != 3 || lines.is_empty() { return Err("invalid invoice".into()); }
+        let total = commercial_sales::invoice_total(lines)?;
+        if total != invoice.subtotal_minor || invoice.paid_minor != 0 { return Err("invoice total or initial payment is invalid".into()); }
+        let mut c = self.client.lock().await; let tx = c.transaction().await?;
+        if tx.query_opt("SELECT id FROM invoices WHERE company_id=$1 AND idempotency_key=$2",&[&invoice.company_id,&invoice.idempotency_key]).await?.is_some() { tx.rollback().await?; return Ok(()); }
+        tx.execute("INSERT INTO invoices (id,company_id,customer_id,currency,subtotal_minor,paid_minor,status,due_epoch,idempotency_key) VALUES ($1,$2,$3,$4,$5::numeric,0,$6,$7,$8)",
+            &[&invoice.id,&invoice.company_id,&invoice.customer_id,&invoice.currency,&total.to_string(),&format!("{:?}",invoice.status).to_uppercase(),&invoice.due_epoch,&invoice.idempotency_key]).await?;
+        for line in lines {
+            if line.description.trim().is_empty() || line.quantity == 0 || line.unit_price_minor < 0 { return Err("invalid invoice line".into()); }
+            tx.execute("INSERT INTO invoice_lines (invoice_id,description,quantity,unit_price_minor) VALUES ($1,$2,$3,$4::numeric)",
+                &[&invoice.id,&line.description,&(line.quantity as i32),&line.unit_price_minor.to_string()]).await?;
+        }
+        tx.commit().await?; Ok(())
+    }
+
+    pub async fn record_invoice_payment(&self, company_id: &str, invoice_id: &str, payment_id: &str, amount_minor: i128, occurred_at_epoch: i64, external_ref: Option<&str>) -> Result<commercial_sales::InvoiceStatus, Box<dyn std::error::Error + Send + Sync>> {
+        if amount_minor <= 0 { return Err("invoice payment must be positive".into()); }
+        let company = Uuid::parse_str(company_id)?; let invoice = Uuid::parse_str(invoice_id)?; let payment = Uuid::parse_str(payment_id)?;
+        let mut c = self.client.lock().await; let tx = c.transaction().await?;
+        let row = tx.query_one("SELECT subtotal_minor::text,paid_minor::text,status FROM invoices WHERE company_id=$1 AND id=$2 FOR UPDATE",&[&company,&invoice]).await?;
+        let total = parse_i128_numeric(&row.get::<_,String>(0))?; let paid = parse_i128_numeric(&row.get::<_,String>(1))?; let status: String = row.get(2);
+        if status == "VOID" || status == "DRAFT" { return Err("invoice is not payable".into()); }
+        let remaining = total.checked_sub(paid).ok_or("invoice remaining overflow")?; if amount_minor > remaining { return Err("invoice payment exceeds remaining balance".into()); }
+        if tx.execute("INSERT INTO invoice_payments (id,invoice_id,amount_minor,external_ref,occurred_at_epoch) VALUES ($1,$2,$3::numeric,$4,$5) ON CONFLICT (id) DO NOTHING",&[&payment,&invoice,&amount_minor.to_string(),&external_ref,&occurred_at_epoch]).await? == 0 {
+            tx.rollback().await?;
+            return Ok(match status.as_str() {"PAID"=>commercial_sales::InvoiceStatus::Paid,"PARTIALLY_PAID"=>commercial_sales::InvoiceStatus::PartiallyPaid,"ISSUED"=>commercial_sales::InvoiceStatus::Issued,_=>commercial_sales::InvoiceStatus::Draft});
+        }
+        let next = paid.checked_add(amount_minor).ok_or("invoice paid overflow")?;
+        let next_status = commercial_sales::transition_invoice(commercial_sales::InvoiceStatus::Issued,next,total)?;
+        tx.execute("UPDATE invoices SET paid_minor=$3::numeric,status=$4,updated_at=now() WHERE company_id=$1 AND id=$2",&[&company,&invoice,&next.to_string(),&format!("{:?}",next_status).to_uppercase()]).await?;
+        tx.commit().await?; Ok(next_status)
+    }
+    pub async fn issue_invoice(&self, company_id: &str, invoice_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let invoice = Uuid::parse_str(invoice_id)?;
+        let mut c = self.client.lock().await;
+        let changed = c.execute(
+            "UPDATE invoices SET status='ISSUED', updated_at=now()
+             WHERE company_id=$1 AND id=$2 AND status='DRAFT'",
+            &[&company,&invoice]).await?;
+        if changed == 0 {
+            let exists = c.query_opt("SELECT status FROM invoices WHERE company_id=$1 AND id=$2",&[&company,&invoice]).await?;
+            return match exists { Some(row) if row.get::<_,String>(0) == "ISSUED" => Ok(()), Some(_) => Err("invoice cannot be issued from its current state".into()), None => Err("invoice not found".into()) };
+        }
+        Ok(())
+    }
+
+
 }
 
