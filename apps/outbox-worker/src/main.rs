@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 use company_store::CompanyStore;
+use commercial_sales::messaging::{OutboundEmail, OutboundMessageProvider, ResendProvider};
 use hmac::{Hmac, Mac};
 use reqwest::Client;
 use serde::Serialize;
@@ -71,6 +72,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let lease_seconds = env_u64("OUTBOX_LEASE_SECONDS", 30, 5, 300);
     let batch_size = env_u64("OUTBOX_BATCH_SIZE", 20, 1, 100) as i64;
     let max_attempts = env_u64("OUTBOX_MAX_ATTEMPTS", 10, 1, 100) as i32;
+    let resend = ResendProvider::from_env().ok();
 
     if webhook_url.trim().is_empty() {
         return Err("OUTBOX_WEBHOOK_URL is required; refusing to consume events without a sink".into());
@@ -111,9 +113,42 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 attempts: event.attempts,
             };
 
-            match deliver(&client, &webhook_url, &webhook_secret, &delivery).await {
+            let result = if event.event_type == "EXTERNAL_EMAIL_SEND" {
+                if let Some(message_id) = delivery.payload.get("message_id").and_then(|v| v.as_str()) {
+                    store.mark_outbound_email_processing(&event.company_id, message_id).await?;
+                }
+                match resend.as_ref() {
+                    Some(provider) => {
+                        let email = OutboundEmail {
+                            message_id: delivery.payload.get("message_id").and_then(|v| v.as_str()).ok_or("message_id missing")?.to_owned(),
+                            from: env::var("RESEND_FROM").map_err(|_| "RESEND_FROM is required")?,
+                            to: delivery.payload.get("recipient").and_then(|v| v.as_str()).ok_or("recipient missing")?.to_owned(),
+                            subject: delivery.payload.get("subject").and_then(|v| v.as_str()).ok_or("subject missing")?.to_owned(),
+                            html: delivery.payload.get("html_body").and_then(|v| v.as_str()).ok_or("html_body missing")?.to_owned(),
+                            idempotency_key: delivery.payload.get("idempotency_key").and_then(|v| v.as_str()).ok_or("idempotency_key missing")?.to_owned(),
+                            unsubscribe_url: delivery.payload.get("unsubscribe_url").and_then(|v| v.as_str()).map(str::to_owned),
+                        };
+                        match provider.send_email(&email).await {
+                            Ok(receipt) => {
+                                store.record_outbound_email_result(&event.company_id, &email.message_id, Some(&receipt.provider), Some(&receipt.provider_reference), None).await?;
+                                Ok(())
+                            }
+                            Err(error) => Err(error.to_string())
+                        }
+                    }
+                    None => Err("Resend provider is not configured".to_owned())
+                }
+            } else {
+                deliver(&client, &webhook_url, &webhook_secret, &delivery).await
+            };
+            match result {
                 Ok(()) => store.mark_outbox_published(event.id, &owner).await?,
                 Err(error) => {
+                    if event.event_type == "EXTERNAL_EMAIL_SEND" {
+                        if let Some(message_id) = delivery.payload.get("message_id").and_then(|v| v.as_str()) {
+                            store.record_outbound_email_result(&event.company_id, message_id, None, None, Some(&error)).await?;
+                        }
+                    }
                     eprintln!("outbox event {} delivery failed: {error}", event.id);
                     store.release_outbox_event(event.id, &owner, &error).await?;
                 }

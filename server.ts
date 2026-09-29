@@ -254,15 +254,15 @@ const state: {
     { id: 'emp-2', role: 'Affiliate Deal Specialist', name: 'Sarah T.', salary_minor: 240000, hiredAtCycle: 5 },
   ],
   customAgents: [
-    { id: 'agent-gov', name: 'Governor', role: 'Hiến Pháp & Quỹ Tiền', department: 'Leadership', description: 'Phủ quyết chi tiêu nguy hiểm, chống phá sản', salary_minor: 0, tasksCompleted: 42, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-ceo', name: 'CEO', role: 'Tổng Giám Đốc', department: 'Leadership', description: 'Chiến lược tăng trưởng & phân bổ nguồn vốn', salary_minor: 0, tasksCompleted: 35, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-cfo', name: 'CFO', role: 'Giám Đốc Tài Chính', department: 'Leadership', description: 'Kiểm toán kho bạc và cắt giảm chi tiêu', salary_minor: 0, tasksCompleted: 38, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-coo', name: 'COO', role: 'Giám Đốc Vận Hành', department: 'Ops', description: 'Điều phối hàng đợi và tiến độ công việc', salary_minor: 0, tasksCompleted: 50, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-growth', name: 'Growth Lead', role: 'Kinh Doanh & Traffic', department: 'Growth', description: 'Tìm ngách sản phẩm hoa hồng cao', salary_minor: 0, tasksCompleted: 62, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-content', name: 'Content Lead', role: 'Sáng Tạo Nội Dung', department: 'Growth', description: 'Kịch bản video short-form bán hàng', salary_minor: 0, tasksCompleted: 78, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-recruiter', name: 'Recruiter', role: 'Tuyển Dụng', department: 'Ops', description: 'Đề xuất bổ sung vị trí mới khi có lãi', salary_minor: 0, tasksCompleted: 14, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-analyst', name: 'Analyst', role: 'Phân Tích Dữ Liệu', department: 'Ops', description: 'Đối soát số liệu và tính toán hoa hồng', salary_minor: 0, tasksCompleted: 45, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-experiment', name: 'Experimenter', role: 'Nghiên Cứu A/B Test', department: 'Growth', description: 'Thử nghiệm mẫu kịch bản và thị trường', salary_minor: 0, tasksCompleted: 29, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-gov', name: 'Governor', role: 'Hiến Pháp & Quỹ Tiền', department: 'Leadership', description: 'Phủ quyết chi tiêu nguy hiểm, chống phá sản', salary_minor: 70000, tasksCompleted: 42, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-ceo', name: 'CEO', role: 'Tổng Giám Đốc', department: 'Leadership', description: 'Chiến lược tăng trưởng & phân bổ nguồn vốn', salary_minor: 95000, tasksCompleted: 35, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-cfo', name: 'CFO', role: 'Giám Đốc Tài Chính', department: 'Leadership', description: 'Kiểm toán kho bạc và cắt giảm chi tiêu', salary_minor: 90000, tasksCompleted: 22, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-coo', name: 'COO', role: 'Giám Đốc Vận Hành', department: 'Ops', description: 'Điều phối hàng đợi và tiến độ công việc', salary_minor: 80000, tasksCompleted: 50, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-growth', name: 'Growth Lead', role: 'Kinh Doanh & Traffic', department: 'Growth', description: 'Tìm ngách sản phẩm hoa hồng cao', salary_minor: 75000, tasksCompleted: 62, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-content', name: 'Content Lead', role: 'Sáng Tạo Nội Dung', department: 'Growth', description: 'Kịch bản video short-form bán hàng', salary_minor: 60000, tasksCompleted: 78, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-recruiter', name: 'Recruiter', role: 'Tuyển Dụng', department: 'Ops', description: 'Đề xuất bổ sung vị trí mới khi có lãi', salary_minor: 65000, tasksCompleted: 14, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-analyst', name: 'Analyst', role: 'Phân Tích Dữ Liệu', department: 'Ops', description: 'Đối soát số liệu và tính toán hoa hồng', salary_minor: 50000, tasksCompleted: 45, status: 'Active', hiredAtCycle: 1 },
+    { id: 'agent-experiment', name: 'Experimenter', role: 'Nghiên Cứu A/B Test', department: 'Growth', description: 'Thử nghiệm mẫu kịch bản và thị trường', salary_minor: 55000, tasksCompleted: 29, status: 'Active', hiredAtCycle: 1 },
   ],
   activeExperiments: [
     { id: 'exp-1', name: 'Short-Form Hook Multi-Variant Video Engine', budget_minor: 150000, startCycle: 11, status: 'In Progress', roi_bps: 1420 },
@@ -1465,6 +1465,66 @@ app.post('/api/toggle-agent-status', (req, res) => {
 
   agent.status = agent.status === 'Active' ? 'Paused' : 'Active';
   res.json({ success: true, agentId, status: agent.status });
+});
+
+// Agent Skill Training (Upskilling via Treasury Cash)
+app.post('/api/train-agent', (req, res) => {
+  const { agentId, course } = req.body;
+  const agent: any = state.customAgents.find((a: any) => a.id === agentId);
+  if (!agent) {
+    return res.status(404).json({ success: false, reason: 'Không tìm thấy nhân sự AI.' });
+  }
+
+  const cost_minor = course?.cost_minor || 50000;
+  if (state.snapshot.cash_minor < cost_minor) {
+    return res.status(400).json({ success: false, reason: 'Kho bạc không đủ ngân quỹ để đầu tư khóa đào tạo này.' });
+  }
+
+  // Deduct training investment from cash
+  state.snapshot.cash_minor -= cost_minor;
+
+  // Apply skill upgrades
+  agent.skillLevel = (agent.skillLevel || 1) + 1;
+  const currentMult = agent.taskMultiplier || 1.0;
+  agent.taskMultiplier = Math.round((currentMult + (course?.multiplierBoost || 0.25)) * 100) / 100;
+  agent.tasksCompleted += (course?.tasksBonus || 10);
+  agent.trainedSkills = [...(agent.trainedSkills || []), course?.name || 'Chuyên Môn Hóa AI'];
+  agent.trainingCount = (agent.trainingCount || 0) + 1;
+
+  // Slightly expand overall company capacity
+  state.snapshot.capacity += 2;
+
+  // Book Double-Entry Accounting
+  state.ledger.unshift({
+    id: `tx-train-${Date.now().toString(36)}`,
+    timestamp: new Date().toISOString(),
+    description: `Đào Tạo Kỹ Năng (Upskilling): ${agent.name} - ${course?.name || 'Khóa Đào Tạo'}`,
+    debitAccount: 'Đầu Tư Phát Triển Nhân Sự AI (Human Capital / R&D)',
+    creditAccount: 'Cash & Cash Equivalents',
+    amount_minor: cost_minor,
+    cycle: state.snapshot.cycle_count,
+  });
+
+  // Record Execution Receipt
+  state.receipts.unshift({
+    id: `rcpt-train-${Date.now().toString(36)}`,
+    proposalId: `prop-train-${agent.id}`,
+    agent: 'COO',
+    action: 'RebalanceOperations',
+    status: 'Completed',
+    outcome: `Hoàn tất khóa đào tạo "${course?.name}" cho ${agent.name}. Hệ số năng suất tăng lên ${agent.taskMultiplier}x, giải quyết nguy cơ nghẽn cổ chai.`,
+    cost_minor: cost_minor,
+    timestamp: new Date().toISOString(),
+  });
+
+  recalculateCompanyHealth();
+
+  res.json({
+    success: true,
+    agent,
+    snapshot: state.snapshot,
+    message: `Đào tạo thành công cho ${agent.name}! Hệ số hoàn thành tác vụ tăng lên ${agent.taskMultiplier}x.`,
+  });
 });
 
 // Automated Multi-Agent Pipeline (End-to-End Handoff)
