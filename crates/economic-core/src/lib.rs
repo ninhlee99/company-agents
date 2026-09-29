@@ -193,6 +193,121 @@ pub fn spend_from_budget(
     Ok((next_state, next_budget))
 }
 
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PortfolioAction {
+    Reinvest,
+    Hold,
+    Reduce,
+    Close,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PortfolioUnitMetrics {
+    pub unit_id: String,
+    pub cash_minor: i128,
+    pub revenue_minor: i128,
+    pub expenses_minor: i128,
+    pub runway_days: i64,
+    pub evidence_confidence_bps: u16,
+    pub evidence_count: u32,
+    pub allocation_cap_minor: i128,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PortfolioDecision {
+    pub unit_id: String,
+    pub action: PortfolioAction,
+    pub amount_minor: i128,
+    pub reason: String,
+}
+
+pub fn decide_portfolio_action(
+    company_status: CompanyStatus,
+    unit: &PortfolioUnitMetrics,
+) -> Result<PortfolioDecision, &'static str> {
+    if unit.unit_id.trim().is_empty() {
+        return Err("portfolio unit id is required");
+    }
+    if unit.cash_minor < 0
+        || unit.revenue_minor < 0
+        || unit.expenses_minor < 0
+        || unit.runway_days < 0
+        || unit.evidence_confidence_bps > 10_000
+        || unit.allocation_cap_minor < 0
+    {
+        return Err("portfolio metrics are invalid");
+    }
+
+    let margin = unit.revenue_minor.saturating_sub(unit.expenses_minor);
+
+    if matches!(
+        company_status,
+        CompanyStatus::Emergency | CompanyStatus::Liquidation | CompanyStatus::Bankrupt
+    ) {
+        return Ok(PortfolioDecision {
+            unit_id: unit.unit_id.clone(),
+            action: if margin < 0 {
+                PortfolioAction::Reduce
+            } else {
+                PortfolioAction::Hold
+            },
+            amount_minor: 0,
+            reason: "company liquidity protection blocks discretionary reinvestment".into(),
+        });
+    }
+
+    if margin < 0 {
+        return Ok(PortfolioDecision {
+            unit_id: unit.unit_id.clone(),
+            action: if unit.runway_days <= 21 {
+                PortfolioAction::Close
+            } else {
+                PortfolioAction::Reduce
+            },
+            amount_minor: 0,
+            reason: "negative contribution margin requires capital preservation".into(),
+        });
+    }
+
+    if !matches!(company_status, CompanyStatus::Active | CompanyStatus::Growth)
+        || unit.runway_days < 45
+        || unit.cash_minor == 0
+        || unit.evidence_count < 3
+        || unit.evidence_confidence_bps < 8_000
+        || unit.allocation_cap_minor == 0
+    {
+        return Ok(PortfolioDecision {
+            unit_id: unit.unit_id.clone(),
+            action: PortfolioAction::Hold,
+            amount_minor: 0,
+            reason: "insufficient verified evidence for reinvestment".into(),
+        });
+    }
+
+    let cash_cap = unit.cash_minor / 10;
+    let margin_cap = margin / 4;
+    let amount = cash_cap
+        .min(margin_cap)
+        .min(unit.allocation_cap_minor);
+
+    if amount <= 0 {
+        return Ok(PortfolioDecision {
+            unit_id: unit.unit_id.clone(),
+            action: PortfolioAction::Hold,
+            amount_minor: 0,
+            reason: "deterministic allocation caps produce no safe reinvestment amount".into(),
+        });
+    }
+
+    Ok(PortfolioDecision {
+        unit_id: unit.unit_id.clone(),
+        action: PortfolioAction::Reinvest,
+        amount_minor: amount,
+        reason: "positive margin and verified evidence permit bounded reinvestment".into(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,6 +333,109 @@ mod tests {
             active: true,
         }
     }
+    #[test]
+    fn portfolio_policy_reinvests_only_with_verified_evidence() {
+        let unit = PortfolioUnitMetrics {
+            unit_id: "u1".into(),
+            cash_minor: 10_000,
+            revenue_minor: 5_000,
+            expenses_minor: 3_000,
+            runway_days: 90,
+            evidence_confidence_bps: 9_000,
+            evidence_count: 5,
+            allocation_cap_minor: 500,
+        };
+        let decision = decide_portfolio_action(CompanyStatus::Growth, &unit).unwrap();
+        assert_eq!(decision.action, PortfolioAction::Reinvest);
+        assert_eq!(decision.amount_minor, 500);
+    }
+
+    #[test]
+    fn portfolio_policy_blocks_reinvestment_in_distress() {
+        let unit = PortfolioUnitMetrics {
+            unit_id: "u1".into(),
+            cash_minor: 10_000,
+            revenue_minor: 5_000,
+            expenses_minor: 1_000,
+            runway_days: 5,
+            evidence_confidence_bps: 10_000,
+            evidence_count: 20,
+            allocation_cap_minor: 5_000,
+        };
+        let decision = decide_portfolio_action(CompanyStatus::Distress, &unit).unwrap();
+        assert_eq!(decision.action, PortfolioAction::Hold);
+        assert_eq!(decision.amount_minor, 0);
+    }
+
+    #[test]
+    fn portfolio_policy_blocks_discretionary_spend_in_emergency() {
+        let unit = PortfolioUnitMetrics {
+            unit_id: "u1".into(),
+            cash_minor: 10_000,
+            revenue_minor: 5_000,
+            expenses_minor: 1_000,
+            runway_days: 5,
+            evidence_confidence_bps: 10_000,
+            evidence_count: 20,
+            allocation_cap_minor: 5_000,
+        };
+        let decision = decide_portfolio_action(CompanyStatus::Emergency, &unit).unwrap();
+        assert_eq!(decision.action, PortfolioAction::Hold);
+        assert_eq!(decision.amount_minor, 0);
+    }
+
+    #[test]
+    fn portfolio_policy_closes_loss_making_unit_when_runway_is_short() {
+        let unit = PortfolioUnitMetrics {
+            unit_id: "u1".into(),
+            cash_minor: 100,
+            revenue_minor: 100,
+            expenses_minor: 200,
+            runway_days: 10,
+            evidence_confidence_bps: 9_000,
+            evidence_count: 5,
+            allocation_cap_minor: 1_000,
+        };
+        let decision = decide_portfolio_action(CompanyStatus::CostControl, &unit).unwrap();
+        assert_eq!(decision.action, PortfolioAction::Close);
+        assert_eq!(decision.amount_minor, 0);
+    }
+
+    #[test]
+    fn portfolio_policy_holds_when_evidence_is_insufficient() {
+        let unit = PortfolioUnitMetrics {
+            unit_id: "u1".into(),
+            cash_minor: 10_000,
+            revenue_minor: 5_000,
+            expenses_minor: 1_000,
+            runway_days: 90,
+            evidence_confidence_bps: 7_999,
+            evidence_count: 2,
+            allocation_cap_minor: 5_000,
+        };
+        let decision = decide_portfolio_action(CompanyStatus::Growth, &unit).unwrap();
+        assert_eq!(decision.action, PortfolioAction::Hold);
+        assert_eq!(decision.amount_minor, 0);
+    }
+
+    #[test]
+    fn portfolio_policy_rejects_invalid_metrics() {
+        let unit = PortfolioUnitMetrics {
+            unit_id: "".into(),
+            cash_minor: -1,
+            revenue_minor: 0,
+            expenses_minor: 0,
+            runway_days: 0,
+            evidence_confidence_bps: 10_001,
+            evidence_count: 0,
+            allocation_cap_minor: 0,
+        };
+        assert_eq!(
+            decide_portfolio_action(CompanyStatus::Active, &unit),
+            Err("portfolio unit id is required")
+        );
+    }
+
     #[test]
     fn ledger_must_balance() {
         let tx = LedgerTransaction {

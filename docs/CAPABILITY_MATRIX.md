@@ -32,7 +32,7 @@ This document intentionally separates implemented behavior from contracts, simul
 | Customer CRM | Implemented baseline | Idempotent customer creation and listing with lifecycle/status metadata are available. |
 | HR / payroll economics | Implemented baseline | Employees, payroll obligations and accounting primitives exist; external payroll execution is not integrated. |
 | Business-unit economics | Implemented baseline | Units and portfolio metrics exist; automatic capital allocation is still gated. |
-| Portfolio autonomy | NOT achieved | The repository does not yet provide evidence-backed autonomous reinvest/close decisions across real business units. |
+| Portfolio autonomy | Policy implemented; execution gated | A deterministic evidence-backed reinvest/hold/reduce/close policy now exists with liquidity protection and hard allocation caps. It produces decisions only; persisted execution and real capital movement remain separately gated. |
 | Human approval / material side effects | Implemented | Material publishing and other sensitive actions are designed to remain explicitly gated. |
 | Control-plane authentication | Implemented baseline | Bearer token authentication is required by default for non-health endpoints, with constant-time comparison. |
 | Multi-user identity / RBAC / SSO | NOT achieved | Authentication is a shared control-plane token, not an operator identity system. |
