@@ -422,15 +422,13 @@ impl CompanyStore {
                         active,rules_json
                    FROM policy_snapshots
                   WHERE company_id=$1 AND policy_key=$2 AND platform=$3
-                    AND jurisdiction=$4 AND active=true AND effective_at_epoch <= $5
-                  ORDER BY effective_at_epoch DESC,observed_at_epoch DESC,created_at DESC
-                  LIMIT 1",
+                    AND jurisdiction=$4 AND (policy_key || ':' || version)=$5",
                 &[
                     &input.company_id,
                     &input.policy_key,
                     &input.platform,
                     &input.jurisdiction,
-                    &now_epoch,
+                    &input.policy_snapshot_key,
                 ],
             )
             .await?
