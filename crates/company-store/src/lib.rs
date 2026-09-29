@@ -194,6 +194,11 @@ impl CompanyStore {
                 "../../../infra/db/migrations/022_fpa_forecasts_cashflow.sql"
             ))
             .await
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/027_payment_execution.sql"
+            ))
+            .await?;
     }
 
     pub async fn ensure_company(
@@ -3582,6 +3587,186 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         ).await?;
         tx.commit().await?;
         Ok(())
+    }
+
+    pub async fn create_payment_execution_intent(
+        &self, company_id: &str, intent_id: Uuid, invoice_id: &str, amount_minor: i128,
+        currency: &str, provider: &str, payment_method_ref: &str, idempotency_key: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        if amount_minor <= 0 || currency.len() != 3 || provider.trim().is_empty()
+            || payment_method_ref.trim().is_empty() || idempotency_key.trim().is_empty() {
+            return Err("invalid payment execution intent".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let invoice = Uuid::parse_str(invoice_id)?;
+        let mut c = self.client.lock().await;
+        let tx = c.transaction().await?;
+        if let Some(row) = tx.query_opt(
+            "SELECT id, invoice_id, amount_minor::text, currency, provider, status
+               FROM payment_execution_intents
+              WHERE company_id=$1 AND idempotency_key=$2 FOR UPDATE",
+            &[&company, &idempotency_key],
+        ).await? {
+            tx.rollback().await?;
+            return Ok(serde_json::json!({
+                "id": row.get::<_, Uuid>(0), "invoice_id": row.get::<_, Uuid>(1),
+                "amount_minor": row.get::<_, String>(2), "currency": row.get::<_, String>(3),
+                "provider": row.get::<_, String>(4), "status": row.get::<_, String>(5)
+            }));
+        }
+        let row = tx.query_opt(
+            "SELECT currency, subtotal_minor::text, paid_minor::text, status
+               FROM invoices WHERE company_id=$1 AND id=$2 FOR UPDATE",
+            &[&company, &invoice],
+        ).await?.ok_or("invoice not found")?;
+        let invoice_currency: String = row.get(0);
+        let total = parse_i128_numeric(&row.get::<_, String>(1))?;
+        let paid = parse_i128_numeric(&row.get::<_, String>(2))?;
+        let invoice_status: String = row.get(3);
+        if invoice_currency != currency { return Err("payment currency does not match invoice".into()); }
+        if matches!(invoice_status.as_str(), "DRAFT" | "VOID" | "PAID") { return Err("invoice is not payable".into()); }
+        let remaining = total.checked_sub(paid).ok_or("invoice remaining overflow")?;
+        if amount_minor > remaining { return Err("payment execution exceeds invoice remaining balance".into()); }
+        tx.execute(
+            "INSERT INTO payment_execution_intents
+             (id,company_id,invoice_id,amount_minor,currency,provider,payment_method_ref,status,idempotency_key)
+             VALUES ($1,$2,$3,$4::numeric,$5,$6,$7,'PENDING_APPROVAL',$8)",
+            &[&intent_id,&company,&invoice,&amount_minor.to_string(),&currency,&provider,&payment_method_ref,&idempotency_key],
+        ).await?;
+        tx.execute(
+            "INSERT INTO audit_log
+             (company_id,actor_type,actor_id,action,resource_type,resource_id,decision,metadata)
+             VALUES ($1,'SYSTEM','payment-execution','PAYMENT_EXECUTION_INTENT_CREATED',
+                     'PAYMENT_EXECUTION_INTENT',$2,'PENDING_APPROVAL',$3)",
+            &[&company,&intent_id,&serde_json::json!({"invoice_id": invoice_id, "amount_minor": amount_minor, "currency": currency, "provider": provider})],
+        ).await?;
+        tx.commit().await?;
+        Ok(serde_json::json!({"id": intent_id, "invoice_id": invoice, "amount_minor": amount_minor,
+            "currency": currency, "provider": provider, "status": "PENDING_APPROVAL"}))
+    }
+
+    pub async fn approve_payment_execution(
+        &self, company_id: &str, intent_id: &str, approved_by: &str,
+        approval_reference: &str, approved_at_epoch: i64,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        if approved_by.trim().is_empty() || approval_reference.trim().is_empty() {
+            return Err("explicit approval evidence is required".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let intent = Uuid::parse_str(intent_id)?;
+        let mut c = self.client.lock().await;
+        let tx = c.transaction().await?;
+        let row = tx.query_one(
+            "SELECT status FROM payment_execution_intents WHERE company_id=$1 AND id=$2 FOR UPDATE",
+            &[&company,&intent],
+        ).await?;
+        if row.get::<_, String>(0) != "PENDING_APPROVAL" { return Err("payment execution is not awaiting approval".into()); }
+        tx.execute(
+            "UPDATE payment_execution_intents SET status='APPROVED', approved_by=$3,
+                    approval_reference=$4, approved_at_epoch=$5, updated_at=now()
+              WHERE company_id=$1 AND id=$2",
+            &[&company,&intent,&approved_by,&approval_reference,&approved_at_epoch],
+        ).await?;
+        tx.execute(
+            "INSERT INTO audit_log
+             (company_id,actor_type,actor_id,action,resource_type,resource_id,decision,metadata)
+             VALUES ($1,'HUMAN',$3,'PAYMENT_EXECUTION_APPROVED',
+                     'PAYMENT_EXECUTION_INTENT',$2,'APPROVED',$4)",
+            &[&company,&intent,&approved_by,&serde_json::json!({"approval_reference": approval_reference})],
+        ).await?;
+        tx.commit().await?;
+        Ok(serde_json::json!({"id": intent, "status": "APPROVED", "approved_by": approved_by,
+            "approval_reference": approval_reference}))
+    }
+
+    pub async fn execute_payment_intent(
+        &self, company_id: &str, intent_id: &str, observed_at_epoch: i64,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let intent = Uuid::parse_str(intent_id)?;
+        let mut c = self.client.lock().await;
+        let tx = c.transaction().await?;
+        let row = tx.query_one(
+            "SELECT invoice_id, amount_minor::text, currency, provider, payment_method_ref, status, provider_execution_ref
+               FROM payment_execution_intents WHERE company_id=$1 AND id=$2 FOR UPDATE",
+            &[&company,&intent],
+        ).await?;
+        let invoice: Uuid = row.get(0);
+        let amount = parse_i128_numeric(&row.get::<_, String>(1))?;
+        let currency: String = row.get(2);
+        let provider: String = row.get(3);
+        let payment_method_ref: String = row.get(4);
+        let status: String = row.get(5);
+        let existing_ref: Option<String> = row.get(6);
+        if status == "SUCCEEDED" {
+            tx.rollback().await?;
+            return Ok(serde_json::json!({"id": intent, "status": "SUCCEEDED", "provider_execution_ref": existing_ref}));
+        }
+        if !matches!(status.as_str(), "APPROVED" | "SUBMITTED") {
+            return Err("payment execution requires approved state".into());
+        }
+        if provider != "simulated" {
+            return Err("only the simulated provider adapter is enabled".into());
+        }
+        let provider_execution_ref = existing_ref.unwrap_or_else(|| {
+            let mut h = Sha256::new();
+            h.update(company.as_bytes()); h.update(intent.as_bytes());
+            h.update(amount.to_string().as_bytes()); h.update(currency.as_bytes());
+            h.update(payment_method_ref.as_bytes());
+            let digest = format!("{:x}", h.finalize());
+            format!("sim_{}", &digest[..24])
+        });
+        tx.execute(
+            "UPDATE payment_execution_intents SET status='SUBMITTED',
+                    submitted_at_epoch=COALESCE(submitted_at_epoch,$3),
+                    provider_execution_ref=$4, updated_at=now()
+              WHERE company_id=$1 AND id=$2",
+            &[&company,&intent,&observed_at_epoch,&provider_execution_ref],
+        ).await?;
+        let mut eh = Sha256::new();
+        eh.update(intent.as_bytes()); eh.update(provider_execution_ref.as_bytes());
+        eh.update(amount.to_string().as_bytes()); eh.update(currency.as_bytes());
+        let evidence_hash = format!("{:x}", eh.finalize());
+        tx.execute(
+            "INSERT INTO payment_execution_evidence
+             (id,company_id,intent_id,provider,provider_execution_ref,amount_minor,currency,observed_at_epoch,evidence_hash,status)
+             VALUES ($1,$2,$3,$4,$5,$6::numeric,$7,$8,$9,'OBSERVED')
+             ON CONFLICT(company_id,provider,provider_execution_ref) DO NOTHING",
+            &[&Uuid::new_v4(),&company,&intent,&provider,&provider_execution_ref,&amount.to_string(),
+              &currency,&observed_at_epoch,&evidence_hash],
+        ).await?;
+        tx.execute(
+            "UPDATE payment_execution_intents SET status='SUCCEEDED', completed_at_epoch=$3, updated_at=now()
+              WHERE company_id=$1 AND id=$2",
+            &[&company,&intent,&observed_at_epoch],
+        ).await?;
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'PAYMENT_EXECUTION_SUCCEEDED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[&company,&intent,&format!("payment-execution:{intent}"),
+              &serde_json::json!({"intent_id": intent, "invoice_id": invoice, "provider": provider,
+                "provider_execution_ref": provider_execution_ref, "amount_minor": amount,
+                "currency": currency, "evidence_hash": evidence_hash})],
+        ).await?;
+        tx.commit().await?;
+        self.record_payment_reconciliation_evidence(
+            company_id, &invoice.to_string(), &provider, &provider_execution_ref,
+            Some(&provider_execution_ref), amount, &currency, observed_at_epoch, &evidence_hash
+        ).await?;
+        self.record_invoice_payment(
+            company_id, &invoice.to_string(), &intent.to_string(), amount, observed_at_epoch,
+            Some(&provider_execution_ref)
+        ).await?;
+        let mut c = self.client.lock().await;
+        c.execute(
+            "UPDATE payment_execution_evidence SET status='RECONCILED'
+              WHERE company_id=$1 AND intent_id=$2",
+            &[&company,&intent],
+        ).await?;
+        Ok(serde_json::json!({"id": intent, "status": "SUCCEEDED",
+            "provider_execution_ref": provider_execution_ref, "evidence_hash": evidence_hash}))
     }
 
     pub async fn create_customer(
