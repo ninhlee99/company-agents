@@ -5299,6 +5299,14 @@ fn content_status_name(value: company_content::ContentStatus) -> &'static str {
     }
 }
 
+fn growth_trend_decision_name(value: company_growth::TrendDecision) -> &'static str {
+    match value {
+        company_growth::TrendDecision::Pursue => "PURSUE",
+        company_growth::TrendDecision::Monitor => "MONITOR",
+        company_growth::TrendDecision::Reject => "REJECT",
+    }
+}
+
 fn content_decision_name(value: company_content::ContentDecision) -> &'static str {
     match value {
         company_content::ContentDecision::Scale => "SCALE",
