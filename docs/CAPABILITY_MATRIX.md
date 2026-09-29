@@ -112,3 +112,11 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Fail-closed decisioning:** invalid specifications, negative spend, budget exhaustion, insufficient observations, success, underperformance and expiry resolve deterministically.
 - **Persistent evidence:** experiment definitions and observations are company-scoped and persisted before terminal decisions are returned.
 - **No fabricated outcomes:** the engine evaluates supplied observations; it does not invent traffic, orders, conversion, revenue or platform metrics.
+
+## Learning / Failure Ledger
+
+- **Typed learning records:** P0.5 now defines durable, company-scoped learning/failure entries with source linkage, expected vs actual outcome, impact, confidence, root cause, corrective action, reusable rule, and a deterministic follow-up decision.
+- **Evidence gate:** failure records require severity and all entries require an observed actual outcome; the library rejects empty evidence and invalid confidence values rather than inventing outcomes.
+- **Idempotent identity:** the database enforces a company-scoped unique `entry_key`, preventing duplicate learning records for the same source event.
+- **Immutable-by-design baseline:** entries are append-only at the schema/API contract level; no update/delete workflow is introduced by P0.5.
+- **Integration boundary:** the domain crate and durable schema are implemented, but automatic ingestion from every experiment/content/LIVE workflow is still a subsequent integration step; P0.5 does not claim those upstream systems emit learning automatically yet.
