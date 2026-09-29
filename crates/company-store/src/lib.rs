@@ -1383,8 +1383,8 @@ impl CompanyStore {
         if event_key.trim().is_empty() || event_key.len() > 512 {
             return Err("TikTok webhook event key is invalid".into());
         }
-        let client = self.client.lock().await;
-        let mut tx = client.transaction().await?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
         let inserted = tx
             .execute(
                 "INSERT INTO tiktok_webhook_receipts
