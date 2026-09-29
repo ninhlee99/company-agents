@@ -343,6 +343,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/033_growth_loop.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/034_live_attention.sql"
+            ))
             .await
     }
 
@@ -1077,16 +1082,17 @@ impl CompanyStore {
         let intent_uuid = Uuid::parse_str(&intent.id)?;
         let idempotency_key = publishing_contract::new_idempotency_key(intent);
 
-        let scheduled_at = match intent.scheduled_at.as_deref() {
-            Some(value) => Some(
+        let scheduled_at = intent
+            .scheduled_at
+            .as_deref()
+            .map(|value| {
                 time::OffsetDateTime::parse(
                     value,
                     &time::format_description::well_known::Rfc3339,
-                )?
-                .format(&time::format_description::well_known::Rfc3339)?,
-            ),
-            None => None,
-        };
+                )
+                .map(|parsed| parsed.format(&time::format_description::well_known::Rfc3339))
+            })
+            .transpose()??;
 
         let client = self.client.lock().await;
         let existing = client
@@ -1383,8 +1389,8 @@ impl CompanyStore {
         if event_key.trim().is_empty() || event_key.len() > 512 {
             return Err("TikTok webhook event key is invalid".into());
         }
-        let mut client = self.client.lock().await;
-        let tx = client.transaction().await?;
+        let client = self.client.lock().await;
+        let mut tx = client.transaction().await?;
         let inserted = tx
             .execute(
                 "INSERT INTO tiktok_webhook_receipts
@@ -2942,8 +2948,7 @@ impl CompanyStore {
                     &transaction_id,
                     &company_uuid,
                     &format!(
-                        "affiliate:provider-verify:{conversion_id}:{}:{delta}",
-                        status.as_str()
+                        "affiliate:provider-verify:{conversion_id}:{status}:{delta}"
                     ),
                 ],
             )
@@ -3639,8 +3644,8 @@ impl CompanyStore {
                 "INSERT INTO tiktok_live_events
                  (company_id, session_id, event_id, room_id, kind, user_id,
                   display_name, event_text, gift_id, gift_name, gift_quantity,
-                  gift_value_minor, currency, pk_score, occurred_at_epoch)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::numeric,$13,$14,$15)
+                  gift_value_minor, currency, pk_score, viewer_value_bps, occurred_at_epoch)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::numeric,$13,$14,$15,$16)
                  ON CONFLICT (company_id, event_id) DO NOTHING",
                 &[
                     &company_uuid,
@@ -3657,11 +3662,144 @@ impl CompanyStore {
                     &gift_value,
                     &event.currency,
                     &(event.pk_score.map(|value| value as i64)),
+                    &event.viewer_value_bps.map(|value| value as i32),
                     &event.occurred_at_epoch,
                 ],
             )
             .await?;
         Ok(changed == 1)
+    }
+
+    pub async fn record_tiktok_live_attention(
+        &self,
+        company_id: &str,
+        session_id: &str,
+        event: &tiktok_live_engine::LiveEvent,
+    ) -> Result<company_live_attention::AttentionDecision, Box<dyn std::error::Error + Send + Sync>> {
+        event.validate().map_err(|error| error.to_string())?;
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let session_uuid = Uuid::parse_str(session_id)?;
+
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        let mode_value: String = tx
+            .query_one(
+                "SELECT mode
+                   FROM tiktok_live_sessions
+                  WHERE company_id=$1 AND id=$2
+                  FOR UPDATE",
+                &[&company_uuid, &session_uuid],
+            )
+            .await?
+            .get(0);
+        let mode = match mode_value.as_str() {
+            "SOLO" => tiktok_live_engine::LiveMode::Solo,
+            "COHOST" | "CO_HOST" => tiktok_live_engine::LiveMode::CoHost,
+            "PK" => tiktok_live_engine::LiveMode::Pk,
+            "GAME" => tiktok_live_engine::LiveMode::Game,
+            "STORY" => tiktok_live_engine::LiveMode::Story,
+            "MUSIC" => tiktok_live_engine::LiveMode::Music,
+            "SHOPPING" | "SHOP" => tiktok_live_engine::LiveMode::Shopping,
+            other => return Err(format!("unknown LIVE mode: {other}").into()),
+        };
+
+        tx.query_one(
+            "SELECT 1 FROM tiktok_live_events
+              WHERE company_id=$1 AND session_id=$2 AND event_id=$3",
+            &[&company_uuid, &session_uuid, &event.event_id],
+        ).await?;
+
+        if let Some(row) = tx.query_opt(
+            "SELECT id,company_id,session_id,event_id,action,reason,priority,decided_at_epoch,requires_human
+               FROM live_attention_decisions
+              WHERE company_id=$1 AND session_id=$2 AND event_id=$3",
+            &[&company_uuid, &session_uuid, &event.event_id],
+        ).await? {
+            let decision = attention_decision_from_row(row)?;
+            tx.commit().await?;
+            return Ok(decision);
+        }
+
+        let policy = company_live_attention::AttentionPolicy::default();
+        let now_epoch: i64 = tx
+            .query_one(
+                "SELECT EXTRACT(EPOCH FROM now())::bigint",
+                &[],
+            )
+            .await?
+            .get(0);
+        let window_start = now_epoch.saturating_sub(policy.response_window_seconds);
+        let context_row = tx
+            .query_one(
+                "SELECT
+                    COALESCE(MAX(decided_at_epoch) FILTER (WHERE action IN ('RESPOND','ESCALATE')), 0),
+                    COUNT(*) FILTER (WHERE action IN ('RESPOND','ESCALATE') AND decided_at_epoch >= $3)
+                 FROM live_attention_decisions
+                WHERE company_id=$1 AND session_id=$2",
+                &[&company_uuid, &session_uuid, &window_start],
+            )
+            .await?;
+        let last_value: i64 = context_row.get(0);
+        let responses: i64 = context_row.get(1);
+        let context = company_live_attention::AttentionContext {
+            last_response_at_epoch: if last_value > 0 { Some(last_value) } else { None },
+            window_started_at_epoch: Some(window_start),
+            responses_in_window: responses.clamp(0, u32::MAX as i64) as u32,
+        };
+
+        let decision = company_live_attention::decide_attention(
+            company_uuid,
+            session_uuid,
+            mode,
+            event,
+            &context,
+            now_epoch,
+            &policy,
+        )
+        .map_err(|error| error.to_string())?;
+
+        tx.execute(
+            "INSERT INTO live_attention_decisions
+             (id,company_id,session_id,event_id,action,reason,priority,decided_at_epoch,requires_human,viewer_value_bps)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+             ON CONFLICT(company_id,session_id,event_id) DO NOTHING",
+            &[
+                &decision.decision_id,
+                &company_uuid,
+                &session_uuid,
+                &decision.event_id,
+                &attention_action_name(decision.action),
+                &attention_reason_name(decision.reason),
+                &(decision.priority as i16),
+                &decision.decided_at_epoch,
+                &decision.requires_human,
+                &event.viewer_value_bps.map(|value| value as i32),
+            ],
+        ).await?;
+
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'LIVE_ATTENTION_DECIDED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[
+                &company_uuid,
+                &session_uuid.to_string(),
+                &format!("outbox:live-attention:{}:{}", session_uuid, decision.event_id),
+                &serde_json::to_value(&decision)?,
+            ],
+        ).await?;
+
+        let persisted = tx.query_one(
+            "SELECT id,company_id,session_id,event_id,action,reason,priority,decided_at_epoch,requires_human
+               FROM live_attention_decisions
+              WHERE company_id=$1 AND session_id=$2 AND event_id=$3",
+            &[&company_uuid, &session_uuid, &event.event_id],
+        ).await?;
+        let decision = attention_decision_from_row(persisted)?;
+        tx.commit().await?;
+        Ok(decision)
     }
 
     pub async fn tiktok_live_summary(
@@ -3688,6 +3826,20 @@ impl CompanyStore {
                 &[&company_uuid, &session_uuid],
             )
             .await?;
+        let attention = client
+            .query_one(
+                "SELECT
+                    COUNT(*) FILTER (WHERE action='RESPOND')::bigint,
+                    COUNT(*) FILTER (WHERE action='DEFER')::bigint,
+                    COUNT(*) FILTER (WHERE action='IGNORE')::bigint,
+                    COUNT(*) FILTER (WHERE action='ESCALATE')::bigint,
+                    COALESCE(MAX(decided_at_epoch),0)::bigint
+                 FROM live_attention_decisions
+                WHERE company_id=$1 AND session_id=$2",
+                &[&company_uuid, &session_uuid],
+            )
+            .await?;
+
         Ok(serde_json::json!({
             "session_id": session_id,
             "events": row.get::<_, i64>(0),
@@ -3698,6 +3850,13 @@ impl CompanyStore {
             "follows": row.get::<_, i64>(5),
             "shares": row.get::<_, i64>(6),
             "likes": row.get::<_, i64>(7),
+            "attention": {
+                "responded": attention.get::<_, i64>(0),
+                "deferred": attention.get::<_, i64>(1),
+                "ignored": attention.get::<_, i64>(2),
+                "escalated": attention.get::<_, i64>(3),
+                "last_decided_at_epoch": attention.get::<_, i64>(4),
+            }
         }))
     }
 
@@ -3833,8 +3992,68 @@ async fn tx_store_live_gift_statement(
     Ok(())
 }
 
-fn parse_i128_numeric(value: &str) -> Result<i128, std::num::ParseIntError> {
-    value.trim().parse::<i128>()
+fn attention_action_name(
+    value: company_live_attention::AttentionAction,
+) -> &'static str {
+    match value {
+        company_live_attention::AttentionAction::Respond => "RESPOND",
+        company_live_attention::AttentionAction::Defer => "DEFER",
+        company_live_attention::AttentionAction::Ignore => "IGNORE",
+        company_live_attention::AttentionAction::Escalate => "ESCALATE",
+    }
+}
+
+fn attention_reason_name(
+    value: company_live_attention::AttentionReason,
+) -> &'static str {
+    match value {
+        company_live_attention::AttentionReason::PurchaseIntent => "PURCHASE_INTENT",
+        company_live_attention::AttentionReason::Objection => "OBJECTION",
+        company_live_attention::AttentionReason::Gift => "GIFT",
+        company_live_attention::AttentionReason::PkMoment => "PK_MOMENT",
+        company_live_attention::AttentionReason::HighEngagement => "HIGH_ENGAGEMENT",
+        company_live_attention::AttentionReason::HighValueViewer => "HIGH_VALUE_VIEWER",
+        company_live_attention::AttentionReason::SafetyEscalation => "SAFETY_ESCALATION",
+        company_live_attention::AttentionReason::Cooldown => "COOLDOWN",
+        company_live_attention::AttentionReason::RateLimited => "RATE_LIMITED",
+        company_live_attention::AttentionReason::LowSignal => "LOW_SIGNAL",
+    }
+}
+
+fn attention_decision_from_row(
+    row: tokio_postgres::Row,
+) -> Result<company_live_attention::AttentionDecision, Box<dyn std::error::Error + Send + Sync>> {
+    let action = match row.get::<_, String>(4).as_str() {
+        "RESPOND" => company_live_attention::AttentionAction::Respond,
+        "DEFER" => company_live_attention::AttentionAction::Defer,
+        "IGNORE" => company_live_attention::AttentionAction::Ignore,
+        "ESCALATE" => company_live_attention::AttentionAction::Escalate,
+        other => return Err(format!("invalid stored attention action: {other}").into()),
+    };
+    let reason = match row.get::<_, String>(5).as_str() {
+        "PURCHASE_INTENT" => company_live_attention::AttentionReason::PurchaseIntent,
+        "OBJECTION" => company_live_attention::AttentionReason::Objection,
+        "GIFT" => company_live_attention::AttentionReason::Gift,
+        "PK_MOMENT" => company_live_attention::AttentionReason::PkMoment,
+        "HIGH_ENGAGEMENT" => company_live_attention::AttentionReason::HighEngagement,
+        "HIGH_VALUE_VIEWER" => company_live_attention::AttentionReason::HighValueViewer,
+        "SAFETY_ESCALATION" => company_live_attention::AttentionReason::SafetyEscalation,
+        "COOLDOWN" => company_live_attention::AttentionReason::Cooldown,
+        "RATE_LIMITED" => company_live_attention::AttentionReason::RateLimited,
+        "LOW_SIGNAL" => company_live_attention::AttentionReason::LowSignal,
+        other => return Err(format!("invalid stored attention reason: {other}").into()),
+    };
+    Ok(company_live_attention::AttentionDecision {
+        decision_id: row.get(0),
+        company_id: row.get(1),
+        session_id: row.get(2),
+        event_id: row.get(3),
+        action,
+        reason,
+        priority: row.get::<_, i16>(6).clamp(0, 100) as u8,
+        decided_at_epoch: row.get(7),
+        requires_human: row.get(8),
+    })
 }
 
 fn parse_reconciliation_status(
@@ -4170,9 +4389,6 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             ))
         }
     }
-}
-
-impl CompanyStore {
     pub async fn create_service_proposal(&self, p: &commercial_sales::ServiceProposal) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if p.title.trim().is_empty() || p.idempotency_key.trim().is_empty() || p.total_minor < 0 || p.currency.len() != 3 { return Err("invalid service proposal".into()); }
         let mut c = self.client.lock().await;

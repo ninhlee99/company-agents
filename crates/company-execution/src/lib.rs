@@ -487,8 +487,8 @@ mod tests {
         let results = vec![
             AgentRunResult {
                 agent: AgentRole::Experiment,
-                proposal: governed(ActionKind::CreateExperiment, 400).proposal.clone(),
-                governance: Some(governed(ActionKind::CreateExperiment, 400)),
+                proposal: governed(ActionKind::CreateExperiment, 800).proposal.clone(),
+                governance: Some(governed(ActionKind::CreateExperiment, 800)),
             },
             AgentRunResult {
                 agent: AgentRole::Growth,
@@ -504,8 +504,8 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(batch.total_spend_minor, 400);
-        assert_eq!(batch.snapshot.cash_minor, 9_600);
+        assert_eq!(batch.total_spend_minor, 800);
+        assert_eq!(batch.snapshot.cash_minor, 9_200);
         assert!(batch
             .receipts
             .iter()

@@ -38,6 +38,8 @@ pub struct LiveEvent {
     pub event_id: String, pub room_id: String, pub user_id: Option<String>, pub display_name: Option<String>,
     pub kind: LiveEventKind, pub text: Option<String>, pub gift_id: Option<String>, pub gift_name: Option<String>,
     pub gift_quantity: u64, pub gift_value_minor: u128, pub currency: String, pub pk_score: Option<u64>,
+    #[serde(default)]
+    pub viewer_value_bps: Option<u32>,
     pub occurred_at_epoch: i64,
 }
 
@@ -47,6 +49,9 @@ impl LiveEvent {
         if self.room_id.trim().is_empty() || self.room_id.len() > 256 { return Err("room_id is invalid".into()); }
         if self.gift_quantity == 0 && matches!(self.kind, LiveEventKind::Gift) { return Err("gift_quantity must be positive for gift events".into()); }
         if self.gift_value_minor > 0 && self.currency.trim().is_empty() { return Err("currency is required when gift_value_minor is non-zero".into()); }
+        if self.viewer_value_bps.is_some_and(|value| value > 10_000) {
+            return Err("viewer_value_bps must be between 0 and 10000".into());
+        }
         if let Some(text) = self.text.as_deref() { if text.len() > MAX_TEXT_LEN { return Err("event text is too long".into()); } }
         if self.occurred_at_epoch <= 0 { return Err("occurred_at_epoch must be positive".into()); }
         Ok(())
@@ -207,7 +212,7 @@ impl LiveLaunchGate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn event(kind: LiveEventKind) -> LiveEvent { LiveEvent { event_id: Uuid::new_v4().to_string(), room_id: "room-1".into(), user_id: Some("user-1".into()), display_name: Some("Alice".into()), kind, text: Some("hello".into()), gift_id: Some("gift-1".into()), gift_name: Some("Rose".into()), gift_quantity: 1, gift_value_minor: 10, currency: "USD".into(), pk_score: Some(7), occurred_at_epoch: 1_750_000_000 } }
+    fn event(kind: LiveEventKind) -> LiveEvent { LiveEvent { event_id: Uuid::new_v4().to_string(), room_id: "room-1".into(), user_id: Some("user-1".into()), display_name: Some("Alice".into()), kind, text: Some("hello".into()), gift_id: Some("gift-1".into()), gift_name: Some("Rose".into()), gift_quantity: 1, gift_value_minor: 10, currency: "USD".into(), pk_score: Some(7), viewer_value_bps: None, occurred_at_epoch: 1_750_000_000 } }
     #[test] fn ledger_is_idempotent_for_replayed_events() { let mut ledger = LiveLedger::default(); let e = event(LiveEventKind::Gift); assert!(ledger.ingest(&e).unwrap()); assert!(!ledger.ingest(&e).unwrap()); assert_eq!(ledger.gift_count, 1); assert_eq!(ledger.gift_value_minor, 10); }
     #[test] fn gift_gets_priority_response_without_promising_money() { let mut ledger = LiveLedger::default(); let e = event(LiveEventKind::Gift); ledger.ingest(&e).unwrap(); let response = decide_response(LiveMode::Solo, &e, &ledger, &EngagementPolicy::default()); assert_eq!(response.action, ResponseAction::ThankGift); assert!(response.text.contains("Cảm ơn")); assert!(!response.text.to_ascii_lowercase().contains("thưởng tiền")); }
     #[test] fn mode_switches_enable_story_game_music_and_shopping() { let e = event(LiveEventKind::System); let policy = EngagementPolicy::default(); assert_eq!(decide_response(LiveMode::Story, &e, &LiveLedger::default(), &policy).action, ResponseAction::StartStoryBeat); assert_eq!(decide_response(LiveMode::Game, &e, &LiveLedger::default(), &policy).action, ResponseAction::StartGameRound); assert_eq!(decide_response(LiveMode::Music, &e, &LiveLedger::default(), &policy).action, ResponseAction::TransitionMusic); assert_eq!(decide_response(LiveMode::Shopping, &e, &LiveLedger::default(), &policy).action, ResponseAction::ProductMoment); }
