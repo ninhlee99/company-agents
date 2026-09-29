@@ -35,7 +35,8 @@ The repository has a Rust-based Agent Runtime with deterministic economic and go
 29. Database-backed readiness and Prometheus-style runtime metrics.
 30. Automated CI gates for formatting, tests, Clippy, migration lint, secret hygiene and Docker builds.
 31. Scheduled PostgreSQL backup/restore recovery drill.
-32. Explicit production acceptance and secret-rotation standard.
+32. Commercial sales lifecycle: proposals, sponsorships, invoices and bounded payment state transitions.
+33. Explicit production acceptance and secret-rotation standard.
 
 ## Remaining acceptance items
 
