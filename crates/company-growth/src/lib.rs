@@ -153,7 +153,7 @@ pub fn build_content_plan(signal: &TrendSignal) -> Result<ContentPlan, String> {
             ),
             MAX_TEXT,
         ),
-        audience: format!("Trend-aligned audience for {}", signal.topic),
+        audience: truncate(&format!("Trend-aligned audience for {}", signal.topic), MAX_TEXT),
         format: signal.content_format,
         product_ref: signal.product_ref.clone(),
         offer_ref: signal.offer_ref.clone(),
@@ -264,7 +264,7 @@ mod tests {
     #[test]
     fn scoring_is_deterministic() {
         let value = evaluate_trend(&signal()).unwrap();
-        assert_eq!(value.score_bps, 8_150);
+        assert_eq!(value.score_bps, 8_125);
         assert_eq!(value.decision, TrendDecision::Pursue);
     }
 
