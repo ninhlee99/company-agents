@@ -361,15 +361,14 @@ impl CompanyStore {
         snapshot: &company_compliance::PolicySnapshot,
     ) -> Result<company_compliance::PolicySnapshot, Box<dyn std::error::Error + Send + Sync>> {
         snapshot.validate().map_err(|error| error.to_string())?;
-        let mut client = self.client.lock().await;
-        let row = client
-            .query_opt(
+        let client = self.client.lock().await;
+        client
+            .execute(
                 "INSERT INTO policy_snapshots
                  (id,company_id,policy_key,platform,jurisdiction,version,source_reference,
                   evidence_hash,observed_at_epoch,effective_at_epoch,active,rules_json)
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-                 ON CONFLICT(company_id,policy_key,version) DO NOTHING
-                 RETURNING id",
+                 ON CONFLICT(company_id,policy_key,version) DO NOTHING",
                 &[
                     &snapshot.id,
                     &snapshot.company_id,
@@ -409,7 +408,7 @@ impl CompanyStore {
         input: &company_compliance::ComplianceInput,
     ) -> Result<company_compliance::ComplianceCheck, Box<dyn std::error::Error + Send + Sync>> {
         input.validate().map_err(|error| error.to_string())?;
-        let mut client = self.client.lock().await;
+        let client = self.client.lock().await;
         let now_epoch: i64 = client
             .query_one("SELECT EXTRACT(EPOCH FROM now())::bigint", &[])
             .await?
@@ -546,15 +545,14 @@ impl CompanyStore {
         let client = self.client.lock().await;
         let row = client
             .query_one(
-                "SELECT content_id,title,caption
+                "SELECT title,caption
                    FROM publish_intents
                   WHERE company_id=$1 AND id=$2",
                 &[&company, &intent],
             )
             .await?;
-        let content_id: String = row.get(0);
-        let title: String = row.get(1);
-        let caption: String = row.get(2);
+        let title: String = row.get(0);
+        let caption: String = row.get(1);
         let input = company_compliance::ComplianceInput {
             company_id: company,
             surface: company_compliance::ComplianceSurface::Content,
@@ -573,7 +571,6 @@ impl CompanyStore {
             rights_evidence_present,
         };
         drop(client);
-        let _ = content_id;
         self.record_compliance_check(&input).await
     }
 
