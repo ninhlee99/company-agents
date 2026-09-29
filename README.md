@@ -143,3 +143,8 @@ See docs/CAPABILITY_MATRIX.md for the strict capability boundary.
 
 ## Verification
 Run `bash scripts/verify.sh` after cloning to execute formatting, workspace tests and Clippy gates.
+
+
+## Operating model
+
+The revenue-first autonomous operating loop and production boundaries are documented in `docs/AUTONOMOUS_OPERATING_MODEL.md`.
