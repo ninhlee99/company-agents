@@ -104,3 +104,11 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - MTD attributed commission is aggregated from persisted attribution records.
 - MTD recorded payouts are shown separately; they are not represented as bank receipt unless backed by the payout/evidence flow.
 - The dashboard exposes the reconciliation variance so attribution gaps cannot be hidden inside a single revenue number.
+
+
+## Experiment engine
+
+- **Deterministic experiment policy:** hypotheses must declare control/treatment, budget, minimum observations, duration, success threshold and kill threshold.
+- **Fail-closed decisioning:** invalid specifications, negative spend, budget exhaustion, insufficient observations, success, underperformance and expiry resolve deterministically.
+- **Persistent evidence:** experiment definitions and observations are company-scoped and persisted before terminal decisions are returned.
+- **No fabricated outcomes:** the engine evaluates supplied observations; it does not invent traffic, orders, conversion, revenue or platform metrics.
