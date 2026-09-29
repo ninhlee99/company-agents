@@ -45,3 +45,22 @@ CREATE TABLE IF NOT EXISTS compliance_audit_events (
 CREATE INDEX IF NOT EXISTS idx_compliance_obligations_due ON compliance_obligations(company_id,status,due_at_epoch);
 CREATE INDEX IF NOT EXISTS idx_compliance_evidence_obligation ON compliance_evidence(obligation_id,created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_compliance_audit_obligation ON compliance_audit_events(obligation_id,created_at DESC);
+
+CREATE TABLE IF NOT EXISTS compliance_revenue_links (
+  id uuid PRIMARY KEY,
+  company_id uuid NOT NULL REFERENCES companies(id),
+  obligation_id uuid NOT NULL REFERENCES compliance_obligations(id) ON DELETE CASCADE,
+  invoice_id uuid NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  linked_by text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(company_id,obligation_id,invoice_id)
+);
+CREATE TABLE IF NOT EXISTS compliance_payment_links (
+  id uuid PRIMARY KEY,
+  company_id uuid NOT NULL REFERENCES companies(id),
+  obligation_id uuid NOT NULL REFERENCES compliance_obligations(id) ON DELETE CASCADE,
+  invoice_id uuid NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  linked_by text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(company_id,obligation_id,invoice_id)
+);
