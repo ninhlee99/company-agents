@@ -166,6 +166,18 @@ const state: {
     timestamp: string;
     priority?: 'High' | 'Normal' | 'Urgent';
   }[];
+  systemAlerts: {
+    id: string;
+    level: 'Critical' | 'Warning' | 'Info' | 'Resolved';
+    type: 'Low Runway' | 'Budget Exhaustion' | 'High Expense Spike' | 'Constitutional Override' | 'Backlog Surge';
+    title: string;
+    description: string;
+    discoveredBy: string;
+    cycle: number;
+    timestamp: string;
+    resolved: boolean;
+    mitigationAction?: string;
+  }[];
 } = {
   snapshot: {
     status: 'Active',
@@ -363,6 +375,56 @@ const state: {
       tag: '#ABTesting',
       cycle: 14,
       timestamp: new Date(Date.now() - 3600000 * 0.3).toISOString(),
+    },
+  ],
+  systemAlerts: [
+    {
+      id: 'alert-1',
+      level: 'Warning',
+      type: 'High Expense Spike',
+      title: 'Phát hiện tăng vọt chi phí Render Video GPU (+28%)',
+      description: 'Governor phát hiện Media Studio render đồng thời 12 video 4K ngoài giờ cao điểm làm chi phí điện toán đám mây tăng $85.00 so với dự toán. Đã kích hoạt điều khoản trần chi phí và chuyển hướng sang chế độ render hàng đợi tiết kiệm.',
+      discoveredBy: 'Governor AI',
+      cycle: 13,
+      timestamp: new Date(Date.now() - 3600000 * 5).toISOString(),
+      resolved: true,
+      mitigationAction: 'Kích hoạt GPU rate limiting và bật Prompt Caching cho tất cả worker render.',
+    },
+    {
+      id: 'alert-2',
+      level: 'Warning',
+      type: 'Budget Exhaustion',
+      title: 'Ngân Sách Thử Nghiệm A/B Chạm Mức Cảnh Báo 80%',
+      description: 'Governor ghi nhận tổng chi tiêu thử nghiệm kênh mới đạt $3,600/$4,500. Đã yêu cầu CFO và Growth Lead nộp báo cáo đối soát tỷ lệ hoàn vốn trước khi phê duyệt thêm bất kỳ chiến dịch ad spend nào.',
+      discoveredBy: 'Governor AI',
+      cycle: 14,
+      timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
+      resolved: false,
+      mitigationAction: 'Tạm khóa các đề xuất thử nghiệm > $300 cho đến khi doanh thu chu kỳ #14 được ghi nhận.',
+    },
+    {
+      id: 'alert-3',
+      level: 'Info',
+      type: 'Low Runway',
+      title: 'Bảo Toàn Runway An Toàn (Đã Thoát Vùng Rủi Ro)',
+      description: 'Governor xác nhận quỹ sinh tồn kho bạc duy trì 440 ngày (ngưỡng tối thiểu của hiến pháp là 90 ngày). Tình trạng tài chính công ty chính thức nâng từ Warning lên Growth thặng dư.',
+      discoveredBy: 'Governor AI',
+      cycle: 12,
+      timestamp: new Date(Date.now() - 86400000 * 2).toISOString(),
+      resolved: true,
+      mitigationAction: 'Cho phép tái đầu tư 20% lợi nhuận ròng vào mở rộng dây chuyền bán hàng affiliate.',
+    },
+    {
+      id: 'alert-4',
+      level: 'Critical',
+      type: 'Constitutional Override',
+      title: 'Veto Đề Xuất Chi Tiêu Lương Ngoài Kế Hoạch',
+      description: 'Governor tự động phủ quyết đề xuất tuyển 2 Agent toàn thời gian khi tỷ lệ backlog (12/22) vẫn nằm trong ngưỡng kiểm soát 60% năng lực hệ thống.',
+      discoveredBy: 'Governor AI',
+      cycle: 14,
+      timestamp: new Date(Date.now() - 3600000 * 1).toISOString(),
+      resolved: true,
+      mitigationAction: 'Duy trì đội ngũ 9 Agent cốt lõi và giao thêm tác vụ cho Content Specialist.',
     },
   ],
 };
@@ -972,9 +1034,44 @@ app.get('/api/state', (req, res) => {
     cycleHistory: getCycleTrendHistory(),
     departmentBudgets: getDepartmentBudgetHistory(),
     communicationStream: state.communicationStream,
+    systemAlerts: state.systemAlerts,
     auditReports: state.auditReports,
     hasGeminiKey: Boolean(apiKey && apiKey !== 'MY_GEMINI_API_KEY'),
   });
+});
+
+app.get('/api/system-alerts', (req, res) => {
+  res.json({
+    alerts: state.systemAlerts,
+    activeCount: state.systemAlerts.filter(a => !a.resolved).length,
+  });
+});
+
+app.post('/api/system-alerts/resolve', (req, res) => {
+  const { alertId } = req.body;
+  const target = state.systemAlerts.find(a => a.id === alertId);
+  if (target) {
+    target.resolved = true;
+  }
+  res.json({ success: true, alerts: state.systemAlerts });
+});
+
+app.post('/api/system-alerts/trigger', (req, res) => {
+  const { type, level, title, description, mitigationAction } = req.body;
+  const newAlert = {
+    id: `alert-${Date.now().toString(36)}`,
+    level: level || 'Warning',
+    type: type || 'High Expense Spike',
+    title: title || 'Governor phát hiện biến động chi phí bất thường',
+    description: description || 'Hệ thống tự động kích hoạt ngưỡng an toàn hiến định.',
+    discoveredBy: 'Governor AI',
+    cycle: state.snapshot.cycle_count,
+    timestamp: new Date().toISOString(),
+    resolved: false,
+    mitigationAction: mitigationAction || 'Tạm hoãn chi tiêu phát sinh ngoài kế hoạch.',
+  };
+  state.systemAlerts.unshift(newAlert);
+  res.json({ success: true, alert: newAlert, alerts: state.systemAlerts });
 });
 
 app.get('/api/communication-stream', (req, res) => {

@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { CompanySnapshot, GovernedProposal, CycleTrendPoint, AutoAuditReport, DepartmentBudgetPoint } from '../types/company';
+import { CompanySnapshot, GovernedProposal, CycleTrendPoint, AutoAuditReport, DepartmentBudgetPoint, SystemAlert, CompanyKPIs } from '../types/company';
+import { KPIOverview } from './KPIOverview';
+import { SystemAlertsLog } from './SystemAlertsLog';
 import { 
   RotateCw, 
   CheckCircle2, 
@@ -38,11 +40,15 @@ interface BasicDashboardProps {
   cycleHistory?: CycleTrendPoint[];
   departmentBudgets?: DepartmentBudgetPoint[];
   auditReports?: AutoAuditReport[];
+  systemAlerts?: SystemAlert[];
+  kpis?: CompanyKPIs;
   onRunCycle: () => void;
   isRunningCycle: boolean;
   onOverride: (proposalId: string, decision: 'Approve' | 'Reject') => void;
   onNavigate: (view: 'dashboard' | 'agents' | 'finances' | 'pipeline') => void;
   onTriggerAudit?: () => Promise<void>;
+  onResolveAlert?: (alertId: string) => Promise<void>;
+  onTriggerAlert?: (alertData: Partial<SystemAlert>) => Promise<void>;
 }
 
 export const BasicDashboard: React.FC<BasicDashboardProps> = ({
@@ -51,11 +57,15 @@ export const BasicDashboard: React.FC<BasicDashboardProps> = ({
   cycleHistory,
   departmentBudgets,
   auditReports,
+  systemAlerts,
+  kpis,
   onRunCycle,
   isRunningCycle,
   onOverride,
   onNavigate,
   onTriggerAudit,
+  onResolveAlert,
+  onTriggerAlert,
 }) => {
   const [chartView, setChartView] = useState<'financial_trend' | 'department_budget'>('financial_trend');
   const [chartMetric, setChartMetric] = useState<'all' | 'revenue_expense' | 'cash'>('all');
@@ -144,6 +154,9 @@ export const BasicDashboard: React.FC<BasicDashboardProps> = ({
 
   return (
     <div className="space-y-4 max-w-5xl mx-auto pb-10">
+      {/* KPI OVERVIEW: TREND-INDICATING CARDS AT THE TOP OF THE SCREEN */}
+      <KPIOverview snapshot={snapshot} kpis={kpis} onNavigate={onNavigate} />
+
       {/* Top Action Bar */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
         <div className="flex items-center gap-3">
@@ -232,6 +245,13 @@ export const BasicDashboard: React.FC<BasicDashboardProps> = ({
           </div>
         </div>
       </div>
+
+      {/* SYSTEM ALERTS LOG: HIGHLIGHTS CRITICAL COMPANY STATUS DISCOVERED BY GOVERNOR */}
+      <SystemAlertsLog
+        alerts={systemAlerts || []}
+        onResolveAlert={onResolveAlert}
+        onTriggerAlert={onTriggerAlert}
+      />
 
       {/* AUTO-AUDIT SUMMARY CARD: COMPARING REVENUE VS INITIAL BUDGET PLAN */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950/20 to-slate-900 border border-indigo-500/30 rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">

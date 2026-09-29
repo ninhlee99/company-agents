@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CompanySnapshot, GovernedProposal, ExecutionReceipt, LedgerEntry, CustomAgent, CycleTrendPoint, AutoAuditReport, DepartmentBudgetPoint } from './types/company';
+import { CompanySnapshot, GovernedProposal, ExecutionReceipt, LedgerEntry, CustomAgent, CycleTrendPoint, AutoAuditReport, DepartmentBudgetPoint, SystemAlert, CompanyKPIs } from './types/company';
 import { Header } from './components/Header';
 import { BasicDashboard } from './components/BasicDashboard';
 import { ManageAgents } from './components/ManageAgents';
@@ -75,6 +75,7 @@ export default function App() {
   const [cycleHistory, setCycleHistory] = useState<CycleTrendPoint[]>([]);
   const [departmentBudgets, setDepartmentBudgets] = useState<DepartmentBudgetPoint[]>([]);
   const [auditReports, setAuditReports] = useState<AutoAuditReport[]>([]);
+  const [systemAlerts, setSystemAlerts] = useState<SystemAlert[]>([]);
 
   const loadState = async () => {
     try {
@@ -93,6 +94,9 @@ export default function App() {
         }
         if (data.departmentBudgets) {
           setDepartmentBudgets(data.departmentBudgets);
+        }
+        if (data.systemAlerts) {
+          setSystemAlerts(data.systemAlerts);
         }
         if (data.auditReports) {
           setAuditReports(data.auditReports);
@@ -147,6 +151,40 @@ export default function App() {
         const data = await res.json();
         if (data.reports) setAuditReports(data.reports);
         triggerToast('Báo cáo kiểm toán 10 chu kỳ đã hoàn tất!');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleResolveAlert = async (alertId: string) => {
+    try {
+      const res = await fetch('/api/system-alerts/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alertId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.alerts) setSystemAlerts(data.alerts);
+        triggerToast('Đã xác nhận xử lý cảnh báo thành công!');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleTriggerAlert = async (alertData: Partial<SystemAlert>) => {
+    try {
+      const res = await fetch('/api/system-alerts/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(alertData),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.alerts) setSystemAlerts(data.alerts);
+        triggerToast(`Governor phát hiện cảnh báo mới: ${alertData.title || 'Biến động hệ thống'}`);
       }
     } catch (err) {
       console.error(err);
@@ -392,11 +430,14 @@ export default function App() {
                 cycleHistory={cycleHistory}
                 departmentBudgets={departmentBudgets}
                 auditReports={auditReports}
+                systemAlerts={systemAlerts}
                 onRunCycle={handleRunCycle}
                 isRunningCycle={isRunningCycle}
                 onOverride={handleOverride}
                 onNavigate={(view) => setBasicTab(view)}
                 onTriggerAudit={handleTriggerAudit}
+                onResolveAlert={handleResolveAlert}
+                onTriggerAlert={handleTriggerAlert}
               />
             )}
             {basicTab === 'agents' && (

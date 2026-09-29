@@ -196,3 +196,37 @@ export interface DebateTurn {
   finalRuling?: string;
   policyJustification?: string;
 }
+
+export interface SystemAlert {
+  id: string;
+  level: 'Critical' | 'Warning' | 'Info' | 'Resolved';
+  type: 'Low Runway' | 'Budget Exhaustion' | 'High Expense Spike' | 'Constitutional Override' | 'Backlog Surge';
+  title: string;
+  description: string;
+  discoveredBy: string; // 'Governor AI'
+  cycle: number;
+  timestamp: string;
+  resolved: boolean;
+  mitigationAction?: string;
+}
+
+export interface CompanyKPIs {
+  revenueVelocity: {
+    value: string;
+    changeRate: number; // e.g. +14.2%
+    periodLabel: string;
+    trend: 'up' | 'down' | 'stable';
+  };
+  burnRateEfficiency: {
+    value: string;
+    ratio: number; // e.g. 0.65
+    statusText: string;
+    trend: 'up' | 'down' | 'stable';
+  };
+  roiPerCycle: {
+    value: string;
+    percentage: number; // e.g. 24.6%
+    statusText: string;
+    trend: 'up' | 'down' | 'stable';
+  };
+}
