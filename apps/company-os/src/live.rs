@@ -59,35 +59,81 @@ pub async fn record_event(
     let accepted = state.store.record_tiktok_live_event(&state.company_id, &session_id, &req.event)
         .await
         .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let attention = if accepted {
+        Some(
+            state
+                .store
+                .record_tiktok_live_attention(&state.company_id, &session_id, &req.event)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        )
+    } else {
+        None
+    };
+
     let mut response = None;
     let mut overlay_updated = false;
-    if accepted {
-        if let Ok(mode) = state.store.tiktok_live_mode(&state.company_id, &session_id).await {
-            if let Ok(summary) = state.store.tiktok_live_summary(&state.company_id, &session_id).await {
-                let gift_count = summary.get("gift_count")
-                    .and_then(|value| value.as_str())
-                    .and_then(|value| value.parse::<u64>().ok())
-                    .unwrap_or(0);
-                let gift_value_minor = summary.get("gift_value_minor")
-                    .and_then(|value| value.as_str())
-                    .and_then(|value| value.parse::<u128>().ok())
-                    .unwrap_or(0);
-                let ledger = LiveLedger {
-                    gift_count,
-                    gift_value_minor,
-                    ..LiveLedger::default()
-                };
-                let generated = decide_response(mode, &req.event, &ledger, &EngagementPolicy::default());
-                if let Some(controller) = state.live_stream.as_ref() {
-                    overlay_updated = controller.update_overlay(&generated.text).is_ok();
-                }
-                response = Some(generated);
+    if let Some(attention) = attention.as_ref() {
+        if attention.action == company_live_attention::AttentionAction::Respond {
+            let mode = state
+                .store
+                .tiktok_live_mode(&state.company_id, &session_id)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let summary = state
+                .store
+                .tiktok_live_summary(&state.company_id, &session_id)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let gift_count = summary
+                .get("gift_count")
+                .and_then(|value| value.as_str())
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(0);
+            let gift_value_minor = summary
+                .get("gift_value_minor")
+                .and_then(|value| value.as_str())
+                .and_then(|value| value.parse::<u128>().ok())
+                .unwrap_or(0);
+            let ledger = LiveLedger {
+                gift_count,
+                gift_value_minor,
+                ..LiveLedger::default()
+            };
+            let mut generated =
+                decide_response(mode, &req.event, &ledger, &EngagementPolicy::default());
+            if attention.reason == company_live_attention::AttentionReason::HighValueViewer
+                && matches!(generated.action, tiktok_live_engine::ResponseAction::IdlePrompt)
+            {
+                generated.action = tiktok_live_engine::ResponseAction::WelcomeViewer;
+                generated.text = format!(
+                    "Chào mừng {}! Mình đang theo dõi câu hỏi của bạn để hỗ trợ đúng lúc.",
+                    req.event.display_name.as_deref().unwrap_or("bạn")
+                );
+                generated.priority = attention.priority;
             }
+            if let Some(controller) = state.live_stream.as_ref() {
+                overlay_updated = controller.update_overlay(&generated.text).is_ok();
+            }
+            response = Some(generated);
+        } else if attention.action == company_live_attention::AttentionAction::Escalate {
+            let generated = tiktok_live_engine::LiveResponse {
+                action: tiktok_live_engine::ResponseAction::SafetyEscalation,
+                text: "Có tín hiệu cần moderator kiểm tra trước khi tiếp tục.".into(),
+                priority: attention.priority,
+                requires_human: true,
+            };
+            if let Some(controller) = state.live_stream.as_ref() {
+                overlay_updated = controller.update_overlay(&generated.text).is_ok();
+            }
+            response = Some(generated);
         }
     }
+
     Ok(Json(serde_json::json!({
         "accepted": accepted,
         "event_id": req.event.event_id,
+        "attention": attention,
         "response": response,
         "overlay_updated": overlay_updated,
     })))
