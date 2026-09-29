@@ -397,7 +397,11 @@ impl CompanyStore {
                 &[&snapshot.company_id, &snapshot.policy_key, &snapshot.version],
             )
             .await?;
-        policy_snapshot_from_row(row)
+        let stored = policy_snapshot_from_row(row)?;
+        if stored != *snapshot {
+            return Err("policy snapshot version already exists with different evidence".into());
+        }
+        Ok(stored)
     }
 
     pub async fn record_compliance_check(
