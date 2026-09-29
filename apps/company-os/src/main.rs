@@ -6,10 +6,10 @@ use affiliate_intelligence::{
 };
 use agent_runtime::{model_from_env, AgentRunResult, AgentRuntime, CompanySnapshot};
 use axum::{
-    extract::{Query, State, Request},
+    extract::{Form, Query, State, Request},
     http::StatusCode,
     middleware::{self, Next},
-    response::{Html, Response},
+    response::{Html, Redirect, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -381,7 +381,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <div class="card"><h2>Agents</h2>
 <table><tr><th>Agent</th><th>Governor</th><th>Execution</th><th>Action</th></tr>{}</table>
 </div>
-<div class="card"><h2>LIVE Command Center</h2><p><small>Choose a mode, then use the provider stream configuration.</small></p><select id="liveMode" style="padding:9px;width:100%"><option>SOLO</option><option>SHOPPING</option><option>GAME</option><option>STORY</option><option>MUSIC</option><option>PK</option></select><p><button id="liveCreate">Create session</button> <button id="liveStart">Start</button> <button id="liveStop">Stop</button> <button id="liveRefresh">Refresh</button></p><div id="liveStatus" class="metric">Checking…</div></div><div class="card"><h2>Commerce</h2>
+<div class="card"><h2>LIVE Command Center</h2><p><small>Server-rendered controls; external publishing stays gated by configuration and approval.</small></p><form method="post" action="/live/session"><select name="mode" style="padding:9px;width:100%"><option>SOLO</option><option>SHOPPING</option><option>GAME</option><option>STORY</option><option>MUSIC</option><option>PK</option><option>COHOST</option></select><input name="title" value="Veridara AI LIVE" style="margin-top:8px;padding:9px;width:100%;box-sizing:border-box"><p><button type="submit">Create session</button></p></form><p><form method="post" action="/live/start" style="display:inline"><button type="submit">Start stream</button></form> <form method="post" action="/live/stop" style="display:inline"><button type="submit">Stop stream</button></form> <a href="/" style="margin-left:8px;color:#94a3b8">Refresh</a></p><div class="metric">Provider-gated</div></div><div class="card"><h2>Commerce</h2>
 <p>Search live Awin feed data when <code>AFFILIATE_PROVIDER=awin</code>; local mock data is used by default.</p>
 <small>Example: <code>/api/affiliate/search?category=electronics&amp;min_commission_bps=1500&amp;require_coupon=true</code></small>
 </div>
@@ -402,6 +402,39 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         business_unit_count,
         rows,
     ))
+}
+
+#[derive(Debug, Deserialize)]
+struct LiveControlForm {
+    mode: Option<String>,
+    title: Option<String>,
+}
+
+async fn live_create_html(
+    State(state): State<AppState>,
+    Form(form): Form<LiveControlForm>,
+) -> Redirect {
+    let mode = form.mode.unwrap_or_else(|| "SOLO".into());
+    let title = form.title.filter(|value| !value.trim().is_empty()).unwrap_or_else(|| "Veridara AI LIVE".into());
+    let request = live::CreateSessionRequest {
+        title,
+        mode,
+        room_id: std::env::var("TIKTOK_LIVE_ROOM_ID").ok().filter(|value| !value.trim().is_empty()),
+        started_at_epoch: time::OffsetDateTime::now_utc().unix_timestamp(),
+        approved_for_external_publish: false,
+    };
+    let _ = live::create_session(State(state), Json(request)).await;
+    Redirect::to("/")
+}
+
+async fn live_start_html(State(state): State<AppState>) -> Redirect {
+    let _ = live::start_stream(State(state)).await;
+    Redirect::to("/")
+}
+
+async fn live_stop_html(State(state): State<AppState>) -> Redirect {
+    let _ = live::stop_stream(State(state)).await;
+    Redirect::to("/")
 }
 
 async fn run_html(State(state): State<AppState>) -> (StatusCode, Html<String>) {
@@ -1084,6 +1117,9 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let app = Router::new()
         .route("/", get(index))
         .route("/run", post(run_html))
+        .route("/live/session", post(live_create_html))
+        .route("/live/start", post(live_start_html))
+        .route("/live/stop", post(live_stop_html))
         .route("/api/run", post(run_api))
         .route("/api/agents", get(agents_api))
         .route("/api/affiliate/search", get(affiliate_search_api))
