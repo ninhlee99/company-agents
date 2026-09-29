@@ -183,6 +183,16 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/017_payment_reconciliation_evidence.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/020_customer_success_tasks.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/021_procurement_vendor_lifecycle.sql"
+            ))
             .await
     }
 
