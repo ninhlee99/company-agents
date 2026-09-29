@@ -275,6 +275,18 @@ async fn index(State(state): State<AppState>) -> Html<String> {
         rows.push_str(r#"<tr><td colspan="4">No cycle has run yet.</td></tr>"#);
     }
 
+    let target_minor = std::env::var("MONTHLY_REVENUE_TARGET_MINOR")
+        .ok()
+        .and_then(|v| v.parse::<i128>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or_else(|| if state.currency.eq_ignore_ascii_case("VND") { 50_000_000 } else { 500_000 });
+    let target_pct = ((company.revenue_minor.max(0) as f64 / target_minor as f64) * 100.0).round().min(999.0) as u64;
+    let capacity_pct = if company.capacity > 0 {
+        ((company.backlog.max(0) as f64 / company.capacity as f64) * 100.0).round().min(999.0) as u64
+    } else { 0 };
+    let agent_count = latest.len();
+    let cycle_state = if latest_cycle.is_some() { "active" } else { "waiting" };
+
     let executed = latest_cycle
         .as_ref()
         .map(|c| {
@@ -297,40 +309,48 @@ async fn index(State(state): State<AppState>) -> Html<String> {
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Company OS</title>
 <style>
-body{{font-family:system-ui,sans-serif;max-width:1200px;margin:40px auto;padding:0 20px;background:#fafafa}}
-.card{{background:#fff;border:1px solid #ddd;border-radius:12px;padding:20px;margin:16px 0}}
-.grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}}
-table{{width:100%;border-collapse:collapse}}th,td{{text-align:left;padding:10px;border-bottom:1px solid #eee}}
-button{{padding:10px 14px;border:1px solid #bbb;border-radius:8px;background:#fff;cursor:pointer}}
-small{{color:#666}}
-code{{background:#f2f2f2;padding:2px 5px;border-radius:5px}}
+body{{font-family:system-ui,-apple-system,sans-serif;max-width:1180px;margin:0 auto;padding:24px;background:#fff;color:#111}}
+.card{{border:1px solid #ddd;padding:16px;margin:0 0 14px;background:#fff}}
+.grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}}
+.metric{{font-size:22px;font-weight:650;margin-top:6px}}
+.progress{{height:8px;background:#eee;margin-top:10px}} .progress>span{{display:block;height:8px;background:#111}}
+table{{width:100%;border-collapse:collapse}}th,td{{text-align:left;padding:9px;border-bottom:1px solid #e5e5e5;font-size:14px}}
+button{{padding:9px 12px;border:1px solid #111;background:#111;color:#fff;cursor:pointer}}
+small,.muted{{color:#666}} code{{background:#f3f3f3;padding:2px 4px}}
+nav{{display:flex;gap:14px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#111;text-decoration:none;border-bottom:1px solid #aaa;padding-bottom:2px}}
+@media(max-width:800px){{.grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}}} @media(max-width:520px){{.grid{{grid-template-columns:1fr}}}}
 </style></head><body>
 <h1>Company OS</h1>
 <small>Rust control plane • deterministic Governor + bounded execution + affiliate intelligence</small>
 <div class="grid">
-<div class="card"><strong>Cash</strong><div>{}</div></div>
-<div class="card"><strong>Revenue</strong><div>{}</div></div>
-<div class="card"><strong>Expenses</strong><div>{}</div></div>
-<div class="card"><strong>Runway</strong><div>{}</div></div>
+<div class="card"><small>Cash</small><div class="metric">{}</div></div>
+<div class="card"><small>Revenue</small><div class="metric">{}</div></div>
+<div class="card"><small>Monthly target</small><div class="metric">{}</div><div class="progress"><span style="width:{}%"></span></div><small>{}% of planning target</small></div>
+<div class="card"><small>Runway</small><div class="metric">{} days</div></div>
 </div>
-<div class="card"><strong>Status:</strong> {:?} &nbsp; <strong>Executed/Noop:</strong> {}</div>
-<div class="card"><h2>Run agents</h2>
+<div class="grid"><div class="card"><small>Status</small><div class="metric">{:?}</div></div><div class="card"><small>Agent cycle</small><div class="metric">{}</div></div><div class="card"><small>Backlog / capacity</small><div class="metric">{}%</div></div><div class="card"><small>Agent results</small><div class="metric">{}</div></div></div>
+<div class="card"><h2>Operate</h2>
 <form method="post" action="/run"><button type="submit">Run one decision cycle</button></form>
 <p><small>The LLM only proposes reasoning. Governor, execution policy, idempotency and persistent state remain deterministic.</small></p></div>
 <div class="card"><h2>Agents</h2>
 <table><tr><th>Agent</th><th>Governor</th><th>Execution</th><th>Action</th></tr>{}</table>
 </div>
-<div class="card"><h2>Affiliate Intelligence</h2>
+<div class="card"><h2>Commercial engine</h2>
 <p>Search live Awin feed data when <code>AFFILIATE_PROVIDER=awin</code>; local mock data is used by default.</p>
 <small>Example: <code>/api/affiliate/search?category=electronics&amp;min_commission_bps=1500&amp;require_coupon=true</code></small>
 </div>
 </body></html>"#,
+        state.company_id,
         format_minor(company.cash_minor, &state.currency),
         format_minor(company.revenue_minor, &state.currency),
-        format_minor(company.expenses_minor, &state.currency),
+        format_minor(target_minor, &state.currency),
+        target_pct,
+        target_pct,
         company.runway_days,
         company.status,
-        executed,
+        cycle_state,
+        capacity_pct,
+        agent_count,
         rows,
     ))
 }
