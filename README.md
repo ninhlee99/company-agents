@@ -81,6 +81,8 @@ Open:
 
     http://localhost:8080
 
+The control plane is authenticated by default. Set CONTROL_PLANE_TOKEN to a random secret of at least 32 bytes and send it as Authorization: Bearer <token>. For an intentionally isolated local-only development instance, CONTROL_PLANE_AUTH_DISABLED=true can be used.
+
 No paid API key is required.
 
 ## Run with an already-installed Ollama
@@ -120,7 +122,9 @@ Quality:
 - POST /api/run — run one complete decision cycle
 - POST /run — run one cycle and return to dashboard
 
-The current runtime is a safe agent/governance bootstrap. Real money, platform publishing and external account control remain behind later integration and acceptance gates.
+The current runtime is a controlled Agent Company OS. Deterministic governance, economic execution, durable scheduling, memory, affiliate accounting, media processing, customer CRM and commercial receivables are implemented. Real platform publishing, external messaging, payment-rail execution, multi-user identity/RBAC and unsupervised portfolio control remain explicit integration/acceptance gates.
+
+See docs/CAPABILITY_MATRIX.md for the strict capability boundary.
 
 
 ## Verification

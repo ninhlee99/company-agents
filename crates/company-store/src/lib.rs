@@ -168,6 +168,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/013_commercial_sales.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/014_customer_crm.sql"
+            ))
             .await
     }
 
@@ -3267,7 +3272,7 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
     pub async fn create_invoice(&self, invoice: &commercial_sales::Invoice, lines: &[commercial_sales::InvoiceLine]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if invoice.idempotency_key.trim().is_empty() || invoice.currency.len() != 3 || lines.is_empty() { return Err("invalid invoice".into()); }
         let total = commercial_sales::invoice_total(lines)?;
-        if total != invoice.subtotal_minor || invoice.paid_minor != 0 { return Err("invoice total or initial payment is invalid".into()); }
+        if total <= 0 || total != invoice.subtotal_minor || invoice.paid_minor != 0 { return Err("invoice total or initial payment is invalid".into()); }
         let mut c = self.client.lock().await; let tx = c.transaction().await?;
         if tx.query_opt("SELECT id FROM invoices WHERE company_id=$1 AND idempotency_key=$2",&[&invoice.company_id,&invoice.idempotency_key]).await?.is_some() { tx.rollback().await?; return Ok(()); }
         tx.execute("INSERT INTO invoices (id,company_id,customer_id,currency,subtotal_minor,paid_minor,status,due_epoch,idempotency_key) VALUES ($1,$2,$3,$4,$5::numeric,0,$6,$7,$8)",
@@ -3282,36 +3287,210 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
 
     pub async fn record_invoice_payment(&self, company_id: &str, invoice_id: &str, payment_id: &str, amount_minor: i128, occurred_at_epoch: i64, external_ref: Option<&str>) -> Result<commercial_sales::InvoiceStatus, Box<dyn std::error::Error + Send + Sync>> {
         if amount_minor <= 0 { return Err("invoice payment must be positive".into()); }
-        let company = Uuid::parse_str(company_id)?; let invoice = Uuid::parse_str(invoice_id)?; let payment = Uuid::parse_str(payment_id)?;
-        let mut c = self.client.lock().await; let tx = c.transaction().await?;
-        let row = tx.query_one("SELECT subtotal_minor::text,paid_minor::text,status FROM invoices WHERE company_id=$1 AND id=$2 FOR UPDATE",&[&company,&invoice]).await?;
-        let total = parse_i128_numeric(&row.get::<_,String>(0))?; let paid = parse_i128_numeric(&row.get::<_,String>(1))?; let status: String = row.get(2);
+        let company = Uuid::parse_str(company_id)?;
+        let invoice = Uuid::parse_str(invoice_id)?;
+        let payment = Uuid::parse_str(payment_id)?;
+        let mut c = self.client.lock().await;
+        let tx = c.transaction().await?;
+        let row = tx.query_one(
+            "SELECT subtotal_minor::text, paid_minor::text, status, currency
+               FROM invoices
+              WHERE company_id=$1 AND id=$2
+              FOR UPDATE",
+            &[&company, &invoice],
+        ).await?;
+        let total = parse_i128_numeric(&row.get::<_,String>(0))?;
+        let paid = parse_i128_numeric(&row.get::<_,String>(1))?;
+        let status: String = row.get(2);
+        let currency: String = row.get(3);
         if status == "VOID" || status == "DRAFT" { return Err("invoice is not payable".into()); }
-        let remaining = total.checked_sub(paid).ok_or("invoice remaining overflow")?; if amount_minor > remaining { return Err("invoice payment exceeds remaining balance".into()); }
-        if tx.execute("INSERT INTO invoice_payments (id,invoice_id,amount_minor,external_ref,occurred_at_epoch) VALUES ($1,$2,$3::numeric,$4,$5) ON CONFLICT (id) DO NOTHING",&[&payment,&invoice,&amount_minor.to_string(),&external_ref,&occurred_at_epoch]).await? == 0 {
+        let remaining = total.checked_sub(paid).ok_or("invoice remaining overflow")?;
+        if amount_minor > remaining { return Err("invoice payment exceeds remaining balance".into()); }
+
+        if tx.execute(
+            "INSERT INTO invoice_payments
+                (id,invoice_id,amount_minor,external_ref,occurred_at_epoch)
+             VALUES ($1,$2,$3::numeric,$4,$5)
+             ON CONFLICT (id) DO NOTHING",
+            &[&payment,&invoice,&amount_minor.to_string(),&external_ref,&occurred_at_epoch],
+        ).await? == 0 {
+            let current = match status.as_str() {
+                "PAID" => commercial_sales::InvoiceStatus::Paid,
+                "PARTIALLY_PAID" => commercial_sales::InvoiceStatus::PartiallyPaid,
+                "ISSUED" => commercial_sales::InvoiceStatus::Issued,
+                _ => commercial_sales::InvoiceStatus::Draft,
+            };
             tx.rollback().await?;
-            return Ok(match status.as_str() {"PAID"=>commercial_sales::InvoiceStatus::Paid,"PARTIALLY_PAID"=>commercial_sales::InvoiceStatus::PartiallyPaid,"ISSUED"=>commercial_sales::InvoiceStatus::Issued,_=>commercial_sales::InvoiceStatus::Draft});
+            return Ok(current);
         }
+
         let next = paid.checked_add(amount_minor).ok_or("invoice paid overflow")?;
         let next_status = commercial_sales::transition_invoice(commercial_sales::InvoiceStatus::Issued,next,total)?;
-        tx.execute("UPDATE invoices SET paid_minor=$3::numeric,status=$4,updated_at=now() WHERE company_id=$1 AND id=$2",&[&company,&invoice,&next.to_string(),&format!("{:?}",next_status).to_uppercase()]).await?;
-        tx.commit().await?; Ok(next_status)
+
+        let cash = ensure_ledger_account(&tx, company, "CASH", "Cash", "ASSET", &currency).await?;
+        let receivable = ensure_ledger_account(&tx, company, "ACCOUNTS_RECEIVABLE", "Accounts Receivable", "ASSET", &currency).await?;
+        let transaction_id = Uuid::new_v4();
+        let idempotency_key = format!("invoice-payment:{payment}");
+        tx.execute(
+            "INSERT INTO ledger_transactions (id,company_id,description,idempotency_key)
+             VALUES ($1,$2,$3,$4)
+             ON CONFLICT (company_id,idempotency_key) DO NOTHING",
+            &[&transaction_id,&company,&format!("Invoice payment {invoice}"),&idempotency_key],
+        ).await?;
+        insert_ledger_entry(&tx, transaction_id, cash, &amount_minor.to_string(), "0", &currency).await?;
+        insert_ledger_entry(&tx, transaction_id, receivable, "0", &amount_minor.to_string(), &currency).await?;
+
+        tx.execute(
+            "UPDATE invoices
+                SET paid_minor=$3::numeric,status=$4,updated_at=now()
+              WHERE company_id=$1 AND id=$2",
+            &[&company,&invoice,&next.to_string(),&format!("{:?}",next_status).to_uppercase()],
+        ).await?;
+        tx.commit().await?;
+        Ok(next_status)
     }
+
     pub async fn issue_invoice(&self, company_id: &str, invoice_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let company = Uuid::parse_str(company_id)?;
         let invoice = Uuid::parse_str(invoice_id)?;
         let mut c = self.client.lock().await;
-        let changed = c.execute(
-            "UPDATE invoices SET status='ISSUED', updated_at=now()
-             WHERE company_id=$1 AND id=$2 AND status='DRAFT'",
-            &[&company,&invoice]).await?;
-        if changed == 0 {
-            let exists = c.query_opt("SELECT status FROM invoices WHERE company_id=$1 AND id=$2",&[&company,&invoice]).await?;
-            return match exists { Some(row) if row.get::<_,String>(0) == "ISSUED" => Ok(()), Some(_) => Err("invoice cannot be issued from its current state".into()), None => Err("invoice not found".into()) };
+        let tx = c.transaction().await?;
+        let row = tx.query_opt(
+            "SELECT subtotal_minor::text, currency, status
+               FROM invoices
+              WHERE company_id=$1 AND id=$2
+              FOR UPDATE",
+            &[&company,&invoice],
+        ).await?;
+        let Some(row) = row else {
+            return Err("invoice not found".into());
+        };
+        let total = parse_i128_numeric(&row.get::<_,String>(0))?;
+        let currency: String = row.get(1);
+        let status: String = row.get(2);
+        if status == "ISSUED" {
+            tx.rollback().await?;
+            return Ok(());
         }
+        if status != "DRAFT" {
+            return Err("invoice cannot be issued from its current state".into());
+        }
+        if total <= 0 {
+            return Err("invoice total must be positive before issue".into());
+        }
+
+        let receivable = ensure_ledger_account(&tx, company, "ACCOUNTS_RECEIVABLE", "Accounts Receivable", "ASSET", &currency).await?;
+        let revenue = ensure_ledger_account(&tx, company, "INVOICE_REVENUE", "Invoice Revenue", "REVENUE", &currency).await?;
+        let transaction_id = Uuid::new_v4();
+        let idempotency_key = format!("invoice-issued:{invoice}");
+        tx.execute(
+            "INSERT INTO ledger_transactions (id,company_id,description,idempotency_key)
+             VALUES ($1,$2,$3,$4)
+             ON CONFLICT (company_id,idempotency_key) DO NOTHING",
+            &[&transaction_id,&company,&format!("Invoice issued {invoice}"),&idempotency_key],
+        ).await?;
+        insert_ledger_entry(&tx, transaction_id, receivable, &total.to_string(), "0", &currency).await?;
+        insert_ledger_entry(&tx, transaction_id, revenue, "0", &total.to_string(), &currency).await?;
+        tx.execute(
+            "UPDATE invoices SET status='ISSUED', updated_at=now()
+              WHERE company_id=$1 AND id=$2",
+            &[&company,&invoice],
+        ).await?;
+        tx.commit().await?;
         Ok(())
     }
 
+    pub async fn create_customer(
+        &self,
+        company_id: &str,
+        customer_id: Uuid,
+        name: &str,
+        email: Option<&str>,
+        external_ref: Option<&str>,
+        status: &str,
+        notes: Option<&str>,
+        idempotency_key: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        if name.trim().is_empty() || name.len() > 200 || idempotency_key.trim().is_empty() || idempotency_key.len() > 256 {
+            return Err("invalid customer identity".into());
+        }
+        if !matches!(status, "LEAD" | "ACTIVE" | "INACTIVE" | "CHURNED") {
+            return Err("invalid customer status".into());
+        }
+        if let Some(value) = email {
+            if value.len() > 320 || !value.contains('@') {
+                return Err("invalid customer email".into());
+            }
+        }
+        let mut client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "INSERT INTO customers
+                    (id, company_id, name, email, external_ref, status, notes, idempotency_key)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                 ON CONFLICT (company_id, idempotency_key) WHERE idempotency_key IS NOT NULL
+                 DO NOTHING
+                 RETURNING id, name, email, external_ref, status, notes, lifetime_revenue_minor::text, created_at, updated_at",
+                &[&customer_id, &company, &name, &email, &external_ref, &status, &notes, &idempotency_key],
+            )
+            .await?;
+        let row = match row {
+            Some(row) => row,
+            None => client
+                .query_one(
+                    "SELECT id, name, email, external_ref, status, notes,
+                            lifetime_revenue_minor::text, created_at, updated_at
+                       FROM customers
+                      WHERE company_id=$1 AND idempotency_key=$2",
+                    &[&company, &idempotency_key],
+                )
+                .await?,
+        };
+        Ok(serde_json::json!({
+            "id": row.get::<_, Uuid>(0),
+            "name": row.get::<_, String>(1),
+            "email": row.get::<_, Option<String>>(2),
+            "external_ref": row.get::<_, Option<String>>(3),
+            "status": row.get::<_, String>(4),
+            "notes": row.get::<_, Option<String>>(5),
+            "lifetime_revenue_minor": row.get::<_, String>(6),
+            "created_at": row.get::<_, time::OffsetDateTime>(7).to_string(),
+            "updated_at": row.get::<_, time::OffsetDateTime>(8).to_string()
+        }))
+    }
+
+    pub async fn list_customers(
+        &self,
+        company_id: &str,
+        limit: i64,
+    ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=200).contains(&limit) {
+            return Err("customer limit must be between 1 and 200".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client.query(
+            "SELECT id, name, email, external_ref, status, notes,
+                    lifetime_revenue_minor::text, created_at, updated_at
+               FROM customers
+              WHERE company_id=$1
+              ORDER BY created_at DESC, id DESC
+              LIMIT $2",
+            &[&company, &limit],
+        ).await?;
+        Ok(rows.into_iter().map(|row| serde_json::json!({
+            "id": row.get::<_, Uuid>(0),
+            "name": row.get::<_, String>(1),
+            "email": row.get::<_, Option<String>>(2),
+            "external_ref": row.get::<_, Option<String>>(3),
+            "status": row.get::<_, String>(4),
+            "notes": row.get::<_, Option<String>>(5),
+            "lifetime_revenue_minor": row.get::<_, String>(6),
+            "created_at": row.get::<_, time::OffsetDateTime>(7).to_string(),
+            "updated_at": row.get::<_, time::OffsetDateTime>(8).to_string()
+        })).collect())
+    }
 
 }
 

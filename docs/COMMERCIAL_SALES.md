@@ -18,8 +18,14 @@ The Company OS now has durable primitives for non-affiliate monetization.
 
 Payments are bounded by the outstanding invoice balance and cannot be recorded against `DRAFT` or `VOID` invoices.
 
-## Accounting boundary
+## Accounting
 
-These endpoints model the commercial lifecycle and receivable state. They do not invent bank settlement: an external payment reference is accepted as evidence, while cash/ledger settlement remains a separate governed accounting operation.
+Issuing an invoice posts Accounts Receivable → Invoice Revenue. Recording a payment posts Cash → Accounts Receivable. Both postings use deterministic idempotency keys inside the same PostgreSQL transaction as the commercial state transition.
+
+The system still does not claim that an external payment reference is proof of bank settlement; provider/bank reconciliation remains an explicit acceptance boundary.
+
+## Customer CRM
+
+`POST /api/customers` creates an idempotent customer record and `GET /api/customers` lists the current company customer set. Customer records support lead/active/inactive/churned lifecycle states, external references and operator notes.
 
 All amounts use integer minor units and checked arithmetic.

@@ -38,8 +38,10 @@ Durable media jobs, sandboxed FFmpeg, FFprobe QA and publishing approval contrac
 **Status: affiliate + commercial sales lifecycle implemented**
 - Product discovery/ranking, coupon validation, Awin/TikTok Shop adapters.
 - Click/conversion attribution, provider verification, receivable recognition and payout accounting.
+- Customer CRM identity/lifecycle, service proposals, sponsorships and invoices.
+- Invoice issuance/payment now posts deterministic Accounts Receivable/Cash/Revenue ledger entries.
 
-**Next product work:** richer sponsorship delivery/reporting and broader verified revenue ingestion.
+**Next product work:** proposal/sponsorship status workflows, richer delivery/reporting and broader verified revenue ingestion.
 
 ## Phase 7 — Human Organization
 **Status: core economics implemented**

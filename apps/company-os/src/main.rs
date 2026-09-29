@@ -4,9 +4,10 @@ use affiliate_intelligence::{
 };
 use agent_runtime::{model_from_env, AgentRunResult, AgentRuntime, CompanySnapshot};
 use axum::{
-    extract::{Query, State},
+    extract::{Query, State, Request},
     http::StatusCode,
-    response::Html,
+    middleware::{self, Next},
+    response::{Html, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -20,6 +21,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::{Mutex, RwLock};
+use subtle::ConstantTimeEq;
 
 #[derive(Default)]
 struct RuntimeMetrics {
@@ -114,6 +116,7 @@ struct AffiliateSearchParams {
 #[derive(Debug, Deserialize)] struct InvoiceRequest { customer_id: uuid::Uuid, currency: String, due_epoch: i64, idempotency_key: String, lines: Vec<InvoiceLineRequest> }
 #[derive(Debug, Deserialize)] struct InvoiceIssueRequest { invoice_id: uuid::Uuid }
 #[derive(Debug, Deserialize)] struct InvoicePaymentRequest { invoice_id: uuid::Uuid, payment_id: uuid::Uuid, amount_minor: i128, occurred_at_epoch: i64, external_ref: Option<String> }
+#[derive(Debug, Deserialize)] struct CustomerRequest { name: String, email: Option<String>, external_ref: Option<String>, status: Option<String>, notes: Option<String>, idempotency_key: String }
 
 fn format_minor(value: i128, currency: &str) -> String {
     let negative = value < 0;
@@ -647,6 +650,65 @@ async fn invoice_payment_api(State(state): State<AppState>, Json(req): Json<Invo
     state.store.record_invoice_payment(&state.company_id,&req.invoice_id.to_string(),&req.payment_id.to_string(),req.amount_minor,req.occurred_at_epoch,req.external_ref.as_deref()).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
 }
 
+
+fn control_plane_auth_disabled() -> bool {
+    std::env::var("CONTROL_PLANE_AUTH_DISABLED")
+        .ok()
+        .is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+}
+
+async fn require_control_plane_auth(request: Request, next: Next) -> Result<Response, StatusCode> {
+    let path = request.uri().path();
+    if matches!(path, "/healthz" | "/readyz" | "/metrics") {
+        return Ok(next.run(request).await);
+    }
+    if control_plane_auth_disabled() {
+        return Ok(next.run(request).await);
+    }
+
+    let expected = std::env::var("CONTROL_PLANE_TOKEN").map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let provided = request
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .filter(|value| !value.is_empty());
+
+    let valid = provided
+        .map(|value| bool::from(expected.as_bytes().ct_eq(value.as_bytes())))
+        .unwrap_or(false);
+
+    if valid {
+        Ok(next.run(request).await)
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
+    }
+}
+
+
+async fn customer_api(
+    State(state): State<AppState>,
+    Json(req): Json<CustomerRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let status = req.status.unwrap_or_else(|| "LEAD".into());
+    state.store.create_customer(
+        &state.company_id,
+        uuid::Uuid::new_v4(),
+        &req.name,
+        req.email.as_deref(),
+        req.external_ref.as_deref(),
+        &status,
+        req.notes.as_deref(),
+        &req.idempotency_key,
+    ).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn customers_api(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    state.store.list_customers(&state.company_id, 200).await.map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 async fn healthz() -> &'static str {
     "ok"
 }
@@ -818,6 +880,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     });
 
+    if !control_plane_auth_disabled() {
+        let token = std::env::var("CONTROL_PLANE_TOKEN")
+            .map_err(|_| "CONTROL_PLANE_TOKEN is required unless CONTROL_PLANE_AUTH_DISABLED=true")?;
+        if token.len() < 32 {
+            return Err("CONTROL_PLANE_TOKEN must be at least 32 bytes".into());
+        }
+    }
+
     let app = Router::new()
         .route("/", get(index))
         .route("/run", post(run_html))
@@ -834,6 +904,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/publishing/intents/claim", post(publish_claim_api))
         .route("/api/publishing/intents/complete", post(publish_complete_api))
         .route("/api/publishing/intents/revoke", post(publish_revoke_api))
+        .route("/api/customers", get(customers_api).post(customer_api))
         .route("/api/employees", get(employees_api))
         .route("/api/payroll/due", get(payroll_due_api))
         .route("/api/commercial/proposals", post(service_proposal_api))
@@ -847,7 +918,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .route("/metrics", get(metrics))
-        .with_state(state);
+        .with_state(state)
+        .layer(middleware::from_fn(require_control_plane_auth));
 
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", 8080)).await?;
 
