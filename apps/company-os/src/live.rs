@@ -107,7 +107,7 @@ pub async fn record_event(
             {
                 generated.action = tiktok_live_engine::ResponseAction::WelcomeViewer;
                 generated.text = format!(
-                    "Chào mừng {}! Mình đang theo dõi câu hỏi của bạn để hỗ trợ đúng lúc.",
+                    "Chào mừng {}! Mình sẽ ưu tiên hỗ trợ bạn đúng lúc trong LIVE.",
                     req.event.display_name.as_deref().unwrap_or("bạn")
                 );
                 generated.priority = attention.priority;
