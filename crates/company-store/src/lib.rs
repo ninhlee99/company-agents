@@ -3951,6 +3951,70 @@ async fn tx_store_live_gift_statement(
     Ok(())
 }
 
+fn attention_action_name(
+    value: company_live_attention::AttentionAction,
+) -> &'static str {
+    match value {
+        company_live_attention::AttentionAction::Respond => "RESPOND",
+        company_live_attention::AttentionAction::Defer => "DEFER",
+        company_live_attention::AttentionAction::Ignore => "IGNORE",
+        company_live_attention::AttentionAction::Escalate => "ESCALATE",
+    }
+}
+
+fn attention_reason_name(
+    value: company_live_attention::AttentionReason,
+) -> &'static str {
+    match value {
+        company_live_attention::AttentionReason::PurchaseIntent => "PURCHASE_INTENT",
+        company_live_attention::AttentionReason::Objection => "OBJECTION",
+        company_live_attention::AttentionReason::Gift => "GIFT",
+        company_live_attention::AttentionReason::PkMoment => "PK_MOMENT",
+        company_live_attention::AttentionReason::HighEngagement => "HIGH_ENGAGEMENT",
+        company_live_attention::AttentionReason::HighValueViewer => "HIGH_VALUE_VIEWER",
+        company_live_attention::AttentionReason::SafetyEscalation => "SAFETY_ESCALATION",
+        company_live_attention::AttentionReason::Cooldown => "COOLDOWN",
+        company_live_attention::AttentionReason::RateLimited => "RATE_LIMITED",
+        company_live_attention::AttentionReason::LowSignal => "LOW_SIGNAL",
+    }
+}
+
+fn attention_decision_from_row(
+    row: tokio_postgres::Row,
+) -> Result<company_live_attention::AttentionDecision, Box<dyn std::error::Error + Send + Sync>> {
+    let action = match row.get::<_, String>(4).as_str() {
+        "RESPOND" => company_live_attention::AttentionAction::Respond,
+        "DEFER" => company_live_attention::AttentionAction::Defer,
+        "IGNORE" => company_live_attention::AttentionAction::Ignore,
+        "ESCALATE" => company_live_attention::AttentionAction::Escalate,
+        other => return Err(format!("invalid stored attention action: {other}").into()),
+    };
+    let reason = match row.get::<_, String>(5).as_str() {
+        "PURCHASE_INTENT" => company_live_attention::AttentionReason::PurchaseIntent,
+        "OBJECTION" => company_live_attention::AttentionReason::Objection,
+        "GIFT" => company_live_attention::AttentionReason::Gift,
+        "PK_MOMENT" => company_live_attention::AttentionReason::PkMoment,
+        "HIGH_ENGAGEMENT" => company_live_attention::AttentionReason::HighEngagement,
+        "HIGH_VALUE_VIEWER" => company_live_attention::AttentionReason::HighValueViewer,
+        "SAFETY_ESCALATION" => company_live_attention::AttentionReason::SafetyEscalation,
+        "COOLDOWN" => company_live_attention::AttentionReason::Cooldown,
+        "RATE_LIMITED" => company_live_attention::AttentionReason::RateLimited,
+        "LOW_SIGNAL" => company_live_attention::AttentionReason::LowSignal,
+        other => return Err(format!("invalid stored attention reason: {other}").into()),
+    };
+    Ok(company_live_attention::AttentionDecision {
+        decision_id: row.get(0),
+        company_id: row.get(1),
+        session_id: row.get(2),
+        event_id: row.get(3),
+        action,
+        reason,
+        priority: row.get::<_, i16>(6).clamp(0, 100) as u8,
+        decided_at_epoch: row.get(7),
+        requires_human: row.get(8),
+    })
+}
+
 fn parse_reconciliation_status(
     value: &str,
 ) -> Result<affiliate_attribution::ReconciliationStatus, Box<dyn std::error::Error + Send + Sync>> {
