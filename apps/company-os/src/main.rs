@@ -141,20 +141,13 @@ struct AffiliateSearchParams {
 #[derive(Debug, Deserialize)] struct InvoiceLineRequest { description: String, quantity: u32, unit_price_minor: i128 }
 #[derive(Debug, Deserialize)] struct InvoiceRequest { customer_id: uuid::Uuid, currency: String, due_epoch: i64, idempotency_key: String, lines: Vec<InvoiceLineRequest> }
 #[derive(Debug, Deserialize)] struct InvoiceIssueRequest { invoice_id: uuid::Uuid }
+#[derive(Debug, Deserialize)] struct PaymentReconciliationEvidenceRequest { invoice_id: uuid::Uuid, provider: String, provider_event_id: String, external_ref: Option<String>, amount_minor: i128, currency: String, observed_at_epoch: i64, evidence_hash: String }
 #[derive(Debug, Deserialize)] struct InvoicePaymentRequest { invoice_id: uuid::Uuid, payment_id: uuid::Uuid, amount_minor: i128, occurred_at_epoch: i64, external_ref: Option<String> }
-#[derive(Debug, Deserialize)] struct OutboundEmailRequest {
-    recipient: String,
-    subject: String,
-    html_body: String,
-    consent_basis: String,
-    unsubscribe_url: Option<String>,
-    idempotency_key: String,
-}
-#[derive(Debug, Deserialize)] struct OutboundEmailApproveRequest {
-    message_id: uuid::Uuid,
-    approved_by: String,
-    approval_reference: String,
-}
+#[derive(Debug, Deserialize)] struct OutboundEmailRequest { recipient:String, subject:String, html_body:String, consent_basis:String, unsubscribe_url:Option<String>, idempotency_key:String }
+#[derive(Debug, Deserialize)] struct OutboundEmailApproveRequest { message_id:uuid::Uuid, approved_by:String, approval_reference:String }
+#[derive(Debug, Deserialize)] struct ProposalTransitionRequest { proposal_id: uuid::Uuid, status: commercial_sales::ProposalStatus }
+#[derive(Debug, Deserialize)] struct SponsorshipTransitionRequest { sponsorship_id: uuid::Uuid, status: String }
+#[derive(Debug, Deserialize)] struct SponsorshipDeliveryRequest { sponsorship_id: uuid::Uuid, delivered_minor: i128 }
 #[derive(Debug, Deserialize)] struct CustomerRequest { name: String, email: Option<String>, external_ref: Option<String>, status: Option<String>, notes: Option<String>, idempotency_key: String }
 
 fn format_minor(value: i128, currency: &str) -> String {
@@ -715,10 +708,62 @@ async fn invoice_api(State(state): State<AppState>, Json(req): Json<InvoiceReque
 async fn invoice_issue_api(State(state): State<AppState>, Json(req): Json<InvoiceIssueRequest>) -> Result<StatusCode, StatusCode> {
     state.store.issue_invoice(&state.company_id,&req.invoice_id.to_string()).await.map(|_| StatusCode::ACCEPTED).map_err(|_| StatusCode::BAD_REQUEST)
 }
+
+async fn commercial_pipeline_api(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.list_commercial_pipeline(&state.company_id, 100)
+        .await.map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn proposal_transition_api(
+    State(state): State<AppState>,
+    Json(req): Json<ProposalTransitionRequest>,
+) -> Result<StatusCode, StatusCode> {
+    state.store.transition_service_proposal(
+        &state.company_id,
+        &req.proposal_id.to_string(),
+        req.status,
+    ).await.map(|_| StatusCode::ACCEPTED).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn sponsorship_transition_api(
+    State(state): State<AppState>,
+    Json(req): Json<SponsorshipTransitionRequest>,
+) -> Result<StatusCode, StatusCode> {
+    state.store.transition_sponsorship(
+        &state.company_id,
+        &req.sponsorship_id.to_string(),
+        &req.status,
+    ).await.map(|_| StatusCode::ACCEPTED).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn sponsorship_delivery_api(
+    State(state): State<AppState>,
+    Json(req): Json<SponsorshipDeliveryRequest>,
+) -> Result<StatusCode, StatusCode> {
+    state.store.record_sponsorship_delivery(
+        &state.company_id,
+        &req.sponsorship_id.to_string(),
+        req.delivered_minor,
+    ).await.map(|_| StatusCode::ACCEPTED).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
 async fn invoice_payment_api(State(state): State<AppState>, Json(req): Json<InvoicePaymentRequest>) -> Result<Json<commercial_sales::InvoiceStatus>, StatusCode> {
     state.store.record_invoice_payment(&state.company_id,&req.invoice_id.to_string(),&req.payment_id.to_string(),req.amount_minor,req.occurred_at_epoch,req.external_ref.as_deref()).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
 }
 
+
+async fn payment_reconciliation_evidence_api(
+    State(state): State<AppState>,
+    Json(req): Json<PaymentReconciliationEvidenceRequest>,
+) -> Result<Json<String>, StatusCode> {
+    state.store.record_payment_reconciliation_evidence(
+        &state.company_id, &req.invoice_id.to_string(), &req.provider,
+        &req.provider_event_id, req.external_ref.as_deref(), req.amount_minor,
+        &req.currency, req.observed_at_epoch, &req.evidence_hash,
+    ).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
 
 fn control_plane_auth_disabled() -> bool {
     std::env::var("CONTROL_PLANE_AUTH_DISABLED")
@@ -728,7 +773,7 @@ fn control_plane_auth_disabled() -> bool {
 
 async fn require_control_plane_auth(request: Request, next: Next) -> Result<Response, StatusCode> {
     let path = request.uri().path();
-    if matches!(path, "/healthz" | "/readyz" | "/metrics") {
+    if matches!(path, "/healthz" | "/readyz" | "/metrics" | "/api/publishing/tiktok/webhook") {
         return Ok(next.run(request).await);
     }
     if control_plane_auth_disabled() {
@@ -755,32 +800,11 @@ async fn require_control_plane_auth(request: Request, next: Next) -> Result<Resp
 }
 
 
-async fn outbound_email_queue_api(
-    State(state): State<AppState>,
-    Json(req): Json<OutboundEmailRequest>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    state.store.queue_outbound_email(
-        &state.company_id,
-        uuid::Uuid::new_v4(),
-        &req.recipient,
-        &req.subject,
-        &req.html_body,
-        &req.idempotency_key,
-        &req.consent_basis,
-        req.unsubscribe_url.as_deref(),
-    ).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+async fn outbound_email_queue_api(State(state): State<AppState>, Json(req): Json<OutboundEmailRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.queue_outbound_email(&state.company_id, uuid::Uuid::new_v4(), &req.recipient, &req.subject, &req.html_body, &req.idempotency_key, &req.consent_basis, req.unsubscribe_url.as_deref()).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
 }
-
-async fn outbound_email_approve_api(
-    State(state): State<AppState>,
-    Json(req): Json<OutboundEmailApproveRequest>,
-) -> Result<StatusCode, StatusCode> {
-    state.store.approve_outbound_email(
-        &state.company_id,
-        &req.message_id.to_string(),
-        &req.approved_by,
-        &req.approval_reference,
-    ).await.map(|_| StatusCode::ACCEPTED).map_err(|_| StatusCode::BAD_REQUEST)
+async fn outbound_email_approve_api(State(state): State<AppState>, Json(req): Json<OutboundEmailApproveRequest>) -> Result<StatusCode, StatusCode> {
+    state.store.approve_outbound_email(&state.company_id, &req.message_id.to_string(), &req.approved_by, &req.approval_reference).await.map(|_| StatusCode::ACCEPTED).map_err(|_| StatusCode::BAD_REQUEST)
 }
 
 async fn customer_api(
@@ -1003,14 +1027,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/publishing/intents/revoke", post(publish_revoke_api))
         .route("/api/publishing/tiktok/execute", post(publishing::execute_tiktok))
         .route("/api/publishing/tiktok/status", post(publishing::tiktok_status))
+        .route("/api/publishing/tiktok/webhook", post(publishing::tiktok_webhook))
         .route("/api/customers", get(customers_api).post(customer_api))
         .route("/api/employees", get(employees_api))
         .route("/api/payroll/due", get(payroll_due_api))
         .route("/api/commercial/proposals", post(service_proposal_api))
+        .route("/api/commercial/pipeline", get(commercial_pipeline_api))
+        .route("/api/commercial/proposals/transition", post(proposal_transition_api))
+        .route("/api/commercial/sponsorships/transition", post(sponsorship_transition_api))
+        .route("/api/commercial/sponsorships/delivery", post(sponsorship_delivery_api))
         .route("/api/commercial/sponsorships", post(sponsorship_api))
         .route("/api/commercial/invoices", post(invoice_api))
         .route("/api/commercial/invoices/issue", post(invoice_issue_api))
         .route("/api/commercial/invoice-payments", post(invoice_payment_api))
+        .route("/api/commercial/payments/reconcile", post(payment_reconciliation_evidence_api))
         .route("/api/outbound/email", post(outbound_email_queue_api))
         .route("/api/outbound/email/approve", post(outbound_email_approve_api))
         .route("/api/business-units", get(business_units_api))

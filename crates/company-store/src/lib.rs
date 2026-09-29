@@ -173,6 +173,21 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/014_customer_crm.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/015_tiktok_webhook_receipts.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/017_payment_reconciliation_evidence.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/018_outbound_messages.sql"
+            ))
             .await
     }
 
@@ -778,6 +793,112 @@ impl CompanyStore {
             intent,
             execution_token: execution_token.to_string(),
         }))
+    }
+
+    pub async fn record_publish_started(
+        &self,
+        company_id: &str,
+        intent_id: &str,
+        execution_token: &str,
+        publish_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if publish_id.trim().is_empty() || publish_id.len() > 512 {
+            return Err("TikTok publish id is invalid".into());
+        }
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let intent_uuid = Uuid::parse_str(intent_id)?;
+        let execution_uuid = Uuid::parse_str(execution_token)?;
+        let client = self.client.lock().await;
+        let changed = client
+            .execute(
+                "UPDATE publish_intents
+                    SET external_reference=$4
+                  WHERE company_id=$1 AND id=$2
+                    AND status='RUNNING' AND execution_token=$3",
+                &[&company_uuid, &intent_uuid, &execution_uuid, &publish_id],
+            )
+            .await?;
+        if changed == 0 {
+            return Err("publish execution token is invalid or lease is no longer owned".into());
+        }
+        Ok(())
+    }
+
+    pub async fn reconcile_tiktok_webhook(
+        &self,
+        company_id: &str,
+        event_key: &str,
+        event_name: &str,
+        publish_id: Option<&str>,
+        payload_hash: &str,
+        success: Option<bool>,
+        failure_reason: Option<&str>,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        if event_key.trim().is_empty() || event_key.len() > 512 {
+            return Err("TikTok webhook event key is invalid".into());
+        }
+        let client = self.client.lock().await;
+        let mut tx = client.transaction().await?;
+        let inserted = tx
+            .execute(
+                "INSERT INTO tiktok_webhook_receipts
+                 (id, company_id, event_key, event_name, publish_id, payload_hash)
+                 VALUES ($1,$2,$3,$4,$5,$6)
+                 ON CONFLICT (company_id,event_key) DO NOTHING",
+                &[
+                    &Uuid::new_v4(),
+                    &company_uuid,
+                    &event_key,
+                    &event_name,
+                    &publish_id,
+                    &payload_hash,
+                ],
+            )
+            .await?;
+        if inserted == 0 {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+
+        if let (Some(publish_id), Some(success)) = (publish_id, success) {
+            let final_status = if success { "SUCCEEDED" } else { "FAILED" };
+            let error_message = failure_reason.filter(|v| !v.is_empty());
+            let changed = tx
+                .execute(
+                    "UPDATE publish_intents
+                        SET status=$4,
+                            error_message=$5,
+                            execution_token=NULL,
+                            locked_until=NULL
+                      WHERE company_id=$1 AND external_reference=$2 AND status='RUNNING'",
+                    &[&company_uuid, &publish_id, &final_status, &error_message],
+                )
+                .await?;
+            if changed > 0 {
+                tx.execute(
+                    "INSERT INTO outbox_events
+                     (company_id,event_type,aggregate_id,idempotency_key,payload)
+                     VALUES ($1,'PUBLISH_INTENT_COMPLETED',$2,$3,$4)
+                     ON CONFLICT (company_id,idempotency_key) DO NOTHING",
+                    &[
+                        &company_uuid,
+                        &publish_id,
+                        &format!("outbox:tiktok-webhook:{event_key}"),
+                        &serde_json::json!({
+                            "event": event_name,
+                            "publish_id": publish_id,
+                            "success": success,
+                            "error_message": error_message,
+                        }),
+                    ],
+                )
+                .await?;
+            }
+        }
+
+        tx.commit().await?;
+        Ok(true)
     }
 
     pub async fn complete_publish_intent(
@@ -3285,6 +3406,64 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         tx.commit().await?; Ok(())
     }
 
+    pub async fn record_payment_reconciliation_evidence(
+        &self,
+        company_id: &str,
+        invoice_id: &str,
+        provider: &str,
+        provider_event_id: &str,
+        external_ref: Option<&str>,
+        amount_minor: i128,
+        currency: &str,
+        observed_at_epoch: i64,
+        evidence_hash: &str,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        if amount_minor <= 0 || currency.len() != 3 || provider.trim().is_empty() || provider_event_id.trim().is_empty() {
+            return Err("invalid payment reconciliation evidence".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let invoice = Uuid::parse_str(invoice_id)?;
+        let mut c = self.client.lock().await;
+        let tx = c.transaction().await?;
+        if let Some(row) = tx.query_opt(
+            "SELECT status FROM payment_reconciliation_evidence WHERE company_id=$1 AND provider=$2 AND provider_event_id=$3",
+            &[&company,&provider,&provider_event_id]
+        ).await? {
+            let status: String = row.get(0);
+            tx.rollback().await?;
+            return Ok(status);
+        }
+        let inv = tx.query_opt(
+            "SELECT currency, subtotal_minor::text, paid_minor::text FROM invoices WHERE company_id=$1 AND id=$2 FOR UPDATE",
+            &[&company,&invoice]
+        ).await?.ok_or("invoice not found")?;
+        let invoice_currency: String = inv.get(0);
+        if invoice_currency != currency { return Err("payment currency does not match invoice".into()); }
+        let total = parse_i128_numeric(&inv.get::<_,String>(1))?;
+        let paid = parse_i128_numeric(&inv.get::<_,String>(2))?;
+        let remaining = total.checked_sub(paid).ok_or("invoice remaining overflow")?;
+        let status = if amount_minor <= remaining { "OBSERVED" } else { "REJECTED" };
+        let reason = if status == "REJECTED" { Some("observed payment exceeds invoice remaining balance") } else { None };
+        tx.execute(
+            "INSERT INTO payment_reconciliation_evidence
+             (id,company_id,invoice_id,provider,provider_event_id,external_ref,observed_amount_minor,currency,observed_at_epoch,evidence_hash,status,reason)
+             VALUES ($1,$2,$3,$4,$5,$6,$7::numeric,$8,$9,$10,$11,$12)",
+            &[&Uuid::new_v4(),&company,&invoice,&provider,&provider_event_id,&external_ref,&amount_minor.to_string(),&currency,&observed_at_epoch,&evidence_hash,&status,&reason]
+        ).await?;
+        if status == "OBSERVED" {
+            tx.execute(
+                "INSERT INTO outbox_events
+                 (company_id,event_type,aggregate_id,idempotency_key,payload)
+                 VALUES ($1,'PAYMENT_RECONCILIATION_OBSERVED',$2,$3,$4)
+                 ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+                &[&company,&invoice,&format!("payment-reconcile:{provider}:{provider_event_id}"),
+                  &serde_json::json!({"invoice_id":invoice_id,"provider":provider,"provider_event_id":provider_event_id,"amount_minor":amount_minor,"currency":currency})]
+            ).await?;
+        }
+        tx.commit().await?;
+        Ok(status.to_owned())
+    }
+
     pub async fn record_invoice_payment(&self, company_id: &str, invoice_id: &str, payment_id: &str, amount_minor: i128, occurred_at_epoch: i64, external_ref: Option<&str>) -> Result<commercial_sales::InvoiceStatus, Box<dyn std::error::Error + Send + Sync>> {
         if amount_minor <= 0 { return Err("invoice payment must be positive".into()); }
         let company = Uuid::parse_str(company_id)?;
@@ -3492,26 +3671,243 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         })).collect())
     }
 
-    pub async fn queue_outbound_email(
+    pub async fn list_commercial_pipeline(
         &self,
         company_id: &str,
-        message_id: Uuid,
-        recipient: &str,
-        subject: &str,
-        html_body: &str,
-        idempotency_key: &str,
-        consent_basis: &str,
+        limit: i64,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=200).contains(&limit) {
+            return Err("commercial pipeline limit must be between 1 and 200".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let proposals = client.query(
+            "SELECT id, customer_id, title, currency, total_minor::text, status,
+                    valid_until_epoch, created_at, updated_at
+               FROM service_proposals
+              WHERE company_id=$1
+              ORDER BY created_at DESC, id DESC
+              LIMIT $2",
+            &[&company, &limit],
+        ).await?;
+        let sponsorships = client.query(
+            "SELECT id, customer_id, title, currency, committed_minor::text,
+                    delivered_minor::text, status, created_at, updated_at
+               FROM sponsorships
+              WHERE company_id=$1
+              ORDER BY created_at DESC, id DESC
+              LIMIT $2",
+            &[&company, &limit],
+        ).await?;
+        let invoices = client.query(
+            "SELECT id, customer_id, currency, subtotal_minor::text,
+                    paid_minor::text, status, due_epoch, created_at, updated_at
+               FROM invoices
+              WHERE company_id=$1
+              ORDER BY created_at DESC, id DESC
+              LIMIT $2",
+            &[&company, &limit],
+        ).await?;
+
+        Ok(serde_json::json!({
+            "proposals": proposals.into_iter().map(|row| serde_json::json!({
+                "id": row.get::<_, Uuid>(0),
+                "customer_id": row.get::<_, Uuid>(1),
+                "title": row.get::<_, String>(2),
+                "currency": row.get::<_, String>(3),
+                "total_minor": row.get::<_, String>(4),
+                "status": row.get::<_, String>(5),
+                "valid_until_epoch": row.get::<_, i64>(6),
+                "created_at": row.get::<_, time::OffsetDateTime>(7).to_string(),
+                "updated_at": row.get::<_, time::OffsetDateTime>(8).to_string()
+            })).collect::<Vec<_>>(),
+            "sponsorships": sponsorships.into_iter().map(|row| serde_json::json!({
+                "id": row.get::<_, Uuid>(0),
+                "customer_id": row.get::<_, Uuid>(1),
+                "title": row.get::<_, String>(2),
+                "currency": row.get::<_, String>(3),
+                "committed_minor": row.get::<_, String>(4),
+                "delivered_minor": row.get::<_, String>(5),
+                "status": row.get::<_, String>(6),
+                "created_at": row.get::<_, time::OffsetDateTime>(7).to_string(),
+                "updated_at": row.get::<_, time::OffsetDateTime>(8).to_string()
+            })).collect::<Vec<_>>(),
+            "invoices": invoices.into_iter().map(|row| serde_json::json!({
+                "id": row.get::<_, Uuid>(0),
+                "customer_id": row.get::<_, Uuid>(1),
+                "currency": row.get::<_, String>(2),
+                "subtotal_minor": row.get::<_, String>(3),
+                "paid_minor": row.get::<_, String>(4),
+                "status": row.get::<_, String>(5),
+                "due_epoch": row.get::<_, i64>(6),
+                "created_at": row.get::<_, time::OffsetDateTime>(7).to_string(),
+                "updated_at": row.get::<_, time::OffsetDateTime>(8).to_string()
+            })).collect::<Vec<_>>()
+        }))
+    }
+
+    pub async fn transition_service_proposal(
+        &self,
+        company_id: &str,
+        proposal_id: &str,
+        next: commercial_sales::ProposalStatus,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let proposal = Uuid::parse_str(proposal_id)?;
+        let next_status = format!("{:?}", next).to_uppercase();
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let row = tx.query_opt(
+            "SELECT status FROM service_proposals
+              WHERE company_id=$1 AND id=$2 FOR UPDATE",
+            &[&company, &proposal],
+        ).await?.ok_or("service proposal not found")?;
+        let current = match row.get::<_, String>(0).as_str() {
+            "DRAFT" => commercial_sales::ProposalStatus::Draft,
+            "SENT" => commercial_sales::ProposalStatus::Sent,
+            "ACCEPTED" => commercial_sales::ProposalStatus::Accepted,
+            "REJECTED" => commercial_sales::ProposalStatus::Rejected,
+            "EXPIRED" => commercial_sales::ProposalStatus::Expired,
+            _ => return Err("invalid stored proposal status".into()),
+        };
+        let resolved = commercial_sales::transition_proposal(current, next)?;
+        let resolved_status = format!("{:?}", resolved).to_uppercase();
+        tx.execute(
+            "UPDATE service_proposals SET status=$3, updated_at=now()
+              WHERE company_id=$1 AND id=$2",
+            &[&company, &proposal, &resolved_status],
+        ).await?;
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'SERVICE_PROPOSAL_STATUS_CHANGED',$2,$3,$4)
+             ON CONFLICT (company_id,idempotency_key) DO NOTHING",
+            &[
+                &company,
+                &proposal,
+                &format!("outbox:proposal-status:{}:{}", proposal, resolved_status),
+                &serde_json::json!({
+                    "proposal_id": proposal,
+                    "from": format!("{:?}", current),
+                    "to": format!("{:?}", resolved)
+                })
+            ],
+        ).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn transition_sponsorship(
+        &self,
+        company_id: &str,
+        sponsorship_id: &str,
+        next: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let sponsorship = Uuid::parse_str(sponsorship_id)?;
+        let next = next.trim().to_uppercase();
+        if !matches!(next.as_str(), "PROSPECT" | "CONTRACTED" | "DELIVERING" | "COMPLETED" | "CANCELLED") {
+            return Err("invalid sponsorship status".into());
+        }
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let row = tx.query_opt(
+            "SELECT status FROM sponsorships
+              WHERE company_id=$1 AND id=$2 FOR UPDATE",
+            &[&company, &sponsorship],
+        ).await?.ok_or("sponsorship not found")?;
+        let current: String = row.get(0);
+        let resolved = commercial_sales::transition_sponsorship(&current, &next)?;
+        tx.execute(
+            "UPDATE sponsorships SET status=$3, updated_at=now()
+              WHERE company_id=$1 AND id=$2",
+            &[&company, &sponsorship, &resolved],
+        ).await?;
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'SPONSORSHIP_STATUS_CHANGED',$2,$3,$4)
+             ON CONFLICT (company_id,idempotency_key) DO NOTHING",
+            &[
+                &company,
+                &sponsorship,
+                &format!("outbox:sponsorship-status:{}:{}", sponsorship, resolved),
+                &serde_json::json!({"sponsorship_id": sponsorship, "from": current, "to": resolved})
+            ],
+        ).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn record_sponsorship_delivery(
+        &self,
+        company_id: &str,
+        sponsorship_id: &str,
+        delivered_minor: i128,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if delivered_minor <= 0 {
+            return Err("sponsorship delivery must be positive".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let sponsorship = Uuid::parse_str(sponsorship_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let row = tx.query_opt(
+            "SELECT committed_minor::text, delivered_minor::text, status
+               FROM sponsorships
+              WHERE company_id=$1 AND id=$2 FOR UPDATE",
+            &[&company, &sponsorship],
+        ).await?.ok_or("sponsorship not found")?;
+        let committed = parse_i128_numeric(&row.get::<_, String>(0))?;
+        let delivered = parse_i128_numeric(&row.get::<_, String>(1))?;
+        let status: String = row.get(2);
+        if !matches!(status.as_str(), "CONTRACTED" | "DELIVERING") {
+            return Err("sponsorship is not in a deliverable state".into());
+        }
+        let next_delivered = delivered.checked_add(delivered_minor).ok_or("sponsorship delivery overflow")?;
+        if next_delivered > committed {
+            return Err("sponsorship delivery exceeds committed value".into());
+        }
+        let next_status = if next_delivered == committed { "COMPLETED" } else { "DELIVERING" };
+        tx.execute(
+            "UPDATE sponsorships SET delivered_minor=$3::numeric,status=$4,updated_at=now()
+              WHERE company_id=$1 AND id=$2",
+            &[&company, &sponsorship, &next_delivered.to_string(), &next_status],
+        ).await?;
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'SPONSORSHIP_DELIVERY_RECORDED',$2,$3,$4)
+             ON CONFLICT (company_id,idempotency_key) DO NOTHING",
+            &[
+                &company,
+                &sponsorship,
+                &format!("outbox:sponsorship-delivery:{}:{}", sponsorship, next_delivered),
+                &serde_json::json!({
+                    "sponsorship_id": sponsorship,
+                    "delivered_minor": delivered_minor,
+                    "total_delivered_minor": next_delivered,
+                    "status": next_status
+                })
+            ],
+        ).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn queue_outbound_email(
+        &self, company_id: &str, message_id: Uuid, recipient: &str, subject: &str,
+        html_body: &str, idempotency_key: &str, consent_basis: &str,
         unsubscribe_url: Option<&str>,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         let company = Uuid::parse_str(company_id)?;
-        if !recipient.contains('@') || recipient.len() > 320
-            || subject.trim().is_empty() || subject.len() > 998
-            || html_body.trim().is_empty() || html_body.len() > 1_000_000
+        if !recipient.contains('@') || recipient.len() > 320 || subject.trim().is_empty()
+            || subject.len() > 998 || html_body.trim().is_empty() || html_body.len() > 1_000_000
             || idempotency_key.trim().is_empty() || idempotency_key.len() > 256
             || consent_basis.trim().is_empty() {
             return Err("invalid outbound email".into());
         }
-        let mut client = self.client.lock().await;
+        let client = self.client.lock().await;
         let row = client.query_opt(
             "INSERT INTO outbound_messages
              (id,company_id,channel,recipient,subject,html_body,idempotency_key,consent_basis,unsubscribe_url,status)
@@ -3523,119 +3919,47 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         let row = match row {
             Some(row) => row,
             None => client.query_one(
-                "SELECT id,status,created_at FROM outbound_messages
-                 WHERE company_id=$1 AND idempotency_key=$2",
+                "SELECT id,status,created_at FROM outbound_messages WHERE company_id=$1 AND idempotency_key=$2",
                 &[&company,&idempotency_key],
             ).await?,
         };
-        Ok(serde_json::json!({
-            "id": row.get::<_, Uuid>(0),
-            "status": row.get::<_, String>(1),
-            "created_at": row.get::<_, time::OffsetDateTime>(2).to_string()
-        }))
+        Ok(serde_json::json!({"id":row.get::<_,Uuid>(0),"status":row.get::<_,String>(1),"created_at":row.get::<_,time::OffsetDateTime>(2).to_string()}))
     }
 
     pub async fn approve_outbound_email(
-        &self,
-        company_id: &str,
-        message_id: &str,
-        approved_by: &str,
-        approval_reference: &str,
+        &self, company_id: &str, message_id: &str, approved_by: &str, approval_reference: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let company = Uuid::parse_str(company_id)?;
-        let message = Uuid::parse_str(message_id)?;
-        if approved_by.trim().is_empty() || approval_reference.trim().is_empty() {
-            return Err("approval identity and reference are required".into());
-        }
-        let mut client = self.client.lock().await;
-        let tx = client.transaction().await?;
-        let row = tx.query_opt(
-            "SELECT recipient,subject,html_body,idempotency_key,consent_basis,unsubscribe_url,status
-               FROM outbound_messages WHERE company_id=$1 AND id=$2 FOR UPDATE",
-            &[&company,&message],
-        ).await?.ok_or("outbound message not found")?;
-        let status: String = row.get(6);
-        if status != "PENDING_APPROVAL" {
-            return Err("outbound message is not pending approval".into());
-        }
-        tx.execute(
-            "UPDATE outbound_messages
-                SET status='APPROVED',approved_by=$3,approval_reference=$4,updated_at=now()
-              WHERE company_id=$1 AND id=$2",
-            &[&company,&message,&approved_by,&approval_reference],
-        ).await?;
-        let event = tx.query_one(
-            "INSERT INTO outbox_events
-             (company_id,event_type,aggregate_id,idempotency_key,payload)
-             VALUES ($1,'EXTERNAL_EMAIL_SEND',$2,$3,$4)
-             ON CONFLICT (company_id,idempotency_key) DO NOTHING
-             RETURNING id",
-            &[
-                &company,
-                &message,
-                &format!("outbound-email:{message}"),
-                &serde_json::json!({
-                    "message_id": message,
-                    "recipient": row.get::<_,String>(0),
-                    "subject": row.get::<_,String>(1),
-                    "html_body": row.get::<_,String>(2),
-                    "idempotency_key": row.get::<_,String>(3),
-                    "consent_basis": row.get::<_,String>(4),
-                    "unsubscribe_url": row.get::<_,Option<String>>(5),
-                    "approval_reference": approval_reference,
-                    "approved_by": approved_by
-                })
-            ],
-        ).await?;
-        tx.execute(
-            "UPDATE outbound_messages SET outbox_event_id=$3,updated_at=now()
-              WHERE company_id=$1 AND id=$2",
-            &[&company,&message,&event.get::<_,i64>(0)],
-        ).await?;
-        tx.commit().await?;
+        let company=Uuid::parse_str(company_id)?; let message=Uuid::parse_str(message_id)?;
+        if approved_by.trim().is_empty() || approval_reference.trim().is_empty() { return Err("approval identity and reference are required".into()); }
+        let mut client=self.client.lock().await; let tx=client.transaction().await?;
+        let row=tx.query_opt("SELECT recipient,subject,html_body,idempotency_key,consent_basis,unsubscribe_url,status FROM outbound_messages WHERE company_id=$1 AND id=$2 FOR UPDATE",&[&company,&message]).await?.ok_or("outbound message not found")?;
+        if row.get::<_,String>(6)!="PENDING_APPROVAL" { return Err("outbound message is not pending approval".into()); }
+        tx.execute("UPDATE outbound_messages SET status='APPROVED',approved_by=$3,approval_reference=$4,updated_at=now() WHERE company_id=$1 AND id=$2",&[&company,&message,&approved_by,&approval_reference]).await?;
+        tx.execute("INSERT INTO outbox_events (company_id,event_type,aggregate_id,idempotency_key,payload) VALUES ($1,'EXTERNAL_EMAIL_SEND',$2,$3,$4) ON CONFLICT (company_id,idempotency_key) DO NOTHING",&[
+            &company,&message,&format!("outbound-email:{message}"),&serde_json::json!({
+                "message_id":message,"recipient":row.get::<_,String>(0),"subject":row.get::<_,String>(1),
+                "html_body":row.get::<_,String>(2),"idempotency_key":row.get::<_,String>(3),
+                "consent_basis":row.get::<_,String>(4),"unsubscribe_url":row.get::<_,Option<String>>(5),
+                "approval_reference":approval_reference,"approved_by":approved_by
+            })
+        ]).await?;
+        tx.commit().await?; Ok(())
+    }
+
+    pub async fn mark_outbound_email_processing(&self, company_id:&str, message_id:&str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let message=Uuid::parse_str(message_id)?;
+        let client=self.client.lock().await;
+        client.execute("UPDATE outbound_messages SET status='PROCESSING',attempts=attempts+1,updated_at=now() WHERE company_id=$1 AND id=$2 AND status IN ('APPROVED','PROCESSING')",&[&company,&message]).await?;
         Ok(())
     }
 
-    pub async fn mark_outbound_email_processing(
-        &self,
-        company_id: &str,
-        message_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let company = Uuid::parse_str(company_id)?;
-        let message = Uuid::parse_str(message_id)?;
-        let mut client = self.client.lock().await;
-        client.execute(
-            "UPDATE outbound_messages
-                SET status='PROCESSING',attempts=attempts+1,updated_at=now()
-              WHERE company_id=$1 AND id=$2 AND status IN ('APPROVED','PROCESSING')",
-            &[&company,&message],
-        ).await?;
-        Ok(())
-    }
-
-    pub async fn record_outbound_email_result(
-        &self,
-        company_id: &str,
-        message_id: &str,
-        provider: Option<&str>,
-        provider_reference: Option<&str>,
-        error: Option<&str>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let company = Uuid::parse_str(company_id)?;
-        let message = Uuid::parse_str(message_id)?;
-        let mut client = self.client.lock().await;
-        if error.is_none() && provider_reference.is_none() {
-            return Err("successful delivery requires provider reference".into());
-        }
-        let status = if error.is_some() { "FAILED" } else { "SENT" };
-        client.execute(
-            "UPDATE outbound_messages
-                SET status=$3,provider=$4,provider_reference=$5,last_error=$6,updated_at=now()
-              WHERE company_id=$1 AND id=$2",
-            &[&company,&message,&status,&provider,&provider_reference,&error],
-        ).await?;
+    pub async fn record_outbound_email_result(&self, company_id:&str, message_id:&str, provider:Option<&str>, provider_reference:Option<&str>, error:Option<&str>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let message=Uuid::parse_str(message_id)?;
+        if error.is_none() && provider_reference.is_none() { return Err("successful delivery requires provider reference".into()); }
+        let status=if error.is_some() {"FAILED"} else {"SENT"};
+        let client=self.client.lock().await;
+        client.execute("UPDATE outbound_messages SET status=$3,provider=$4,provider_reference=$5,last_error=$6,updated_at=now() WHERE company_id=$1 AND id=$2",&[&company,&message,&status,&provider,&provider_reference,&error]).await?;
         Ok(())
     }
 
 }
-
