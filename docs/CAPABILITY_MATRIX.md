@@ -119,6 +119,7 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Fail-closed decisioning:** missing, inactive, future, or mismatched policy snapshots resolve to UNKNOWN/human review; missing disclosure, unverified claims, prohibited products, fake engagement and simulcast are blocked when the declared policy requires it.
 - **Side-effect gate:** TikTok publishing and LIVE publisher start/externally approved LIVE session creation require an exact policy snapshot key plus evidence flags and proceed only when the deterministic compliance decision is ALLOWED.
 - **Auditability:** every compliance check is idempotently persisted and exposes 24-hour ALLOWED/REVIEW/BLOCKED/UNKNOWN counts on the command center.
+- **Policy activation event:** activating a new version deactivates the prior active snapshot, rejects rollback to an older effective policy, and emits `POLICY_SNAPSHOT_ACTIVATED` for downstream watchers.
 - **Current boundary:** no automatic policy scraping is claimed. Operators or a verified policy watcher must supply the policy snapshot and evidence; changing platform rules do not silently become trusted.
 
 ## Trend → Opportunity → Content loop
