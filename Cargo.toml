@@ -31,5 +31,6 @@ members = [
   "crates/commercial-sales",
   "crates/company-experiments",
   "crates/company-learning",
-  "crates/company-content"
+  "crates/company-content",
+  "crates/company-growth"
 ]
