@@ -1,8 +1,14 @@
+target/
 node_modules/
 build/
 dist/
+.next/
 coverage/
+.pytest_cache/
+__pycache__/
+.venv/
 .DS_Store
 *.log
-.env*
+.env
+.env.*
 !.env.example

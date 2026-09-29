@@ -1,0 +1,182 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: company_agents
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - company_agents_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d company_agents"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  ollama:
+    profiles: ["local-llm"]
+    image: ollama/ollama:latest
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  ollama-init:
+    profiles: ["local-llm"]
+    image: ollama/ollama:latest
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:4b}
+    depends_on:
+      ollama:
+        condition: service_healthy
+    volumes:
+      - ollama_models:/root/.ollama
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ollama pull \"$OLLAMA_MODEL\""]
+    restart: "no"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    restart: unless-stopped
+
+  company-os:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: company-runtime
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/company_agents
+      COMPANY_ID: ${COMPANY_ID:-00000000-0000-0000-0000-000000000001}
+      COMPANY_NAME: ${COMPANY_NAME:-Demo Company}
+      COMPANY_CURRENCY: ${COMPANY_CURRENCY:-USD}
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434/v1}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:4b}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_API_KEY_FILE: ${GEMINI_API_KEY_FILE:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_KEY_FILE: ${OPENAI_API_KEY_FILE:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_API_KEY_FILE: ${ANTHROPIC_API_KEY_FILE:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-4-8}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_API_KEY_FILE: ${LLM_API_KEY_FILE:-}
+      LLM_FALLBACKS: ${LLM_FALLBACKS:-}
+      LLM_STRICT_CONFIG: ${LLM_STRICT_CONFIG:-true}
+      LLM_WEB_RELAY_URL: ${LLM_WEB_RELAY_URL:-http://llm-web-relay:9010/v1/generate}
+      LLM_WEB_RELAY_ALLOW_HTTP_HOSTS: ${LLM_WEB_RELAY_ALLOW_HTTP_HOSTS:-llm-web-relay}
+      LLM_WEB_RELAY_TOKEN: ${LLM_WEB_RELAY_TOKEN:-}
+      LLM_WEB_RELAY_TOKEN_FILE: ${LLM_WEB_RELAY_TOKEN_FILE:-}
+      LLM_WEB_RELAY_BACKEND: ${LLM_WEB_RELAY_BACKEND:-gemini-web}
+      LLM_WEB_RELAY_MODEL: ${LLM_WEB_RELAY_MODEL:-web-session}
+      AGENT_CYCLE_SECONDS: ${AGENT_CYCLE_SECONDS:-300}
+      AGENT_CONCURRENCY: ${AGENT_CONCURRENCY:-2}
+      MODEL_TIMEOUT_MS: ${MODEL_TIMEOUT_MS:-90000}
+      AGENT_RATE_WINDOW_SECONDS: ${AGENT_RATE_WINDOW_SECONDS:-300}
+      AGENT_MAX_CALLS_PER_WINDOW: ${AGENT_MAX_CALLS_PER_WINDOW:-1}
+      AGENT_MAX_MODEL_CALLS_PER_WINDOW: ${AGENT_MAX_MODEL_CALLS_PER_WINDOW:-1}
+      AGENT_MEMORY_LIMIT: ${AGENT_MEMORY_LIMIT:-20}
+      MAX_EXECUTION_SPEND_MINOR: ${MAX_EXECUTION_SPEND_MINOR:-1000}
+      AFFILIATE_PROVIDER: ${AFFILIATE_PROVIDER:-mock}
+      AWIN_PRODUCT_FEED_URL: ${AWIN_PRODUCT_FEED_URL:-}
+      AWIN_PUBLISHER_ID: ${AWIN_PUBLISHER_ID:-}
+      AWIN_ACCESS_TOKEN: ${AWIN_ACCESS_TOKEN:-}
+      AWIN_COMMISSION_MAP: ${AWIN_COMMISSION_MAP:-}
+      AWIN_AUTO_FETCH_COMMISSIONS: ${AWIN_AUTO_FETCH_COMMISSIONS:-true}
+      AWIN_MAX_COMMISSION_ADVERTISERS: ${AWIN_MAX_COMMISSION_ADVERTISERS:-25}
+      AFFILIATE_CACHE_TTL_SECONDS: ${AFFILIATE_CACHE_TTL_SECONDS:-900}
+      AFFILIATE_MINOR_UNITS: ${AFFILIATE_MINOR_UNITS:-2}
+      RUST_LOG: ${RUST_LOG:-info,company_os=info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  outbox-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: outbox-worker-runtime
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/company_agents
+      COMPANY_ID: ${COMPANY_ID:-00000000-0000-0000-0000-000000000001}
+      OUTBOX_WEBHOOK_URL: ${OUTBOX_WEBHOOK_URL:-}
+      OUTBOX_WEBHOOK_SECRET: ${OUTBOX_WEBHOOK_SECRET:-}
+      OUTBOX_POLL_SECONDS: ${OUTBOX_POLL_SECONDS:-2}
+      OUTBOX_LEASE_SECONDS: ${OUTBOX_LEASE_SECONDS:-30}
+      OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-20}
+      OUTBOX_MAX_ATTEMPTS: ${OUTBOX_MAX_ATTEMPTS:-10}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  llm-web-relay:
+    profiles: ["web-relay"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: llm-web-relay-runtime
+    ports:
+      - "127.0.0.1:9010:9010"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/company_agents
+      LLM_RELAY_BIND_ADDR: 0.0.0.0:9010
+      LLM_RELAY_API_TOKEN: ${LLM_RELAY_API_TOKEN:-}
+      LLM_RELAY_API_TOKEN_FILE: ${LLM_RELAY_API_TOKEN_FILE:-}
+      LLM_RELAY_WORKER_TOKEN: ${LLM_RELAY_WORKER_TOKEN:-}
+      LLM_RELAY_WORKER_TOKEN_FILE: ${LLM_RELAY_WORKER_TOKEN_FILE:-}
+      LLM_RELAY_WAIT_TIMEOUT_SECONDS: ${LLM_RELAY_WAIT_TIMEOUT_SECONDS:-55}
+      LLM_RELAY_JOB_TTL_SECONDS: ${LLM_RELAY_JOB_TTL_SECONDS:-120}
+      LLM_RELAY_LEASE_SECONDS: ${LLM_RELAY_LEASE_SECONDS:-60}
+      LLM_RELAY_MAX_ATTEMPTS: ${LLM_RELAY_MAX_ATTEMPTS:-3}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  media-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: media-runtime
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/company_agents
+      COMPANY_ID: ${COMPANY_ID:-00000000-0000-0000-0000-000000000001}
+      MEDIA_WORKSPACE: /app/media
+      FFMPEG_BIN: ffmpeg
+      FFPROBE_BIN: ffprobe
+      FFMPEG_TIMEOUT_SECONDS: ${FFMPEG_TIMEOUT_SECONDS:-900}
+      MEDIA_WORKER_POLL_SECONDS: ${MEDIA_WORKER_POLL_SECONDS:-5}
+      MEDIA_MAX_FILE_SIZE_BYTES: ${MEDIA_MAX_FILE_SIZE_BYTES:-52428800}
+      MEDIA_MIN_DURATION_MS: ${MEDIA_MIN_DURATION_MS:-1000}
+      MEDIA_MAX_DURATION_MS: ${MEDIA_MAX_DURATION_MS:-60000}
+      MEDIA_ALLOWED_CODECS: ${MEDIA_ALLOWED_CODECS:-h264,vp9}
+      MEDIA_REQUIRE_AUDIO: ${MEDIA_REQUIRE_AUDIO:-false}
+    volumes:
+      - company_agents_media:/app/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  company_agents_pg:
+  ollama_models:
+  company_agents_media:

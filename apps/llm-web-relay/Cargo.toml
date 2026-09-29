@@ -1,0 +1,13 @@
+[package]
+name = "llm-web-relay"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync"] }
+tokio-postgres = { version = "0.7", features = ["with-uuid-1"] }
+uuid = { version = "1", features = ["v4"] }
+sha2 = "0.11"

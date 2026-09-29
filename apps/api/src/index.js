@@ -1,0 +1,1 @@
+console.log("Company OS API placeholder: implement after ledger and domain milestones.");
