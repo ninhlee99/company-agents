@@ -5214,7 +5214,7 @@ async fn load_growth_trend(
     let row = tx.query_opt(
         "SELECT id,company_id,trend_key,topic,source,evidence_ref,observed_at_epoch,
                 velocity_bps,audience_fit_bps,product_fit_bps,contentability_bps,competition_bps,
-                confidence_bps,product_ref,offer_ref,content_format,max_budget_minor,max_loss_minor,
+                confidence_bps,product_ref,offer_ref,content_format,max_budget_minor::text,max_loss_minor::text,
                 max_duration_seconds,success_metric,success_threshold_bps,policy_evidence_ref,
                 score_bps,decision,created_at::text
            FROM growth_trends
