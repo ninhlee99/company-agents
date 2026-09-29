@@ -121,6 +121,17 @@ export interface CycleTrendPoint {
   netCashFlow: number;
 }
 
+export interface AgentTaskItem {
+  id: string;
+  cycle: number;
+  title: string;
+  action: string;
+  outcome: string;
+  cost_minor: number;
+  status: 'Completed' | 'Pending' | 'Failed';
+  timestamp: string;
+}
+
 export interface MediaContentGenerated {
   title: string;
   hook: string;

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CompanySnapshot, CustomAgent } from '../types/company';
+import { CompanySnapshot, CustomAgent, AgentTaskItem } from '../types/company';
 import { 
   Users, 
   Plus, 
@@ -8,9 +8,12 @@ import {
   BarChart3, 
   Power, 
   X,
-  AlertTriangle,
-  Award,
-  TrendingDown
+  History,
+  TrendingUp,
+  Clock,
+  Sparkles,
+  Layers,
+  ArrowRight
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -51,6 +54,11 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
   const [quickInstruction, setQuickInstruction] = useState('');
   const [instructionSent, setInstructionSent] = useState(false);
 
+  // Task History Modal State
+  const [selectedAgentForHistory, setSelectedAgentForHistory] = useState<CustomAgent | null>(null);
+  const [taskHistory, setTaskHistory] = useState<AgentTaskItem[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+
   const handleHireSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !role.trim()) return;
@@ -86,6 +94,24 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
     }, 3000);
   };
 
+  const openTaskHistoryModal = async (agent: CustomAgent) => {
+    setSelectedAgentForHistory(agent);
+    setIsLoadingHistory(true);
+    setTaskHistory([]);
+
+    try {
+      const res = await fetch(`/api/agent-tasks/${encodeURIComponent(agent.name || agent.id)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setTaskHistory(data.tasks || []);
+      }
+    } catch (err) {
+      console.warn('Task history load note:', err);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
+
   const filteredAgents = agents.filter((a) => {
     if (filter === 'All') return true;
     return a.department === filter;
@@ -102,17 +128,30 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
     }
   };
 
+  // Calculate Salary/Efficiency Ratio for an agent
+  const getEfficiencyScore = (agent: CustomAgent) => {
+    const cost = agent.salary_minor > 0 ? agent.salary_minor / 100 : 350;
+    // Expected task benchmark: ~1 task per $15 of monthly compensation/infrastructure
+    const expectedTasks = Math.max(8, Math.round(cost / 15));
+    const score = Math.min(100, Math.max(15, Math.round((agent.tasksCompleted / expectedTasks) * 100)));
+    return {
+      score,
+      isHigh: score >= 75,
+      isMedium: score >= 45 && score < 75,
+      isLow: score < 45,
+      label: score >= 75 ? 'Rất xứng đáng' : score >= 45 ? 'Đạt kỳ vọng' : 'Cần tối ưu',
+      cost,
+    };
+  };
+
   // Prepare data for Agent Performance Bar Chart
   const chartData = agents.map((a) => {
-    const costUsd = a.salary_minor > 0 ? Math.round(a.salary_minor / 100) : 350; // estimated nominal compute cost for core agents
-    const efficiencyRatio = Math.round((a.tasksCompleted / (costUsd || 1)) * 1000); // tasks per $1k spend
+    const costUsd = a.salary_minor > 0 ? Math.round(a.salary_minor / 100) : 350;
     return {
       name: a.name.replace(' Agent', '').replace(' Specialist', ''),
-      fullName: a.name,
       tasks: a.tasksCompleted,
       cost: costUsd,
       dept: a.department,
-      efficiency: efficiencyRatio,
     };
   });
 
@@ -127,7 +166,6 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
       agentCount: deptAgents.length,
       totalTasks,
       totalCost,
-      avgTasks: avgTasksPerAgent,
       status: avgTasksPerAgent >= 40 ? 'Tối ưu (Hiệu suất cao)' : avgTasksPerAgent >= 25 ? 'Bình thường' : 'Cần giao thêm việc',
     };
   });
@@ -140,7 +178,7 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
           <Users className="w-5 h-5 text-indigo-400" />
           <div>
             <h2 className="text-base font-bold text-white">Đội Ngũ Nhân Sự AI ({agents.length} vị trí)</h2>
-            <p className="text-xs text-slate-400">Theo dõi hiệu suất hoàn thành việc và chi phí vận hành từng nhân sự</p>
+            <p className="text-xs text-slate-400">Theo dõi tỷ lệ Hiệu Suất / Tiền Lương và lịch sử công việc từng người</p>
           </div>
         </div>
 
@@ -285,51 +323,175 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
         </div>
       )}
 
-      {/* Agents Grid */}
+      {/* Agents Grid with Salary/Efficiency Ratio Progress Bar and Task History Button */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {filteredAgents.map((agent) => (
-          <div
-            key={agent.id}
-            className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 hover:border-slate-700 transition-all flex flex-col justify-between space-y-2.5 shadow-sm"
-          >
-            <div>
-              <div className="flex items-center justify-between">
-                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${getDepartmentBadge(agent.department)}`}>
-                  {agent.department}
-                </span>
+        {filteredAgents.map((agent) => {
+          const efficiency = getEfficiencyScore(agent);
 
+          return (
+            <div
+              key={agent.id}
+              className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 hover:border-slate-700 transition-all flex flex-col justify-between space-y-3 shadow-sm"
+            >
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${getDepartmentBadge(agent.department)}`}>
+                    {agent.department}
+                  </span>
+
+                  <button
+                    onClick={() => onToggleStatus(agent.id)}
+                    className={`flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-md transition-all ${
+                      agent.status === 'Active'
+                        ? 'text-emerald-400 hover:bg-emerald-500/10'
+                        : 'text-slate-500 hover:bg-slate-800'
+                    }`}
+                    title="Bật / Tạm dừng hoạt động"
+                  >
+                    <Power className="w-3 h-3" />
+                    <span>{agent.status === 'Active' ? 'Đang chạy' : 'Tạm dừng'}</span>
+                  </button>
+                </div>
+
+                <div className="mt-2">
+                  <h3 className="font-bold text-white text-sm">{agent.name}</h3>
+                  <p className="text-xs text-indigo-300 font-medium">{agent.role}</p>
+                  <p className="text-[11px] text-slate-400 mt-1 line-clamp-2">{agent.description}</p>
+                </div>
+              </div>
+
+              {/* SALARY / EFFICIENCY PROGRESS BAR */}
+              <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800/80 space-y-1.5">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-slate-400 font-medium">Tỷ Lệ Hiệu Suất / Lương</span>
+                  <span
+                    className={`font-bold font-mono ${
+                      efficiency.isHigh
+                        ? 'text-emerald-400'
+                        : efficiency.isMedium
+                        ? 'text-indigo-400'
+                        : 'text-amber-400'
+                    }`}
+                  >
+                    {efficiency.score}% ({efficiency.label})
+                  </span>
+                </div>
+
+                {/* Progress Track */}
+                <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      efficiency.isHigh
+                        ? 'bg-emerald-500'
+                        : efficiency.isMedium
+                        ? 'bg-indigo-500'
+                        : 'bg-amber-500'
+                    }`}
+                    style={{ width: `${efficiency.score}%` }}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
+                  <span>{agent.tasksCompleted} việc hoàn thành</span>
+                  <span>{agent.salary_minor > 0 ? `$${(agent.salary_minor / 100).toLocaleString()}/th` : 'Core Agent'}</span>
+                </div>
+              </div>
+
+              {/* Task History Trigger Button */}
+              <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
                 <button
-                  onClick={() => onToggleStatus(agent.id)}
-                  className={`flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-md transition-all ${
-                    agent.status === 'Active'
-                      ? 'text-emerald-400 hover:bg-emerald-500/10'
-                      : 'text-slate-500 hover:bg-slate-800'
-                  }`}
-                  title="Bật / Tạm dừng hoạt động"
+                  onClick={() => openTaskHistoryModal(agent)}
+                  className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-slate-200 hover:text-white font-medium text-xs transition-all active:scale-95 border border-slate-700/60"
                 >
-                  <Power className="w-3 h-3" />
-                  <span>{agent.status === 'Active' ? 'Đang chạy' : 'Tạm dừng'}</span>
+                  <History className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Xem 10 Tác Vụ Gần Nhất</span>
                 </button>
               </div>
+            </div>
+          );
+        })}
+      </div>
 
-              <div className="mt-2">
-                <h3 className="font-bold text-white text-sm">{agent.name}</h3>
-                <p className="text-xs text-indigo-300 font-medium">{agent.role}</p>
-                <p className="text-[11px] text-slate-400 mt-1 line-clamp-2">{agent.description}</p>
+      {/* TASK HISTORY MODAL (Lists the last 10 completed tasks for a specific agent) */}
+      {selectedAgentForHistory && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-2xl w-full p-5 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
+              <div className="flex items-center gap-2">
+                <History className="w-4 h-4 text-indigo-400" />
+                <div>
+                  <h3 className="font-bold text-white text-sm">
+                    Lịch Sử 10 Tác Vụ Gần Nhất: <span className="text-indigo-400">{selectedAgentForHistory.name}</span>
+                  </h3>
+                  <span className="text-[11px] text-slate-400">{selectedAgentForHistory.role} • {selectedAgentForHistory.tasksCompleted} tác vụ tích lũy</span>
+                </div>
               </div>
+
+              <button
+                onClick={() => setSelectedAgentForHistory(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-all"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400 font-mono">
-              <span>Đã làm: <strong className="text-slate-200">{agent.tasksCompleted} việc</strong></span>
-              {agent.salary_minor > 0 ? (
-                <span className="text-rose-400">${(agent.salary_minor / 100).toLocaleString()}/th</span>
+            {/* Modal Content / Task List */}
+            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
+              {isLoadingHistory ? (
+                <div className="py-12 text-center text-xs text-slate-400 space-y-2">
+                  <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                  <p>Đang tải dữ liệu kiểm toán tác vụ...</p>
+                </div>
+              ) : taskHistory.length > 0 ? (
+                taskHistory.map((task, idx) => (
+                  <div
+                    key={task.id || idx}
+                    className="p-3 rounded-lg bg-slate-950 border border-slate-800 hover:border-slate-700 transition-all text-xs space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-5 h-5 rounded-full bg-indigo-500/20 text-indigo-300 font-mono text-[10px] font-bold flex items-center justify-center shrink-0">
+                          #{idx + 1}
+                        </span>
+                        <span className="font-bold text-white text-xs">{task.title}</span>
+                      </div>
+
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+                        {task.status === 'Completed' ? 'Đã hoàn tất' : task.status}
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] text-slate-300 pl-6">{task.outcome}</p>
+
+                    <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono pl-6 pt-1 border-t border-slate-900">
+                      <span>Kỳ #{task.cycle} • {new Date(task.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span>{task.cost_minor > 0 ? `Chi: $${(task.cost_minor / 100).toFixed(2)}` : 'Không tốn ngân sách'}</span>
+                    </div>
+                  </div>
+                ))
               ) : (
-                <span className="text-cyan-400">Core Agent</span>
+                <div className="py-8 text-center text-xs text-slate-400">
+                  Chưa có tác vụ nào được ghi nhận cho nhân sự này.
+                </div>
               )}
             </div>
+
+            {/* Modal Footer */}
+            <div className="border-t border-slate-800 pt-3 flex items-center justify-between shrink-0">
+              <span className="text-[11px] text-slate-500">
+                Mọi hành động đều được ký nhận và lưu trong sổ kế toán kép.
+              </span>
+              <button
+                onClick={() => setSelectedAgentForHistory(null)}
+                className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-all"
+              >
+                Đóng
+              </button>
+            </div>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
 
       {/* Hire Modal */}
       {showHireModal && (
