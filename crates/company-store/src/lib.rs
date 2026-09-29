@@ -4694,7 +4694,7 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
 
-        let _inserted = tx.query_opt(
+        let inserted_trend = tx.query_opt(
             "INSERT INTO growth_trends
              (id,company_id,trend_key,topic,source,evidence_ref,observed_at_epoch,
               velocity_bps,audience_fit_bps,product_fit_bps,contentability_bps,competition_bps,
@@ -4721,6 +4721,26 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             .await?
             .ok_or("persisted growth trend not found")?;
 
+        if inserted_trend.is_some() {
+            tx.execute(
+                "INSERT INTO outbox_events
+                 (company_id,event_type,aggregate_id,idempotency_key,payload)
+                 VALUES ($1,'TREND_DETECTED',$2,$3,$4)
+                 ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+                &[
+                    &company,
+                    &trend.id,
+                    &format!("outbox:growth-trend:{}", trend.id),
+                    &serde_json::json!({
+                        "trend_id": trend.id,
+                        "trend_key": trend.signal.trend_key,
+                        "score_bps": trend.score_bps,
+                        "decision": growth_trend_decision_name(trend.decision)
+                    }),
+                ],
+            ).await?;
+        }
+
         let opportunity = if trend.decision == company_growth::TrendDecision::Pursue {
             if let Some(existing) = load_growth_opportunity_by_trend(&tx, &company, trend.id).await? {
                 Some(existing)
@@ -4728,18 +4748,38 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
                 let opportunity = company_growth::opportunity_from_trend(trend.id, &trend.signal)?
                     .ok_or("pursue trend must create an opportunity")?;
                 let plan_json = serde_json::to_value(&opportunity.plan)?;
-                tx.execute(
+                let inserted_opportunity = tx.query_opt(
                     "INSERT INTO growth_opportunities
                      (id,company_id,trend_id,opportunity_key,title,score_bps,confidence_bps,
                       policy_evidence_ref,plan_json,status)
                      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'READY')
-                     ON CONFLICT(company_id,opportunity_key) DO NOTHING",
+                     ON CONFLICT(company_id,opportunity_key) DO NOTHING
+                     RETURNING id",
                     &[
                         &opportunity.id, &company, &trend.id, &opportunity.opportunity_key,
                         &opportunity.title, &(opportunity.score_bps as i32), &(opportunity.confidence_bps as i32),
                         &opportunity.policy_evidence_ref, &plan_json,
                     ],
                 ).await?;
+                if inserted_opportunity.is_some() {
+                    tx.execute(
+                        "INSERT INTO outbox_events
+                         (company_id,event_type,aggregate_id,idempotency_key,payload)
+                         VALUES ($1,'OPPORTUNITY_CREATED',$2,$3,$4)
+                         ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+                        &[
+                            &company,
+                            &opportunity.id,
+                            &format!("outbox:growth-opportunity:{}", opportunity.id),
+                            &serde_json::json!({
+                                "opportunity_id": opportunity.id,
+                                "trend_id": trend.id,
+                                "score_bps": opportunity.score_bps,
+                                "confidence_bps": opportunity.confidence_bps
+                            }),
+                        ],
+                    ).await?;
+                }
                 load_growth_opportunity_by_trend(&tx, &company, trend.id).await?
             }
         } else {
