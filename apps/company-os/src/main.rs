@@ -142,6 +142,9 @@ struct AffiliateSearchParams {
 #[derive(Debug, Deserialize)] struct InvoiceRequest { customer_id: uuid::Uuid, currency: String, due_epoch: i64, idempotency_key: String, lines: Vec<InvoiceLineRequest> }
 #[derive(Debug, Deserialize)] struct InvoiceIssueRequest { invoice_id: uuid::Uuid }
 #[derive(Debug, Deserialize)] struct InvoicePaymentRequest { invoice_id: uuid::Uuid, payment_id: uuid::Uuid, amount_minor: i128, occurred_at_epoch: i64, external_ref: Option<String> }
+#[derive(Debug, Deserialize)] struct ProposalTransitionRequest { proposal_id: uuid::Uuid, status: commercial_sales::ProposalStatus }
+#[derive(Debug, Deserialize)] struct SponsorshipTransitionRequest { sponsorship_id: uuid::Uuid, status: String }
+#[derive(Debug, Deserialize)] struct SponsorshipDeliveryRequest { sponsorship_id: uuid::Uuid, delivered_minor: i128 }
 #[derive(Debug, Deserialize)] struct CustomerRequest { name: String, email: Option<String>, external_ref: Option<String>, status: Option<String>, notes: Option<String>, idempotency_key: String }
 
 fn format_minor(value: i128, currency: &str) -> String {
@@ -702,6 +705,47 @@ async fn invoice_api(State(state): State<AppState>, Json(req): Json<InvoiceReque
 async fn invoice_issue_api(State(state): State<AppState>, Json(req): Json<InvoiceIssueRequest>) -> Result<StatusCode, StatusCode> {
     state.store.issue_invoice(&state.company_id,&req.invoice_id.to_string()).await.map(|_| StatusCode::ACCEPTED).map_err(|_| StatusCode::BAD_REQUEST)
 }
+
+async fn commercial_pipeline_api(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.list_commercial_pipeline(&state.company_id, 100)
+        .await.map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn proposal_transition_api(
+    State(state): State<AppState>,
+    Json(req): Json<ProposalTransitionRequest>,
+) -> Result<StatusCode, StatusCode> {
+    state.store.transition_service_proposal(
+        &state.company_id,
+        &req.proposal_id.to_string(),
+        req.status,
+    ).await.map(|_| StatusCode::ACCEPTED).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn sponsorship_transition_api(
+    State(state): State<AppState>,
+    Json(req): Json<SponsorshipTransitionRequest>,
+) -> Result<StatusCode, StatusCode> {
+    state.store.transition_sponsorship(
+        &state.company_id,
+        &req.sponsorship_id.to_string(),
+        &req.status,
+    ).await.map(|_| StatusCode::ACCEPTED).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn sponsorship_delivery_api(
+    State(state): State<AppState>,
+    Json(req): Json<SponsorshipDeliveryRequest>,
+) -> Result<StatusCode, StatusCode> {
+    state.store.record_sponsorship_delivery(
+        &state.company_id,
+        &req.sponsorship_id.to_string(),
+        req.delivered_minor,
+    ).await.map(|_| StatusCode::ACCEPTED).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
 async fn invoice_payment_api(State(state): State<AppState>, Json(req): Json<InvoicePaymentRequest>) -> Result<Json<commercial_sales::InvoiceStatus>, StatusCode> {
     state.store.record_invoice_payment(&state.company_id,&req.invoice_id.to_string(),&req.payment_id.to_string(),req.amount_minor,req.occurred_at_epoch,req.external_ref.as_deref()).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
 }
@@ -966,6 +1010,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/employees", get(employees_api))
         .route("/api/payroll/due", get(payroll_due_api))
         .route("/api/commercial/proposals", post(service_proposal_api))
+        .route("/api/commercial/pipeline", get(commercial_pipeline_api))
+        .route("/api/commercial/proposals/transition", post(proposal_transition_api))
+        .route("/api/commercial/sponsorships/transition", post(sponsorship_transition_api))
+        .route("/api/commercial/sponsorships/delivery", post(sponsorship_delivery_api))
         .route("/api/commercial/sponsorships", post(sponsorship_api))
         .route("/api/commercial/invoices", post(invoice_api))
         .route("/api/commercial/invoices/issue", post(invoice_issue_api))
