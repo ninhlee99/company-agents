@@ -24,16 +24,21 @@ CREATE TABLE IF NOT EXISTS growth_trends (
   score_bps integer NOT NULL CHECK (score_bps BETWEEN 0 AND 10000),
   decision text NOT NULL CHECK (decision IN ('PURSUE','MONITOR','REJECT')),
   created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE(company_id, trend_key)
+  UNIQUE(company_id, trend_key),
+  UNIQUE(company_id, id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_growth_trends_company_decision
   ON growth_trends(company_id, decision, score_bps DESC, created_at DESC);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_content_items_company_id
+  ON content_items(company_id, id);
+
 CREATE TABLE IF NOT EXISTS growth_opportunities (
   id uuid PRIMARY KEY,
   company_id uuid NOT NULL REFERENCES companies(id),
-  trend_id uuid NOT NULL REFERENCES growth_trends(id),
+  trend_id uuid NOT NULL,
+  FOREIGN KEY (company_id, trend_id) REFERENCES growth_trends(company_id, id),
   opportunity_key text NOT NULL,
   title text NOT NULL,
   score_bps integer NOT NULL CHECK (score_bps BETWEEN 0 AND 10000),
@@ -41,7 +46,8 @@ CREATE TABLE IF NOT EXISTS growth_opportunities (
   policy_evidence_ref text NOT NULL,
   plan_json jsonb NOT NULL,
   status text NOT NULL CHECK (status IN ('READY','CONTENT_CREATED')),
-  content_item_id uuid REFERENCES content_items(id),
+  content_item_id uuid,
+  FOREIGN KEY (company_id, content_item_id) REFERENCES content_items(company_id, id),
   content_created_at_epoch bigint CHECK (content_created_at_epoch > 0),
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE(company_id, opportunity_key)
