@@ -28,5 +28,6 @@ members = [
   "apps/llm-web-relay",
   "apps/llm-web-worker",
   "apps/outbox-worker",
-  "crates/commercial-sales"
+  "crates/commercial-sales",
+  "crates/company-experiments"
 ]
