@@ -11,6 +11,20 @@ pub struct CreateSessionRequest {
     pub room_id: Option<String>,
     pub started_at_epoch: i64,
     pub approved_for_external_publish: bool,
+    #[serde(default)]
+    pub policy_snapshot_key: Option<String>,
+    #[serde(default)]
+    pub policy_evidence_ref: Option<String>,
+    #[serde(default)]
+    pub disclosure_present: bool,
+    #[serde(default)]
+    pub claim_evidence_present: bool,
+    #[serde(default)]
+    pub product_eligibility_verified: bool,
+    #[serde(default)]
+    pub rights_evidence_present: bool,
+    #[serde(default)]
+    pub simulcast: bool,
 }
 
 #[derive(Debug, Deserialize)]
