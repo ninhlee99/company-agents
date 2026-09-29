@@ -3235,7 +3235,7 @@ async fn tx_store_live_gift_statement(
                 &reconciliation.provider_value_minor.to_string(),
                 &currency,
                 &reconciliation.matched,
-                &(reconciliation.count_delta as i64),
+                &reconciliation.count_delta.to_string(),
                 &reconciliation.value_delta_minor.to_string(),
             ],
         )
