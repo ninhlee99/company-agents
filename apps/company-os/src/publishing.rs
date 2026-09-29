@@ -1,9 +1,9 @@
 #![forbid(unsafe_code)]
 
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{body::Bytes, extract::State, http::{HeaderMap, StatusCode}, Json};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use social_publishing::{ApprovalAuthority, CreatorInfo, TikTokPublisher, VideoPublishRequest};
+use social_publishing::{verify_tiktok_webhook_signature, ApprovalAuthority, CreatorInfo, TikTokPublisher, VideoPublishRequest};
 use std::{path::{Path, PathBuf}};
 use tokio::{fs::File, io::AsyncReadExt};
 use url::Url;
@@ -194,6 +194,13 @@ pub async fn execute_tiktok(
         }
     };
 
+    state.store.record_publish_started(
+        &state.company_id,
+        &request.intent_id,
+        &job.execution_token,
+        &receipt.publish_id,
+    ).await.map_err(fail_message)?;
+
     Ok(Json(TikTokExecuteResponse {
         intent_id: request.intent_id,
         execution_token: job.execution_token,
@@ -245,4 +252,38 @@ pub async fn tiktok_status(
         provider_status,
         terminal,
     }))
+}
+
+#[derive(Debug, Deserialize)]
+struct TikTokWebhookEnvelope {
+    event: String,
+    create_time: i64,
+    #[serde(default)]
+    content: String,
+}
+
+pub async fn tiktok_webhook(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<StatusCode, StatusCode> {
+    if body.len() > 256 * 1024 { return Err(StatusCode::PAYLOAD_TOO_LARGE); }
+    let signature = headers.get("TikTok-Signature").and_then(|v| v.to_str().ok()).ok_or(StatusCode::UNAUTHORIZED)?;
+    let secret = std::env::var("TIKTOK_CLIENT_SECRET").map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    verify_tiktok_webhook_signature(secret.as_bytes(), signature, &body, 300).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let envelope: TikTokWebhookEnvelope = serde_json::from_slice(&body).map_err(|_| StatusCode::BAD_REQUEST)?;
+    if envelope.event.trim().is_empty() || envelope.create_time <= 0 { return Err(StatusCode::BAD_REQUEST); }
+    let content = if envelope.content.trim().is_empty() { serde_json::Value::Null } else { serde_json::from_str::<serde_json::Value>(&envelope.content).map_err(|_| StatusCode::BAD_REQUEST)? };
+    let publish_id = content.get("publish_id").and_then(|v| v.as_str()).map(str::to_owned);
+    let (success, failure_reason) = match envelope.event.as_str() {
+        "post.publish.complete" | "post.publish.completed" | "video.publish.completed" => (Some(true), None),
+        "post.publish.failed" | "video.upload.failed" => (Some(false), content.get("reason").and_then(|v| v.as_str()).map(str::to_owned)),
+        "authorization.removed" => (None, None),
+        _ => (None, None),
+    };
+    let payload_hash = format!("{:x}", Sha256::digest(&body));
+    let event_key = format!("{}:{}", envelope.event, payload_hash);
+    state.store.reconcile_tiktok_webhook(&state.company_id, &event_key, &envelope.event, publish_id.as_deref(), &payload_hash, success, failure_reason.as_deref())
+        .await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(StatusCode::OK)
 }
