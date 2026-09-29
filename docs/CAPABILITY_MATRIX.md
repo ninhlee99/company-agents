@@ -117,7 +117,7 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 
 - **Versioned policy evidence:** company-scoped policy snapshots persist platform, jurisdiction, version, source reference, evidence hash, observed/effective timestamps and explicit rule flags.
 - **Fail-closed decisioning:** missing, inactive, future, or mismatched policy snapshots resolve to UNKNOWN/human review; missing disclosure, unverified claims, prohibited products, fake engagement and simulcast are blocked when the declared policy requires it.
-- **Side-effect gate:** TikTok publishing and externally approved LIVE session creation require an exact policy snapshot key plus evidence flags and proceed only when the deterministic compliance decision is ALLOWED.
+- **Side-effect gate:** TikTok publishing and LIVE publisher start/externally approved LIVE session creation require an exact policy snapshot key plus evidence flags and proceed only when the deterministic compliance decision is ALLOWED.
 - **Auditability:** every compliance check is idempotently persisted and exposes 24-hour ALLOWED/REVIEW/BLOCKED/UNKNOWN counts on the command center.
 - **Current boundary:** no automatic policy scraping is claimed. Operators or a verified policy watcher must supply the policy snapshot and evidence; changing platform rules do not silently become trusted.
 
