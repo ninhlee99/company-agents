@@ -4802,28 +4802,28 @@ fn content_decision_name(value: company_content::ContentDecision) -> &'static st
     }
 }
 
-fn parse_content_format(value: &str) -> Result<company_content::ContentFormat, String> {
+fn parse_content_format(value: &str) -> Result<company_content::ContentFormat, std::io::Error> {
     match value {
         "SHORT_VIDEO" => Ok(company_content::ContentFormat::ShortVideo),
         "LIVE_SEGMENT" => Ok(company_content::ContentFormat::LiveSegment),
         "STORY" => Ok(company_content::ContentFormat::Story),
         "CAROUSEL" => Ok(company_content::ContentFormat::Carousel),
-        _ => Err(format!("invalid content format: {value}")),
+        _ => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("invalid content format: {value}"))),
     }
 }
 
-fn parse_success_metric(value: &str) -> Result<company_content::SuccessMetric, String> {
+fn parse_success_metric(value: &str) -> Result<company_content::SuccessMetric, std::io::Error> {
     match value {
         "VIEWS" => Ok(company_content::SuccessMetric::Views),
         "CLICK_THROUGH_RATE" => Ok(company_content::SuccessMetric::ClickThroughRate),
         "CONVERSION_RATE" => Ok(company_content::SuccessMetric::ConversionRate),
         "COMMISSION" => Ok(company_content::SuccessMetric::Commission),
         "CONTRIBUTION_MARGIN" => Ok(company_content::SuccessMetric::ContributionMargin),
-        _ => Err(format!("invalid success metric: {value}")),
+        _ => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("invalid success metric: {value}"))),
     }
 }
 
-fn parse_content_status(value: &str) -> Result<company_content::ContentStatus, String> {
+fn parse_content_status(value: &str) -> Result<company_content::ContentStatus, std::io::Error> {
     match value {
         "DRAFT" => Ok(company_content::ContentStatus::Draft),
         "APPROVED" => Ok(company_content::ContentStatus::Approved),
@@ -4832,18 +4832,18 @@ fn parse_content_status(value: &str) -> Result<company_content::ContentStatus, S
         "MEASURED" => Ok(company_content::ContentStatus::Measured),
         "PAUSED" => Ok(company_content::ContentStatus::Paused),
         "KILLED" => Ok(company_content::ContentStatus::Killed),
-        _ => Err(format!("invalid content status: {value}")),
+        _ => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("invalid content status: {value}"))),
     }
 }
 
-fn parse_content_decision(value: Option<String>) -> Result<Option<company_content::ContentDecision>, String> {
+fn parse_content_decision(value: Option<String>) -> Result<Option<company_content::ContentDecision>, std::io::Error> {
     match value.as_deref() {
         None => Ok(None),
         Some("SCALE") => Ok(Some(company_content::ContentDecision::Scale)),
         Some("ITERATE") => Ok(Some(company_content::ContentDecision::Iterate)),
         Some("PAUSE") => Ok(Some(company_content::ContentDecision::Pause)),
         Some("KILL") => Ok(Some(company_content::ContentDecision::Kill)),
-        Some(other) => Err(format!("invalid content decision: {other}")),
+        Some(other) => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("invalid content decision: {other}"))),
     }
 }
 
