@@ -320,8 +320,8 @@ small,.muted{{color:#666}} code{{background:#f3f3f3;padding:2px 4px}}
 nav{{display:flex;gap:14px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#111;text-decoration:none;border-bottom:1px solid #aaa;padding-bottom:2px}}
 @media(max-width:800px){{.grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}}} @media(max-width:520px){{.grid{{grid-template-columns:1fr}}}}
 </style></head><body>
-<h1>Company OS</h1>
-<small>Rust control plane • deterministic Governor + bounded execution + affiliate intelligence</small>
+<header><h1>Veridara AI</h1><small>Autonomous Company OS · {}</small></header>
+<nav><a href="/">Overview</a><a href="/api/agents">Agents</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Audit</a></nav>
 <div class="grid">
 <div class="card"><small>Cash</small><div class="metric">{}</div></div>
 <div class="card"><small>Revenue</small><div class="metric">{}</div></div>
@@ -340,7 +340,7 @@ nav{{display:flex;gap:14px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#111;te
 <small>Example: <code>/api/affiliate/search?category=electronics&amp;min_commission_bps=1500&amp;require_coupon=true</code></small>
 </div>
 </body></html>"#,
-        state.company_id,
+        state.company_id.clone(),
         format_minor(company.cash_minor, &state.currency),
         format_minor(company.revenue_minor, &state.currency),
         format_minor(target_minor, &state.currency),
