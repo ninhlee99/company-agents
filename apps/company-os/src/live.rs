@@ -98,3 +98,45 @@ fn parse_mode(value: &str) -> Option<LiveMode> {
         _ => None,
     }
 }
+
+#[derive(Debug, Deserialize)]
+pub struct OverlayRequest {
+    pub text: String,
+}
+
+pub async fn start_stream(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let controller = state.live_stream.as_ref().ok_or(StatusCode::PRECONDITION_FAILED)?;
+    controller
+        .start("Veridara AI LIVE — đang khởi động...")
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    Ok(Json(serde_json::json!({"running": true})))
+}
+
+pub async fn update_overlay(
+    State(state): State<AppState>,
+    Json(req): Json<OverlayRequest>,
+) -> Result<StatusCode, StatusCode> {
+    let controller = state.live_stream.as_ref().ok_or(StatusCode::PRECONDITION_FAILED)?;
+    controller.update_overlay(&req.text).map_err(|_| StatusCode::BAD_REQUEST)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn stop_stream(
+    State(state): State<AppState>,
+) -> Result<StatusCode, StatusCode> {
+    let controller = state.live_stream.as_ref().ok_or(StatusCode::PRECONDITION_FAILED)?;
+    controller.stop().map_err(|_| StatusCode::BAD_REQUEST)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn stream_status(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let running = match state.live_stream.as_ref() {
+        Some(controller) => controller.is_running().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        None => false,
+    };
+    Ok(Json(serde_json::json!({"enabled": state.live_stream.is_some(), "running": running})))
+}
