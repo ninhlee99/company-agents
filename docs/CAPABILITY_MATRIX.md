@@ -57,3 +57,11 @@ It should not be described as an AI company that can independently operate every
 4. Add real payment-provider reconciliation before any payment initiation capability.
 5. Add operator identity/RBAC and tenant isolation before exposing the control plane as SaaS.
 6. Add benchmark/evaluation and shadow-mode evidence before increasing autonomy.
+
+
+### Recent operating-control improvements
+- Basic monochrome control-plane dashboard: **Implemented**
+- Revenue planning target visibility: **Implemented** (planning metric only)
+- Workforce/payroll/business-unit operational visibility: **Implemented**
+- Verified external revenue generation: **Environment-gated / not guaranteed**
+- Autonomous external publishing, messaging and payment initiation: **Not achieved**

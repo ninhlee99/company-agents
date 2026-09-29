@@ -242,6 +242,9 @@ fn affiliate_query(params: AffiliateSearchParams) -> ProductSearchQuery {
 
 async fn index(State(state): State<AppState>) -> Html<String> {
     let company = state.company.read().await.clone();
+    let workforce = state.store.list_employees(&state.company_id).await.unwrap_or_default();
+    let business_units = state.store.list_business_units(&state.company_id).await.unwrap_or_default();
+    let payroll_due = state.store.payroll_due(&state.company_id, 100).await.unwrap_or_default();
     let latest = state.latest.read().await;
     let latest_cycle = state.latest_cycle.read().await;
     let mut rows = String::new();
@@ -285,6 +288,9 @@ async fn index(State(state): State<AppState>) -> Html<String> {
         ((company.backlog.max(0) as f64 / company.capacity as f64) * 100.0).round().min(999.0) as u64
     } else { 0 };
     let agent_count = latest.len();
+    let active_staff = workforce.iter().filter(|e| matches!(e.status, company_organization::EmployeeStatus::Active)).count();
+    let due_payroll_count = payroll_due.len();
+    let business_unit_count = business_units.len();
     let cycle_state = if latest_cycle.is_some() { "active" } else { "waiting" };
 
     let executed = latest_cycle
@@ -329,6 +335,7 @@ nav{{display:flex;gap:14px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#111;te
 <div class="card"><small>Runway</small><div class="metric">{} days</div></div>
 </div>
 <div class="grid"><div class="card"><small>Status</small><div class="metric">{:?}</div></div><div class="card"><small>Agent cycle</small><div class="metric">{}</div></div><div class="card"><small>Backlog / capacity</small><div class="metric">{}%</div></div><div class="card"><small>Agent results</small><div class="metric">{}</div></div></div>
+<div class="grid"><div class="card"><small>Active workforce</small><div class="metric">{}</div></div><div class="card"><small>Payroll due</small><div class="metric">{}</div></div><div class="card"><small>Business units</small><div class="metric">{}</div></div><div class="card"><small>Operating loop</small><div class="metric">observe → act → learn</div></div></div>
 <div class="card"><h2>Operate</h2>
 <form method="post" action="/run"><button type="submit">Run one decision cycle</button></form>
 <p><small>The LLM only proposes reasoning. Governor, execution policy, idempotency and persistent state remain deterministic.</small></p></div>
@@ -351,6 +358,9 @@ nav{{display:flex;gap:14px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#111;te
         cycle_state,
         capacity_pct,
         agent_count,
+        active_staff,
+        due_payroll_count,
+        business_unit_count,
         rows,
     ))
 }
