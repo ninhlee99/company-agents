@@ -35,11 +35,11 @@ Research → planning → scripting → production → QA → publishing → ana
 Durable media jobs, sandboxed FFmpeg, FFprobe QA and publishing approval contracts are implemented. Real platform adapters remain credential/account dependent.
 
 ## Phase 6 — Monetization
-**Status: affiliate monetization implemented**
+**Status: affiliate + commercial sales lifecycle implemented**
 - Product discovery/ranking, coupon validation, Awin/TikTok Shop adapters.
 - Click/conversion attribution, provider verification, receivable recognition and payout accounting.
 
-**Next product work:** sponsorship CRM, service proposals, invoicing and broader verified revenue ingestion.
+**Next product work:** richer sponsorship delivery/reporting and broader verified revenue ingestion.
 
 ## Phase 7 — Human Organization
 **Status: core economics implemented**
