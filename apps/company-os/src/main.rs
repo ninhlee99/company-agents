@@ -141,6 +141,7 @@ struct AffiliateSearchParams {
 #[derive(Debug, Deserialize)] struct InvoiceLineRequest { description: String, quantity: u32, unit_price_minor: i128 }
 #[derive(Debug, Deserialize)] struct InvoiceRequest { customer_id: uuid::Uuid, currency: String, due_epoch: i64, idempotency_key: String, lines: Vec<InvoiceLineRequest> }
 #[derive(Debug, Deserialize)] struct InvoiceIssueRequest { invoice_id: uuid::Uuid }
+#[derive(Debug, Deserialize)] struct PaymentReconciliationEvidenceRequest { invoice_id: uuid::Uuid, provider: String, provider_event_id: String, external_ref: Option<String>, amount_minor: i128, currency: String, observed_at_epoch: i64, evidence_hash: String }
 #[derive(Debug, Deserialize)] struct InvoicePaymentRequest { invoice_id: uuid::Uuid, payment_id: uuid::Uuid, amount_minor: i128, occurred_at_epoch: i64, external_ref: Option<String> }
 #[derive(Debug, Deserialize)] struct ProposalTransitionRequest { proposal_id: uuid::Uuid, status: commercial_sales::ProposalStatus }
 #[derive(Debug, Deserialize)] struct SponsorshipTransitionRequest { sponsorship_id: uuid::Uuid, status: String }
@@ -751,6 +752,17 @@ async fn invoice_payment_api(State(state): State<AppState>, Json(req): Json<Invo
 }
 
 
+async fn payment_reconciliation_evidence_api(
+    State(state): State<AppState>,
+    Json(req): Json<PaymentReconciliationEvidenceRequest>,
+) -> Result<Json<String>, StatusCode> {
+    state.store.record_payment_reconciliation_evidence(
+        &state.company_id, &req.invoice_id.to_string(), &req.provider,
+        &req.provider_event_id, req.external_ref.as_deref(), req.amount_minor,
+        &req.currency, req.observed_at_epoch, &req.evidence_hash,
+    ).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
 fn control_plane_auth_disabled() -> bool {
     std::env::var("CONTROL_PLANE_AUTH_DISABLED")
         .ok()
@@ -1019,6 +1031,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/commercial/invoices", post(invoice_api))
         .route("/api/commercial/invoices/issue", post(invoice_issue_api))
         .route("/api/commercial/invoice-payments", post(invoice_payment_api))
+        .route("/api/commercial/payments/reconcile", post(payment_reconciliation_evidence_api))
         .route("/api/business-units", get(business_units_api))
         .route("/api/portfolio/metrics", get(portfolio_metrics_api))
         .route("/api/journal", get(journal_api))
