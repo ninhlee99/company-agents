@@ -196,7 +196,7 @@ impl CompanyStore {
             .await
         client
             .batch_execute(include_str!(
-                "../../../infra/db/migrations/028_fpa_variance_alerts.sql"
+                "../../../infra/db/migrations/029_customer_support.sql"
             ))
             .await?;
     }
@@ -4158,65 +4158,76 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         }))
     }
 
-    pub async fn financial_variance_report(
-        &self, company_id:&str, forecast_id:&str, period_start_epoch:i64
+    pub async fn create_support_case(
+        &self, company_id:&str, case_id:Uuid, customer_id:Option<&str>, channel:&str, subject:&str,
+        description:&str, priority:&str, sla_due_at_epoch:i64, idempotency_key:&str
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let company=Uuid::parse_str(company_id)?; let forecast=Uuid::parse_str(forecast_id)?;
+        if subject.trim().is_empty() || description.trim().is_empty() || idempotency_key.trim().is_empty()
+            || !matches!(priority, "LOW"|"NORMAL"|"HIGH"|"URGENT") || sla_due_at_epoch<=0 {
+            return Err("invalid support case".into());
+        }
+        let company=Uuid::parse_str(company_id)?;
+        let customer=match customer_id { Some(v)=>Some(Uuid::parse_str(v)?),None=>None };
         let client=self.client.lock().await;
-        let f=client.query_one(
-            "SELECT currency, revenue_minor::text, operating_inflow_minor::text, operating_outflow_minor::text,
-                    capex_minor::text, financing_inflow_minor::text, financing_outflow_minor::text
-               FROM financial_forecast_periods p JOIN financial_forecasts f ON f.id=p.forecast_id
-              WHERE f.company_id=$1 AND p.forecast_id=$2 AND p.period_start_epoch=$3",
-            &[&company,&forecast,&period_start_epoch]).await?;
-        let o=client.query_opt(
-            "SELECT inflow_minor::text,outflow_minor::text,closing_cash_minor::text,currency
-               FROM cashflow_observations WHERE company_id=$1 AND period_start_epoch=$2
-              ORDER BY created_at DESC LIMIT 1",
-            &[&company,&period_start_epoch]).await?;
-        let currency:String=f.get(0);
-        let forecast_in=parse_i128_numeric(&f.get::<_,String>(2))?;
-        let forecast_out=parse_i128_numeric(&f.get::<_,String>(3))?;
-        let (actual_in,actual_out,closing_cash)=match o {
-            Some(x)=>(parse_i128_numeric(&x.get::<_,String>(0))?,parse_i128_numeric(&x.get::<_,String>(1))?,parse_i128_numeric(&x.get::<_,String>(2))?),
-            None=>(0,0,0)
-        };
-        let variance_in=actual_in-forecast_in; let variance_out=actual_out-forecast_out;
-        let net_forecast=forecast_in-forecast_out; let net_actual=actual_in-actual_out;
-        Ok(serde_json::json!({
-            "forecast_id":forecast,"period_start_epoch":period_start_epoch,"currency":currency,
-            "forecast_inflow_minor":forecast_in,"actual_inflow_minor":actual_in,"inflow_variance_minor":variance_in,
-            "forecast_outflow_minor":forecast_out,"actual_outflow_minor":actual_out,"outflow_variance_minor":variance_out,
-            "forecast_net_cashflow_minor":net_forecast,"actual_net_cashflow_minor":net_actual,
-            "closing_cash_minor":closing_cash
-        }))
+        let row=client.query_opt(
+            "INSERT INTO support_cases(id,company_id,customer_id,channel,subject,description,priority,status,sla_due_at_epoch,idempotency_key)
+             VALUES($1,$2,$3,$4,$5,$6,$7,'OPEN',$8,$9)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING
+             RETURNING id,status,priority,sla_due_at_epoch",
+            &[&case_id,&company,&customer,&channel,&subject,&description,&priority,&sla_due_at_epoch,&idempotency_key]).await?;
+        let row=match row { Some(r)=>r, None=>client.query_one(
+            "SELECT id,status,priority,sla_due_at_epoch FROM support_cases WHERE company_id=$1 AND idempotency_key=$2",
+            &[&company,&idempotency_key]).await? };
+        Ok(serde_json::json!({"id":row.get::<_,Uuid>(0),"status":row.get::<_,String>(1),
+            "priority":row.get::<_,String>(2),"sla_due_at_epoch":row.get::<_,i64>(3)}))
     }
 
-    pub async fn assess_liquidity(
-        &self, company_id:&str, period_start_epoch:i64, warning_months:i128, critical_months:i128
+    pub async fn update_support_case(
+        &self, company_id:&str, case_id:&str, status:&str, actor:&str, notes:Option<&str>,
+        evidence_hash:Option<&str>, resolved_at_epoch:Option<i64>
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        if warning_months<=critical_months || critical_months<1 { return Err("invalid liquidity thresholds".into()); }
-        let company=Uuid::parse_str(company_id)?;
+        if !matches!(status,"ACKNOWLEDGED"|"IN_PROGRESS"|"WAITING_CUSTOMER"|"RESOLVED"|"CLOSED") || actor.trim().is_empty() {
+            return Err("invalid support transition".into());
+        }
+        let company=Uuid::parse_str(company_id)?; let case_id=Uuid::parse_str(case_id)?;
         let client=self.client.lock().await;
-        let row=client.query_one(
-            "SELECT currency, closing_cash_minor::text FROM cashflow_observations
-              WHERE company_id=$1 ORDER BY period_start_epoch DESC, created_at DESC LIMIT 1",&[&company]).await?;
-        let currency:String=row.get(0); let cash=parse_i128_numeric(&row.get::<_,String>(1))?;
-        let avg=client.query_opt(
-            "SELECT AVG((outflow_minor)::double precision) FROM cashflow_observations
-              WHERE company_id=$1 AND period_start_epoch >= $2",&[&company,&(period_start_epoch-7776000)]).await?;
-        let avg_out=avg.and_then(|r| r.get::<_,Option<f64>>(0)).unwrap_or(0.0);
-        let runway=if avg_out>0.0 { cash as f64/avg_out } else { f64::INFINITY };
-        let severity=if runway < critical_months as f64 {"CRITICAL"} else if runway < warning_months as f64 {"WARNING"} else {"INFO"};
-        let id=Uuid::new_v4(); let key=format!("cash-runway:{}:{}",company,period_start_epoch);
-        client.execute(
-            "INSERT INTO financial_alerts(id,company_id,alert_type,severity,period_start_epoch,metric_name,actual_minor,threshold_minor,message,status,idempotency_key)
-             VALUES($1,$2,'CASH_RUNWAY',$3,$4,'runway_months',$5,$6,$7,'OPEN',$8)
-             ON CONFLICT(company_id,idempotency_key) DO UPDATE SET severity=EXCLUDED.severity,message=EXCLUDED.message",
-            &[&id,&company,&severity,&period_start_epoch,&(if runway.is_finite(){runway}else{0.0}),
-              &(critical_months as f64),&format!("Cash runway assessment: {:.2} months",runway),&key]).await?;
-        Ok(serde_json::json!({"currency":currency,"closing_cash_minor":cash,"average_outflow_minor":avg_out,
-            "runway_months":runway,"severity":severity,"alert_id":id}))
+        let current=client.query_one("SELECT status FROM support_cases WHERE company_id=$1 AND id=$2 FOR UPDATE",&[&company,&case_id]).await?;
+        let from:String=current.get(0);
+        let allowed=matches!((from.as_str(),status),
+            ("OPEN","ACKNOWLEDGED")|("ACKNOWLEDGED","IN_PROGRESS")|("IN_PROGRESS","WAITING_CUSTOMER")|
+            ("WAITING_CUSTOMER","IN_PROGRESS")|("IN_PROGRESS","RESOLVED")|("RESOLVED","CLOSED")|("IN_PROGRESS","CLOSED"));
+        if !allowed { return Err(format!("invalid support transition {} -> {}",from,status).into()); }
+        client.execute("UPDATE support_cases SET status=$3,resolved_at_epoch=CASE WHEN $3='RESOLVED' THEN COALESCE($4,resolved_at_epoch) ELSE resolved_at_epoch END,updated_at=now() WHERE company_id=$1 AND id=$2",
+            &[&company,&case_id,&status,&resolved_at_epoch]).await?;
+        client.execute("INSERT INTO support_case_events(id,company_id,case_id,event_type,actor,evidence_hash,notes) VALUES($1,$2,$3,$4,$5,$6,$7)",
+            &[&Uuid::new_v4(),&company,&case_id,&format!("STATUS_{}",status),&actor,&evidence_hash,&notes]).await?;
+        Ok(serde_json::json!({"id":case_id,"from":from,"status":status}))
+    }
+
+    pub async fn list_support_cases(
+        &self, company_id:&str, status:Option<&str>, limit:i64
+    ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
+        let company=Uuid::parse_str(company_id)?; let limit=limit.clamp(1,100);
+        let client=self.client.lock().await;
+        let rows=match status {
+            Some(v)=>client.query("SELECT id,customer_id,channel,subject,priority,status,sla_due_at_epoch,owner_agent FROM support_cases WHERE company_id=$1 AND status=$2 ORDER BY priority DESC,created_at LIMIT $3",&[&company,&v,&limit]).await?,
+            None=>client.query("SELECT id,customer_id,channel,subject,priority,status,sla_due_at_epoch,owner_agent FROM support_cases WHERE company_id=$1 ORDER BY priority DESC,created_at LIMIT $2",&[&company,&limit]).await?
+        };
+        Ok(rows.into_iter().map(|r|serde_json::json!({"id":r.get::<_,Uuid>(0),"customer_id":r.get::<_,Option<Uuid>>(1),
+            "channel":r.get::<_,String>(2),"subject":r.get::<_,String>(3),"priority":r.get::<_,String>(4),
+            "status":r.get::<_,String>(5),"sla_due_at_epoch":r.get::<_,i64>(6),"owner_agent":r.get::<_,Option<String>>(7)})).collect())
+    }
+
+    pub async fn record_support_feedback(
+        &self, company_id:&str, feedback_id:Uuid, case_id:&str, rating:i16, feedback:Option<&str>
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=5).contains(&rating) { return Err("rating must be 1..5".into()); }
+        let company=Uuid::parse_str(company_id)?; let case_id=Uuid::parse_str(case_id)?;
+        let client=self.client.lock().await;
+        client.execute("INSERT INTO support_case_feedback(id,company_id,case_id,rating,feedback) VALUES($1,$2,$3,$4,$5)
+            ON CONFLICT(company_id,case_id) DO UPDATE SET rating=EXCLUDED.rating,feedback=EXCLUDED.feedback",
+            &[&feedback_id,&company,&case_id,&rating,&feedback]).await?;
+        Ok(serde_json::json!({"id":feedback_id,"case_id":case_id,"rating":rating}))
     }
 
 

@@ -146,6 +146,9 @@ struct AffiliateSearchParams {
 #[derive(Debug, Deserialize)] struct ProposalTransitionRequest { proposal_id: uuid::Uuid, status: commercial_sales::ProposalStatus }
 #[derive(Debug, Deserialize)] struct SponsorshipTransitionRequest { sponsorship_id: uuid::Uuid, status: String }
 #[derive(Debug, Deserialize)] struct SponsorshipDeliveryRequest { sponsorship_id: uuid::Uuid, delivered_minor: i128 }
+#[derive(Debug, Deserialize)] struct SupportCaseRequest { customer_id: Option<uuid::Uuid>, channel:String, subject:String, description:String, priority:String, sla_due_at_epoch:i64, idempotency_key:String }
+#[derive(Debug, Deserialize)] struct SupportCaseUpdateRequest { case_id:uuid::Uuid, status:String, actor:String, notes:Option<String>, evidence_hash:Option<String>, resolved_at_epoch:Option<i64> }
+#[derive(Debug, Deserialize)] struct SupportCaseFeedbackRequest { case_id:uuid::Uuid, rating:i16, feedback:Option<String> }
 #[derive(Debug, Deserialize)] struct CustomerRequest { name: String, email: Option<String>, external_ref: Option<String>, status: Option<String>, notes: Option<String>, idempotency_key: String }
 #[derive(Debug, Deserialize)] struct CustomerSuccessTaskRequest { customer_id: uuid::Uuid, task_type:String, due_at_epoch:i64, owner:Option<String>, notes:Option<String>, idempotency_key:String }
 #[derive(Debug, Deserialize)] struct CustomerSuccessCompleteRequest { task_id:uuid::Uuid, outcome:String }
@@ -154,8 +157,6 @@ struct AffiliateSearchParams {
 #[derive(Debug, Deserialize)] struct ForecastRequest { name:String, currency:String, horizon_months:i32, methodology:String, idempotency_key:String }
 #[derive(Debug, Deserialize)] struct ForecastPeriodRequest { forecast_id:uuid::Uuid, period_start_epoch:i64, revenue_minor:i128, operating_inflow_minor:i128, operating_outflow_minor:i128, capex_minor:i128, financing_inflow_minor:i128, financing_outflow_minor:i128, notes:Option<String> }
 #[derive(Debug, Deserialize)] struct CashflowObservationRequest { period_start_epoch:i64, currency:String, inflow_minor:i128, outflow_minor:i128, closing_cash_minor:i128, source:String, evidence_hash:String, idempotency_key:String }
-#[derive(Debug, Deserialize)] struct ForecastVarianceRequest { forecast_id: uuid::Uuid, period_start_epoch:i64 }
-#[derive(Debug, Deserialize)] struct LiquidityAssessmentRequest { period_start_epoch:i64, warning_months:i128, critical_months:i128 }
 
 fn format_minor(value: i128, currency: &str) -> String {
     let negative = value < 0;
@@ -834,11 +835,18 @@ async fn forecast_period_api(State(state): State<AppState>, Json(req): Json<Fore
 async fn forecast_summary_api(State(state): State<AppState>, axum::extract::Path(forecast_id): axum::extract::Path<uuid::Uuid>) -> Result<Json<serde_json::Value>, StatusCode> {
     state.store.forecast_cashflow_summary(&state.company_id, &forecast_id.to_string()).await.map(Json).map_err(|_| StatusCode::NOT_FOUND)
 }
-async fn forecast_variance_api(State(state): State<AppState>, Json(req): Json<ForecastVarianceRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
-    state.store.financial_variance_report(&state.company_id,&req.forecast_id.to_string(),req.period_start_epoch).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+async fn support_case_create_api(State(state): State<AppState>, Json(req): Json<SupportCaseRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
+    let customer=req.customer_id.map(|v|v.to_string());
+    state.store.create_support_case(&state.company_id,uuid::Uuid::new_v4(),customer.as_deref(),&req.channel,&req.subject,&req.description,&req.priority,req.sla_due_at_epoch,&req.idempotency_key).await.map(Json).map_err(|_|StatusCode::BAD_REQUEST)
 }
-async fn liquidity_assessment_api(State(state): State<AppState>, Json(req): Json<LiquidityAssessmentRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
-    state.store.assess_liquidity(&state.company_id,req.period_start_epoch,req.warning_months,req.critical_months).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+async fn support_case_update_api(State(state): State<AppState>, Json(req): Json<SupportCaseUpdateRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.update_support_case(&state.company_id,&req.case_id.to_string(),&req.status,&req.actor,req.notes.as_deref(),req.evidence_hash.as_deref(),req.resolved_at_epoch).await.map(Json).map_err(|_|StatusCode::BAD_REQUEST)
+}
+async fn support_case_list_api(State(state): State<AppState>) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    state.store.list_support_cases(&state.company_id,None,100).await.map(Json).map_err(|_|StatusCode::BAD_REQUEST)
+}
+async fn support_case_feedback_api(State(state): State<AppState>, Json(req): Json<SupportCaseFeedbackRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.record_support_feedback(&state.company_id,uuid::Uuid::new_v4(),&req.case_id.to_string(),req.rating,req.feedback.as_deref()).await.map(Json).map_err(|_|StatusCode::BAD_REQUEST)
 }
 
 async fn cashflow_observation_api(State(state): State<AppState>, Json(req): Json<CashflowObservationRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
@@ -1068,13 +1076,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/publishing/tiktok/status", post(publishing::tiktok_status))
         .route("/api/publishing/tiktok/webhook", post(publishing::tiktok_webhook))
         .route("/api/customers", get(customers_api).post(customer_api))
+        .route("/api/support/cases", get(support_case_list_api).post(support_case_create_api))
+        .route("/api/support/cases/update", post(support_case_update_api))
+        .route("/api/support/cases/feedback", post(support_case_feedback_api))
         .route("/api/finance/budgets", get(budgets_api).post(budget_api))
         .route("/api/finance/forecasts", post(forecast_api))
         .route("/api/finance/forecasts/periods", post(forecast_period_api))
         .route("/api/finance/forecasts/:forecast_id/summary", get(forecast_summary_api))
         .route("/api/finance/cashflow/observations", post(cashflow_observation_api))
-        .route("/api/finance/forecasts/variance", post(forecast_variance_api))
-        .route("/api/finance/liquidity/assess", post(liquidity_assessment_api))
         .route("/api/finance/budgets/spend", post(budget_spend_api))
         .route("/api/employees", get(employees_api))
         .route("/api/payroll/due", get(payroll_due_api))
