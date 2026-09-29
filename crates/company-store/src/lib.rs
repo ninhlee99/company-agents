@@ -3833,6 +3833,10 @@ async fn tx_store_live_gift_statement(
     Ok(())
 }
 
+fn parse_i128_numeric(value: &str) -> Result<i128, std::num::ParseIntError> {
+    value.trim().parse::<i128>()
+}
+
 fn parse_reconciliation_status(
     value: &str,
 ) -> Result<affiliate_attribution::ReconciliationStatus, Box<dyn std::error::Error + Send + Sync>> {
