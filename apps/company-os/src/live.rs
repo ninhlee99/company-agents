@@ -50,6 +50,28 @@ pub async fn create_session(
         if !approved || !destination.as_deref().is_some_and(|value| value.starts_with("rtmp://") || value.starts_with("rtmps://")) {
             return Err(StatusCode::PRECONDITION_FAILED);
         }
+
+        let policy_snapshot_key = req.policy_snapshot_key.as_deref().ok_or(StatusCode::PRECONDITION_FAILED)?;
+        let policy_evidence_ref = req.policy_evidence_ref.as_deref().ok_or(StatusCode::PRECONDITION_FAILED)?;
+        let compliance = state
+            .store
+            .check_tiktok_compliance_for_live(
+                &state.company_id,
+                &req.title,
+                policy_snapshot_key,
+                policy_evidence_ref,
+                req.disclosure_present,
+                req.claim_evidence_present,
+                req.product_eligibility_verified,
+                req.rights_evidence_present,
+                req.simulcast,
+            )
+            .await
+            .map_err(|_| StatusCode::PRECONDITION_FAILED)?;
+
+        if compliance.decision != company_compliance::ComplianceDecision::Allowed {
+            return Err(StatusCode::PRECONDITION_FAILED);
+        }
     }
     let company_id = Uuid::parse_str(&state.company_id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let session = LiveSession {
