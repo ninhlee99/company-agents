@@ -690,7 +690,6 @@ async fn customer_api(
     State(state): State<AppState>,
     Json(req): Json<CustomerRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let company_id = uuid::Uuid::parse_str(&state.company_id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let status = req.status.unwrap_or_else(|| "LEAD".into());
     state.store.create_customer(
         &state.company_id,
