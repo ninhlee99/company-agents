@@ -143,9 +143,6 @@ struct AffiliateSearchParams {
 #[derive(Debug, Deserialize)] struct InvoiceIssueRequest { invoice_id: uuid::Uuid }
 #[derive(Debug, Deserialize)] struct PaymentReconciliationEvidenceRequest { invoice_id: uuid::Uuid, provider: String, provider_event_id: String, external_ref: Option<String>, amount_minor: i128, currency: String, observed_at_epoch: i64, evidence_hash: String }
 #[derive(Debug, Deserialize)] struct InvoicePaymentRequest { invoice_id: uuid::Uuid, payment_id: uuid::Uuid, amount_minor: i128, occurred_at_epoch: i64, external_ref: Option<String> }
-#[derive(Debug, Deserialize)] struct PaymentExecutionIntentRequest { invoice_id: uuid::Uuid, amount_minor: i128, currency: String, provider: String, payment_method_ref: String, idempotency_key: String }
-#[derive(Debug, Deserialize)] struct PaymentExecutionApprovalRequest { intent_id: uuid::Uuid, approved_by: String, approval_reference: String, approved_at_epoch: i64 }
-#[derive(Debug, Deserialize)] struct PaymentExecutionRunRequest { intent_id: uuid::Uuid, observed_at_epoch: i64 }
 #[derive(Debug, Deserialize)] struct ProposalTransitionRequest { proposal_id: uuid::Uuid, status: commercial_sales::ProposalStatus }
 #[derive(Debug, Deserialize)] struct SponsorshipTransitionRequest { sponsorship_id: uuid::Uuid, status: String }
 #[derive(Debug, Deserialize)] struct SponsorshipDeliveryRequest { sponsorship_id: uuid::Uuid, delivered_minor: i128 }
@@ -157,6 +154,8 @@ struct AffiliateSearchParams {
 #[derive(Debug, Deserialize)] struct ForecastRequest { name:String, currency:String, horizon_months:i32, methodology:String, idempotency_key:String }
 #[derive(Debug, Deserialize)] struct ForecastPeriodRequest { forecast_id:uuid::Uuid, period_start_epoch:i64, revenue_minor:i128, operating_inflow_minor:i128, operating_outflow_minor:i128, capex_minor:i128, financing_inflow_minor:i128, financing_outflow_minor:i128, notes:Option<String> }
 #[derive(Debug, Deserialize)] struct CashflowObservationRequest { period_start_epoch:i64, currency:String, inflow_minor:i128, outflow_minor:i128, closing_cash_minor:i128, source:String, evidence_hash:String, idempotency_key:String }
+#[derive(Debug, Deserialize)] struct ForecastVarianceRequest { forecast_id: uuid::Uuid, period_start_epoch:i64 }
+#[derive(Debug, Deserialize)] struct LiquidityAssessmentRequest { period_start_epoch:i64, warning_months:i128, critical_months:i128 }
 
 fn format_minor(value: i128, currency: &str) -> String {
     let negative = value < 0;
@@ -762,32 +761,6 @@ async fn invoice_payment_api(State(state): State<AppState>, Json(req): Json<Invo
 }
 
 
-async fn payment_execution_intent_api(
-    State(state): State<AppState>, Json(req): Json<PaymentExecutionIntentRequest>
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    state.store.create_payment_execution_intent(
-        &state.company_id, uuid::Uuid::new_v4(), &req.invoice_id.to_string(), req.amount_minor,
-        &req.currency, &req.provider, &req.payment_method_ref, &req.idempotency_key
-    ).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
-}
-
-async fn payment_execution_approve_api(
-    State(state): State<AppState>, Json(req): Json<PaymentExecutionApprovalRequest>
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    state.store.approve_payment_execution(
-        &state.company_id, &req.intent_id.to_string(), &req.approved_by,
-        &req.approval_reference, req.approved_at_epoch
-    ).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
-}
-
-async fn payment_execution_run_api(
-    State(state): State<AppState>, Json(req): Json<PaymentExecutionRunRequest>
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    state.store.execute_payment_intent(
-        &state.company_id, &req.intent_id.to_string(), req.observed_at_epoch
-    ).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
-}
-
 async fn payment_reconciliation_evidence_api(
     State(state): State<AppState>,
     Json(req): Json<PaymentReconciliationEvidenceRequest>,
@@ -861,6 +834,13 @@ async fn forecast_period_api(State(state): State<AppState>, Json(req): Json<Fore
 async fn forecast_summary_api(State(state): State<AppState>, axum::extract::Path(forecast_id): axum::extract::Path<uuid::Uuid>) -> Result<Json<serde_json::Value>, StatusCode> {
     state.store.forecast_cashflow_summary(&state.company_id, &forecast_id.to_string()).await.map(Json).map_err(|_| StatusCode::NOT_FOUND)
 }
+async fn forecast_variance_api(State(state): State<AppState>, Json(req): Json<ForecastVarianceRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.financial_variance_report(&state.company_id,&req.forecast_id.to_string(),req.period_start_epoch).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
+async fn liquidity_assessment_api(State(state): State<AppState>, Json(req): Json<LiquidityAssessmentRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
+    state.store.assess_liquidity(&state.company_id,req.period_start_epoch,req.warning_months,req.critical_months).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
+}
+
 async fn cashflow_observation_api(State(state): State<AppState>, Json(req): Json<CashflowObservationRequest>) -> Result<Json<serde_json::Value>, StatusCode> {
     state.store.record_cashflow_observation(&state.company_id, uuid::Uuid::new_v4(), req.period_start_epoch, &req.currency, req.inflow_minor, req.outflow_minor, req.closing_cash_minor, &req.source, &req.evidence_hash, &req.idempotency_key)
         .await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
@@ -1093,6 +1073,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/finance/forecasts/periods", post(forecast_period_api))
         .route("/api/finance/forecasts/:forecast_id/summary", get(forecast_summary_api))
         .route("/api/finance/cashflow/observations", post(cashflow_observation_api))
+        .route("/api/finance/forecasts/variance", post(forecast_variance_api))
+        .route("/api/finance/liquidity/assess", post(liquidity_assessment_api))
         .route("/api/finance/budgets/spend", post(budget_spend_api))
         .route("/api/employees", get(employees_api))
         .route("/api/payroll/due", get(payroll_due_api))
@@ -1106,9 +1088,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/commercial/invoices/issue", post(invoice_issue_api))
         .route("/api/commercial/invoice-payments", post(invoice_payment_api))
         .route("/api/commercial/payments/reconcile", post(payment_reconciliation_evidence_api))
-        .route("/api/commercial/payments/intents", post(payment_execution_intent_api))
-        .route("/api/commercial/payments/intents/approve", post(payment_execution_approve_api))
-        .route("/api/commercial/payments/intents/execute", post(payment_execution_run_api))
         .route("/api/business-units", get(business_units_api))
         .route("/api/portfolio/metrics", get(portfolio_metrics_api))
         .route("/api/journal", get(journal_api))
