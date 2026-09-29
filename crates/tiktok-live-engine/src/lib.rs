@@ -49,6 +49,9 @@ impl LiveEvent {
         if self.room_id.trim().is_empty() || self.room_id.len() > 256 { return Err("room_id is invalid".into()); }
         if self.gift_quantity == 0 && matches!(self.kind, LiveEventKind::Gift) { return Err("gift_quantity must be positive for gift events".into()); }
         if self.gift_value_minor > 0 && self.currency.trim().is_empty() { return Err("currency is required when gift_value_minor is non-zero".into()); }
+        if self.viewer_value_bps.is_some_and(|value| value > 10_000) {
+            return Err("viewer_value_bps must be between 0 and 10000".into());
+        }
         if let Some(text) = self.text.as_deref() { if text.len() > MAX_TEXT_LEN { return Err("event text is too long".into()); } }
         if self.occurred_at_epoch <= 0 { return Err("occurred_at_epoch must be positive".into()); }
         Ok(())
