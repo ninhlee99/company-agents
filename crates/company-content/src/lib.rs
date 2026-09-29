@@ -115,6 +115,37 @@ pub fn validate_observation(observation: &ContentObservation) -> Result<(), Stri
     Ok(())
 }
 
+pub fn validate_status_transition(
+    current: ContentStatus,
+    next: ContentStatus,
+    evidence_ref: Option<&str>,
+) -> Result<(), String> {
+    let allowed = matches!(
+        (current, next),
+        (ContentStatus::Draft, ContentStatus::Approved)
+            | (ContentStatus::Approved, ContentStatus::Rendered)
+            | (ContentStatus::Rendered, ContentStatus::Published)
+            | (ContentStatus::Published, ContentStatus::Measured)
+            | (ContentStatus::Published, ContentStatus::Paused)
+            | (ContentStatus::Measured, ContentStatus::Paused)
+            | (ContentStatus::Paused, ContentStatus::Approved)
+            | (ContentStatus::Measured, ContentStatus::Killed)
+            | (ContentStatus::Published, ContentStatus::Killed)
+    );
+    if !allowed {
+        return Err("invalid content status transition".into());
+    }
+    if matches!(next, ContentStatus::Published | ContentStatus::Measured)
+        && evidence_ref.map(str::trim).unwrap_or_default().is_empty()
+    {
+        return Err("published/measured status requires evidence reference".into());
+    }
+    if let Some(reference) = evidence_ref {
+        require_text("evidence_ref", reference, 256)?;
+    }
+    Ok(())
+}
+
 pub fn decide_from_observation(
     brief: &ContentBrief,
     observation: &ContentObservation,
@@ -288,6 +319,20 @@ mod tests {
             decision: None,
         };
         assert!(validate_item(&item).is_err());
+    }
+
+    #[test]
+    fn status_transition_requires_publish_evidence() {
+        assert!(validate_status_transition(
+            ContentStatus::Rendered,
+            ContentStatus::Published,
+            None
+        ).is_err());
+        assert!(validate_status_transition(
+            ContentStatus::Rendered,
+            ContentStatus::Published,
+            Some("publish-ref-1")
+        ).is_ok());
     }
 
     #[test]
