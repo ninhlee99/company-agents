@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CompanySnapshot, GovernedProposal, ExecutionReceipt, LedgerEntry, CustomAgent } from './types/company';
+import { CompanySnapshot, GovernedProposal, ExecutionReceipt, LedgerEntry, CustomAgent, CycleTrendPoint } from './types/company';
 import { Header } from './components/Header';
 import { BasicDashboard } from './components/BasicDashboard';
 import { ManageAgents } from './components/ManageAgents';
@@ -72,6 +72,8 @@ export default function App() {
     { id: 'agent-experiment', name: 'Experimenter', role: 'Nghiên Cứu A/B Test', department: 'Growth', description: 'Thử nghiệm mẫu kịch bản và thị trường', salary_minor: 0, tasksCompleted: 29, status: 'Active', hiredAtCycle: 1 },
   ]);
 
+  const [cycleHistory, setCycleHistory] = useState<CycleTrendPoint[]>([]);
+
   const loadState = async () => {
     try {
       const res = await fetch('/api/state');
@@ -83,6 +85,9 @@ export default function App() {
         setEmployees(data.employees || []);
         if (data.customAgents && data.customAgents.length > 0) {
           setCustomAgents(data.customAgents);
+        }
+        if (data.cycleHistory) {
+          setCycleHistory(data.cycleHistory);
         }
         setHasGeminiKey(data.hasGeminiKey);
       }
@@ -356,6 +361,7 @@ export default function App() {
               <BasicDashboard
                 snapshot={snapshot}
                 recentProposals={proposals}
+                cycleHistory={cycleHistory}
                 onRunCycle={handleRunCycle}
                 isRunningCycle={isRunningCycle}
                 onOverride={handleOverride}

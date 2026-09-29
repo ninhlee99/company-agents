@@ -112,6 +112,15 @@ export interface CustomAgent {
   hiredAtCycle: number;
 }
 
+export interface CycleTrendPoint {
+  cycle: string;
+  cycleNum: number;
+  cash: number;
+  revenue: number;
+  expenses: number;
+  netCashFlow: number;
+}
+
 export interface MediaContentGenerated {
   title: string;
   hook: string;

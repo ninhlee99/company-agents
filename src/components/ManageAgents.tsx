@@ -5,18 +5,23 @@ import {
   Plus, 
   Send, 
   CheckCircle2, 
-  ShieldCheck, 
-  Briefcase, 
-  TrendingUp, 
-  Cpu, 
-  Sparkles, 
-  Video, 
-  Search, 
-  FileText, 
-  Microscope,
-  Power,
-  X
+  BarChart3, 
+  Power, 
+  X,
+  AlertTriangle,
+  Award,
+  TrendingDown
 } from 'lucide-react';
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  Legend
+} from 'recharts';
 
 interface ManageAgentsProps {
   snapshot: CompanySnapshot;
@@ -97,6 +102,36 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
     }
   };
 
+  // Prepare data for Agent Performance Bar Chart
+  const chartData = agents.map((a) => {
+    const costUsd = a.salary_minor > 0 ? Math.round(a.salary_minor / 100) : 350; // estimated nominal compute cost for core agents
+    const efficiencyRatio = Math.round((a.tasksCompleted / (costUsd || 1)) * 1000); // tasks per $1k spend
+    return {
+      name: a.name.replace(' Agent', '').replace(' Specialist', ''),
+      fullName: a.name,
+      tasks: a.tasksCompleted,
+      cost: costUsd,
+      dept: a.department,
+      efficiency: efficiencyRatio,
+    };
+  });
+
+  // Calculate department totals
+  const deptStats = ['Leadership', 'Growth', 'Ops'].map((deptName) => {
+    const deptAgents = agents.filter((a) => a.department === deptName);
+    const totalTasks = deptAgents.reduce((sum, a) => sum + a.tasksCompleted, 0);
+    const totalCost = deptAgents.reduce((sum, a) => sum + (a.salary_minor > 0 ? a.salary_minor / 100 : 350), 0);
+    const avgTasksPerAgent = deptAgents.length > 0 ? Math.round(totalTasks / deptAgents.length) : 0;
+    return {
+      department: deptName,
+      agentCount: deptAgents.length,
+      totalTasks,
+      totalCost,
+      avgTasks: avgTasksPerAgent,
+      status: avgTasksPerAgent >= 40 ? 'Tối ưu (Hiệu suất cao)' : avgTasksPerAgent >= 25 ? 'Bình thường' : 'Cần giao thêm việc',
+    };
+  });
+
   return (
     <div className="space-y-4 max-w-5xl mx-auto pb-10">
       {/* Top Header */}
@@ -105,7 +140,7 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
           <Users className="w-5 h-5 text-indigo-400" />
           <div>
             <h2 className="text-base font-bold text-white">Đội Ngũ Nhân Sự AI ({agents.length} vị trí)</h2>
-            <p className="text-xs text-slate-400">Tự động hóa theo phân quyền và hạn mức chi tiêu</p>
+            <p className="text-xs text-slate-400">Theo dõi hiệu suất hoàn thành việc và chi phí vận hành từng nhân sự</p>
           </div>
         </div>
 
@@ -132,6 +167,98 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
           >
             <Plus className="w-3.5 h-3.5" /> Tuyển Thêm AI
           </button>
+        </div>
+      </div>
+
+      {/* RECHARTS BAR CHART: VISUAL PERFORMANCE BREAKDOWN (TASKS COMPLETED VS COST) */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-emerald-400" />
+            <div>
+              <span className="font-bold text-white text-xs block">Hiệu Suất Nhân Sự AI: Khối Lượng Tác Vụ vs. Chi Phí</span>
+              <span className="text-[10px] text-slate-400">Giúp nhà điều hành phát hiện nhân sự/phòng ban chưa đạt kỳ vọng</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 text-[11px]">
+            <span className="flex items-center gap-1 text-indigo-400 font-mono">
+              <span className="w-2.5 h-2.5 rounded-sm bg-indigo-500 inline-block" /> Việc hoàn thành
+            </span>
+            <span className="flex items-center gap-1 text-rose-400 font-mono">
+              <span className="w-2.5 h-2.5 rounded-sm bg-rose-500 inline-block" /> Chi phí ($)
+            </span>
+          </div>
+        </div>
+
+        {/* Bar Chart Container */}
+        <div className="h-64 w-full pt-1">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData} margin={{ top: 10, right: 10, left: -15, bottom: 25 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+              <XAxis
+                dataKey="name"
+                stroke="#64748b"
+                tick={{ fill: '#94a3b8', fontSize: 10 }}
+                interval={0}
+                angle={-20}
+                textAnchor="end"
+              />
+              <YAxis
+                stroke="#64748b"
+                tick={{ fill: '#94a3b8', fontSize: 10 }}
+                tickLine={false}
+              />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: '#0f172a',
+                  borderColor: '#334155',
+                  borderRadius: '0.75rem',
+                  fontSize: '11px',
+                  boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)',
+                }}
+                formatter={(val: any, name: any) => [
+                  name === 'tasks' ? `${val} tác vụ` : `$${Number(val || 0).toLocaleString()}`,
+                  name === 'tasks' ? 'Số Việc Đã Làm' : 'Chi Phí Tháng',
+                ]}
+                labelStyle={{ color: '#e2e8f0', fontWeight: 'bold' }}
+              />
+              <Legend
+                wrapperStyle={{ fontSize: '11px', paddingTop: '4px' }}
+                formatter={(val) => (val === 'tasks' ? 'Số việc hoàn thành' : 'Chi phí ước tính ($)')}
+              />
+              <Bar dataKey="tasks" fill="#6366f1" radius={[4, 4, 0, 0]} name="tasks" />
+              <Bar dataKey="cost" fill="#f43f5e" radius={[4, 4, 0, 0]} name="cost" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Department Health Highlights */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-slate-800/80">
+          {deptStats.map((d) => (
+            <div
+              key={d.department}
+              className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-xs flex items-center justify-between"
+            >
+              <div>
+                <span className="font-bold text-white block">
+                  {d.department === 'Leadership' ? 'Ban Giám Đốc' : d.department === 'Growth' ? 'Khối Kinh Doanh' : 'Khối Vận Hành'}
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  {d.totalTasks} việc • ${(d.totalCost).toLocaleString()}/tháng
+                </span>
+              </div>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                d.status.includes('Tối ưu')
+                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                  : d.status.includes('Bình thường')
+                  ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
+                  : 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
+              }`}>
+                {d.status}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
 
