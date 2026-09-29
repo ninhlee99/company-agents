@@ -123,6 +123,16 @@ struct AffiliateConversionRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct PolicySnapshotRequest {
+    snapshot: company_compliance::PolicySnapshot,
+}
+
+#[derive(Debug, Deserialize)]
+struct ComplianceCheckRequest {
+    input: company_compliance::ComplianceInput,
+}
+
+#[derive(Debug, Deserialize)]
 struct GrowthTrendRequest {
     signal: company_growth::TrendSignal,
 }
