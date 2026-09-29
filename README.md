@@ -136,7 +136,7 @@ Quality:
 - POST /api/run — run one complete decision cycle
 - POST /run — run one cycle and return to dashboard
 
-The current runtime is a controlled Agent Company OS. Deterministic governance, economic execution, durable scheduling, memory, affiliate accounting, media processing, customer CRM and commercial receivables are implemented. Real platform publishing, external messaging, payment-rail execution, multi-user identity/RBAC and unsupervised portfolio control remain explicit integration/acceptance gates.
+The current runtime is a controlled Agent Company OS. Deterministic governance, economic execution, durable scheduling, memory, affiliate accounting, media processing, customer CRM, commercial receivables and a governed Resend email path are implemented. Real platform publishing, other external messaging providers, payment-rail execution, multi-user identity/RBAC and unsupervised portfolio control remain explicit integration/acceptance gates.
 
 See docs/CAPABILITY_MATRIX.md for the strict capability boundary.
 
