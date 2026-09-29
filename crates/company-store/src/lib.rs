@@ -3148,6 +3148,16 @@ impl CompanyStore {
         let company_uuid = Uuid::parse_str(company_id)?;
         let session_uuid = Uuid::parse_str(session_id)?;
         let client = self.client.lock().await;
+        let session_exists = client
+            .query_opt(
+                "SELECT 1 FROM tiktok_live_sessions WHERE id=$1 AND company_id=$2",
+                &[&session_uuid, &company_uuid],
+            )
+            .await?
+            .is_some();
+        if !session_exists {
+            return Err("LIVE session is not owned by company".into());
+        }
         let row = client
             .query_one(
                 "SELECT
