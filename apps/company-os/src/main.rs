@@ -122,6 +122,12 @@ struct AffiliateConversionRequest {
     model: affiliate_attribution::AttributionModel,
 }
 
+#[derive(Debug, Deserialize)]
+struct ContentCreateRequest {
+    brief: company_content::ContentBrief,
+    variant: company_content::CreativeVariant,
+}
+
 #[derive(Debug, Deserialize, Default)]
 struct AffiliateSearchParams {
     category: Option<String>,
@@ -559,6 +565,35 @@ async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, S
 
 async fn agents_api(State(state): State<AppState>) -> Json<Vec<AgentRunResult>> {
     Json(state.latest.read().await.clone())
+}
+
+async fn content_create_api(
+    State(state): State<AppState>,
+    Json(req): Json<ContentCreateRequest>,
+) -> Result<Json<company_store::ContentRecord>, StatusCode> {
+    let company_id = uuid::Uuid::parse_str(&state.company_id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let item = company_content::ContentItem {
+        id: uuid::Uuid::new_v4(),
+        company_id,
+        brief: req.brief,
+        variant: req.variant,
+        status: company_content::ContentStatus::Draft,
+        decision: None,
+    };
+    state.store.create_content_item(&item)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn content_list_api(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<company_store::ContentRecord>>, StatusCode> {
+    state.store.list_content_items(&state.company_id, 200)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 async fn affiliate_search_api(
@@ -1196,6 +1231,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/live/stop", post(live_stop_html))
         .route("/api/run", post(run_api))
         .route("/api/agents", get(agents_api))
+        .route("/api/content/items", get(content_list_api).post(content_create_api))
         .route("/api/affiliate/search", get(affiliate_search_api))
         .route("/api/affiliate/click", post(affiliate_click_api))
         .route("/api/affiliate/conversion", post(affiliate_conversion_api))

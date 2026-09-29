@@ -10,6 +10,7 @@ affiliate-attribution = { path = "../../crates/affiliate-attribution" }
 company-execution = { path = "../../crates/company-execution" }
 publishing-contract = { path = "../../crates/publishing-contract" }
 company-store = { path = "../../crates/company-store" }
+company-content = { path = "../../crates/company-content" }
 commercial-sales = { path = "../../crates/commercial-sales" }
 social-publishing = { path = "../../crates/social-publishing" }
 tiktok-live-streaming = { path = "../../crates/tiktok-live-streaming" }

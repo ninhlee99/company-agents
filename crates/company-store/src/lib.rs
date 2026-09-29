@@ -245,6 +245,36 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/024_growth_experiments.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/025_legal_compliance.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/026_recurring_revenue.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/027_payment_execution.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/028_fpa_variance_alerts.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/029_customer_support.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/030_content_factory.sql"
+            ))
             .await
     }
 
@@ -319,6 +349,66 @@ impl CompanyStore {
               &(spec.min_observations as i64),&(spec.duration_seconds as i64),&spec.success_metric_bps,&spec.kill_metric_bps],
         ).await?;
         Ok(ExperimentRecord { id, company_id: company, spec: spec.clone(), status: company_experiments::ExperimentStatus::Proposed })
+    }
+
+    pub async fn create_content_item(
+        &self,
+        item: &company_content::ContentItem,
+    ) -> Result<ContentRecord, Box<dyn std::error::Error + Send + Sync>> {
+        company_content::validate_item(item).map_err(|error| error.to_string())?;
+        let client = self.client.lock().await;
+        let brief = &item.brief;
+        let variant = &item.variant;
+        let format = content_format_name(brief.format);
+        let metric = success_metric_name(brief.success_metric);
+        let status = content_status_name(item.status);
+        let decision = item.decision.map(content_decision_name);
+        let row = client.query_one(
+            "INSERT INTO content_items
+             (id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
+              expected_cost_minor,max_loss_minor,max_duration_seconds,success_metric,success_threshold_bps,
+              variant_key,hook,first_frame,emotion,pacing,scene_count,text_density,voice_speed,
+              product_placement,cta,comment_trigger,music_style,visual_style,status,decision)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
+             RETURNING created_at::text",
+            &[
+                &item.id, &item.company_id, &brief.hypothesis, &brief.audience, &format,
+                &brief.product_ref, &brief.offer_ref, &brief.disclosure_required,
+                &brief.expected_cost_minor.to_string(), &brief.max_loss_minor.to_string(),
+                &(brief.max_duration_seconds as i64), &metric, &(brief.success_threshold_bps as i32),
+                &variant.variant_key, &variant.hook, &variant.first_frame, &variant.emotion,
+                &variant.pacing, &(variant.scene_count as i32), &variant.text_density,
+                &variant.voice_speed, &variant.product_placement, &variant.cta,
+                &variant.comment_trigger, &variant.music_style, &variant.visual_style,
+                &status, &decision,
+            ],
+        ).await?;
+        Ok(ContentRecord { item: item.clone(), created_at: row.get(0) })
+    }
+
+    pub async fn list_content_items(
+        &self,
+        company_id: &str,
+        limit: i64,
+    ) -> Result<Vec<ContentRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=500).contains(&limit) {
+            return Err("content limit must be between 1 and 500".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client.query(
+            "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
+                    expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
+                    success_threshold_bps,variant_key,hook,first_frame,emotion,pacing,scene_count,
+                    text_density,voice_speed,product_placement,cta,comment_trigger,music_style,
+                    visual_style,status,decision,created_at::text
+               FROM content_items
+              WHERE company_id=$1
+              ORDER BY created_at DESC
+              LIMIT $2",
+            &[&company, &limit],
+        ).await?;
+        rows.into_iter().map(content_record_from_row).collect()
     }
 
     pub async fn record_experiment_observation(
@@ -4671,3 +4761,130 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
     }
 
 }
+
+fn content_format_name(value: company_content::ContentFormat) -> &'static str {
+    match value {
+        company_content::ContentFormat::ShortVideo => "SHORT_VIDEO",
+        company_content::ContentFormat::LiveSegment => "LIVE_SEGMENT",
+        company_content::ContentFormat::Story => "STORY",
+        company_content::ContentFormat::Carousel => "CAROUSEL",
+    }
+}
+
+fn success_metric_name(value: company_content::SuccessMetric) -> &'static str {
+    match value {
+        company_content::SuccessMetric::Views => "VIEWS",
+        company_content::SuccessMetric::ClickThroughRate => "CLICK_THROUGH_RATE",
+        company_content::SuccessMetric::ConversionRate => "CONVERSION_RATE",
+        company_content::SuccessMetric::Commission => "COMMISSION",
+        company_content::SuccessMetric::ContributionMargin => "CONTRIBUTION_MARGIN",
+    }
+}
+
+fn content_status_name(value: company_content::ContentStatus) -> &'static str {
+    match value {
+        company_content::ContentStatus::Draft => "DRAFT",
+        company_content::ContentStatus::Approved => "APPROVED",
+        company_content::ContentStatus::Rendered => "RENDERED",
+        company_content::ContentStatus::Published => "PUBLISHED",
+        company_content::ContentStatus::Measured => "MEASURED",
+        company_content::ContentStatus::Paused => "PAUSED",
+        company_content::ContentStatus::Killed => "KILLED",
+    }
+}
+
+fn content_decision_name(value: company_content::ContentDecision) -> &'static str {
+    match value {
+        company_content::ContentDecision::Scale => "SCALE",
+        company_content::ContentDecision::Iterate => "ITERATE",
+        company_content::ContentDecision::Pause => "PAUSE",
+        company_content::ContentDecision::Kill => "KILL",
+    }
+}
+
+fn parse_content_format(value: &str) -> Result<company_content::ContentFormat, std::io::Error> {
+    match value {
+        "SHORT_VIDEO" => Ok(company_content::ContentFormat::ShortVideo),
+        "LIVE_SEGMENT" => Ok(company_content::ContentFormat::LiveSegment),
+        "STORY" => Ok(company_content::ContentFormat::Story),
+        "CAROUSEL" => Ok(company_content::ContentFormat::Carousel),
+        _ => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("invalid content format: {value}"))),
+    }
+}
+
+fn parse_success_metric(value: &str) -> Result<company_content::SuccessMetric, std::io::Error> {
+    match value {
+        "VIEWS" => Ok(company_content::SuccessMetric::Views),
+        "CLICK_THROUGH_RATE" => Ok(company_content::SuccessMetric::ClickThroughRate),
+        "CONVERSION_RATE" => Ok(company_content::SuccessMetric::ConversionRate),
+        "COMMISSION" => Ok(company_content::SuccessMetric::Commission),
+        "CONTRIBUTION_MARGIN" => Ok(company_content::SuccessMetric::ContributionMargin),
+        _ => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("invalid success metric: {value}"))),
+    }
+}
+
+fn parse_content_status(value: &str) -> Result<company_content::ContentStatus, std::io::Error> {
+    match value {
+        "DRAFT" => Ok(company_content::ContentStatus::Draft),
+        "APPROVED" => Ok(company_content::ContentStatus::Approved),
+        "RENDERED" => Ok(company_content::ContentStatus::Rendered),
+        "PUBLISHED" => Ok(company_content::ContentStatus::Published),
+        "MEASURED" => Ok(company_content::ContentStatus::Measured),
+        "PAUSED" => Ok(company_content::ContentStatus::Paused),
+        "KILLED" => Ok(company_content::ContentStatus::Killed),
+        _ => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("invalid content status: {value}"))),
+    }
+}
+
+fn parse_content_decision(value: Option<String>) -> Result<Option<company_content::ContentDecision>, std::io::Error> {
+    match value.as_deref() {
+        None => Ok(None),
+        Some("SCALE") => Ok(Some(company_content::ContentDecision::Scale)),
+        Some("ITERATE") => Ok(Some(company_content::ContentDecision::Iterate)),
+        Some("PAUSE") => Ok(Some(company_content::ContentDecision::Pause)),
+        Some("KILL") => Ok(Some(company_content::ContentDecision::Kill)),
+        Some(other) => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("invalid content decision: {other}"))),
+    }
+}
+
+fn content_record_from_row(
+    row: tokio_postgres::Row,
+) -> Result<ContentRecord, Box<dyn std::error::Error + Send + Sync>> {
+    let item = company_content::ContentItem {
+        id: row.get(0),
+        company_id: row.get(1),
+        brief: company_content::ContentBrief {
+            hypothesis: row.get(2),
+            audience: row.get(3),
+            format: parse_content_format(row.get::<_, String>(4))?,
+            product_ref: row.get(5),
+            offer_ref: row.get(6),
+            disclosure_required: row.get(7),
+            expected_cost_minor: row.get::<_, String>(8).parse()?,
+            max_loss_minor: row.get::<_, String>(9).parse()?,
+            max_duration_seconds: row.get::<_, i64>(10) as u32,
+            success_metric: parse_success_metric(row.get::<_, String>(11))?,
+            success_threshold_bps: row.get::<_, i32>(12) as u32,
+        },
+        variant: company_content::CreativeVariant {
+            variant_key: row.get(13),
+            hook: row.get(14),
+            first_frame: row.get(15),
+            emotion: row.get(16),
+            pacing: row.get(17),
+            scene_count: row.get::<_, i32>(18) as u8,
+            text_density: row.get(19),
+            voice_speed: row.get(20),
+            product_placement: row.get(21),
+            cta: row.get(22),
+            comment_trigger: row.get(23),
+            music_style: row.get(24),
+            visual_style: row.get(25),
+        },
+        status: parse_content_status(row.get::<_, String>(26))?,
+        decision: parse_content_decision(row.get::<_, Option<String>>(27))?,
+    };
+    company_content::validate_item(&item).map_err(|error| error.to_string())?;
+    Ok(ContentRecord { item, created_at: row.get(28) })
+}
+
