@@ -119,6 +119,7 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Deterministic opportunity scoring:** trend signals are scored from velocity, audience fit, product fit, contentability and inverse competition; low-confidence/high-score signals remain monitored instead of being auto-pursued.
 - **Durable opportunity ledger:** pursued trends create idempotent, company-scoped opportunities with the exact content economics and policy evidence used to generate them.
 - **Content-plan bridge:** a pursued opportunity can be materialized once into the Content Factory as a Draft; this does not publish externally or claim reach/revenue.
+- **TTFC evidence:** the growth ledger stores the first content creation timestamp and derives trend-to-content elapsed seconds so growth speed can be measured instead of inferred.
 - **Typed outbox events:** TREND_DETECTED, OPPORTUNITY_CREATED and CONTENT_CREATED provide durable downstream hand-off points without free-form agent chat.
 - **Current boundary:** trend discovery still requires an external/verified signal source, and content analytics/publishing evidence must come from separately authenticated platform boundaries.
 
