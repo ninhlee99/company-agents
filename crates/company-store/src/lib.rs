@@ -4169,7 +4169,8 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
                 agent.as_str()
             ))
         }
- }
+    }
+}
 
 impl CompanyStore {
     pub async fn create_service_proposal(&self, p: &commercial_sales::ServiceProposal) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
