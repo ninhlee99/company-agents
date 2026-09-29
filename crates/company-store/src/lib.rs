@@ -348,6 +348,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/034_live_attention.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/035_policy_intelligence.sql"
+            ))
             .await
     }
 
@@ -382,29 +387,16 @@ impl CompanyStore {
             )
             .await?;
 
-        let row = if row.is_some() {
-            client
-                .query_one(
-                    "SELECT id,company_id,policy_key,platform,jurisdiction,version,
-                            source_reference,evidence_hash,observed_at_epoch,effective_at_epoch,
-                            active,rules_json
-                       FROM policy_snapshots
-                      WHERE company_id=$1 AND policy_key=$2 AND version=$3",
-                    &[&snapshot.company_id, &snapshot.policy_key, &snapshot.version],
-                )
-                .await?
-        } else {
-            client
-                .query_one(
-                    "SELECT id,company_id,policy_key,platform,jurisdiction,version,
-                            source_reference,evidence_hash,observed_at_epoch,effective_at_epoch,
-                            active,rules_json
-                       FROM policy_snapshots
-                      WHERE company_id=$1 AND policy_key=$2 AND version=$3",
-                    &[&snapshot.company_id, &snapshot.policy_key, &snapshot.version],
-                )
-                .await?
-        };
+        let row = client
+            .query_one(
+                "SELECT id,company_id,policy_key,platform,jurisdiction,version,
+                        source_reference,evidence_hash,observed_at_epoch,effective_at_epoch,
+                        active,rules_json
+                   FROM policy_snapshots
+                  WHERE company_id=$1 AND policy_key=$2 AND version=$3",
+                &[&snapshot.company_id, &snapshot.policy_key, &snapshot.version],
+            )
+            .await?;
         policy_snapshot_from_row(row)
     }
 
@@ -476,13 +468,7 @@ impl CompanyStore {
             .await?;
 
         if inserted.is_none() {
-            return existing_compliance_check(
-                &client,
-                &input.company_id,
-                &input.policy_key,
-                &input.policy_snapshot_key,
-                &input_hash,
-            )
+            return existing_compliance_check(&client, input, &input_hash)
             .await;
         }
 
@@ -537,12 +523,6 @@ impl CompanyStore {
             }
         }))
     }
-
-        client
-            .batch_execute(include_str!(
-                "../../../infra/db/migrations/035_policy_intelligence.sql"
-            ))
-            .await?;
 
     pub async fn ensure_company(
         &self,
