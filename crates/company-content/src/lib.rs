@@ -385,6 +385,29 @@ mod tests {
     }
 
     #[test]
+    fn negative_contribution_margin_is_killed_when_that_is_the_success_metric() {
+        let mut value = brief();
+        value.success_metric = SuccessMetric::ContributionMargin;
+        let observation = ContentObservation {
+            observation_key: "obs-margin".into(),
+            content_id: Uuid::new_v4(),
+            company_id: Uuid::new_v4(),
+            source: "verified-analytics".into(),
+            evidence_hash: "sha256:margin".into(),
+            observed_at_epoch: 1_700_000_001,
+            sample_count: 100,
+            spend_minor: 10,
+            metric_bps: 9_000,
+            views: 100,
+            clicks: 10,
+            conversions: 1,
+            commission_minor: 20,
+            contribution_margin_minor: -1,
+        };
+        assert_eq!(decide_from_observation(&value, &observation).unwrap(), ContentDecision::Kill);
+    }
+
+    #[test]
     fn json_roundtrip_is_stable() {
         let item = ContentItem {
             id: Uuid::new_v4(),
