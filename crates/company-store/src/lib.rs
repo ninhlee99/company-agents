@@ -3115,7 +3115,7 @@ impl CompanyStore {
                 "SELECT
                     COUNT(*)::bigint,
                     COUNT(*) FILTER (WHERE kind='GIFT')::bigint,
-                    COALESCE(SUM(gift_quantity) FILTER (WHERE kind='GIFT'),0)::bigint,
+                    COALESCE(SUM(gift_quantity) FILTER (WHERE kind='GIFT'),0)::text,
                     COALESCE(SUM(gift_value_minor) FILTER (WHERE kind='GIFT'),0)::text,
                     COUNT(*) FILTER (WHERE kind='COMMENT')::bigint,
                     COUNT(*) FILTER (WHERE kind='FOLLOW')::bigint,
