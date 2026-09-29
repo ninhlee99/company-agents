@@ -467,8 +467,8 @@ impl CompanyStore {
             &[&observation.company_id, &observation.content_id],
         ).await?.ok_or("content item not found")?;
         let status: String = row.get(26);
-        if status == "KILLED" {
-            return Err("cannot observe killed content".into());
+        if !matches!(status.as_str(), "PUBLISHED" | "MEASURED") {
+            return Err("content must be published before performance can be recorded".into());
         }
         let item = content_record_from_row(row)?.item;
         let decision = company_content::decide_from_observation(&item.brief, observation)
