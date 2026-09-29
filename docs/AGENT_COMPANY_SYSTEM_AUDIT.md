@@ -36,7 +36,10 @@ The repository has a Rust-based Agent Runtime with deterministic economic and go
 30. Automated CI gates for formatting, tests, Clippy, migration lint, secret hygiene and Docker builds.
 31. Scheduled PostgreSQL backup/restore recovery drill.
 32. Commercial sales lifecycle: proposals, sponsorships, invoices and bounded payment state transitions.
-33. Explicit production acceptance and secret-rotation standard.
+33. Commercial invoice issuance/payment ledger postings with transaction-level idempotency.
+34. Customer CRM identity, lifecycle and idempotent persistence.
+35. Control-plane bearer authentication with constant-time token comparison.
+36. Explicit production acceptance and secret-rotation standard.
 
 ## Remaining acceptance items
 
