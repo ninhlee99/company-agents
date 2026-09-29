@@ -155,6 +155,11 @@ pub fn decide_from_observation(
     if observation.spend_minor > brief.max_loss_minor {
         return Ok(ContentDecision::Kill);
     }
+    if matches!(brief.success_metric, SuccessMetric::ContributionMargin)
+        && observation.contribution_margin_minor < 0
+    {
+        return Ok(ContentDecision::Kill);
+    }
     if observation.metric_bps >= brief.success_threshold_bps {
         Ok(ContentDecision::Scale)
     } else {
