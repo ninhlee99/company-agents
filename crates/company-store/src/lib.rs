@@ -3644,8 +3644,8 @@ impl CompanyStore {
                 "INSERT INTO tiktok_live_events
                  (company_id, session_id, event_id, room_id, kind, user_id,
                   display_name, event_text, gift_id, gift_name, gift_quantity,
-                  gift_value_minor, currency, pk_score, occurred_at_epoch)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::numeric,$13,$14,$15)
+                  gift_value_minor, currency, pk_score, viewer_value_bps, occurred_at_epoch)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::numeric,$13,$14,$15,$16)
                  ON CONFLICT (company_id, event_id) DO NOTHING",
                 &[
                     &company_uuid,
@@ -3662,6 +3662,7 @@ impl CompanyStore {
                     &gift_value,
                     &event.currency,
                     &(event.pk_score.map(|value| value as i64)),
+                    &event.viewer_value_bps.map(|value| value as i32),
                     &event.occurred_at_epoch,
                 ],
             )
