@@ -443,11 +443,16 @@ async fn index(
             company_growth::OpportunityStatus::Ready => "READY",
             company_growth::OpportunityStatus::ContentCreated => "CONTENT CREATED",
         };
+        let ttfc = record
+            .ttfc_seconds
+            .map(|seconds| format!("TTFC {}s", seconds))
+            .unwrap_or_else(|| "TTFC pending".into());
         growth_html.push_str(&format!(
-            r#"<div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #26304a"><div><strong>{}</strong><div class="muted">{} · {}% confidence</div></div><div class="metric" style="font-size:18px">{}</div></div>"#,
+            r#"<div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #26304a"><div><strong>{}</strong><div class="muted">{} · {}% confidence · {}</div></div><div class="metric" style="font-size:18px">{}</div></div>"#,
             escape_html(&record.opportunity.title),
             status,
             record.opportunity.confidence_bps / 100,
+            ttfc,
             score_pct
         ));
     }
