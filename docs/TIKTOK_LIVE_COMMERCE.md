@@ -13,6 +13,7 @@ Veridara's TikTok strategy is explicitly split into two revenue engines:
 - Explicit external-capability gate: the repository does not pretend that a generic TikTok developer token grants LIVE publishing, gift events or PK control.
 - Game/story/music/product overlays can be driven by the same event engine.
 - Gift earnings are treated as provider evidence; the engine never invents a payout amount.
+- A governed FFmpeg RTMP(S) publisher can loop a configured visual source, optionally loop a music/audio source, and hot-reload an AI response overlay while streaming.
 
 ## Production boundary
 
@@ -49,3 +50,9 @@ The host may thank viewers for gifts and acknowledge milestones, but must not cl
 - [ ] Affiliate products selected and disclosed.
 - [ ] Gift events observed and reconciled against TikTok's own earnings view.
 - [ ] End-to-end LIVE rehearsal passes with failure/reconnect tests.
+
+## Stream transport
+
+The repository now has an optional FFmpeg stream controller. It is disabled by default and requires an explicit enable flag, a local media source, and an RTMP(S) destination. TikTok's Vietnam documentation describes desktop/OBS streaming using the RTMP server and stream key shown by the account, or TikTok LIVE Manager/OBS Virtual Camera flows depending on account setup. The app therefore does not assume that every creator account has the same transport capability.
+
+The controller only owns the outbound media process. It does not manufacture TikTok chat, gifts or PK events; those must come from an authorized/provider-supported source and are persisted through the LIVE event APIs.
