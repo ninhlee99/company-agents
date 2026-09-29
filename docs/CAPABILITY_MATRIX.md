@@ -120,3 +120,12 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Idempotent identity:** the database enforces a company-scoped unique `entry_key`, preventing duplicate learning records for the same source event.
 - **Write-path baseline:** P0.5 introduces no update/delete workflow; the current contract is append-oriented, while database-level immutability enforcement remains a later hardening step.
 - **Integration boundary:** the domain crate and durable schema are implemented, but automatic ingestion from every experiment/content/LIVE workflow is still a subsequent integration step; P0.5 does not claim those upstream systems emit learning automatically yet.
+
+## Content Factory
+
+- **Creative planning contract:** implemented through the company-content domain with deterministic validation for hypothesis, audience, format, product/offer references, disclosure, expected cost, maximum loss, success metric and threshold.
+- **Creative primitives:** each variant persists hook, first frame, emotion, pacing, scene count, text density, voice speed, product placement, CTA, comment trigger, music style and visual style.
+- **Durable content ledger:** company-scoped PostgreSQL content items are persisted with status and explicit SCALE/ITERATE/PAUSE/KILL decisions.
+- **Control-plane API:** authenticated GET/POST /api/content/items is available for creating and reviewing content plans.
+- **Truth boundary:** content plans do not imply rendering, publishing, reach, conversion or revenue. Those outcomes require separate verified media, platform, analytics and attribution evidence.
+- **Next integration:** connect content plans to media jobs, publish intents, verified analytics, experiments and the learning ledger.
