@@ -21,6 +21,7 @@ pub enum AttentionReason {
     Gift,
     PkMoment,
     HighEngagement,
+    HighValueViewer,
     SafetyEscalation,
     Cooldown,
     RateLimited,
@@ -35,6 +36,21 @@ pub struct AttentionPolicy {
     pub minimum_priority: u8,
     pub priority_bypass_cooldown: u8,
     pub gift_response_threshold_minor: u128,
+}
+
+impl AttentionPolicy {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.response_cooldown_seconds < 0
+            || self.response_window_seconds < 1
+            || self.response_cooldown_seconds > self.response_window_seconds
+            || !(1..=1000).contains(&self.max_responses_per_window)
+            || self.minimum_priority > 100
+            || self.priority_bypass_cooldown > 100
+        {
+            return Err("attention policy is outside safe bounds".into());
+        }
+        Ok(())
+    }
 }
 
 impl Default for AttentionPolicy {
@@ -79,6 +95,7 @@ pub fn decide_attention(
     now_epoch: i64,
     policy: &AttentionPolicy,
 ) -> Result<AttentionDecision, String> {
+    policy.validate()?;
     if company_id == Uuid::nil() || session_id == Uuid::nil() {
         return Err("attention decision identifiers are required".into());
     }
@@ -90,9 +107,14 @@ pub fn decide_attention(
         return Err("attention response count exceeds policy range".into());
     }
 
-    let (base_priority, reason) = classify_event(event, mode, policy);
-    let reason = reason.unwrap_or(AttentionReason::LowSignal);
-    let priority = base_priority;
+    let (base_priority, classified_reason) = classify_event(event, mode, policy);
+    let viewer_bonus = event.viewer_value_bps.map(|value| value / 1000).unwrap_or(0).min(10);
+    let priority = base_priority.saturating_add(viewer_bonus as u8).min(100);
+    let reason = match classified_reason {
+        Some(reason) => reason,
+        None if viewer_bonus >= 8 => AttentionReason::HighValueViewer,
+        None => AttentionReason::LowSignal,
+    };
 
     if reason == AttentionReason::SafetyEscalation {
         return Ok(decision(
@@ -194,7 +216,7 @@ fn classify_event(
             if contains_objection(text) {
                 (88, Some(AttentionReason::Objection))
             } else if contains_purchase_intent(text) {
-                (86, Some(AttentionReason::PurchaseIntent))
+                (92, Some(AttentionReason::PurchaseIntent))
             } else if matches!(mode, LiveMode::Shopping) && is_question(text) {
                 (74, Some(AttentionReason::PurchaseIntent))
             } else {
