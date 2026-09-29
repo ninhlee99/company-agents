@@ -4833,7 +4833,9 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             "SELECT o.id,o.company_id,o.trend_id,o.opportunity_key,o.title,o.score_bps,o.confidence_bps,
                     o.policy_evidence_ref,o.plan_json,o.status,o.content_item_id,o.content_created_at_epoch,
                     CASE WHEN o.content_created_at_epoch IS NULL THEN NULL
-                         ELSE GREATEST(o.content_created_at_epoch - t.observed_at_epoch, 0) END AS ttfc_seconds,
+                         WHEN o.content_created_at_epoch >= t.observed_at_epoch
+                           THEN o.content_created_at_epoch - t.observed_at_epoch
+                         ELSE NULL END AS ttfc_seconds,
                     o.created_at::text
                FROM growth_opportunities o
                JOIN growth_trends t ON t.id=o.trend_id AND t.company_id=o.company_id
