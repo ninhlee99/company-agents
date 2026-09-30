@@ -713,6 +713,36 @@ async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, S
         })
 }
 
+async fn ceo_command_center_api(
+    State(state): State<AppState>,
+) -> Result<Json<company_store::CeoCommandCenterRecord>, StatusCode> {
+    let target_minor = configured_revenue_target_minor(&state.currency)?;
+    state
+        .store
+        .ceo_command_center(&state.company_id, target_minor)
+        .await
+        .map(Json)
+        .map_err(|error| {
+            tracing::warn!(%error, "CEO command center unavailable");
+            StatusCode::SERVICE_UNAVAILABLE
+        })
+}
+
+fn configured_revenue_target_minor(currency: &str) -> Result<i128, StatusCode> {
+    if let Some(value) = std::env::var("MONTHLY_REVENUE_TARGET_MINOR")
+        .ok()
+        .and_then(|value| value.parse::<i128>().ok())
+        .filter(|value| *value > 0)
+    {
+        return Ok(value);
+    }
+    Ok(if currency.eq_ignore_ascii_case("VND") {
+        50_000_000
+    } else {
+        500_000
+    })
+}
+
 async fn agents_api(State(state): State<AppState>) -> Json<Vec<AgentRunResult>> {
     Json(state.latest.read().await.clone())
 }
