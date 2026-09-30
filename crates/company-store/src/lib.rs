@@ -1068,39 +1068,6 @@ impl CompanyStore {
         })
     }
 
-    pub async fn assess_autonomy(
-        &self,
-        proposal: &agent_runtime::types::Proposal,
-        policy: company_autonomy::AutonomyPolicy,
-        emergency_stop: bool,
-        twin_config: &company_autonomy::DigitalTwinConfig,
-    ) -> Result<AutonomySimulationRecord, Box<dyn std::error::Error + Send + Sync>> {
-        let company_id = proposal
-            .agent;
-        let _ = company_id;
-        let snapshot_company = std::env::var("COMPANY_ID").ok();
-        if let Some(expected) = snapshot_company {
-            if expected.trim().is_empty() {
-                return Err("COMPANY_ID is invalid".into());
-            }
-        }
-        let snapshot = self
-            .load_snapshot(
-                &std::env::var("COMPANY_ID")
-                    .map_err(|_| "COMPANY_ID is required for autonomy assessment")?,
-            )
-            .await?
-            .ok_or("authoritative company snapshot is unavailable")?;
-        self.assess_autonomy_for_company(
-            &snapshot.company_id,
-            proposal,
-            policy,
-            emergency_stop,
-            twin_config,
-        )
-        .await
-    }
-
     pub async fn assess_autonomy_for_company(
         &self,
         company_id: &str,
