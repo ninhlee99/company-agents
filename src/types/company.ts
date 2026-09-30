@@ -432,17 +432,30 @@ export interface LiveStreamComment {
   giftIcon?: string;
 }
 
+export interface AIComputerUseState {
+  isActive: boolean;
+  gameTitle: string;
+  apm: number; // Actions Per Minute
+  reactionSpeedMs: number;
+  currentKeyAction: string;
+  visionFps: number;
+  aiPlayerRank: string;
+  gameplayLog: string;
+}
+
 export interface LivestreamSession {
   id: string;
   channelId: string;
   channelName: string;
   platform: 'TikTok Live' | 'YouTube Live' | 'Twitch' | 'Facebook Gaming';
   streamType: 'Gaming & Reaction' | 'Storytelling & Mystery' | 'Healing & Q&A' | 'Lofi Chill & Minigames';
+  talentMode: 'ChitChat' | 'SingingCover' | 'AutonomousGaming';
   hostAgentName: string;
   hostAgentAvatar: string;
-  personaStyle: string; // e.g. 'VTuber 3D Ánh Trăng', 'Cyberpunk Pro Gamer', 'Anime Lofi Host'
-  virtualSet: string; // e.g. 'Phòng Thu Ánh Trăng 3D', 'Đấu Trường Neon Gaming', 'Quán Cà Phê Mưa Lofi'
-  aiDecisionRationale: string; // Lý do thuật toán AI tự động chọn phong cách & bối cảnh này
+  digitalHumanModel: string; // Unreal Engine 5 Metahuman / Neural Gaussian Avatar
+  personaStyle: string;
+  virtualSet: string;
+  aiDecisionRationale: string;
   title: string;
   currentGameOrTopic: string;
   streamStatus: 'Live' | 'Paused' | 'Ended';
@@ -450,6 +463,12 @@ export interface LivestreamSession {
   peakViewers: number;
   donationReceivedMinor: number;
   liveDurationSec: number;
+  aiComputerUse: AIComputerUseState;
+  currentSongPlaying?: {
+    title: string;
+    artist: string;
+    vocalPitchQuality: string;
+  };
   comments: LiveStreamComment[];
   recentDonations: LiveStreamDonation[];
   startedAt: string;

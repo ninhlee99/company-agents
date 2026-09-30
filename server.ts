@@ -258,14 +258,27 @@ export interface LiveStreamComment {
   giftIcon?: string;
 }
 
+export interface AIComputerUseState {
+  isActive: boolean;
+  gameTitle: string;
+  apm: number; // Actions Per Minute
+  reactionSpeedMs: number;
+  currentKeyAction: string;
+  visionFps: number;
+  aiPlayerRank: string;
+  gameplayLog: string;
+}
+
 export interface LivestreamSession {
   id: string;
   channelId: string;
   channelName: string;
   platform: 'TikTok Live' | 'YouTube Live' | 'Twitch' | 'Facebook Gaming';
   streamType: 'Gaming & Reaction' | 'Storytelling & Mystery' | 'Healing & Q&A' | 'Lofi Chill & Minigames';
+  talentMode: 'ChitChat' | 'SingingCover' | 'AutonomousGaming';
   hostAgentName: string;
   hostAgentAvatar: string;
+  digitalHumanModel: string;
   personaStyle: string;
   virtualSet: string;
   aiDecisionRationale: string;
@@ -276,6 +289,12 @@ export interface LivestreamSession {
   peakViewers: number;
   donationReceivedMinor: number;
   liveDurationSec: number;
+  aiComputerUse: AIComputerUseState;
+  currentSongPlaying?: {
+    title: string;
+    artist: string;
+    vocalPitchQuality: string;
+  };
   comments: LiveStreamComment[];
   recentDonations: LiveStreamDonation[];
   startedAt: string;
@@ -956,8 +975,10 @@ const state: {
         channelName: 'NEXUS Midnight Stories & Healing 🌙',
         platform: 'TikTok Live',
         streamType: 'Storytelling & Mystery',
+        talentMode: 'ChitChat',
         hostAgentName: 'Mia Thorne AI (VTuber)',
         hostAgentAvatar: '🎙️',
+        digitalHumanModel: 'Unreal Engine 5.4 Photorealistic Metahuman Pro (52 Blendshapes Lip-Sync)',
         personaStyle: 'VTuber 3D Goth-Lofi Anime',
         virtualSet: 'Phòng Thu Ánh Trăng 3D & Lofi Rainy Window',
         aiDecisionRationale: 'Thuật toán Kenji Sato AI phát hiện từ khóa "Kỳ án đêm khuya" đang tăng +180% search volume vào khung giờ 21h-01h. Tự động chuyển đổi bối cảnh Ánh Trăng 3D để tối ưu thời gian xem trung bình.',
@@ -968,6 +989,21 @@ const state: {
         peakViewers: 4890,
         donationReceivedMinor: 68500, // $685.00
         liveDurationSec: 16400,
+        aiComputerUse: {
+          isActive: false,
+          gameTitle: 'None (Chit-Chat & Storytelling Mode)',
+          apm: 0,
+          reactionSpeedMs: 14,
+          currentKeyAction: 'Neural Speech Synthesizer: Active',
+          visionFps: 60,
+          aiPlayerRank: 'Master Narrator & Emotion AI',
+          gameplayLog: 'Hệ thống đang đồng bộ khẩu hình 60fps và điều phối giọng nói truyền cảm theo nhịp thở.',
+        },
+        currentSongPlaying: {
+          title: 'Midnight Fog Mystery OST',
+          artist: 'NEXUS Neural Orchestra',
+          vocalPitchQuality: 'Studio 96kHz Lossless',
+        },
         comments: [
           { id: 'c-1', userName: 'AnNhiên_Sleep', avatar: '🌙', message: 'Giọng host kể chuyện truyền cảm và cuốn hút quá, nghe chill thật sự!', timestamp: 'Vừa xong', aiHostReply: 'Cảm ơn An Nhiên nhé! Đêm nay Mia sẽ kể tiếp hồi 3 vụ án bí ẩn lúc 23h30 nha ☕' },
           { id: 'c-2', userName: 'DucMinh_98', avatar: '🌟', message: 'Vừa gửi tặng 500 Sao cho Mia! Đọc thư tâm sự của mình gửi nha!', timestamp: '1 phút trước', isDonation: true, donationAmountMinor: 500, giftIcon: '🌟', aiHostReply: 'Cảm ơn anh Minh đã donate 500 Sao! Mia nhận được lá thư ẩn danh của anh rồi, chút nữa Mia đọc nhé!' },
@@ -1727,16 +1763,19 @@ app.post('/api/channels/stream/start', (req, res) => {
   
   channel.status = 'LiveNow';
   channel.totalStreamsRun += 1;
+  const isGaming = streamType === 'Gaming & Reaction';
   channel.activeStreamSession = {
     id: `stream-${Date.now().toString(36)}`,
     channelId: channel.id,
     channelName: channel.name,
     platform: (channel.platform === 'YouTube' ? 'YouTube Live' : channel.platform === 'Twitch' ? 'Twitch' : channel.platform === 'Facebook Reels' ? 'Facebook Gaming' : 'TikTok Live') as any,
     streamType: streamType as any,
+    talentMode: isGaming ? 'AutonomousGaming' : 'ChitChat',
     hostAgentName: hostName,
-    hostAgentAvatar: streamType === 'Gaming & Reaction' ? '🎮' : '🎙️',
-    personaStyle: streamType === 'Gaming & Reaction' ? 'Cyberpunk Pro Gamer' : 'VTuber 3D Persona',
-    virtualSet: streamType === 'Gaming & Reaction' ? 'Đấu Trường Neon Gaming' : 'Phòng Thu Ánh Trăng 3D',
+    hostAgentAvatar: isGaming ? '🎮' : '🎙️',
+    digitalHumanModel: 'Unreal Engine 5.4 Photorealistic Metahuman Pro (52 Blendshapes Lip-Sync)',
+    personaStyle: isGaming ? 'Cyberpunk Pro Gamer 3D' : 'VTuber 3D Goth-Lofi Anime',
+    virtualSet: isGaming ? 'Đấu Trường Neon Gaming Arena' : 'Phòng Thu Ánh Trăng 3D & Lofi Window',
     aiDecisionRationale: 'Quyết định tự động bởi Đạo Diễn AI Kenji Sato dựa trên dữ liệu trending thời gian thực.',
     title: title || `🔴 LIVE 24/7: ${topic || channel.niche} - Trò Chuyện & Tương Tác Cùng Fan`,
     currentGameOrTopic: topic || channel.niche,
@@ -1745,6 +1784,23 @@ app.post('/api/channels/stream/start', (req, res) => {
     peakViewers: Math.floor(Math.random() * 1500 + 3800),
     donationReceivedMinor: 15000, // $150.00 initial donations
     liveDurationSec: 120,
+    aiComputerUse: {
+      isActive: isGaming,
+      gameTitle: isGaming ? (topic || 'Outlast II / Minecraft AI Hardcore') : 'None (Chit-Chat & Storytelling Mode)',
+      apm: isGaming ? 285 : 0,
+      reactionSpeedMs: 12,
+      currentKeyAction: isGaming ? 'W + Shift + Space + Mouse1 (Sprint & Jump)' : 'Neural Speech Synthesizer: Active',
+      visionFps: 60,
+      aiPlayerRank: isGaming ? 'Top 1% Grandmaster AI Benchmark' : 'Master Narrator & Emotion AI',
+      gameplayLog: isGaming
+        ? 'AI đang tự động quan sát màn hình 60fps, điều khiển chuột và bàn phím chơi game 100% không cần người can thiệp.'
+        : 'Hệ thống đang đồng bộ khẩu hình 60fps và điều phối giọng nói truyền cảm theo nhịp thở.',
+    },
+    currentSongPlaying: {
+      title: 'Midnight Fog Mystery OST',
+      artist: 'NEXUS Neural Orchestra',
+      vocalPitchQuality: 'Studio 96kHz Lossless',
+    },
     comments: [
       { id: 'c-new-1', userName: 'FanCung_01', avatar: '👋', message: 'Chào host nhé! Hôm nay stream nội dung gì vậy?', timestamp: 'Vừa xong', aiHostReply: `Chào bạn nhé! Hôm nay tụi mình cùng ${topic || 'trò chuyện, kể chuyện và chơi minigame chill'} cùng nhau nhé!` },
     ],
@@ -1756,9 +1812,9 @@ app.post('/api/channels/stream/start', (req, res) => {
 
   const streamSession = channel.activeStreamSession;
   logOfficeActivity({
-    agentId: streamType === 'Gaming & Reaction' ? 'agent-gamer' : 'agent-livestream',
+    agentId: isGaming ? 'agent-gamer' : 'agent-livestream',
     agentName: hostName,
-    agentRole: streamType === 'Gaming & Reaction' ? 'Streamer Gaming' : 'VTuber Kể Chuyện',
+    agentRole: isGaming ? 'Streamer Gaming' : 'VTuber Kể Chuyện',
     department: 'Growth',
     actionType: 'CreateContent',
     title: `Lên sóng trực tiếp 24/7 trên kênh ${channel.name}`,
@@ -1821,39 +1877,55 @@ const AUTONOMOUS_LIVE_THEMES = [
     host: 'Mia Thorne AI (VTuber)',
     avatar: '🎙️',
     streamType: 'Storytelling & Mystery' as const,
+    talentMode: 'ChitChat' as const,
     personaStyle: 'VTuber 3D Goth-Lofi Anime',
     virtualSet: 'Phòng Thu Ánh Trăng 3D & Lofi Rainy Window',
+    isGaming: false,
+    gameTitle: 'None (Storytelling)',
+    apm: 0,
     rationale: 'Kenji Sato AI quét thấy hashtag #TruyenKiemDiem và #HealingTalks đang viral top 1 đêm khuya. Tự động chuyển đổi sang bối cảnh Ánh Trăng 3D để giữ chân người xem trung bình > 28 phút.',
   },
   {
     topic: 'Chơi Thử Game Kinh Dị Outlast II & React Meme Fan Gửi',
-    title: '🔴 LIVE 24/7: Ren Kuro AI Chơi Outlast II Thâu Đêm - Nhịp Tim 140bpm + Đọc Donate Hài Hước',
+    title: '🔴 LIVE 24/7: Ren Kuro AI Tự Chơi Outlast II Thâu Đêm - AI Điều Khiển Phím Chuột 285 APM',
     host: 'Ren Kuro AI (Gamer)',
     avatar: '🎮',
     streamType: 'Gaming & Reaction' as const,
+    talentMode: 'AutonomousGaming' as const,
     personaStyle: 'Cyberpunk Pro Gamer 3D Avatar',
     virtualSet: 'Đấu Trường Neon Gaming Arena & RGB Audio Lights',
-    rationale: 'Hệ thống radar phát hiện lượng người xem game kinh dị và meme reactions tăng đột biến +320% vào khung giờ này. Tự động hoán đổi Host Ren Kuro AI và bối cảnh Neon Gaming.',
+    isGaming: true,
+    gameTitle: 'Outlast II (AI Autoplay VLA Vision Model)',
+    apm: 285,
+    rationale: 'Hệ thống radar phát hiện lượng người xem game kinh dị và meme reactions tăng đột biến +320% vào khung giờ này. Tự động hoán đổi Host Ren Kuro AI và kích hoạt hệ thống AI tự bấm phím chuột chơi game.',
   },
   {
-    topic: 'Nhạc Lofi Piano Chữa Lành, Học Bài & Q&A Tự Động',
-    title: '🔴 LIVE 24/7: Lofi Chill Beats & Không Gian Học Tập Cùng AI Host Luna - Q&A Trò Chuyện Tâm Sự',
-    host: 'Luna AI (Lofi Host)',
-    avatar: '🎧',
-    streamType: 'Lofi Chill & Minigames' as const,
-    personaStyle: 'Chibi Anime Cozy Lofi Persona',
-    virtualSet: 'Quán Cà Phê Mưa Ấm Áp Lofi Cafe',
-    rationale: 'Thuật toán tối ưu hóa tệp sinh viên & người làm việc đêm khuya cần nhạc không lời và tâm sự nhẹ nhàng, kéo lượng tương tác donate tăng đều đặn.',
+    topic: 'AI Hát Live Acoustic & Đọc Thơ Tâm Sự Cùng Khán Giả',
+    title: '🔴 LIVE 24/7: Mia Thorne AI Hát Live Acoustic Cover Theo Yêu Cầu & Tâm Sự Giữa Đêm',
+    host: 'Mia Thorne AI (Singer & Host)',
+    avatar: '🎵',
+    streamType: 'Healing & Q&A' as const,
+    talentMode: 'SingingCover' as const,
+    personaStyle: 'Acoustic Singer Metahuman Persona',
+    virtualSet: 'Phòng Trà Acoustic Ánh Nến 3D',
+    isGaming: false,
+    gameTitle: 'None (Acoustic Singing)',
+    apm: 0,
+    rationale: 'Thuật toán phát hiện nhu cầu nghe nhạc acoustic thư giãn tăng cao. AI Host tự động chuyển sang chế độ hát live vocal trực tiếp theo bài hát fan yêu cầu trong chat.',
   },
   {
-    topic: 'Giải Mã Bí Ẩn Tam Giác Bermuda & Khoa Học Viễn Tưởng',
-    title: '🔴 LIVE 24/7: Khám Phá Bí Ẩn Đại Dương & Vũ Trụ - Thảo Luận Khoa Học Cùng Host Mia AI',
-    host: 'Mia Thorne AI (VTuber)',
-    avatar: '🎙️',
-    streamType: 'Storytelling & Mystery' as const,
-    personaStyle: 'Sci-Fi Holo VTuber',
-    virtualSet: 'Đài Thiên Văn Không Gian 3D Vũ Trụ',
-    rationale: 'Chủ đề khoa học viễn tưởng và đại dương kích thích trí tò mò, thúc đẩy bình luận tranh luận tăng +210% trong live chat.',
+    topic: 'Chơi Minecraft AI Sinh Tồn Hardcore 100 Ngày',
+    title: '🔴 LIVE 24/7: Ren Kuro AI Tự Động Chơi Minecraft Hardcore 100 Ngày - Tự Xây Pháo Đài & Đánh Boss',
+    host: 'Ren Kuro AI (Gamer)',
+    avatar: '🎮',
+    streamType: 'Gaming & Reaction' as const,
+    talentMode: 'AutonomousGaming' as const,
+    personaStyle: 'Pixel-Cyber VTuber Persona',
+    virtualSet: 'Thế Giới Khối Vuông 3D Voxel Studio',
+    isGaming: true,
+    gameTitle: 'Minecraft Hardcore AI Edition',
+    apm: 320,
+    rationale: 'Series Minecraft Hardcore do AI tự chơi hoàn toàn không có sự can thiệp của con người đang thu hút lượng lớn fan trung thành theo dõi tiến độ xây thành trì.',
   },
 ];
 
@@ -1874,10 +1946,23 @@ app.post('/api/channels/autonomous-switch', (req, res) => {
   channel.activeStreamSession.hostAgentName = nextTheme.host;
   channel.activeStreamSession.hostAgentAvatar = nextTheme.avatar;
   channel.activeStreamSession.streamType = nextTheme.streamType;
+  channel.activeStreamSession.talentMode = nextTheme.talentMode;
   channel.activeStreamSession.personaStyle = nextTheme.personaStyle;
   channel.activeStreamSession.virtualSet = nextTheme.virtualSet;
   channel.activeStreamSession.aiDecisionRationale = nextTheme.rationale;
   channel.activeStreamSession.viewersCount = Math.floor(Math.random() * 1200 + 2600);
+  channel.activeStreamSession.aiComputerUse = {
+    isActive: nextTheme.isGaming,
+    gameTitle: nextTheme.gameTitle,
+    apm: nextTheme.apm,
+    reactionSpeedMs: nextTheme.isGaming ? 12 : 15,
+    currentKeyAction: nextTheme.isGaming ? 'W + D + MouseLook + Space (Navigating Obstacles)' : 'Neural Speech & Vocal Engine Active',
+    visionFps: 60,
+    aiPlayerRank: nextTheme.isGaming ? 'Top 1% Grandmaster AI Benchmark' : 'Master Emotion Vocalist',
+    gameplayLog: nextTheme.isGaming
+      ? 'Hệ thống Vision-Language-Action đang phân tích từng khung hình 60fps và ra lệnh phím chuột trực tiếp trên máy tính.'
+      : 'Hệ thống đang đồng bộ khẩu hình 52 blendshapes theo âm điệu bài hát / giọng kể.',
+  };
 
   logOfficeActivity({
     agentId: 'agent-streamops',
@@ -1885,8 +1970,8 @@ app.post('/api/channels/autonomous-switch', (req, res) => {
     agentRole: 'Đạo Diễn Live & Quản Trị Kênh',
     department: 'Ops',
     actionType: 'CreateContent',
-    title: `AI Tự Động Chuyển Đổi Bối Cảnh & Chủ Đề: ${nextTheme.topic}`,
-    detail: `Quyết định tự động: Chuyển sang ${nextTheme.virtualSet} với Host ${nextTheme.host}. Lý do: ${nextTheme.rationale}`,
+    title: `AI Tự Động Chuyển Đổi Bối Cảnh & Chế Độ: ${nextTheme.topic}`,
+    detail: `Quyết định tự động: Chuyển sang ${nextTheme.virtualSet} với Host ${nextTheme.host}. Chế độ: ${nextTheme.talentMode}. Lý do: ${nextTheme.rationale}`,
     badgeColor: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
   });
 

@@ -26,6 +26,12 @@ import {
   Zap, 
   ShieldCheck, 
   Activity,
+  Music,
+  Mic,
+  Monitor,
+  MousePointer,
+  Crosshair,
+  KeyRound,
   Tv
 } from 'lucide-react';
 
@@ -62,8 +68,10 @@ const DEFAULT_CHANNELS: SocialChannel[] = [
       channelName: 'NEXUS Midnight Stories & Healing 🌙',
       platform: 'TikTok Live',
       streamType: 'Storytelling & Mystery',
+      talentMode: 'ChitChat',
       hostAgentName: 'Mia Thorne AI (VTuber)',
       hostAgentAvatar: '🎙️',
+      digitalHumanModel: 'Unreal Engine 5.4 Photorealistic Metahuman Pro (52 Blendshapes Lip-Sync)',
       personaStyle: 'VTuber 3D Goth-Lofi Anime',
       virtualSet: 'Phòng Thu Ánh Trăng 3D & Lofi Rainy Window',
       aiDecisionRationale: 'Kenji Sato AI quét thấy hashtag #TruyenKiemDiem và #HealingTalks đang viral top 1 đêm khuya. Tự động chuyển đổi sang bối cảnh Ánh Trăng 3D để giữ chân người xem trung bình > 28 phút.',
@@ -74,10 +82,25 @@ const DEFAULT_CHANNELS: SocialChannel[] = [
       peakViewers: 4890,
       donationReceivedMinor: 68500,
       liveDurationSec: 16400,
+      aiComputerUse: {
+        isActive: false,
+        gameTitle: 'None (Chit-Chat & Storytelling Mode)',
+        apm: 0,
+        reactionSpeedMs: 14,
+        currentKeyAction: 'Neural Speech Synthesizer: Active',
+        visionFps: 60,
+        aiPlayerRank: 'Master Narrator & Emotion AI',
+        gameplayLog: 'Hệ thống đang đồng bộ khẩu hình 60fps và điều phối giọng nói truyền cảm theo nhịp thở.',
+      },
+      currentSongPlaying: {
+        title: 'Midnight Fog Mystery OST',
+        artist: 'NEXUS Neural Orchestra',
+        vocalPitchQuality: 'Studio 96kHz Lossless',
+      },
       comments: [
         { id: 'c-1', userName: 'AnNhiên_Sleep', avatar: '🌙', message: 'Giọng host kể chuyện truyền cảm và cuốn hút quá, nghe chill thật sự!', timestamp: 'Vừa xong', aiHostReply: 'Cảm ơn An Nhiên nhé! Đêm nay Mia sẽ kể tiếp hồi 3 vụ án bí ẩn lúc 23h30 nha ☕' },
         { id: 'c-2', userName: 'DucMinh_98', avatar: '🌟', message: 'Vừa gửi tặng 500 Sao cho Mia! Đọc thư tâm sự của mình gửi nha!', timestamp: '1 phút trước', isDonation: true, donationAmountMinor: 500, giftIcon: '🌟', aiHostReply: 'Cảm ơn anh Minh đã donate 500 Sao! Mia nhận được lá thư ẩn danh của anh rồi, chút nữa Mia đọc nhé!' },
-        { id: 'c-3', userName: 'HoangLong_Gamer', avatar: '🎮', message: 'Kênh này bao giờ live chơi game kinh dị tiếp vậy bạn?', timestamp: '2 phút trước', aiHostReply: 'Lát nữa 0h Ren Kuro AI sẽ tiếp sóng chơi Outlast II và react meme cùng mọi người nha Long ơi!' },
+        { id: 'c-3', userName: 'HoangLong_Gamer', avatar: '🎮', message: 'Kênh này bao giờ live chơi game kinh dị tiếp vậy bạn?', timestamp: '2 phút trước', aiHostReply: 'Lát nữa 0h Ren Kuro AI sẽ tiếp sóng tự chơi Outlast II bằng chuột phím và react meme cùng mọi người nha Long ơi!' },
       ],
       recentDonations: [
         { id: 'don-1', donor: 'DucMinh_98', avatar: '🌟', amountMinor: 500, giftName: 'Super Star 500x', giftIcon: '🌟', message: 'Yêu quý giọng kể của Mia! Chúc kênh sớm đạt 500k followers!', timestamp: '1 phút trước' },
@@ -101,7 +124,7 @@ const DEFAULT_CHANNELS: SocialChannel[] = [
     estimatedValuationMinor: 2200000,
     saleStatus: 'NotForSale',
     engagementRateBps: 880,
-    niche: 'AI Gameplay (Minecraft, Valorant, Horror) & React Meme',
+    niche: 'AI Tự Động Chơi Game (Minecraft, Valorant, Horror) & React Meme',
     totalStreamsRun: 52,
   },
   {
@@ -118,7 +141,7 @@ const DEFAULT_CHANNELS: SocialChannel[] = [
     estimatedValuationMinor: 680000,
     saleStatus: 'Listed',
     engagementRateBps: 760,
-    niche: 'Nhạc Lofi Thư Giãn, Học Bài & Q&A Trò Chuyện 24/7',
+    niche: 'AI Hát Live Acoustic, Nhạc Lofi & Q&A Tự Động 24/7',
     totalStreamsRun: 38,
   },
   {
@@ -156,6 +179,8 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
 
   const selectedChannel = safeChannels.find((c) => c.id === selectedChannelId) || safeChannels[0];
   const activeStream = selectedChannel?.activeStreamSession;
+  const isGamingMode = activeStream?.talentMode === 'AutonomousGaming' || activeStream?.aiComputerUse?.isActive;
+  const isSingingMode = activeStream?.talentMode === 'SingingCover';
 
   const formatMoney = (minor: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -213,11 +238,11 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
           <div>
             <div className="flex items-center gap-2.5 flex-wrap">
               <h2 className="text-base font-bold text-white tracking-tight">
-                Phòng Livestream Ảo &amp; Mạng Lưới Kênh Tự Động 100%
+                Phòng Livestream Người Ảo &amp; AI Tự Chơi Game 24/7
               </h2>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[11px] font-semibold bg-purple-950/60 text-purple-300 border border-purple-800/50">
                 <BrainCircuit className="w-3.5 h-3.5 text-purple-400" />
-                AI Tự Quyết Định Toàn Bộ &amp; Tự Vận Hành
+                AI Tự Điều Khiển Máy Tính &amp; Thao Tác 100%
               </span>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[11px] font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
@@ -225,7 +250,7 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              Chủ đề, phong cách nhân vật, bối cảnh 3D và lịch trình do Đạo Diễn AI (Kenji Sato) tự động phân tích xu hướng và triển khai mà không cần con người can thiệp
+              Nhân vật người ảo 3D siêu thực như người thật (hát hò, trò chuyện, tương tác). Khi chơi game, AI tự động nhìn màn hình, bấm phím chuột điều khiển máy tính hoàn toàn tự động.
             </p>
           </div>
         </div>
@@ -319,24 +344,25 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
         </div>
       </div>
 
-      {/* VIEW 1: VIRTUAL LIVESTREAM STUDIO */}
+      {/* VIEW 1: VIRTUAL LIVESTREAM STUDIO WITH DIGITAL HUMAN & COMPUTER-USE GAMING */}
       {activeSubTab === 'studio' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          {/* Left Column: Live Video Feed & Stream Dashboard (7 Cols) */}
+          {/* Left Column: Photorealistic Live Feed, Gaming PiP & AI Computer-Use Telemetry (7 Cols) */}
           <div className="lg:col-span-7 space-y-4">
-            {/* Live Camera Viewport Frame */}
+            {/* Main Live Viewport Frame */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg relative">
-              {/* Channel Selector Header Bar */}
+              {/* Channel Selector & Digital Human Engine Header */}
               <div className="bg-slate-950 px-4 py-3 border-b border-slate-800 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm">{selectedChannel.avatar}</span>
+                <div className="flex items-center gap-2.5">
+                  <span className="text-base">{selectedChannel.avatar}</span>
                   <div>
                     <div className="text-xs font-bold text-white flex items-center gap-2">
                       <span>{selectedChannel.name}</span>
                       <span className="text-[10px] text-slate-400 font-normal">{selectedChannel.handle}</span>
                     </div>
-                    <div className="text-[10px] text-slate-400">
-                      Nền tảng: <span className="text-slate-300 font-medium">{selectedChannel.platform}</span> • Thể loại: <span className="text-purple-300 font-medium">{selectedChannel.category}</span>
+                    <div className="text-[10px] text-slate-400 flex items-center gap-1.5">
+                      <span className="text-emerald-400 font-semibold">● Digital Human:</span>
+                      <span className="text-slate-300 truncate max-w-[260px]">{activeStream?.digitalHumanModel || 'Unreal Engine 5.4 Photorealistic Metahuman'}</span>
                     </div>
                   </div>
                 </div>
@@ -349,103 +375,175 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
                 >
                   {safeChannels.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.platform}: {c.name.substring(0, 26)}
+                      {c.platform}: {c.name.substring(0, 24)}
                     </option>
                   ))}
                 </select>
               </div>
 
-              {/* Main Viewport Screen */}
-              <div className="relative aspect-video bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 flex flex-col items-center justify-center p-6 text-center overflow-hidden">
+              {/* Main Viewport Screen (Split View if Gaming Mode, Full Avatar View if Chit-Chat/Singing) */}
+              <div className="relative aspect-video bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-4 text-center overflow-hidden flex flex-col justify-between">
                 {/* Background Ambient Glow */}
-                <div className="absolute inset-0 opacity-25 bg-[radial-gradient(#818cf8_1px,transparent_1px)] [background-size:16px_16px]"></div>
+                <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#a855f7_1px,transparent_1px)] [background-size:16px_16px]"></div>
                 
-                {/* Status Badges Overlay */}
-                <div className="absolute top-3 left-3 flex items-center gap-2 z-10">
-                  {activeStream?.streamStatus === 'Live' ? (
+                {/* Top Status Overlays */}
+                <div className="flex items-center justify-between z-10 w-full">
+                  <div className="flex items-center gap-2">
                     <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-rose-600/90 text-white text-[11px] font-bold tracking-wider uppercase shadow-lg animate-pulse">
                       <span className="w-2 h-2 rounded-full bg-white"></span>
-                      LIVE 24/7 (AI VẬN HÀNH)
+                      LIVE 24/7
                     </span>
-                  ) : (
-                    <span className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-800 text-slate-400 text-[11px] font-medium border border-slate-700">
-                      ĐANG NGHỈ
+
+                    {/* Talent Mode Badge */}
+                    <span className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-black/70 backdrop-blur-md text-purple-300 text-[11px] font-semibold border border-purple-500/30">
+                      {isGamingMode ? (
+                        <>
+                          <Gamepad2 className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>AI Tự Chơi Game (VLA Model)</span>
+                        </>
+                      ) : isSingingMode ? (
+                        <>
+                          <Music className="w-3.5 h-3.5 text-pink-400" />
+                          <span>AI Hát Live Acoustic Cover</span>
+                        </>
+                      ) : (
+                        <>
+                          <Mic className="w-3.5 h-3.5 text-purple-400" />
+                          <span>Người Ảo Trò Chuyện Siêu Thực</span>
+                        </>
+                      )}
                     </span>
-                  )}
-                  <span className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-black/60 backdrop-blur-md text-white text-[11px] font-semibold border border-white/10">
-                    <Users className="w-3.5 h-3.5 text-rose-400" />
-                    <span>{activeStream?.viewersCount ? activeStream.viewersCount.toLocaleString() : '0'} Viewers</span>
-                  </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-black/70 backdrop-blur-md text-white text-[11px] font-semibold border border-white/10">
+                      <Users className="w-3.5 h-3.5 text-rose-400" />
+                      <span>{activeStream?.viewersCount ? activeStream.viewersCount.toLocaleString() : '0'} Viewers</span>
+                    </span>
+                    <span className="px-2.5 py-1 rounded-md bg-black/70 backdrop-blur-md text-pink-300 text-[11px] font-semibold border border-pink-500/20 flex items-center gap-1">
+                      <Heart className="w-3.5 h-3.5 text-pink-400 fill-pink-400" />
+                      <span>Donate: {formatMoney(activeStream?.donationReceivedMinor || 0)}</span>
+                    </span>
+                  </div>
                 </div>
 
-                <div className="absolute top-3 right-3 flex items-center gap-2 z-10">
-                  <span className="px-2.5 py-1 rounded-md bg-black/60 backdrop-blur-md text-pink-300 text-[11px] font-semibold border border-pink-500/20 flex items-center gap-1">
-                    <Heart className="w-3.5 h-3.5 text-pink-400 fill-pink-400" />
-                    <span>Donate: {formatMoney(activeStream?.donationReceivedMinor || 0)}</span>
-                  </span>
-                </div>
+                {/* Center Stage: Split Screen if Gaming Mode OR Full Photorealistic Avatar if Story/Singing */}
+                <div className="relative z-10 my-auto grid grid-cols-12 gap-3 items-center">
+                  {/* Digital Human Camera Feed (Left Box in Gaming mode, Center Box in Talk mode) */}
+                  <div className={`${isGamingMode ? 'col-span-5' : 'col-span-12'} flex flex-col items-center justify-center transition-all`}>
+                    <div className="relative">
+                      {/* Avatar Holographic Ring */}
+                      <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-purple-500 via-pink-500 to-cyan-400 p-1 shadow-2xl shadow-purple-500/40 animate-pulse">
+                        <div className="w-full h-full rounded-full bg-slate-950 flex items-center justify-center text-4xl border-2 border-white/20">
+                          {activeStream?.hostAgentAvatar || (isGamingMode ? '🎮' : '🎙️')}
+                        </div>
+                      </div>
 
-                {/* Virtual AI Avatar Representation */}
-                <div className="relative z-10 flex flex-col items-center">
-                  <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-purple-600 to-pink-500 p-1 shadow-2xl shadow-purple-500/30 mb-3 animate-pulse">
-                    <div className="w-full h-full rounded-full bg-slate-900 flex items-center justify-center text-4xl border-2 border-white/20">
-                      {activeStream?.hostAgentAvatar || (selectedChannel.category === 'Gaming & Reaction' ? '🎮' : '🎙️')}
+                      {/* Live 52 Blendshapes Lip-Sync Motion Capture Indicator */}
+                      <span className="absolute -bottom-1 -right-1 px-1.5 py-0.5 rounded bg-emerald-600 text-[9px] font-bold text-white border border-slate-900 shadow">
+                        MOCAP 60FPS
+                      </span>
+                    </div>
+
+                    <div className="mt-2 text-center">
+                      <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-900/90 border border-purple-500/30 text-xs text-purple-200 font-semibold shadow">
+                        <Sparkles className="w-3 h-3 text-purple-400" />
+                        <span>{activeStream?.hostAgentName || 'Mia Thorne AI'}</span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 block mt-0.5">
+                        {activeStream?.personaStyle || 'Photorealistic Metahuman'}
+                      </span>
+                    </div>
+
+                    {/* Audio Wave Visualizer */}
+                    <div className="flex items-center gap-1 my-1.5">
+                      <span className="w-1 h-3 bg-purple-400 rounded-full animate-bounce"></span>
+                      <span className="w-1 h-6 bg-pink-400 rounded-full animate-bounce [animation-delay:0.2s]"></span>
+                      <span className="w-1 h-8 bg-cyan-400 rounded-full animate-bounce [animation-delay:0.4s]"></span>
+                      <span className="w-1 h-5 bg-purple-400 rounded-full animate-bounce [animation-delay:0.1s]"></span>
+                      <span className="w-1 h-2 bg-pink-400 rounded-full animate-bounce [animation-delay:0.3s]"></span>
                     </div>
                   </div>
 
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900/90 border border-purple-500/30 text-xs text-purple-200 font-semibold mb-1 shadow">
-                    <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                    <span>{activeStream?.hostAgentName || 'Mia Thorne AI'}</span>
-                    <span className="text-[10px] text-slate-400 font-normal">({activeStream?.personaStyle || 'VTuber 3D Persona'})</span>
-                  </div>
+                  {/* Right Box: Live Gameplay Feed (Only when Gaming Mode Active) */}
+                  {isGamingMode && (
+                    <div className="col-span-7 bg-slate-950/90 rounded-xl border border-cyan-500/30 p-3 text-left shadow-2xl relative overflow-hidden">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-1.5 text-cyan-300 text-xs font-bold">
+                          <Monitor className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>Màn Hình Game AI Tự Điều Khiển</span>
+                        </div>
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-cyan-950 text-cyan-300 border border-cyan-800">
+                          {activeStream?.aiComputerUse?.visionFps || 60} FPS VISION
+                        </span>
+                      </div>
 
-                  {/* Audio Wave Visualizer Simulation */}
-                  <div className="flex items-center gap-1 my-2">
-                    <span className="w-1 h-3 bg-purple-400 rounded-full animate-bounce"></span>
-                    <span className="w-1 h-6 bg-pink-400 rounded-full animate-bounce [animation-delay:0.2s]"></span>
-                    <span className="w-1 h-8 bg-blue-400 rounded-full animate-bounce [animation-delay:0.4s]"></span>
-                    <span className="w-1 h-5 bg-purple-400 rounded-full animate-bounce [animation-delay:0.1s]"></span>
-                    <span className="w-1 h-2 bg-pink-400 rounded-full animate-bounce [animation-delay:0.3s]"></span>
-                  </div>
+                      {/* Game Screen Simulation Box */}
+                      <div className="bg-slate-900 rounded-lg p-2.5 border border-slate-800 font-mono text-[11px] space-y-1.5">
+                        <div className="flex items-center justify-between text-slate-300">
+                          <span>Game: <strong className="text-white">{activeStream?.aiComputerUse?.gameTitle || 'Outlast II AI'}</strong></span>
+                          <span className="text-amber-400 font-bold">{activeStream?.aiComputerUse?.aiPlayerRank || 'Top 1% AI'}</span>
+                        </div>
 
-                  {/* Speech Bubble */}
-                  <div className="max-w-md bg-black/75 backdrop-blur-md border border-white/10 text-white rounded-xl px-4 py-2 text-xs shadow-xl mt-1">
+                        {/* Live Virtual Keys / Mouse Telemetry */}
+                        <div className="flex items-center gap-1.5 pt-1">
+                          <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 text-[10px] font-bold">
+                            ⌨️ {activeStream?.aiComputerUse?.currentKeyAction || 'W + Shift + LeftClick'}
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 text-[10px] font-bold">
+                            ⚡ {activeStream?.aiComputerUse?.apm || 285} APM
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold">
+                            ⏱️ {activeStream?.aiComputerUse?.reactionSpeedMs || 12}ms
+                          </span>
+                        </div>
+
+                        <p className="text-[10px] text-slate-400 italic pt-1 truncate">
+                          {activeStream?.aiComputerUse?.gameplayLog || 'AI đang quan sát màn hình và tự động di chuyển nhân vật trong game...'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Bottom Speech Bubble & Topic Bar */}
+                <div className="z-10 w-full">
+                  <div className="max-w-md mx-auto bg-black/80 backdrop-blur-md border border-white/10 text-white rounded-xl px-4 py-2 text-xs shadow-xl mb-2">
                     <p className="italic text-slate-200 font-medium">
-                      "{activeStream?.comments?.[0]?.aiHostReply || 'Chào cả nhà! Chúc mọi người một buổi tối thật thư giãn và vui vẻ nhé!'}"
+                      "{activeStream?.comments?.[0]?.aiHostReply || 'Chào cả nhà! Chúc mọi người một buổi live thật bùng nổ cùng AI Host nhé!'}"
                     </p>
                   </div>
-                </div>
 
-                {/* Bottom Viewport Info Bar */}
-                <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent p-3 pt-6 flex items-center justify-between text-xs text-left z-10">
-                  <div className="truncate mr-4">
-                    <div className="font-bold text-white text-xs truncate">
-                      {activeStream?.title || 'Phiên livestream trò chuyện và kể chuyện AI 24/7'}
+                  <div className="bg-black/90 rounded-lg p-2 flex items-center justify-between text-xs text-left border border-white/5">
+                    <div className="truncate mr-3">
+                      <div className="font-bold text-white text-xs truncate">
+                        {activeStream?.title || 'Phiên livestream người ảo AI 24/7'}
+                      </div>
+                      <div className="text-[10px] text-purple-300 flex items-center gap-1 mt-0.5">
+                        <Sparkles className="w-3 h-3 text-purple-400 shrink-0" />
+                        <span className="truncate">Nội dung: <strong>{activeStream?.currentGameOrTopic}</strong></span>
+                      </div>
                     </div>
-                    <div className="text-[11px] text-purple-300 flex items-center gap-1.5 mt-0.5">
-                      <Gamepad2 className="w-3 h-3 text-purple-400 shrink-0" />
-                      <span className="truncate">Chủ đề: <strong>{activeStream?.currentGameOrTopic || selectedChannel.niche}</strong></span>
+                    <div className="text-right shrink-0">
+                      <span className="text-[9px] text-slate-400 block">Thời gian phát liên tục</span>
+                      <span className="font-mono text-xs font-semibold text-emerald-400">
+                        {Math.floor((activeStream?.liveDurationSec || 0) / 3600)}h {Math.floor(((activeStream?.liveDurationSec || 0) % 3600) / 60)}m
+                      </span>
                     </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <span className="text-[10px] text-slate-400 block">Thời gian phát liên tục</span>
-                    <span className="font-mono text-xs font-semibold text-emerald-400">
-                      {Math.floor((activeStream?.liveDurationSec || 0) / 3600)}h {Math.floor(((activeStream?.liveDurationSec || 0) % 3600) / 60)}m
-                    </span>
                   </div>
                 </div>
               </div>
 
-              {/* Autonomous AI Decision Telemetry Bar */}
+              {/* AI Computer-Use & Autonomous Studio Telemetry Bar */}
               <div className="bg-slate-950 p-3.5 border-t border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-xs">
+                <div className="flex items-center gap-2 flex-wrap text-xs">
                   <span className="px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 font-semibold text-[11px] flex items-center gap-1">
                     <Layers className="w-3 h-3" />
-                    Bối cảnh 3D: {activeStream?.virtualSet || 'Phòng Thu Ánh Trăng 3D'}
+                    Bối cảnh: {activeStream?.virtualSet || 'Phòng Thu Ánh Trăng 3D'}
                   </span>
-                  <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-semibold text-[11px] flex items-center gap-1">
-                    <Bot className="w-3 h-3" />
-                    {activeStream?.personaStyle || 'VTuber 3D Goth-Lofi'}
+                  <span className="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-semibold text-[11px] flex items-center gap-1">
+                    <MousePointer className="w-3 h-3" />
+                    Tự Động Thao Tác Chuột &amp; Phím: {isGamingMode ? 'Đang Chơi Game' : 'Chế Độ Voice Mocap'}
                   </span>
                 </div>
 
@@ -455,7 +553,7 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
                     onClick={handleTriggerAITrendScan}
                     disabled={isScanningTrends}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors disabled:opacity-50"
-                    title="Yêu cầu AI quét xu hướng và tự động hoán đổi chủ đề/bối cảnh"
+                    title="Yêu cầu AI quét xu hướng và tự động hoán đổi chủ đề, bài hát hoặc game mới"
                   >
                     <BrainCircuit className={`w-3.5 h-3.5 text-purple-400 ${isScanningTrends ? 'animate-spin' : ''}`} />
                     <span>{isScanningTrends ? 'AI Đang Quét Xu Hướng...' : 'AI Quét Lại Xu Hướng'}</span>
@@ -486,11 +584,11 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
               <div className="flex items-center gap-2 mb-2">
                 <BrainCircuit className="w-4 h-4 text-purple-400" />
                 <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-                  Nhật Ký Quyết Định Thuật Toán AI (Kenji Sato &amp; Mia Thorne)
+                  Nhật Ký Quyết Định Thuật Toán AI (Kenji Sato &amp; Ren Kuro)
                 </h3>
               </div>
               <p className="text-xs text-slate-300 bg-slate-950 p-3 rounded-lg border border-slate-800 font-mono leading-relaxed">
-                {activeStream?.aiDecisionRationale || 'Thuật toán Kenji Sato AI liên tục quét dữ liệu xu hướng và tự động tối ưu hóa bối cảnh, âm nhạc và nhân vật nhằm duy trì thời gian xem trung bình và tỷ lệ tương tác donate tối đa.'}
+                {activeStream?.aiDecisionRationale || 'Thuật toán Kenji Sato AI liên tục quét dữ liệu xu hướng và tự động điều phối hệ thống Digital Human và AI Computer Use để livestream 24/7 hoàn toàn tự động.'}
               </p>
             </div>
 
@@ -589,7 +687,7 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
             <div className="p-3 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
               <span className="flex items-center gap-1.5">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Bộ lọc ngôn từ &amp; Điều hướng cảm xúc: <strong>Đang Bật</strong></span>
+                <span>Bộ lọc ngôn từ &amp; Mocap Lip-Sync: <strong>60 FPS Mượt Mà</strong></span>
               </span>
               <span className="text-purple-400 font-mono">Độ trễ phản hồi: 0.18s</span>
             </div>
