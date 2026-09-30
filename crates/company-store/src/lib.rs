@@ -3175,12 +3175,30 @@ impl CompanyStore {
                 return Err("duplicate capital candidate id".into());
             }
         }
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        for candidate in candidates {
+            let unit_id = Uuid::parse_str(&candidate.unit_id)
+                .map_err(|_| "capital candidate unit_id must be a business unit UUID".to_string())?;
+            let owns_unit = tx
+                .query_opt(
+                    "SELECT 1
+                       FROM business_units
+                      WHERE company_id=$1 AND id=$2
+                      FOR SHARE",
+                    &[&company, &unit_id],
+                )
+                .await?
+                .is_some();
+            if !owns_unit {
+                return Err("capital candidate references a business unit outside the company".into());
+            }
+        }
+
         let plan = company_capital::plan(policy, candidates).map_err(|error| error.to_string())?;
         let policy_json = serde_json::to_value(policy)?;
         let plan_json = serde_json::to_value(&plan)?;
-
-        let mut client = self.client.lock().await;
-        let tx = client.transaction().await?;
 
         if let Some(row) = tx
             .query_opt(
