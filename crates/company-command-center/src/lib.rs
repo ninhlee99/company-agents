@@ -280,11 +280,22 @@ fn validate_input(input: &CommandCenterInput) -> Result<(), String> {
             return Err(format!("{name} cannot be negative"));
         }
     }
-    if input.affiliate_variance_mtd_minor
-        != input.affiliate_reported_commission_mtd_minor
-            - input.affiliate_attributed_commission_mtd_minor
-    {
+    let expected_affiliate_variance = input
+        .affiliate_reported_commission_mtd_minor
+        .checked_sub(input.affiliate_attributed_commission_mtd_minor)
+        .ok_or_else(|| "affiliate commission variance overflow".to_string())?;
+    if input.affiliate_variance_mtd_minor != expected_affiliate_variance {
         return Err("affiliate variance does not reconcile with reported and attributed commission".into());
+    }
+    for (name, value) in [
+        ("compliance.allowed_24h", input.compliance.allowed_24h),
+        ("compliance.review_24h", input.compliance.review_24h),
+        ("compliance.blocked_24h", input.compliance.blocked_24h),
+        ("compliance.unknown_24h", input.compliance.unknown_24h),
+    ] {
+        if value < 0 {
+            return Err(format!("{name} cannot be negative"));
+        }
     }
     for point in &input.daily_revenue {
         if point.day.trim().is_empty() || point.revenue_minor < 0 {
