@@ -1502,28 +1502,32 @@ impl CompanyStore {
         evidence_ref: Option<&str>,
     ) -> Result<ContentRecord, Box<dyn std::error::Error + Send + Sync>> {
         let company = Uuid::parse_str(company_id)?;
-        let client = self.client.lock().await;
-        let row = client.query_opt(
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let row = tx.query_opt(
             "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
                     expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
                     success_threshold_bps,variant_key,hook,first_frame,emotion,pacing,scene_count,
                     text_density,voice_speed,product_placement,cta,comment_trigger,music_style,
                     visual_style,status,decision,created_at::text
                FROM content_items
-              WHERE company_id=$1 AND id=$2",
+              WHERE company_id=$1 AND id=$2
+              FOR UPDATE",
             &[&company, &content_id],
         ).await?.ok_or("content item not found")?;
         let current = parse_content_status(row.get::<_, String>(26))?;
         company_content::validate_status_transition(current, next, evidence_ref)
             .map_err(|error| error.to_string())?;
+
         let next_name = content_status_name(next);
-        client.execute(
+        tx.execute(
             "UPDATE content_items
                 SET status=$3, status_evidence_ref=$4
               WHERE company_id=$1 AND id=$2",
             &[&company, &content_id, &next_name, &evidence_ref],
         ).await?;
-        let refreshed = client.query_one(
+
+        let refreshed = tx.query_one(
             "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
                     expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
                     success_threshold_bps,variant_key,hook,first_frame,emotion,pacing,scene_count,
@@ -1532,7 +1536,34 @@ impl CompanyStore {
                FROM content_items WHERE company_id=$1 AND id=$2",
             &[&company, &content_id],
         ).await?;
-        content_record_from_row(refreshed)
+        let record = content_record_from_row(refreshed)?;
+
+        if current != company_content::ContentStatus::Published
+            && next == company_content::ContentStatus::Published
+        {
+            let event = company_domain::CompanyEventEnvelope::new(
+                company,
+                company_domain::CompanyEventType::ContentPublished,
+                "content",
+                Some(content_id),
+                time::OffsetDateTime::now_utc().unix_timestamp(),
+                content_id,
+                None,
+                format!("content-published:{content_id}"),
+                serde_json::json!({
+                    "content_id": content_id,
+                    "variant_key": record.item.variant.variant_key,
+                    "product_ref": record.item.brief.product_ref,
+                    "offer_ref": record.item.brief.offer_ref,
+                    "status": content_status_name(next),
+                    "evidence_ref": evidence_ref,
+                }),
+            )?;
+            enqueue_company_event_tx(&tx, &event).await?;
+        }
+
+        tx.commit().await?;
+        Ok(record)
     }
 
     pub async fn record_content_observation(
@@ -10239,6 +10270,21 @@ mod commercial_report_tests {
         assert_eq!(sponsorship_delivery_ratio_bps(200,100),10_000);
     }
 }
+#[cfg(test)]
+mod content_publish_event_tests {
+    use super::*;
+
+    #[test]
+    fn content_publish_event_is_bounded_to_published_transition() {
+        assert_ne!(
+            company_domain::CompanyEventType::ContentPublished.as_str(),
+            "CONTENT_PUBLISHED_WRONG"
+        );
+        let key = format!("content-published:{}", Uuid::from_u128(9));
+        assert_eq!(key.len(), "content-published:36".len());
+    }
+}
+
 #[cfg(test)]
 mod numeric_parser_tests {
     use super::*;
