@@ -1024,6 +1024,9 @@ function generateAutoAuditReport(milestoneCycle: number) {
 // REST Endpoints
 app.get('/api/state', (req, res) => {
   res.json({
+    dataMode: 'SIMULATION',
+    evidenceMode: 'synthetic_fixture',
+    warning: 'All monetary, KPI, audit, workforce and pipeline values from this Node/Vite backend are synthetic simulation state, not company actuals.',
     snapshot: state.snapshot,
     ledger: state.ledger.slice(0, 50),
     receipts: state.receipts.slice(0, 50),
@@ -1851,23 +1854,23 @@ app.post('/api/run-pipeline', async (req, res) => {
   const cooAgent = state.customAgents.find((a: { id: string }) => a.id === 'agent-coo');
   if (cooAgent) cooAgent.tasksCompleted += 1;
 
-  // Yield Real Monetization
-  const revenueGainMinor = Math.floor(Math.random() * 80000 + 75000); // +$750 - $1,550
-  const costMinor = 15000; // $150 inference/render cost
+  // Simulation-only outcome. This backend is never the authoritative financial ledger.
+  const simulatedRevenueGainMinor = Math.floor(Math.random() * 80000 + 75000); // synthetic +$750 - $1,550
+  const costMinor = 15000; // synthetic $150 inference/render cost
 
-  state.snapshot.cash_minor += (revenueGainMinor - costMinor);
-  state.snapshot.revenue_minor += revenueGainMinor;
-  state.snapshot.content_revenue_minor += revenueGainMinor;
+  state.snapshot.cash_minor += (simulatedRevenueGainMinor - costMinor);
+  state.snapshot.revenue_minor += simulatedRevenueGainMinor;
+  state.snapshot.content_revenue_minor += simulatedRevenueGainMinor;
   state.snapshot.backlog = Math.max(0, state.snapshot.backlog - 2);
 
   // Book Double-Entry Ledger Entry
   state.ledger.unshift({
     id: `tx-pipeline-${Date.now().toString(36)}`,
     timestamp: new Date().toISOString(),
-    description: `Dây Chuyền Tự Động: Xuất bản video & Thu hoa hồng '${targetTopic.substring(0, 30)}'`,
-    debitAccount: 'Cash & Cash Equivalents',
-    creditAccount: 'Doanh Thu Tiếp Thị Liên Kết (Affiliate Revenue)',
-    amount_minor: revenueGainMinor,
+    description: `[SIMULATION] Dây Chuyền: mô phỏng xuất bản video & affiliate outcome '${targetTopic.substring(0, 30)}'`,
+    debitAccount: 'SIMULATION_CASH',
+    creditAccount: 'SIMULATION_AFFILIATE_REVENUE',
+    amount_minor: simulatedRevenueGainMinor,
     cycle,
   });
 
@@ -1878,7 +1881,7 @@ app.post('/api/run-pipeline', async (req, res) => {
     agent: 'Content',
     action: 'PublishContent',
     status: 'Completed',
-    outcome: `Dây chuyền phối hợp hoàn tất 4 khâu: Nghiên cứu -> Kịch bản -> Dựng video -> Nhận đối soát +$${(revenueGainMinor / 100).toFixed(2)}.`,
+    outcome: `[SIMULATION] Dây chuyền 4 khâu hoàn tất; synthetic outcome +${(simulatedRevenueGainMinor / 100).toFixed(2)} — không phải revenue đã nhận.`,
     cost_minor: costMinor,
     timestamp: new Date().toISOString(),
   });
@@ -1888,14 +1891,15 @@ app.post('/api/run-pipeline', async (req, res) => {
   res.json({
     success: true,
     topic: targetTopic,
-    revenueGainMinor,
+    simulatedRevenueGainMinor,
+    simulated: true,
     costMinor,
     snapshot: state.snapshot,
     steps: [
       { step: '1. Nghiên cứu', by: 'Growth Lead', detail: 'Quét 14 mặt hàng affiliate hot trên TikTok Shop' },
       { step: '2. Kịch bản', by: 'Content Lead', detail: 'Tạo hook 3 giây và kịch bản 4 phân cảnh' },
       { step: '3. Sản xuất', by: 'Media Worker', detail: 'Render video và gắn affiliate tracking link' },
-      { step: '4. Kế toán', by: 'Governor & CFO', detail: `Ghi nhận doanh thu ròng +$${(revenueGainMinor / 100).toFixed(2)} vào kho bạc` },
+      { step: '4. Simulation ledger', by: 'Governor & CFO', detail: `Ghi nhận synthetic outcome +${(simulatedRevenueGainMinor / 100).toFixed(2)} trong simulation ledger` },
     ],
   });
 });
@@ -1994,7 +1998,16 @@ app.get('/api/agent-tasks/:agentKey', (req, res) => {
 
 // Vite Middleware Mounting for Dev Server
 async function startServer() {
+  const mode = process.env.COMPANY_OS_MODE ?? 'simulation';
+  if (mode !== 'simulation') {
+    throw new Error('server.ts is simulation-only; use apps/company-os for production company state and governed side effects');
+  }
   const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const host = process.env.HOST ?? '127.0.0.1';
+  const remoteAllowed = process.env.SIMULATION_ALLOW_REMOTE === 'true';
+  if (!['127.0.0.1', 'localhost', '::1'].includes(host) && !remoteAllowed) {
+    throw new Error('simulation UI refuses non-loopback binding unless SIMULATION_ALLOW_REMOTE=true');
+  }
 
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static('dist'));
@@ -2009,8 +2022,9 @@ async function startServer() {
     app.use(vite.middlewares);
   }
 
-  app.listen(port, '0.0.0.0', () => {
-    console.log(`Company OS Suite listening on http://0.0.0.0:${port}`);
+  app.listen(port, host, () => {
+    console.log(`Company OS Simulation UI listening on http://${host}:${port}`);
+    console.log('DATA MODE: SIMULATION — this service is not the authoritative company ledger or external-action plane.');
   });
 }
 
