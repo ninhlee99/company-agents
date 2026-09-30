@@ -689,6 +689,28 @@ async fn index(
             r#"<div class="card"><h2>Safety controls</h2><p class="muted">Persistent safety controls are unavailable. Autonomous side effects remain fail-closed.</p></div>"#.into()
         }
     };
+    let tiktok_oauth_html = match state.store.tiktok_oauth_status(&state.company_id).await {
+        Ok(Some(connection)) if connection.status == "ACTIVE" => {
+            let access_expires = connection.access_token_expires_at_epoch;
+            format!(
+                r#"<div class="card"><h2>TikTok account</h2><div class="metric">Connected</div><p class="muted">open_id: {} · access token expiry: {} · refresh token expiry: {}</p><div style="display:flex;gap:8px;flex-wrap:wrap"><form method="post" action="/api/tiktok/oauth/refresh"><button type="submit">Refresh token</button></form><form method="post" action="/api/tiktok/oauth/revoke"><button type="submit">Revoke</button></form></div></div>"#,
+                escape_html(&connection.open_id),
+                access_expires,
+                connection.refresh_token_expires_at_epoch
+            )
+        }
+        Ok(Some(connection)) => format!(
+            r#"<div class="card"><h2>TikTok account</h2><div class="metric">{}</div><p class="muted">{}</p><a href="/api/tiktok/oauth/start">Reconnect TikTok</a></div>"#,
+            escape_html(&connection.status),
+            escape_html(connection.last_error.as_deref().unwrap_or("TikTok authorization needs operator action."))
+        ),
+        Ok(None) => r#"<div class="card"><h2>TikTok account</h2><div class="metric">Not connected</div><p class="muted">Connect a TikTok account through Login Kit before enabling database-backed publishing.</p><a href="/api/tiktok/oauth/start">Connect TikTok</a></div>"#.into(),
+        Err(error) => {
+            tracing::warn!(%error, "TikTok OAuth status unavailable");
+            r#"<div class="card"><h2>TikTok account</h2><div class="metric">Status unavailable</div><p class="muted">The account state could not be loaded, so publishing remains fail-closed.</p></div>"#.into()
+        }
+    };
+
     let autonomy_html = match (autonomy_policy, autonomy_stop) {
         (Ok(policy), Ok(emergency_stop)) => {
             let ceiling = policy.max_level.as_str();
