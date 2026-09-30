@@ -162,7 +162,6 @@ struct CycleResponse {
 #[derive(Debug, Deserialize)]
 struct PublishApproveRequest {
     intent_id: String,
-    approved_by: String,
     ttl_seconds: i64,
 }
 #[derive(Debug, Deserialize)]
@@ -390,7 +389,7 @@ struct PaymentExecutionRunRequest {
 #[derive(Debug, Deserialize)] struct CustomerSuccessCompleteRequest { task_id:uuid::Uuid, outcome:String }
 #[derive(Debug, Deserialize)] struct VendorRequest { legal_name:String, contact_email:Option<String>, currency:String, tax_ref:Option<String>, idempotency_key:String }
 #[derive(Debug, Deserialize)] struct PurchaseRequest { vendor_id:uuid::Uuid, title:String, currency:String, amount_minor:i128, requester:String, idempotency_key:String }
-#[derive(Debug, Deserialize)] struct PurchaseApproveRequest { request_id:uuid::Uuid, approved_by:String, approval_reference:String }
+#[derive(Debug, Deserialize)] struct PurchaseApproveRequest { request_id:uuid::Uuid, approval_reference:String }
 #[derive(Debug, Deserialize)] struct VendorDeliveryRequest { purchase_request_id:uuid::Uuid, external_ref:Option<String>, received_at_epoch:i64, evidence_hash:String }
 
 fn escape_html(value: &str) -> String {
@@ -2849,15 +2848,17 @@ async fn publish_intent_api(
 
 async fn publish_approve_api(
     State(state): State<AppState>,
-    Json(request): Json<PublishApproveRequest>,
+    request: Request,
+    Json(payload): Json<PublishApproveRequest>,
 ) -> Result<Json<publishing_contract::PublishApproval>, StatusCode> {
+    let actor = trusted_control_plane_actor(&state, &request)?;
     state
         .store
         .approve_publish_intent(
             &state.company_id,
-            &request.intent_id,
-            &request.approved_by,
-            request.ttl_seconds,
+            &payload.intent_id,
+            &actor,
+            payload.ttl_seconds,
         )
         .await
         .map(Json)
@@ -3895,10 +3896,12 @@ async fn purchase_request_api(
 
 async fn purchase_approve_api(
     State(state): State<AppState>,
+    request: Request,
     Json(req): Json<PurchaseApproveRequest>,
 ) -> Result<StatusCode, StatusCode> {
+    let actor = trusted_control_plane_actor(&state, &request)?;
     state.store.approve_purchase_request(
-        &state.company_id, &req.request_id.to_string(), &req.approved_by, &req.approval_reference,
+        &state.company_id, &req.request_id.to_string(), &actor, &req.approval_reference,
     ).await.map(|_| StatusCode::ACCEPTED).map_err(|_| StatusCode::BAD_REQUEST)
 }
 
