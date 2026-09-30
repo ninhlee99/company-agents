@@ -53,6 +53,23 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test -p ${{ matrix.package }} -- --nocapture
 
+  model-benchmark-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run deterministic model benchmark smoke
+        env:
+          LLM_BENCHMARK_PROVIDERS: mock
+        run: |
+          cargo run -p agent-runtime --bin model-benchmark > model-benchmark.json
+          cat model-benchmark.json
+      - name: Upload benchmark smoke report
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-benchmark-smoke
+          path: model-benchmark.json
+
   postgres-integration:
     runs-on: ubuntu-latest
     services:
