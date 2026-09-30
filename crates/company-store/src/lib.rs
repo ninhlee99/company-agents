@@ -303,6 +303,15 @@ async fn enqueue_company_event_tx(
     Ok(inserted == 1)
 }
 
+fn outcome_evidence_correlation_id(decision_journal_id: i64) -> Uuid {
+    let digest = Sha256::digest(format!("agent-outcome:{decision_journal_id}").as_bytes());
+    Uuid::from_bytes(
+        digest[..16]
+            .try_into()
+            .expect("sha256 digest always has at least 16 bytes"),
+    )
+}
+
 fn publish_completion_correlation_id(identity: &str) -> Uuid {
     let digest = Sha256::digest(identity.as_bytes());
     Uuid::from_bytes(
@@ -2253,27 +2262,29 @@ impl CompanyStore {
             )
             .await?;
 
-        tx.execute(
-            "INSERT INTO outbox_events
-             (company_id,event_type,aggregate_id,idempotency_key,payload)
-             VALUES ($1,'AGENT_OUTCOME_EVIDENCE_RECORDED',$2,$3,$4)
-             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
-            &[
-                &company,
-                &decision_journal_id.to_string(),
-                &format!("outbox:agent-outcome:{decision_journal_id}"),
-                &serde_json::json!({
-                    "decision_journal_id": decision_journal_id,
-                    "agent": agent_name,
-                    "action": action,
-                    "evidence_ref": evidence_ref,
-                    "observed_revenue_delta_minor": observed_revenue_delta_minor,
-                    "observed_contribution_margin_delta_minor": observed_contribution_margin_delta_minor,
-                    "observed_at_epoch": observed_at_epoch,
-                }),
-            ],
-        )
-        .await?;
+        let outcome_event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::AgentOutcomeEvidenceRecorded,
+            "agent_outcome_evidence",
+            None,
+            observed_at_epoch,
+            outcome_evidence_correlation_id(decision_journal_id),
+            None,
+            format!("outbox:agent-outcome:{decision_journal_id}"),
+            serde_json::json!({
+                "decision_journal_id": decision_journal_id,
+                "agent": agent_name,
+                "action": action,
+                "governor_decision": governor_decision,
+                "evidence_ref": evidence_ref,
+                "observed_revenue_delta_minor": observed_revenue_delta_minor,
+                "observed_contribution_margin_delta_minor": observed_contribution_margin_delta_minor,
+                "observed_at_epoch": observed_at_epoch,
+                "decision_created_at_epoch": decision_created_at_epoch,
+                "execution": execution,
+            }),
+        )?;
+        enqueue_company_event_tx(&tx, &outcome_event).await?;
 
         tx.commit().await?;
         Ok(AgentOutcomeEvidenceRecord {
@@ -10494,6 +10505,44 @@ mod customer_intelligence_tests {
         assert_eq!(collection_rate_bps(0, 0), 0);
         assert_eq!(collection_rate_bps(100, 50), 5_000);
         assert_eq!(collection_rate_bps(100, 120), 10_000);
+    }
+}
+
+#[cfg(test)]
+mod agent_outcome_evidence_event_tests {
+    use super::*;
+
+    #[test]
+    fn outcome_event_preserves_verified_evidence_lineage() {
+        let company = Uuid::from_u128(111);
+        let journal_id = 123_i64;
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::AgentOutcomeEvidenceRecorded,
+            "agent_outcome_evidence",
+            None,
+            1_800_000_800,
+            outcome_evidence_correlation_id(journal_id),
+            None,
+            "outbox:agent-outcome:123",
+            serde_json::json!({
+                "decision_journal_id": journal_id,
+                "agent": "CEO",
+                "action": "Propose",
+                "governor_decision": "APPROVE",
+                "evidence_ref": "analytics:run-123",
+                "observed_revenue_delta_minor": 5000,
+                "observed_contribution_margin_delta_minor": 3200,
+                "observed_at_epoch": 1_800_000_800
+            }),
+        ).unwrap();
+
+        assert_eq!(event.event_type_name(), "AGENT_OUTCOME_EVIDENCE_RECORDED");
+        assert_eq!(event.aggregate_type, "agent_outcome_evidence");
+        assert_eq!(event.idempotency_key, "outbox:agent-outcome:123");
+        assert_eq!(event.payload["decision_journal_id"], 123);
+        assert_eq!(event.payload["evidence_ref"], "analytics:run-123");
+        assert_eq!(event.payload["governor_decision"], "APPROVE");
     }
 }
 

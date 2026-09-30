@@ -252,7 +252,7 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **TTFC evidence:** the growth ledger stores the first content creation timestamp and derives trend-to-content elapsed seconds so growth speed can be measured instead of inferred.
 - **LIVE attention controller:** each accepted LIVE event is scored for purchase intent, objections, gifts, PK moments, engagement, explicit high-value viewer evidence and safety escalation; per-session response caps/cooldowns are persisted, with human escalation for safety signals.
 - **LIVE learning integration:** safety escalations and high-priority responses persist a bounded policy-learning record transactionally; the record carries event/session evidence identifiers and does not recognize gifts or engagement as revenue.
-- **Typed outbox events:** trend/opportunity/content events plus verified commission, affiliate conversion reconciliation, affiliate payout settlement, Agent decisions, publish approvals/completions, and ledger commits now use canonical typed envelopes for durable downstream hand-off without free-form agent chat.
+- **Typed outbox events:** trend/opportunity/content events plus verified commission, affiliate conversion reconciliation, affiliate payout settlement, Agent decisions, agent outcome evidence, publish approvals/completions, and ledger commits now use canonical typed envelopes for durable downstream hand-off without free-form agent chat.
 - **Current boundary:** trend discovery still requires an external/verified trend signal source, and content analytics/publishing evidence must come from separately authenticated platform boundaries.
 
 - **Affiliate payout event:** verified payout settlement emits `AFFILIATE_PAYOUT_SETTLED` with deterministic correlation, ledger transaction ID, currency, amount and remaining recognized receivable evidence; no payout is recognized beyond the existing ledger gate.
@@ -266,6 +266,8 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Publish approval event:** `PUBLISH_INTENT_APPROVED` carries intent identity, approver and approval expiry while intentionally excluding the approval token itself.
 
 - **Ledger commit event:** `LEDGER_TRANSACTION_COMMITTED` carries transaction identity, description and entry count using the existing ledger idempotency key; it describes an already-validated balanced transaction and does not add accounting side effects.
+
+- **Agent outcome evidence event:** `AGENT_OUTCOME_EVIDENCE_RECORDED` carries company-scoped decision-journal identity, agent/action, Governor-approved execution context, evidence reference, and observed revenue/contribution-margin deltas under the existing idempotency key. It is descriptive evidence, not causal attribution.
 
 ## Agent outcome evaluation
 
