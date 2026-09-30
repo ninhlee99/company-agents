@@ -99,6 +99,7 @@ It should not be described as an AI company that can independently operate every
 - **Tenant-bound principals:** named RBAC principals must declare `company_id`; a principal bound to another company cannot authenticate against this runtime. This closes the identity→company boundary for the named-principal path without claiming full SaaS tenancy.
 
 - **Named control-plane principals:** `CONTROL_PLANE_PRINCIPALS_JSON` replaces the shared-token role map when configured. Principal IDs are audited; raw credentials are never written to audit metadata. `read-only` is limited to GET/HEAD; `operator` and `admin` cover current mutating control-plane APIs.
+- **Sensitive action RBAC:** emergency-stop/control changes, autonomous-capital budget consumption, policy snapshot activation, procurement approval, payment-execution approval and TikTok OAuth revocation are `admin`-only. Operators retain routine operational writes; authorization denials are audited as `CONTROL_PLANE_AUTHZ`.
 
 - **Unified event contract:** `CompanyEventType` provides stable names for the P1 event set; `CompanyEventEnvelope` carries company, schema, aggregate, correlation/causation, idempotency and payload metadata. Store persistence keeps the existing durable outbox path.
 - **Content producer migration:** `RENDERED → PUBLISHED` emits canonical `CONTENT_PUBLISHED` transactionally with the content status/evidence update; repeated publication is prevented by the content state machine.
