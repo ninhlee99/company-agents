@@ -147,6 +147,13 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Publishing integration:** when `TIKTOK_OAUTH_ENABLED=true`, Content Posting API calls fetch the current token from the durable store and refresh it when near expiry; the legacy env-token path remains available when OAuth mode is disabled.
 - **External prerequisites:** the TikTok developer app still needs the requested scopes, consent and an exact registered HTTPS redirect URI; Content Posting API production/public posting remains subject to TikTok's app approval/audit rules.
 
+## Contribution Margin Accounting
+
+- **Authoritative CM:** contribution margin remains `revenue - variable_cost`; category fields are explanatory and are not summed into CM again.
+- **Separate categories:** platform fees, affiliate commissions, refunds/cancellations, production/AI, ad spend, fixed operating costs, and cash are exposed separately from revenue.
+- **Classification boundary:** category values use explicit ledger account codes first and conservative account-name matching second; unmatched expenses remain in the unclassified bucket.
+- **Cash boundary:** cash is read from the company-scoped `CASH` asset account and is never treated as revenue or contribution margin.
+
 ## Revenue Period Truth
 
 - **Period semantics:** `RevenuePeriodMetrics` keeps month-to-date revenue, trailing-30-day revenue, lifetime revenue, a calendar-day monthly forecast, and a trailing-30-day monthly run-rate as separate values.
