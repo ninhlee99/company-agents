@@ -1199,16 +1199,6 @@ async fn autonomy_controls_get_api(
         "budgets": budgets
     })))
 }
-    state
-        .store
-        .autonomy_controls(&state.company_id)
-        .await
-        .map(Json)
-        .map_err(|error| {
-            tracing::warn!(%error, "autonomy controls unavailable");
-            StatusCode::SERVICE_UNAVAILABLE
-        })
-}
 
 async fn autonomy_controls_set_api(
     State(state): State<AppState>,
