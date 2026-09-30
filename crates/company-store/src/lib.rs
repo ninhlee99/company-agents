@@ -1385,6 +1385,15 @@ impl CompanyStore {
             )
             .await?;
 
+            let outbox_key = format!("outbox:learning:{}", learning.entry_key);
+            let payload = serde_json::json!({
+                "entry_key": &learning.entry_key,
+                "source_type": &learning.source_type,
+                "source_id": &learning.source_id,
+                "kind": learning.kind,
+                "decision": learning.decision,
+                "confidence_bps": learning.confidence_bps
+            });
             tx.execute(
                 "INSERT INTO outbox_events
                  (company_id,event_type,aggregate_id,idempotency_key,payload)
@@ -1393,15 +1402,8 @@ impl CompanyStore {
                 &[
                     &company,
                     &learning_id,
-                    &format!("outbox:learning:{}", learning.entry_key),
-                    &serde_json::json!({
-                        "entry_key": learning.entry_key,
-                        "source_type": learning.source_type,
-                        "source_id": learning.source_id,
-                        "kind": learning.kind,
-                        "decision": learning.decision,
-                        "confidence_bps": learning.confidence_bps
-                    }),
+                    &outbox_key,
+                    &payload,
                 ],
             )
             .await?;
