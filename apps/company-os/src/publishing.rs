@@ -110,6 +110,20 @@ impl TikTokAccessTokenProvider for StoreTikTokAccessTokenProvider {
                 Ok(access_token)
             }
             Err(error) => {
+                // Another Company OS instance may have refreshed the rotating
+                // refresh token successfully between our read and this error.
+                if let Ok(Some(current)) = self
+                    .store
+                    .tiktok_oauth_token_material(&self.company_id, &self.cipher)
+                    .await
+                {
+                    if current.access_token_expires_at_epoch > now + 600
+                        && current.refresh_token_expires_at_epoch > now
+                    {
+                        return Ok(current.access_token);
+                    }
+                }
+
                 let message = error.to_string();
                 let _ = self
                     .store
