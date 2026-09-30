@@ -205,6 +205,9 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 
 ## Integration readiness
 
+- **Trace context:** control-plane spans now carry a normalized 32-hex trace ID from a valid W3C `traceparent`, or a deterministic SHA-256-derived fallback from `x-request-id`; successful protected responses return `x-request-id` and `x-trace-id`. No trace ID/request ID labels are added to Prometheus metrics.
+
+
 - **Creator-product matching:** `POST /api/growth/creator-product-matches` accepts only caller-supplied company-scoped creator/product evidence. Results are deterministic fit/economic signals; only specialty/category-aligned, fresh and in-stock products are considered, and no external marketplace connectivity or commercial success is implied.
 
 
