@@ -1309,11 +1309,12 @@ async fn typed_company_event_is_idempotent_in_outbox() {
 
     let client = store.client.lock().await;
     let row = client.query_one(
-        "SELECT event_type, schema_version FROM outbox_events WHERE company_id=$1 AND idempotency_key=$2",
+        "SELECT event_type, schema_version, payload->>'event_type' FROM outbox_events WHERE company_id=$1 AND idempotency_key=$2",
         &[&company_id.to_string(), &event.idempotency_key],
     ).await.unwrap();
     assert_eq!(row.get::<_, String>(0), "ORDER_CREATED");
     assert_eq!(row.get::<_, i32>(1), 1);
+    assert_eq!(row.get::<_, String>(2), "ORDER_CREATED");
 }
 
 }
