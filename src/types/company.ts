@@ -110,6 +110,8 @@ export interface CustomAgent {
   tasksCompleted: number;
   status: 'Active' | 'Paused';
   hiredAtCycle: number;
+  avatarUrl?: string;
+  avatar?: string;
   skillLevel?: number; // e.g. 1, 2, 3
   taskMultiplier?: number; // e.g. 1.0, 1.25, 1.5
   trainedSkills?: string[];
@@ -264,6 +266,7 @@ export interface CandidateProfile {
   id: string;
   name: string;
   avatar: string;
+  avatarUrl?: string;
   role: string;
   department: 'Leadership' | 'Growth' | 'Ops' | 'Sales' | 'Tech';
   level: 'Senior' | 'Lead' | 'Principal Expert' | 'Director';

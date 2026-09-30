@@ -200,30 +200,34 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
       {tab === 'roster' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
           {filteredAgents.map((agent) => (
-            <div key={agent.id} className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col justify-between">
+            <div key={agent.id} className="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 flex flex-col justify-between hover:border-slate-700 transition-colors">
               <div>
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <div>
-                    <h4 className="text-sm font-semibold text-white">{agent.name}</h4>
-                    <p className="text-xs text-blue-400">{agent.role}</p>
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="relative">
+                    <img
+                      src={agent.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80'}
+                      alt={agent.name}
+                      className="w-11 h-11 rounded-full object-cover border border-slate-700 bg-slate-800 shrink-0"
+                    />
+                    <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-slate-900 ${
+                      agent.status === 'Active' ? 'bg-emerald-500' : 'bg-slate-500'
+                    }`}></span>
                   </div>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
-                    agent.status === 'Active'
-                      ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/40'
-                      : 'bg-slate-800 text-slate-400 border border-slate-700'
-                  }`}>
-                    {agent.status === 'Active' ? 'Đang hoạt động' : 'Tạm dừng'}
-                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-1">
+                      <h4 className="text-xs font-bold text-white truncate">{agent.name}</h4>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono font-semibold shrink-0">
+                        {agent.taskMultiplier ? `${agent.taskMultiplier}x` : '1.0x'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 truncate">{agent.role}</p>
+                  </div>
                 </div>
-
-                <p className="text-xs text-slate-400 line-clamp-2 mb-3">
-                  {agent.description || 'Chuyên viên xử lý công việc tự động.'}
-                </p>
 
                 {agent.trainedSkills && agent.trainedSkills.length > 0 && (
                   <div className="flex flex-wrap gap-1 mb-3">
                     {agent.trainedSkills.slice(0, 3).map((skill, idx) => (
-                      <span key={idx} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                      <span key={idx} className="text-[10px] px-2 py-0.5 rounded-md bg-slate-950 text-slate-400 border border-slate-800/80">
                         {skill}
                       </span>
                     ))}
@@ -231,24 +235,24 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
                 )}
               </div>
 
-              <div className="pt-3 border-t border-slate-800 flex items-center justify-between text-xs">
+              <div className="pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-xs">
                 <div>
-                  <span className="text-[11px] text-slate-500 block">Lương tháng</span>
-                  <span className="font-mono font-semibold text-white">{formatMoney(agent.salary_minor)}</span>
+                  <span className="text-[10px] text-slate-500 block">Lương / Chu kỳ</span>
+                  <span className="font-mono font-bold text-white text-xs">{formatMoney(agent.salary_minor)}</span>
                 </div>
 
                 <div className="flex items-center gap-1.5">
                   {onOpenTraining && (
                     <button
                       onClick={() => onOpenTraining(agent.id)}
-                      className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-[11px] transition-colors"
+                      className="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-[11px] transition-colors border border-slate-700/60"
                     >
                       Đào tạo
                     </button>
                   )}
                   <button
                     onClick={() => onToggleStatus?.(agent.id)}
-                    className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+                    className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors border border-slate-700/60"
                     title={agent.status === 'Active' ? 'Tạm dừng' : 'Kích hoạt'}
                   >
                     <Power className="w-3.5 h-3.5" />
@@ -263,59 +267,61 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
       {/* TAB 2: TALENT MARKET VIEW */}
       {tab === 'market' && (
         <div className="space-y-4">
-          <div className="p-4 rounded-xl bg-slate-900/40 border border-slate-800 flex items-center justify-between">
+          <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-white">Thị Trường Ứng Viên Cấp Cao</h3>
-              <p className="text-xs text-slate-400">Sàng lọc chuyên gia Senior Expert có năng lực chuyên môn và chỉ số ROI rõ ràng</p>
+              <h3 className="text-xs font-semibold text-white">Sàn Nhân Sự Chuyên Gia Senior</h3>
+              <p className="text-[11px] text-slate-400">Ứng viên cấp cao sẵn sàng tiếp nhận công việc</p>
             </div>
-            <span className="text-xs font-mono text-emerald-400 bg-emerald-950/60 border border-emerald-800/40 px-2.5 py-1 rounded-lg">
-              Kho bạc: {formatMoney(snapshot.cash_minor)}
+            <span className="text-xs font-mono font-semibold text-emerald-400 bg-emerald-950/60 border border-emerald-800/40 px-2.5 py-1 rounded-lg">
+              Quỹ: {formatMoney(snapshot.cash_minor)}
             </span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
             {candidates.map((cand) => (
-              <div key={cand.id} className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col justify-between">
+              <div key={cand.id} className="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 flex flex-col justify-between hover:border-slate-700 transition-colors">
                 <div>
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <h4 className="text-sm font-semibold text-white">{cand.name}</h4>
-                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-950/60 text-blue-400 border border-blue-800/40 font-medium">
+                  <div className="flex items-center gap-3 mb-2.5">
+                    <img
+                      src={cand.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80'}
+                      alt={cand.name}
+                      className="w-11 h-11 rounded-full object-cover border border-slate-700 bg-slate-800 shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1">
+                        <h4 className="text-xs font-bold text-white truncate">{cand.name}</h4>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-950/60 text-blue-400 border border-blue-800/40 font-semibold shrink-0">
                           {cand.level}
                         </span>
                       </div>
-                      <p className="text-xs text-blue-400 font-medium">{cand.role}</p>
+                      <p className="text-[11px] text-blue-400 truncate">{cand.role}</p>
                     </div>
-                    <span className="text-xs font-mono font-semibold text-emerald-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                      {formatMoney(cand.expectedSalaryMinor)}/th
-                    </span>
                   </div>
 
-                  <p className="text-xs text-slate-400 mb-3">{cand.bio}</p>
-
-                  <div className="space-y-1.5 mb-3 bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
-                    <span className="text-[11px] font-semibold text-slate-300 block">Kỹ năng chuyên môn:</span>
-                    {cand.skills.map((s, idx) => (
-                      <div key={idx} className="flex items-center justify-between text-[11px] text-slate-400">
-                        <span>{s.name}</span>
-                        <span className="font-mono text-slate-300 font-semibold">{s.score}/100</span>
+                  <div className="grid grid-cols-2 gap-1.5 mb-3 bg-slate-950/60 p-2 rounded-lg border border-slate-800/80">
+                    {cand.skills.slice(0, 4).map((s, idx) => (
+                      <div key={idx} className="flex items-center justify-between text-[10px] text-slate-400 px-1">
+                        <span className="truncate">{s.name}</span>
+                        <span className="font-mono text-slate-200 font-semibold ml-1">{s.score}</span>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
-                  <span className="text-xs text-emerald-400 font-medium flex items-center gap-1">
-                    <TrendingUp className="w-3.5 h-3.5" /> Dự phóng ROI: +{(cand.roiProjectionBps / 100).toFixed(1)}%
-                  </span>
+                <div className="pt-2.5 border-t border-slate-800/80 flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">Lương đề xuất</span>
+                    <span className="text-xs font-mono font-bold text-emerald-400">
+                      {formatMoney(cand.expectedSalaryMinor)}/th
+                    </span>
+                  </div>
 
                   <button
                     onClick={() => handleStartInterview(cand)}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs transition-colors"
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-medium text-xs border border-slate-700 transition-colors"
                   >
-                    <span>Phỏng Vấn AI 3 Vòng</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
+                    <span>Phỏng Vấn AI</span>
+                    <ArrowRight className="w-3 h-3 text-slate-300" />
                   </button>
                 </div>
               </div>

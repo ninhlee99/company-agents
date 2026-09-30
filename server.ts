@@ -158,6 +158,7 @@ export interface CandidateProfile {
   id: string;
   name: string;
   avatar: string;
+  avatarUrl?: string;
   role: string;
   department: 'Leadership' | 'Growth' | 'Ops' | 'Sales' | 'Tech';
   level: 'Senior' | 'Lead' | 'Principal Expert' | 'Director';
@@ -334,7 +335,7 @@ const state: {
     snapshotAfter: CompanySnapshot;
   }[];
   employees: { id: string; role: string; name: string; salary_minor: number; hiredAtCycle: number }[];
-  customAgents: { id: string; name: string; role: string; department: string; description: string; salary_minor: number; tasksCompleted: number; status: 'Active' | 'Paused'; hiredAtCycle: number; skillLevel?: number; taskMultiplier?: number; trainedSkills?: string[]; trainingCount?: number }[];
+  customAgents: { id: string; name: string; role: string; department: string; description: string; salary_minor: number; tasksCompleted: number; status: 'Active' | 'Paused'; hiredAtCycle: number; avatarUrl?: string; avatar?: string; skillLevel?: number; taskMultiplier?: number; trainedSkills?: string[]; trainingCount?: number }[];
   activeExperiments: { id: string; name: string; budget_minor: number; startCycle: number; status: string; roi_bps: number }[];
   auditReports: {
     id: string;
@@ -465,18 +466,18 @@ const state: {
     { id: 'emp-2', role: 'Affiliate Deal Specialist', name: 'Sarah T.', salary_minor: 240000, hiredAtCycle: 5 },
   ],
   customAgents: [
-    { id: 'agent-gov', name: 'Governor AI', role: 'Hiến Pháp & Quản Trị Fiduciary', department: 'Leadership', description: 'Phủ quyết chi tiêu nguy hiểm, bảo toàn tỷ lệ thặng dư kho bạc & chống phá sản tuyệt đối', salary_minor: 70000, tasksCompleted: 142, status: 'Active', hiredAtCycle: 1, skillLevel: 5, taskMultiplier: 3.0, trainedSkills: ['Fiduciary Solvency Law', 'Anti-Bankruptcy Safeguards', 'Double-Entry Reconciliation', 'Executive Veto Oversight'], trainingCount: 4 },
-    { id: 'agent-ceo', name: 'CEO AI', role: 'Tổng Giám Đốc Chiến Lược', department: 'Leadership', description: 'Chiến lược phân bổ nguồn vốn toàn cầu, tăng trưởng thị trường & mở rộng syndicate', salary_minor: 95000, tasksCompleted: 128, status: 'Active', hiredAtCycle: 1, skillLevel: 5, taskMultiplier: 3.2, trainedSkills: ['Global Capital Allocation', 'High-Yield Syndicate Growth', 'Strategic Market Penetration', 'Executive Decision Matrix'], trainingCount: 5 },
-    { id: 'agent-cfo', name: 'CFO AI', role: 'Giám Đốc Tài Chính & Kho Bạc', department: 'Leadership', description: 'Kiểm toán kho bạc, tối ưu hóa dòng tiền thặng dư & cắt giảm chi phí lãng phí', salary_minor: 90000, tasksCompleted: 98, status: 'Active', hiredAtCycle: 1, skillLevel: 5, taskMultiplier: 3.0, trainedSkills: ['Zero-Leak Treasury Protocol', 'Double-Entry Automated Ledger', 'P&L Optimization', 'Cash Flow Staking'], trainingCount: 4 },
-    { id: 'agent-coo', name: 'COO AI', role: 'Giám Đốc Vận Hành & SLA', department: 'Ops', description: 'Điều phối hàng đợi tác vụ, cân bằng tải 4 khâu & cam kết tiến độ bàn giao SLA 100%', salary_minor: 80000, tasksCompleted: 185, status: 'Active', hiredAtCycle: 1, skillLevel: 5, taskMultiplier: 3.1, trainedSkills: ['Automated Pipeline Orchestration', 'Capacity & Queue Stabilization', 'Zero-Bottleneck Handoffs', 'SLA Quality Enforcement'], trainingCount: 4 },
-    { id: 'agent-growth', name: 'Growth Lead AI', role: 'Kinh Doanh & EPC Radar', department: 'Growth', description: 'Quét sàn affiliate toàn cầu (TikTok Shop, Shopee, Amazon), săn sản phẩm EPC $1.50+ & ROI > 30%', salary_minor: 75000, tasksCompleted: 210, status: 'Active', hiredAtCycle: 1, skillLevel: 5, taskMultiplier: 3.2, trainedSkills: ['Multi-Channel EPC Radar', 'Affiliate Commission Arbitrage', 'High-CTR Campaign Architecture', 'Niche Keyword Saturation'], trainingCount: 5 },
-    { id: 'agent-content', name: 'Content Lead AI', role: 'Sáng Tạo Kịch Bản Viral', department: 'Growth', description: 'Soạn kịch bản short-form Neuro-Copywriting với hook 3 giây giữ chân >75% người xem', salary_minor: 60000, tasksCompleted: 260, status: 'Active', hiredAtCycle: 1, skillLevel: 5, taskMultiplier: 3.2, trainedSkills: ['Neuro-Copywriting & 3s Hooks', 'Direct-Response Storytelling', 'Algorithmic Retention Pacing', 'High-Conversion CTAs'], trainingCount: 5 },
-    { id: 'agent-recruiter', name: 'Recruiter AI', role: 'Tuyển Dụng & Đào Tạo', department: 'Ops', description: 'Tự động săn đầu người chuyên gia Senior và tổ chức lộ trình đào tạo nâng bậc kỹ năng AI', salary_minor: 65000, tasksCompleted: 75, status: 'Active', hiredAtCycle: 1, skillLevel: 5, taskMultiplier: 2.8, trainedSkills: ['Predictive Autonomous Headhunting', 'Skill-Tree Curriculum Engine', 'Candidate ROI Benchmarking', 'Instant Talent Onboarding'], trainingCount: 4 },
-    { id: 'agent-analyst', name: 'Analyst AI', role: 'Phân Tích Dữ Liệu & ROI', department: 'Ops', description: 'Đối soát số liệu kế toán, lập mô hình dự báo doanh thu & phát hiện ngách thị trường tiềm năng', salary_minor: 50000, tasksCompleted: 165, status: 'Active', hiredAtCycle: 1, skillLevel: 5, taskMultiplier: 2.9, trainedSkills: ['Real-Time Attribution Modeling', 'EPC Variance Analysis', 'Machine Learning Profit Forecast', 'Fiduciary Variance Audit'], trainingCount: 4 },
-    { id: 'agent-experiment', name: 'Experimenter AI', role: 'Nghiên Cứu A/B Test', department: 'Growth', description: 'Thử nghiệm đa biến thể kịch bản, âm thanh và góc quay hình ảnh để tối ưu tỷ lệ chuyển đổi', salary_minor: 55000, tasksCompleted: 110, status: 'Active', hiredAtCycle: 1, skillLevel: 5, taskMultiplier: 2.8, trainedSkills: ['Multi-Armed Bandit Testing', 'Dynamic Visual Hook Variants', 'Conversion Rate Optimization', 'Statistical Significance Engine'], trainingCount: 4 },
-    { id: 'agent-livestream', name: 'Mia Thorne AI', role: 'VTuber & Tâm Sự Kể Chuyện 24/7', department: 'Growth', description: 'AI Virtual Host phát trực tiếp 24/7, kể chuyện trinh thám/tâm sự, giải đáp Q&A giọng nói siêu thực và thu hút donate', salary_minor: 75000, tasksCompleted: 340, status: 'Active', hiredAtCycle: 1, skillLevel: 5, taskMultiplier: 3.2, trainedSkills: ['24/7 Storytelling & Mystery Podcast', 'Empathetic Voice Q&A Interaction', 'Live Donation & Super Chat Engagement', 'Audience Retention & Fan Bonding'], trainingCount: 5 },
-    { id: 'agent-gamer', name: 'Ren Kuro AI', role: 'Streamer Gaming & Reaction Meme', department: 'Growth', description: 'AI Gamer phát sóng chơi game kinh dị/Minecraft/Valorant, react meme hài hước, kéo tương tác triệu view cho kênh', salary_minor: 70000, tasksCompleted: 280, status: 'Active', hiredAtCycle: 1, skillLevel: 5, taskMultiplier: 3.1, trainedSkills: ['Real-Time AI Gameplay Commentary', 'Meme Reaction & Viral Humor', 'Interactive Viewer Minigames', 'Esports & Gaming Meta Analysis'], trainingCount: 5 },
-    { id: 'agent-streamops', name: 'Kenji Sato AI', role: 'Đạo Diễn Live & Xây/Bán Kênh', department: 'Ops', description: 'Quản trị mạng lưới kênh, tối ưu thuật toán viral kéo followers, định giá thị trường và môi giới chuyển nhượng kênh', salary_minor: 70000, tasksCompleted: 195, status: 'Active', hiredAtCycle: 1, skillLevel: 5, taskMultiplier: 3.0, trainedSkills: ['Multi-Platform Growth Hacking', 'Channel Valuation & Flipping Brokerage', '24/7 Virtual Studio RTMP Engine', 'Algorithmic Traffic Arbitrage'], trainingCount: 4 },
+    { id: 'agent-gov', name: 'Governor AI', role: 'Hiến Pháp & Quản Trị Fiduciary', department: 'Leadership', description: 'Phủ quyết chi tiêu nguy hiểm, bảo toàn tỷ lệ thặng dư kho bạc & chống phá sản tuyệt đối', salary_minor: 70000, tasksCompleted: 142, status: 'Active', hiredAtCycle: 1, avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=200&auto=format&fit=crop&q=80', skillLevel: 5, taskMultiplier: 3.0, trainedSkills: ['Fiduciary Solvency Law', 'Anti-Bankruptcy Safeguards', 'Double-Entry Reconciliation', 'Executive Veto Oversight'], trainingCount: 4 },
+    { id: 'agent-ceo', name: 'CEO AI', role: 'Tổng Giám Đốc Chiến Lược', department: 'Leadership', description: 'Chiến lược phân bổ nguồn vốn toàn cầu, tăng trưởng thị trường & mở rộng syndicate', salary_minor: 95000, tasksCompleted: 128, status: 'Active', hiredAtCycle: 1, avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80', skillLevel: 5, taskMultiplier: 3.2, trainedSkills: ['Global Capital Allocation', 'High-Yield Syndicate Growth', 'Strategic Market Penetration', 'Executive Decision Matrix'], trainingCount: 5 },
+    { id: 'agent-cfo', name: 'CFO AI', role: 'Giám Đốc Tài Chính & Kho Bạc', department: 'Leadership', description: 'Kiểm toán kho bạc, tối ưu hóa dòng tiền thặng dư & cắt giảm chi phí lãng phí', salary_minor: 90000, tasksCompleted: 98, status: 'Active', hiredAtCycle: 1, avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80', skillLevel: 5, taskMultiplier: 3.0, trainedSkills: ['Zero-Leak Treasury Protocol', 'Double-Entry Automated Ledger', 'P&L Optimization', 'Cash Flow Staking'], trainingCount: 4 },
+    { id: 'agent-coo', name: 'COO AI', role: 'Giám Đốc Vận Hành & SLA', department: 'Ops', description: 'Điều phối hàng đợi tác vụ, cân bằng tải 4 khâu & cam kết tiến độ bàn giao SLA 100%', salary_minor: 80000, tasksCompleted: 185, status: 'Active', hiredAtCycle: 1, avatarUrl: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=200&auto=format&fit=crop&q=80', skillLevel: 5, taskMultiplier: 3.1, trainedSkills: ['Automated Pipeline Orchestration', 'Capacity & Queue Stabilization', 'Zero-Bottleneck Handoffs', 'SLA Quality Enforcement'], trainingCount: 4 },
+    { id: 'agent-growth', name: 'Growth Lead AI', role: 'Kinh Doanh & EPC Radar', department: 'Growth', description: 'Quét sàn affiliate toàn cầu (TikTok Shop, Shopee, Amazon), săn sản phẩm EPC $1.50+ & ROI > 30%', salary_minor: 75000, tasksCompleted: 210, status: 'Active', hiredAtCycle: 1, avatarUrl: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=200&auto=format&fit=crop&q=80', skillLevel: 5, taskMultiplier: 3.2, trainedSkills: ['Multi-Channel EPC Radar', 'Affiliate Commission Arbitrage', 'High-CTR Campaign Architecture', 'Niche Keyword Saturation'], trainingCount: 5 },
+    { id: 'agent-content', name: 'Content Lead AI', role: 'Sáng Tạo Kịch Bản Viral', department: 'Growth', description: 'Soạn kịch bản short-form Neuro-Copywriting với hook 3 giây giữ chân >75% người xem', salary_minor: 60000, tasksCompleted: 260, status: 'Active', hiredAtCycle: 1, avatarUrl: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=200&auto=format&fit=crop&q=80', skillLevel: 5, taskMultiplier: 3.2, trainedSkills: ['Neuro-Copywriting & 3s Hooks', 'Direct-Response Storytelling', 'Algorithmic Retention Pacing', 'High-Conversion CTAs'], trainingCount: 5 },
+    { id: 'agent-recruiter', name: 'Recruiter AI', role: 'Tuyển Dụng & Đào Tạo', department: 'Ops', description: 'Tự động săn đầu người chuyên gia Senior và tổ chức lộ trình đào tạo nâng bậc kỹ năng AI', salary_minor: 65000, tasksCompleted: 75, status: 'Active', hiredAtCycle: 1, avatarUrl: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=200&auto=format&fit=crop&q=80', skillLevel: 5, taskMultiplier: 2.8, trainedSkills: ['Predictive Autonomous Headhunting', 'Skill-Tree Curriculum Engine', 'Candidate ROI Benchmarking', 'Instant Talent Onboarding'], trainingCount: 4 },
+    { id: 'agent-analyst', name: 'Analyst AI', role: 'Phân Tích Dữ Liệu & ROI', department: 'Ops', description: 'Đối soát số liệu kế toán, lập mô hình dự báo doanh thu & phát hiện ngách thị trường tiềm năng', salary_minor: 50000, tasksCompleted: 165, status: 'Active', hiredAtCycle: 1, avatarUrl: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=200&auto=format&fit=crop&q=80', skillLevel: 5, taskMultiplier: 2.9, trainedSkills: ['Real-Time Attribution Modeling', 'EPC Variance Analysis', 'Machine Learning Profit Forecast', 'Fiduciary Variance Audit'], trainingCount: 4 },
+    { id: 'agent-experiment', name: 'Experimenter AI', role: 'Nghiên Cứu A/B Test', department: 'Growth', description: 'Thử nghiệm đa biến thể kịch bản, âm thanh và góc quay hình ảnh để tối ưu tỷ lệ chuyển đổi', salary_minor: 55000, tasksCompleted: 110, status: 'Active', hiredAtCycle: 1, avatarUrl: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=200&auto=format&fit=crop&q=80', skillLevel: 5, taskMultiplier: 2.8, trainedSkills: ['Multi-Armed Bandit Testing', 'Dynamic Visual Hook Variants', 'Conversion Rate Optimization', 'Statistical Significance Engine'], trainingCount: 4 },
+    { id: 'agent-livestream', name: 'Mia Thorne AI', role: 'VTuber & Tâm Sự Kể Chuyện 24/7', department: 'Growth', description: 'AI Virtual Host phát trực tiếp 24/7, kể chuyện trinh thám/tâm sự, giải đáp Q&A giọng nói siêu thực và thu hút donate', salary_minor: 75000, tasksCompleted: 340, status: 'Active', hiredAtCycle: 1, avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80', skillLevel: 5, taskMultiplier: 3.2, trainedSkills: ['24/7 Storytelling & Mystery Podcast', 'Empathetic Voice Q&A Interaction', 'Live Donation & Super Chat Engagement', 'Audience Retention & Fan Bonding'], trainingCount: 5 },
+    { id: 'agent-gamer', name: 'Ren Kuro AI', role: 'Streamer Gaming & Reaction Meme', department: 'Growth', description: 'AI Gamer phát sóng chơi game kinh dị/Minecraft/Valorant, react meme hài hước, kéo tương tác triệu view cho kênh', salary_minor: 70000, tasksCompleted: 280, status: 'Active', hiredAtCycle: 1, avatarUrl: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=400&auto=format&fit=crop&q=80', skillLevel: 5, taskMultiplier: 3.1, trainedSkills: ['Real-Time AI Gameplay Commentary', 'Meme Reaction & Viral Humor', 'Interactive Viewer Minigames', 'Esports & Gaming Meta Analysis'], trainingCount: 5 },
+    { id: 'agent-streamops', name: 'Kenji Sato AI', role: 'Đạo Diễn Live & Xây/Bán Kênh', department: 'Ops', description: 'Quản trị mạng lưới kênh, tối ưu thuật toán viral kéo followers, định giá thị trường và môi giới chuyển nhượng kênh', salary_minor: 70000, tasksCompleted: 195, status: 'Active', hiredAtCycle: 1, avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80', skillLevel: 5, taskMultiplier: 3.0, trainedSkills: ['Multi-Platform Growth Hacking', 'Channel Valuation & Flipping Brokerage', '24/7 Virtual Studio RTMP Engine', 'Algorithmic Traffic Arbitrage'], trainingCount: 4 },
   ],
   activeExperiments: [
     { id: 'exp-1', name: 'Short-Form Hook Multi-Variant Video Engine', budget_minor: 150000, startCycle: 11, status: 'In Progress', roi_bps: 1420 },
@@ -646,6 +647,7 @@ const state: {
       id: 'cand-1',
       name: 'Elena Vance',
       avatar: '✍️',
+      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
       role: 'Senior Viral Copywriter',
       department: 'Growth',
       level: 'Senior',
@@ -671,6 +673,7 @@ const state: {
       id: 'cand-2',
       name: 'Marcus Chen',
       avatar: '🎵',
+      avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80',
       role: 'AI Music Producer & Audio Engineer',
       department: 'Growth',
       level: 'Lead',
@@ -696,6 +699,7 @@ const state: {
       id: 'cand-3',
       name: 'Liam Rossi',
       avatar: '🎬',
+      avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&auto=format&fit=crop&q=80',
       role: 'Motion Video Director & Editor',
       department: 'Growth',
       level: 'Principal Expert',
@@ -721,6 +725,7 @@ const state: {
       id: 'cand-4',
       name: 'Chloe Nguyen',
       avatar: '📸',
+      avatarUrl: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=200&auto=format&fit=crop&q=80',
       role: 'Prompt Photographer & Visual Director',
       department: 'Growth',
       level: 'Senior',
@@ -746,6 +751,7 @@ const state: {
       id: 'cand-5',
       name: 'Ryan Koo',
       avatar: '📈',
+      avatarUrl: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=200&auto=format&fit=crop&q=80',
       role: 'Affiliate & Performance Growth Lead',
       department: 'Growth',
       level: 'Lead',
@@ -770,6 +776,7 @@ const state: {
       id: 'cand-6',
       name: 'Sophia Alvarez',
       avatar: '⚖️',
+      avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=200&auto=format&fit=crop&q=80',
       role: 'Legal & AI Compliance Officer',
       department: 'Leadership',
       level: 'Director',

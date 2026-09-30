@@ -39,22 +39,17 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="w-9 h-9 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200 shadow-sm">
             <Building2 className="w-5 h-5 text-blue-400" />
           </div>
-          <div>
             <div className="flex items-center gap-2">
               <span className="font-bold text-white text-base tracking-tight">NEXUS CORP</span>
               <span className="text-slate-500 font-mono text-xs hidden lg:inline">• AI Enterprise</span>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-950/60 text-blue-400 border border-blue-800/50">
-                👔 Chủ Tịch / Founder
+                👔 Founder / Điều Hành
               </span>
               <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                Tự Động 24/7
+                Auto 24/7
               </span>
             </div>
-            <p className="text-[11px] text-slate-400 hidden sm:block">
-              Tập đoàn AI tự trị: Thống kê tài chính, đội ngũ nhân sự, quy trình & hợp đồng kinh doanh
-            </p>
-          </div>
         </div>
 
         {/* Right Executive Financial Metrics & Quick Action */}
