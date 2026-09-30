@@ -16,6 +16,14 @@ pub enum BudgetKind {
 }
 
 impl BudgetKind {
+    pub const ALL: [Self; 5] = [
+        Self::ContentPublish,
+        Self::AdsSpend,
+        Self::LiveMinutes,
+        Self::OutboundMessages,
+        Self::AutonomousCapital,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::ContentPublish => "CONTENT_PUBLISH",
@@ -145,6 +153,15 @@ impl SafetyControls {
         }
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BudgetStatus {
+    pub kind: BudgetKind,
+    pub period_start_epoch: i64,
+    pub daily_limit: i128,
+    pub used: i128,
+    pub remaining: i128,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
