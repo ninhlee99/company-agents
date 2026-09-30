@@ -94,6 +94,25 @@ docker compose restart company-os
 wait_ready
 assert_authenticated_request
 
+assert_database_fault_is_visible() {
+  docker compose stop postgres >/dev/null
+  sleep 4
+
+  local ready_code
+  ready_code="$(curl -sS -o /tmp/company-agents-db-down-ready -w '%{http_code}' "http://127.0.0.1:8080/readyz" || true)"
+  [[ "$ready_code" == "503" ]]
+
+  local api_code
+  api_code="$(curl -sS -o /tmp/company-agents-db-down-api -w '%{http_code}'     -H "Authorization: Bearer $CONTROL_PLANE_TOKEN"     -H "X-Request-Id: db-down-smoke"     "http://127.0.0.1:8080/api/integrations/readiness" || true)"
+  [[ "$api_code" != "200" ]]
+
+  docker compose start postgres >/dev/null
+  wait_ready
+  assert_authenticated_request
+}
+
+assert_database_fault_is_visible
+
 docker compose restart postgres
 wait_ready
 assert_authenticated_request
