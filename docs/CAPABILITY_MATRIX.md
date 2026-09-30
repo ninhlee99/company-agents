@@ -175,6 +175,7 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Provider recommendation:** Fast favors configured local/mock providers; Deep on Small hardware favors configured remote API providers.
 - **Safe rollout:** `MODEL_ROUTER_MODE=shadow` is advisory telemetry only. The existing provider/fallback order remains authoritative until benchmark and acceptance evidence justify active routing.
 - **Benchmark harness:** `cargo run -p agent-runtime --bin model-benchmark` runs the Fast/Standard/Deep matrix against providers named in `LLM_BENCHMARK_PROVIDERS` (default `mock`) and outputs machine-readable observations. Latency/format evidence is collected without changing routing.
+- **CI smoke gate:** the Rust workflow runs the benchmark against `mock` on every push/PR and uploads the JSON report, proving the benchmark target remains buildable without external credentials.
 - **Current boundary:** the harness does not claim provider quality or cost superiority; active routing requires target-environment evidence for quality, cost, latency and failure behavior.
 
 ## Revenue Intelligence Graph
