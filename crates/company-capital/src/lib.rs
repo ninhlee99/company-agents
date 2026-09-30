@@ -9,6 +9,7 @@ pub struct CapitalCandidate {
     pub candidate_id: Uuid,
     pub unit_id: String,
     pub purpose: String,
+    pub evidence_ref: String,
     pub expected_contribution_minor: i128,
     pub downside_minor: i128,
     pub capital_required_minor: i128,
@@ -61,8 +62,12 @@ pub struct CapitalAllocationPlan {
 }
 
 pub fn validate_candidate(candidate: &CapitalCandidate) -> Result<(), String> {
-    if candidate.unit_id.trim().is_empty() || candidate.purpose.trim().is_empty() {
-        return Err("capital candidate identity and purpose are required".into());
+    if candidate.unit_id.trim().is_empty()
+        || candidate.purpose.trim().is_empty()
+        || candidate.evidence_ref.trim().is_empty()
+        || candidate.evidence_ref.len() > 512
+    {
+        return Err("capital candidate identity, purpose and evidence_ref are required".into());
     }
     if candidate.expected_contribution_minor < 0
         || candidate.downside_minor < 0
@@ -182,7 +187,9 @@ pub fn decide_candidate(
         candidate_id: candidate.candidate_id,
         status: CapitalDecisionStatus::Allocate,
         score_bps: score,
-        allocation_minor: candidate.capital_required_minor.min(candidate.allocation_cap_minor.max(1)),
+        allocation_minor: candidate
+            .capital_required_minor
+            .min(candidate.allocation_cap_minor),
         reason: "candidate passes liquidity, evidence and deterministic return/risk gates".into(),
     })
 }
@@ -297,6 +304,7 @@ mod tests {
             candidate_id: Uuid::from_u128(seed),
             unit_id: format!("unit-{seed}"),
             purpose: "validated growth test".into(),
+            evidence_ref: format!("evidence-{seed}"),
             expected_contribution_minor: expected,
             downside_minor: downside,
             capital_required_minor: 1_000,
@@ -353,6 +361,15 @@ mod tests {
         let a = plan_with_id(id, &policy(), &[candidate(1, 3_000, 200)]).unwrap();
         let b = plan_with_id(id, &policy(), &[candidate(1, 3_000, 200)]).unwrap();
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn zero_allocation_cap_holds_without_spend() {
+        let mut c = candidate(1, 3_000, 200);
+        c.allocation_cap_minor = 0;
+        let decision = decide_candidate(&c, &policy()).unwrap();
+        assert_eq!(decision.status, CapitalDecisionStatus::Hold);
+        assert_eq!(decision.allocation_minor, 0);
     }
 
     #[test]
