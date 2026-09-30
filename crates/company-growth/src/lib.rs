@@ -73,6 +73,75 @@ pub struct AdsDecision {
     pub reason: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct KillGateInput {
+    pub entity_type: String,
+    pub entity_id: String,
+    pub evidence_ref: String,
+    pub spent_minor: i128,
+    pub max_budget_minor: i128,
+    pub elapsed_seconds: u64,
+    pub max_duration_seconds: u64,
+    pub observed_metric_bps: i64,
+    pub kill_metric_bps: i64,
+    pub evidence_count: u32,
+    pub min_evidence_count: u32,
+    pub contribution_margin_minor: i128,
+    pub max_loss_minor: i128,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct KillGateDecision {
+    pub entity_type: String,
+    pub entity_id: String,
+    pub decision: String,
+    pub reason: String,
+    pub evidence_ref: String,
+}
+
+pub fn evaluate_kill_gate(input: &KillGateInput) -> Result<KillGateDecision, String> {
+    require_text("kill.entity_type", &input.entity_type, 64)?;
+    require_text("kill.entity_id", &input.entity_id, MAX_KEY)?;
+    require_text("kill.evidence_ref", &input.evidence_ref, 512)?;
+    if input.spent_minor < 0 || input.max_budget_minor <= 0 || input.max_loss_minor < 0 {
+        return Err("kill gate budget/loss bounds are invalid".into());
+    }
+    if input.elapsed_seconds == 0 || input.max_duration_seconds == 0 {
+        return Err("kill gate duration bounds are invalid".into());
+    }
+    if input.kill_metric_bps < 0
+        || input.kill_metric_bps > 10_000
+        || input.observed_metric_bps < 0
+        || input.observed_metric_bps > 10_000
+    {
+        return Err("kill gate metric bounds are invalid".into());
+    }
+    if input.evidence_count > 10_000 || input.min_evidence_count > 10_000 {
+        return Err("kill gate evidence count is invalid".into());
+    }
+
+    let (decision, reason) = if input.spent_minor >= input.max_budget_minor {
+        ("KILL", "maximum budget has been reached")
+    } else if input.elapsed_seconds >= input.max_duration_seconds {
+        ("KILL", "maximum evaluation duration has been reached")
+    } else if input.contribution_margin_minor.saturating_add(input.max_loss_minor) <= 0 {
+        ("KILL", "observed contribution margin reached the maximum loss boundary")
+    } else if input.evidence_count >= input.min_evidence_count
+        && input.observed_metric_bps <= input.kill_metric_bps
+    {
+        ("KILL", "kill threshold breached with sufficient evidence")
+    } else {
+        ("CONTINUE", "kill thresholds are not breached under the configured evidence gate")
+    };
+
+    Ok(KillGateDecision {
+        entity_type: input.entity_type.clone(),
+        entity_id: input.entity_id.clone(),
+        decision: decision.into(),
+        reason: reason.into(),
+        evidence_ref: input.evidence_ref.clone(),
+    })
+}
 fn validate_non_negative_money(name: &str, value: i128) -> Result<(), String> {
     if value < 0 {
         return Err(format!("{name} must not be negative"));
@@ -1071,6 +1140,55 @@ mod tests {
         assert!(plan.brief.disclosure_required);
     }
 
+    #[test]
+    fn kill_gate_stops_at_budget_or_duration() {
+        let mut input = KillGateInput {
+            entity_type: "campaign".into(), entity_id: "c1".into(), evidence_ref: "e1".into(),
+            spent_minor: 1_000, max_budget_minor: 1_000, elapsed_seconds: 10, max_duration_seconds: 100,
+            observed_metric_bps: 500, kill_metric_bps: 300, evidence_count: 10, min_evidence_count: 3,
+            contribution_margin_minor: 200, max_loss_minor: 500,
+        };
+        assert_eq!(evaluate_kill_gate(&input).unwrap().decision, "KILL");
+        input.spent_minor = 100;
+        input.elapsed_seconds = 100;
+        assert_eq!(evaluate_kill_gate(&input).unwrap().decision, "KILL");
+    }
+
+    #[test]
+    fn kill_gate_needs_evidence_for_metric_kill() {
+        let input = KillGateInput {
+            entity_type: "experiment".into(), entity_id: "x1".into(), evidence_ref: "e2".into(),
+            spent_minor: 100, max_budget_minor: 1_000, elapsed_seconds: 10, max_duration_seconds: 100,
+            observed_metric_bps: 200, kill_metric_bps: 300, evidence_count: 2, min_evidence_count: 3,
+            contribution_margin_minor: 0, max_loss_minor: 500,
+        };
+        assert_eq!(evaluate_kill_gate(&input).unwrap().decision, "CONTINUE");
+    }
+
+    #[test]
+    fn kill_gate_handles_max_loss_without_overflow() {
+        let input = KillGateInput {
+            entity_type: "content".into(), entity_id: "max-loss".into(), evidence_ref: "e4".into(),
+            spent_minor: 100, max_budget_minor: 1_000, elapsed_seconds: 10, max_duration_seconds: 100,
+            observed_metric_bps: 900, kill_metric_bps: 100, evidence_count: 3, min_evidence_count: 3,
+            contribution_margin_minor: -1, max_loss_minor: i128::MAX,
+        };
+        assert_eq!(evaluate_kill_gate(&input).unwrap().decision, "KILL");
+    }
+
+    #[test]
+    fn kill_gate_rejects_out_of_range_metrics() {
+        let mut input = KillGateInput {
+            entity_type: "content".into(), entity_id: "bad-metric".into(), evidence_ref: "e5".into(),
+            spent_minor: 100, max_budget_minor: 1_000, elapsed_seconds: 10, max_duration_seconds: 100,
+            observed_metric_bps: 10_001, kill_metric_bps: 100, evidence_count: 3, min_evidence_count: 3,
+            contribution_margin_minor: 100, max_loss_minor: 500,
+        };
+        assert!(evaluate_kill_gate(&input).is_err());
+        input.observed_metric_bps = 100;
+        input.kill_metric_bps = 10_001;
+        assert!(evaluate_kill_gate(&input).is_err());
+    }
     #[test]
     fn cross_field_budget_is_rejected() {
         let mut value = signal();
