@@ -14,7 +14,7 @@
 - Agent Runtime + Governor and bankruptcy/cash-shock scenarios.
 - Business-unit, portfolio and payroll economics are represented.
 
-**Next acceptance work:** calibrate distributions from real observations and add multi-run statistical evaluation with confidence intervals.
+**Next acceptance work:** calibrate simulator distributions from real observed outcomes and validate sensitivity across target deployment scenarios. Multi-run statistical evaluation with deterministic seed sets and descriptive 95% intervals is implemented.
 
 ## Phase 3 — Agent Harness
 **Status: implemented safety baseline**
