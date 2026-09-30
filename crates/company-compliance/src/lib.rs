@@ -335,6 +335,153 @@ pub fn evaluate(
     ))
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PolicyChangeImpact {
+    pub policy_key: String,
+    pub platform: String,
+    pub jurisdiction: String,
+    pub from_version: String,
+    pub to_version: String,
+    pub changed_rules: Vec<String>,
+    pub tightened_rules: Vec<String>,
+    pub relaxed_rules: Vec<String>,
+    pub affected_workflows: Vec<String>,
+    pub requires_revalidation: bool,
+}
+
+pub fn analyze_policy_change(
+    previous: &PolicySnapshot,
+    current: &PolicySnapshot,
+) -> Result<PolicyChangeImpact, String> {
+    previous.validate()?;
+    current.validate()?;
+    if previous.company_id != current.company_id
+        || previous.policy_key != current.policy_key
+        || previous.platform != current.platform
+        || previous.jurisdiction != current.jurisdiction
+    {
+        return Err("policy change comparison requires the same company/policy surface".into());
+    }
+    if previous.version == current.version {
+        return Err("policy change comparison requires different versions".into());
+    }
+
+    let changed_rules = diff_rule_sets(&previous.rules, &current.rules);
+    let mut tightened_rules = Vec::new();
+    let mut relaxed_rules = Vec::new();
+    let mut affected_workflows = std::collections::BTreeSet::new();
+
+    for rule in &changed_rules {
+        match rule.as_str() {
+            "require_accurate_content" => {
+                if !previous.rules.require_accurate_content && current.rules.require_accurate_content {
+                    tightened_rules.push(rule.clone());
+                } else {
+                    relaxed_rules.push(rule.clone());
+                }
+            }
+            "require_affiliate_disclosure" => {
+                if !previous.rules.require_affiliate_disclosure && current.rules.require_affiliate_disclosure {
+                    tightened_rules.push(rule.clone());
+                } else {
+                    relaxed_rules.push(rule.clone());
+                }
+            }
+            "reject_fake_engagement" => {
+                if !previous.rules.reject_fake_engagement && current.rules.reject_fake_engagement {
+                    tightened_rules.push(rule.clone());
+                } else {
+                    relaxed_rules.push(rule.clone());
+                }
+            }
+            "reject_simulcast" => {
+                if !previous.rules.reject_simulcast && current.rules.reject_simulcast {
+                    tightened_rules.push(rule.clone());
+                } else {
+                    relaxed_rules.push(rule.clone());
+                }
+            }
+            "require_product_eligibility" => {
+                if !previous.rules.require_product_eligibility && current.rules.require_product_eligibility {
+                    tightened_rules.push(rule.clone());
+                } else {
+                    relaxed_rules.push(rule.clone());
+                }
+            }
+            "require_claim_evidence" => {
+                if !previous.rules.require_claim_evidence && current.rules.require_claim_evidence {
+                    tightened_rules.push(rule.clone());
+                } else {
+                    relaxed_rules.push(rule.clone());
+                }
+            }
+            "require_rights_evidence" => {
+                if !previous.rules.require_rights_evidence && current.rules.require_rights_evidence {
+                    tightened_rules.push(rule.clone());
+                } else {
+                    relaxed_rules.push(rule.clone());
+                }
+            }
+            "prohibited_product_categories" => {}
+            _ => {}
+        }
+        for workflow in workflows_for_rule(rule) {
+            affected_workflows.insert((*workflow).to_owned());
+        }
+    }
+
+    if changed_rules.iter().any(|rule| rule == "prohibited_product_categories") {
+        let previous_categories: std::collections::BTreeSet<String> = previous
+            .rules
+            .prohibited_product_categories
+            .iter()
+            .map(|value| value.trim().to_ascii_lowercase())
+            .collect();
+        let current_categories: std::collections::BTreeSet<String> = current
+            .rules
+            .prohibited_product_categories
+            .iter()
+            .map(|value| value.trim().to_ascii_lowercase())
+            .collect();
+        if current_categories.difference(&previous_categories).next().is_some() {
+            tightened_rules.push("prohibited_product_categories".into());
+        }
+        if previous_categories.difference(&current_categories).next().is_some() {
+            relaxed_rules.push("prohibited_product_categories".into());
+        }
+        for workflow in workflows_for_rule("prohibited_product_categories") {
+            affected_workflows.insert((*workflow).to_owned());
+        }
+    }
+
+    Ok(PolicyChangeImpact {
+        policy_key: current.policy_key.clone(),
+        platform: current.platform.clone(),
+        jurisdiction: current.jurisdiction.clone(),
+        from_version: previous.version.clone(),
+        to_version: current.version.clone(),
+        changed_rules,
+        tightened_rules,
+        relaxed_rules,
+        affected_workflows: affected_workflows.into_iter().collect(),
+        requires_revalidation: !tightened_rules.is_empty(),
+    })
+}
+
+fn workflows_for_rule(rule: &str) -> &'static [&'static str] {
+    match rule {
+        "require_accurate_content" => &["content", "affiliate", "live"],
+        "require_affiliate_disclosure" => &["content", "affiliate", "advertising"],
+        "reject_fake_engagement" => &["content", "live", "advertising"],
+        "reject_simulcast" => &["live"],
+        "require_product_eligibility" => &["product_eligibility", "content", "affiliate", "live", "advertising"],
+        "require_claim_evidence" => &["claims", "content", "affiliate", "advertising"],
+        "require_rights_evidence" => &["copyright", "content", "live", "advertising"],
+        "prohibited_product_categories" => &["product_eligibility", "content", "affiliate", "live", "advertising"],
+        _ => &[],
+    }
+}
+
 pub fn diff_rule_sets(previous: &PolicyRuleSet, current: &PolicyRuleSet) -> Vec<String> {
     let mut changed = Vec::new();
     if previous.require_accurate_content != current.require_accurate_content {
@@ -541,6 +688,32 @@ mod tests {
         let mut value = input(company);
         value.policy_snapshot_key = "TIKTOK_SHOP_VN:old".into();
         assert!(evaluate(Some(&snapshot_for(company)), &value, 1_750_000_010).is_err());
+    }
+
+    #[test]
+    fn policy_change_impact_flags_tightening_and_affected_workflows() {
+        let company = Uuid::new_v4();
+        let previous = snapshot_for(company);
+        let mut current = previous.clone();
+        current.version = "2026-10-01".into();
+        current.rules.require_affiliate_disclosure = false;
+        current.rules.prohibited_product_categories.push("new-prohibited".into());
+        let impact = analyze_policy_change(&previous, &current).unwrap();
+        assert!(impact.relaxed_rules.contains(&"require_affiliate_disclosure".into()));
+        assert!(impact.tightened_rules.contains(&"prohibited_product_categories".into()));
+        assert!(impact.requires_revalidation);
+        assert!(impact.affected_workflows.contains(&"affiliate".into()));
+        assert!(impact.affected_workflows.contains(&"product_eligibility".into()));
+    }
+
+    #[test]
+    fn policy_change_impact_rejects_cross_surface_comparison() {
+        let company = Uuid::new_v4();
+        let previous = snapshot_for(company);
+        let mut current = snapshot_for(company);
+        current.version = "2026-10-02".into();
+        current.platform = "OTHER".into();
+        assert!(analyze_policy_change(&previous, &current).is_err());
     }
 
     #[test]
