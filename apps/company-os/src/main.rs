@@ -1978,15 +1978,20 @@ async fn forecast_variance_api(
     State(state): State<AppState>,
     Query(query): Query<ForecastVarianceQuery>,
 ) -> Result<Json<Vec<company_store::ForecastVarianceRecord>>, StatusCode> {
+    let limit = query.limit.unwrap_or(12);
+    if !(1..=60).contains(&limit) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
     state
         .store
-        .forecast_cashflow_variance(
-            &state.company_id,
-            query.limit.unwrap_or(12),
-        )
+        .forecast_cashflow_variance(&state.company_id, limit)
         .await
         .map(Json)
-        .map_err(|_| StatusCode::BAD_REQUEST)
+        .map_err(|error| {
+            tracing::warn!(%error, "forecast variance query failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })
 }
 
 fn render_fpa_variance_html(
@@ -2038,10 +2043,10 @@ async fn fpa_variance_page(State(state): State<AppState>) -> Html<String> {
             r#"<!doctype html><html><head><meta charset="utf-8"><title>FPA variance</title><style>body{{font-family:system-ui;max-width:1100px;margin:40px auto;padding:0 18px;background:#0b1020;color:#eef}}table{{width:100%;border-collapse:collapse}}th,td{{padding:10px;border-bottom:1px solid #26304a;text-align:left}}a{{color:#93c5fd}}.muted{{color:#94a3b8}}</style></head><body><h1>FPA variance</h1>{}</body></html>"#,
             render_fpa_variance_html(&rows)
         )),
-        Err(error) => Html(format!(
-            r#"<!doctype html><html><head><meta charset="utf-8"><title>FPA variance</title></head><body><h1>FPA variance unavailable</h1><p>{}</p></body></html>"#,
-            escape_html(&error.to_string())
-        )),
+        Err(error) => {
+            tracing::warn!(%error, "FPA variance page unavailable");
+            Html(r#"<!doctype html><html><head><meta charset="utf-8"><title>FPA variance</title></head><body><h1>FPA variance unavailable</h1><p>Financial forecast or actual cash-flow evidence could not be loaded. Inspect operational logs.</p></body></html>"#.into())
+        },
     }
 }
 
@@ -3860,6 +3865,23 @@ mod control_plane_audit_tests {
     }
 
     #[test]
+    #[test]
+    fn fpa_variance_renderer_marks_missing_actual_unavailable() {
+        let html = render_fpa_variance_html(&[company_store::ForecastVarianceRecord {
+            forecast_id: uuid::Uuid::nil(),
+            period_start_epoch: 1_800_000_000,
+            currency: "USD".into(),
+            forecast_net_cashflow_minor: 100,
+            actual_net_cashflow_minor: None,
+            variance_minor: None,
+            variance_bps: None,
+            actual_closing_cash_minor: None,
+        }]);
+        assert!(html.contains("USD 1.00"));
+        assert!(html.contains("Unavailable"));
+        assert!(!html.contains("<td>0</td>"));
+    }
+
     fn readiness_renderer_keeps_state_dimensions_explicit() {
         let html = render_integration_readiness(&[IntegrationReadiness {
             key: "demo".into(),
