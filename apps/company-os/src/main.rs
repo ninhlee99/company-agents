@@ -4107,15 +4107,15 @@ async fn metrics(
 }
 
 #[cfg(test)]
-mod control_plane_audit_tests {#[test]
+mod control_plane_audit_tests {
+    use super::*;
+
+    #[test]
     fn auth_disable_switch_is_never_effective_in_production() {
         assert!(!control_plane_auth_disabled_for(true, true));
         assert!(control_plane_auth_disabled_for(true, false));
         assert!(!control_plane_auth_disabled_for(false, false));
     }
-
-
-    use super::*;
 
     #[test]
     fn control_plane_metrics_expose_request_and_denial_counters() {
