@@ -3196,13 +3196,29 @@ impl CompanyStore {
             }
         }
 
-        let plan = company_capital::plan(policy, candidates).map_err(|error| error.to_string())?;
+        let mut fingerprint_payload = serde_json::Map::new();
+        fingerprint_payload.insert("policy".into(), serde_json::to_value(policy)?);
+        fingerprint_payload.insert("candidates".into(), serde_json::to_value(candidates)?);
+        let fingerprint_bytes = serde_json::to_vec(&fingerprint_payload)?;
+        let inputs_hash = format!(
+            "sha256:{}",
+            Sha256::digest(fingerprint_bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        );
+        let plan_id = Uuid::new_v5(
+            &Uuid::NAMESPACE_URL,
+            format!("company-capital:{company}:{plan_key}").as_bytes(),
+        );
+        let plan = company_capital::plan_with_id(plan_id, policy, candidates)
+            .map_err(|error| error.to_string())?;
         let policy_json = serde_json::to_value(policy)?;
         let plan_json = serde_json::to_value(&plan)?;
 
         if let Some(row) = tx
             .query_opt(
-                "SELECT plan_json,policy_json,created_at::text
+                "SELECT plan_json,policy_json,inputs_hash,created_at::text
                    FROM capital_allocation_plans
                   WHERE company_id=$1 AND plan_key=$2",
                 &[&company, &plan_key],
@@ -3211,8 +3227,9 @@ impl CompanyStore {
         {
             let stored_plan: company_capital::CapitalAllocationPlan = serde_json::from_value(row.get(0))?;
             let stored_policy: company_capital::CapitalPolicy = serde_json::from_value(row.get(1))?;
-            let created_at: String = row.get(2);
-            if stored_plan != plan || stored_policy != *policy {
+            let stored_inputs_hash: String = row.get(2);
+            let created_at: String = row.get(3);
+            if stored_plan != plan || stored_policy != *policy || stored_inputs_hash != inputs_hash {
                 return Err("capital allocation plan key already exists with different evidence".into());
             }
             tx.rollback().await?;
@@ -3225,13 +3242,14 @@ impl CompanyStore {
 
         let plan_row = tx.query_one(
             "INSERT INTO capital_allocation_plans
-             (id,company_id,plan_key,policy_json,total_capital_minor,planned_capital_minor,unallocated_minor)
-             VALUES ($1,$2,$3,$4,$5::numeric,$6::numeric,$7::numeric)
+             (id,company_id,plan_key,inputs_hash,policy_json,total_capital_minor,planned_capital_minor,unallocated_minor)
+             VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8::numeric)
              RETURNING created_at::text",
             &[
                 &plan.plan_id,
                 &company,
                 &plan_key,
+                &inputs_hash,
                 &policy_json,
                 &plan.total_capital_minor.to_string(),
                 &plan.planned_capital_minor.to_string(),
