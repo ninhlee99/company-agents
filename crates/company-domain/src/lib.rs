@@ -58,6 +58,8 @@ impl CompanyEventType {
             Self::LedgerTransactionCommitted => "LEDGER_TRANSACTION_COMMITTED",
             Self::AutonomyAssessmentRecorded => "AUTONOMY_ASSESSMENT_RECORDED",
             Self::AgentOutcomeEvidenceRecorded => "AGENT_OUTCOME_EVIDENCE_RECORDED",
+            Self::LearningEntryRecorded => "LEARNING_ENTRY_RECORDED",
+            Self::AgentOutcomeEvidenceRecorded => "AGENT_OUTCOME_EVIDENCE_RECORDED",
         }
     }
 }
