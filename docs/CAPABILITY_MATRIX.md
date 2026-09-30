@@ -36,6 +36,7 @@ This document intentionally separates implemented behavior from contracts, simul
 | Invoicing | Implemented | Invoice creation, issuance and payment lifecycle are durable and idempotent. |
 | Invoice accounting | Implemented | Issuance posts AR → revenue; payment posts cash → AR inside the same transaction. |
 | Customer CRM | Implemented baseline | Idempotent customer creation and listing with lifecycle/status metadata are available. |
+| Customer intelligence / observed economics | Implemented foundation | Company-scoped customer value is summarized from durable invoices/payments/support cases: observed billed/paid amounts, outstanding balance, collection rate, payment recency and open case load. Predictive LTV is explicitly unavailable without cohort evidence. |
 | HR / payroll economics | Implemented baseline | Employees, payroll obligations and accounting primitives exist; external payroll execution is not integrated. |
 | Business-unit economics | Implemented baseline | Units and portfolio metrics exist; automatic capital allocation is still gated. |
 | Portfolio autonomy | Policy implemented; execution gated | A deterministic evidence-backed reinvest/hold/reduce/close policy now exists with liquidity protection and hard allocation caps. It produces decisions only; persisted execution and real capital movement remain separately gated. |

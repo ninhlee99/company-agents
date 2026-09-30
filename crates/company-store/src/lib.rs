@@ -206,6 +206,23 @@ pub struct ContributionMarginMetrics {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CustomerIntelligenceMetric {
+    pub customer_id: Uuid,
+    pub customer_name: String,
+    pub customer_status: String,
+    pub currency: String,
+    pub invoice_count: i64,
+    pub invoices_with_payment_count: i64,
+    pub observed_billed_minor: i128,
+    pub observed_paid_minor: i128,
+    pub outstanding_minor: i128,
+    pub collection_rate_bps: i64,
+    pub last_payment_epoch: Option<i64>,
+    pub payment_recency_days: Option<i64>,
+    pub open_support_case_count: i64,
+    pub ltv_estimation_status: String,
+}
+
 pub struct CommercialDeliveryMetric {
     pub currency: String,
     pub proposal_count: i64,
@@ -8428,6 +8445,96 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         }))
     }
 
+    pub async fn customer_intelligence(
+        &self,
+        company_id: &str,
+        limit: i64,
+    ) -> Result<Vec<CustomerIntelligenceMetric>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=200).contains(&limit) {
+            return Err("customer intelligence limit must be between 1 and 200".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let now_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT c.id,
+                        c.name,
+                        c.status,
+                        i.currency,
+                        i.invoice_count,
+                        i.invoices_with_payment_count,
+                        i.observed_billed_minor,
+                        i.observed_paid_minor,
+                        i.outstanding_minor,
+                        (
+                            SELECT MAX(ip.occurred_at_epoch)
+                              FROM invoice_payments ip
+                              JOIN invoices i2 ON i2.id=ip.invoice_id
+                             WHERE i2.company_id=c.company_id
+                               AND i2.customer_id=c.id
+                               AND i2.currency=i.currency
+                        ) AS last_payment_epoch,
+                        (
+                            SELECT COUNT(*)
+                              FROM support_cases sc
+                             WHERE sc.company_id=c.company_id
+                               AND sc.customer_id=c.id
+                               AND sc.status IN ('OPEN','ACKNOWLEDGED','IN_PROGRESS','WAITING_CUSTOMER')
+                        )::bigint AS open_support_case_count
+                   FROM customers c
+                   JOIN LATERAL (
+                       SELECT i.currency,
+                              COUNT(*)::bigint AS invoice_count,
+                              COUNT(*) FILTER (WHERE i.paid_minor > 0)::bigint AS invoices_with_payment_count,
+                              COALESCE(SUM(i.subtotal_minor),0)::text AS observed_billed_minor,
+                              COALESCE(SUM(i.paid_minor),0)::text AS observed_paid_minor,
+                              COALESCE(
+                                  SUM(i.subtotal_minor-i.paid_minor)
+                                    FILTER (WHERE i.status IN ('ISSUED','PARTIALLY_PAID')),
+                                  0
+                              )::text AS outstanding_minor
+                         FROM invoices i
+                        WHERE i.company_id=c.company_id
+                          AND i.customer_id=c.id
+                        GROUP BY i.currency
+                   ) i ON TRUE
+                  WHERE c.company_id=$1
+                  ORDER BY i.observed_paid_minor DESC,c.id,i.currency
+                  LIMIT $2",
+                &[&company, &limit],
+            )
+            .await?;
+
+        rows.into_iter()
+            .map(|row| {
+                let billed = parse_i128_numeric(&row.get::<_, String>(6))?;
+                let paid = parse_i128_numeric(&row.get::<_, String>(7))?;
+                let collection_rate_bps = collection_rate_bps(billed, paid);
+                let last_payment_epoch: Option<i64> = row.get(9);
+                let payment_recency_days = last_payment_epoch.map(|epoch| {
+                    now_epoch.saturating_sub(epoch).max(0) / 86_400
+                });
+                Ok(CustomerIntelligenceMetric {
+                    customer_id: row.get(0),
+                    customer_name: row.get(1),
+                    customer_status: row.get(2),
+                    currency: row.get(3),
+                    invoice_count: row.get(4),
+                    invoices_with_payment_count: row.get(5),
+                    observed_billed_minor: billed,
+                    observed_paid_minor: paid,
+                    outstanding_minor: parse_i128_numeric(&row.get::<_, String>(8))?,
+                    collection_rate_bps,
+                    last_payment_epoch,
+                    payment_recency_days,
+                    open_support_case_count: row.get(10),
+                    ltv_estimation_status: "NOT_ESTIMABLE_WITH_CURRENT_COHORT_EVIDENCE".into(),
+                })
+            })
+            .collect()
+    }
+
     pub async fn list_customers(
         &self,
         company_id: &str,
@@ -10201,6 +10308,16 @@ fn sponsorship_delivery_ratio_bps(delivered:i128, committed:i128)->i64 {
     delivered.saturating_mul(10_000).checked_div(committed).unwrap_or(0).clamp(0,10_000) as i64
 }
 
+fn collection_rate_bps(billed: i128, paid: i128) -> i64 {
+    if billed <= 0 || paid <= 0 {
+        return 0;
+    }
+    paid.saturating_mul(10_000)
+        .checked_div(billed)
+        .unwrap_or(0)
+        .clamp(0, 10_000) as i64
+}
+
 fn payment_simulation_allowed(simulation_enabled: bool, production_environment: bool) -> bool {
     simulation_enabled && !production_environment
 }
@@ -10239,6 +10356,18 @@ mod commercial_report_tests {
         assert_eq!(sponsorship_delivery_ratio_bps(200,100),10_000);
     }
 }
+#[cfg(test)]
+mod customer_intelligence_tests {
+    use super::*;
+
+    #[test]
+    fn collection_rate_is_bounded_and_does_not_imply_ltv() {
+        assert_eq!(collection_rate_bps(0, 0), 0);
+        assert_eq!(collection_rate_bps(100, 50), 5_000);
+        assert_eq!(collection_rate_bps(100, 120), 10_000);
+    }
+}
+
 #[cfg(test)]
 mod numeric_parser_tests {
     use super::*;
