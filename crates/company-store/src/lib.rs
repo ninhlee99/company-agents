@@ -6176,27 +6176,31 @@ impl CompanyStore {
             verified_commission_minor,
             verified_at.unwrap_or("")
         );
-        tx.execute(
-            "INSERT INTO outbox_events
-             (company_id,event_type,aggregate_id,idempotency_key,payload)
-             VALUES ($1,'AFFILIATE_PROVIDER_VERIFIED',$2,$3,$4)
-             ON CONFLICT (company_id,idempotency_key) DO NOTHING",
-            &[
-                &company_uuid,
-                &conversion_id,
-                &provider_event_key,
-                &serde_json::json!({
-                    "conversion_id": conversion_id,
-                    "status": status.as_str(),
-                    "verified_commission_minor": verified_commission_minor,
-                    "verification_source": verification_source,
-                    "verified_at": verified_at,
-                    "attribution_verified": attribution_is_verified,
-                    "reported_commission_minor": reported_commission,
-                }),
-            ],
-        )
-        .await?;
+        let event = company_domain::CompanyEventEnvelope::new(
+            company_uuid,
+            company_domain::CompanyEventType::CommissionVerified,
+            "affiliate_conversion",
+            Uuid::parse_str(conversion_id).ok(),
+            verified_at
+                .map(parse_rfc3339_epoch)
+                .transpose()?
+                .unwrap_or_else(|| time::OffsetDateTime::now_utc().unix_timestamp()),
+            Uuid::parse_str(conversion_id).unwrap_or_else(|_| Uuid::new_v4()),
+            None,
+            provider_event_key.clone(),
+            serde_json::json!({
+                "conversion_id": conversion_id,
+                "status": status.as_str(),
+                "verified_commission_minor": verified_commission_minor,
+                "verification_source": verification_source,
+                "verified_at": verified_at,
+                "attribution_verified": attribution_is_verified,
+                "reported_commission_minor": reported_commission,
+                "recognized_minor": target_recognized,
+                "reconciliation_status": recognition_status,
+            }),
+        )?;
+        enqueue_company_event_tx(&tx, &event).await?;
 
         let attributed = load_affiliate_attributions(&tx, company_uuid, conversion_id).await?;
         tx.commit().await?;
@@ -10418,6 +10422,41 @@ mod customer_intelligence_tests {
         assert_eq!(collection_rate_bps(0, 0), 0);
         assert_eq!(collection_rate_bps(100, 50), 5_000);
         assert_eq!(collection_rate_bps(100, 120), 10_000);
+    }
+}
+
+#[cfg(test)]
+mod commission_verified_event_tests {
+    use super::*;
+
+    #[test]
+    fn commission_verified_event_reuses_provider_idempotency_and_evidence() {
+        let company = Uuid::from_u128(11);
+        let conversion = Uuid::from_u128(12);
+        let provider_event_key = format!("outbox:affiliate:provider-verified:{}:APPROVED:1250:2026-09-30T12:00:00Z", conversion);
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::CommissionVerified,
+            "affiliate_conversion",
+            Some(conversion),
+            1_790_768_000,
+            conversion,
+            None,
+            provider_event_key.clone(),
+            serde_json::json!({
+                "conversion_id": conversion.to_string(),
+                "status": "APPROVED",
+                "verified_commission_minor": 1250,
+                "verification_source": "awin",
+                "attribution_verified": true
+            }),
+        ).unwrap();
+        assert_eq!(event.event_type_name(), "COMMISSION_VERIFIED");
+        assert_eq!(event.aggregate_id, Some(conversion));
+        assert_eq!(event.correlation_id, conversion);
+        assert_eq!(event.idempotency_key, provider_event_key);
+        assert_eq!(event.payload["verification_source"], "awin");
+        assert_eq!(event.payload["verified_commission_minor"], 1250);
     }
 }
 
