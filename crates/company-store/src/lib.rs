@@ -5504,6 +5504,31 @@ impl CompanyStore {
         )
         .await?;
 
+        if target_recognized > 0 {
+            let observed_at_epoch = verified_at
+                .map(parse_rfc3339_epoch)
+                .transpose()?
+                .unwrap_or_else(|| time::OffsetDateTime::now_utc().unix_timestamp());
+            record_revenue_graph_edge_tx(
+                &tx,
+                &new_graph_edge(
+                    company_uuid,
+                    company_revenue_graph::RevenueNodeType::Commission,
+                    &conversion_id,
+                    "RECOGNIZED_INTO",
+                    company_revenue_graph::RevenueNodeType::Commission,
+                    &format!("affiliate:recognized:{}", company_uuid),
+                    Some(target_recognized),
+                    Some(&currency),
+                    10_000,
+                    &format!("affiliate:provider-verification:{}:{}", conversion_id, status.as_str()),
+                    graph_source(verification_source)?,
+                    observed_at_epoch,
+                ),
+            )
+            .await?;
+        }
+
         let provider_event_key = format!(
             "outbox:affiliate:provider-verified:{conversion_id}:{}:{}:{}",
             status.as_str(),
