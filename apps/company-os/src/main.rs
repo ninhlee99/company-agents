@@ -240,6 +240,15 @@ struct GrowthTrendRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct CompetitorWhitespaceRequest {
+    observations: Vec<company_growth::CompetitorObservation>,
+    owned_coverage: Vec<company_growth::OwnedContentCoverage>,
+    as_of_epoch: i64,
+    max_age_seconds: i64,
+}
+
+
+#[derive(Debug, Deserialize)]
 struct GrowthContentRequest {
     opportunity_id: uuid::Uuid,
 }
@@ -2417,6 +2426,27 @@ async fn revenue_graph_lineage_api(
     ))
 }
 
+async fn competitor_whitespace_api(
+    State(state): State<AppState>,
+    Json(request): Json<CompetitorWhitespaceRequest>,
+) -> Result<Json<Vec<company_growth::ContentWhitespaceGap>>, StatusCode> {
+    if request
+        .observations
+        .iter()
+        .any(|observation| observation.company_id.to_string() != state.company_id)
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    company_growth::evaluate_content_whitespace(
+        &request.observations,
+        &request.owned_coverage,
+        request.as_of_epoch,
+        request.max_age_seconds,
+    )
+    .map(Json)
+    .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
 async fn growth_trend_api(
     State(state): State<AppState>,
     Json(request): Json<GrowthTrendRequest>,
@@ -3785,6 +3815,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/content/observations", post(content_observation_api))
         .route("/api/content/status", post(content_status_transition_api))
         .route("/api/growth/trends", get(growth_trends_api).post(growth_trend_api))
+        .route("/api/growth/competitor-whitespace", post(competitor_whitespace_api))
         .route("/api/revenue-graph/edges", post(revenue_graph_edge_api))
         .route("/api/revenue-graph/summary", get(revenue_graph_summary_api))
         .route("/api/revenue-graph/lineage", get(revenue_graph_lineage_api))
