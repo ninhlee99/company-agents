@@ -352,6 +352,7 @@ struct AffiliateSearchParams {
     in_stock_only: Option<bool>,
     max_results: Option<usize>,
     as_of_date: Option<String>,
+    max_product_age_seconds: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)] struct ServiceProposalRequest { customer_id: uuid::Uuid, title: String, currency: String, total_minor: i128, valid_until_epoch: i64, idempotency_key: String }
@@ -520,6 +521,7 @@ fn affiliate_query(params: AffiliateSearchParams) -> ProductSearchQuery {
         as_of_date: params
             .as_of_date
             .or_else(|| Some(time::OffsetDateTime::now_utc().date().to_string())),
+        max_product_age_seconds: params.max_product_age_seconds,
     }
 }
 
