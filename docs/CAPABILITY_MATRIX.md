@@ -110,7 +110,7 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 
 - **Ledger-backed revenue periods:** Company OS now derives MTD, trailing-30-day, and lifetime revenue from immutable revenue ledger entries rather than using the cumulative company snapshot as a monthly progress proxy.
 - **Evidence count:** The dashboard exposes the number of revenue transactions supporting the MTD figure.
-- **Fail-closed display:** If the ledger query is unavailable, MTD displays as zero rather than silently presenting cumulative revenue as monthly revenue.
+- **Fail-closed display:** If the ledger query is unavailable, MTD displays as **Unavailable** rather than zero; the dashboard never turns a data-access failure into a business fact.
 
 
 ## Contribution-margin truth
