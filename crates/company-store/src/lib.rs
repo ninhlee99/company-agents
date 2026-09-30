@@ -158,6 +158,13 @@ pub struct ContributionMarginMetrics {
     pub month_to_date_revenue_minor: i128,
     pub month_to_date_variable_cost_minor: i128,
     pub month_to_date_contribution_margin_minor: Option<i128>,
+    pub platform_fees_minor: i128,
+    pub affiliate_commission_minor: i128,
+    pub refunds_cancellations_minor: i128,
+    pub production_ai_cost_minor: i128,
+    pub ad_spend_minor: i128,
+    pub operating_cost_minor: i128,
+    pub cash_minor: i128,
     pub unclassified_expense_minor: i128,
     pub unclassified_expense_entry_count: i64,
     pub variable_cost_transaction_count: i64,
@@ -1998,7 +2005,14 @@ impl CompanyStore {
                                       AND a.cost_class = 'UNCLASSIFIED'),
                     COUNT(DISTINCT CASE WHEN a.account_type = 'EXPENSE'
                                           AND a.cost_class = 'VARIABLE'
-                                        THEN t.id END)
+                                        THEN t.id END),
+                    COALESCE(SUM(CASE WHEN a.account_type = 'EXPENSE' AND (a.code IN ('PLATFORM_FEE_EXPENSE','PLATFORM_FEES') OR lower(a.name) LIKE '%platform fee%' OR lower(a.name) LIKE '%processing fee%') THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text,
+                    COALESCE(SUM(CASE WHEN a.account_type = 'EXPENSE' AND (a.code IN ('AFFILIATE_COMMISSION_EXPENSE','AFFILIATE_COMMISSION') OR lower(a.name) LIKE '%affiliate commission%') THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text,
+                    COALESCE(SUM(CASE WHEN a.account_type = 'EXPENSE' AND (a.code IN ('REFUND_EXPENSE','REFUNDS_CANCELLATIONS') OR lower(a.name) LIKE '%refund%' OR lower(a.name) LIKE '%cancellation%') THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text,
+                    COALESCE(SUM(CASE WHEN a.account_type = 'EXPENSE' AND (a.code IN ('PRODUCTION_AI_EXPENSE','AI_PRODUCTION') OR lower(a.name) LIKE '%production%' OR lower(a.name) LIKE '%ai cost%') THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text,
+                    COALESCE(SUM(CASE WHEN a.account_type = 'EXPENSE' AND (a.code IN ('AD_SPEND_EXPENSE','AD_SPEND') OR lower(a.name) LIKE '%ad spend%' OR lower(a.name) LIKE '%advertising%') THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text,
+                    COALESCE(SUM(CASE WHEN a.account_type = 'EXPENSE' AND a.cost_class = 'FIXED' THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text,
+                    COALESCE(SUM(CASE WHEN a.account_type = 'ASSET' AND a.code = 'CASH' THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text
                  FROM ledger_transactions t
                  JOIN ledger_entries e ON e.transaction_id = t.id
                  JOIN ledger_accounts a ON a.id = e.account_id
@@ -2022,6 +2036,13 @@ impl CompanyStore {
             } else {
                 None
             },
+            platform_fees_minor: parse_i128_numeric(&row.get::<_, String>(5))?,
+            affiliate_commission_minor: parse_i128_numeric(&row.get::<_, String>(6))?,
+            refunds_cancellations_minor: parse_i128_numeric(&row.get::<_, String>(7))?,
+            production_ai_cost_minor: parse_i128_numeric(&row.get::<_, String>(8))?,
+            ad_spend_minor: parse_i128_numeric(&row.get::<_, String>(9))?,
+            operating_cost_minor: parse_i128_numeric(&row.get::<_, String>(10))?,
+            cash_minor: parse_i128_numeric(&row.get::<_, String>(11))?,
             unclassified_expense_minor: unclassified,
             unclassified_expense_entry_count: unclassified_entries,
             variable_cost_transaction_count: row.get(4),
