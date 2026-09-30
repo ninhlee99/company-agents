@@ -704,6 +704,19 @@ async fn index(
             r#"<div class="card"><h2>Safety controls</h2><p class="muted">Persistent safety controls are unavailable. Autonomous side effects remain fail-closed.</p></div>"#.into()
         }
     };
+    let revenue_graph_html = match state.store.revenue_graph_summary(&state.company_id).await {
+        Ok(summary) => format!(
+            r#"<div class="card"><h2>Revenue intelligence graph</h2><div class="metric">{}</div><p class="muted">Evidence-backed edges · {} carry economic values · latest observation: {}</p><a href="/api/revenue-graph/summary">View graph summary JSON</a></div>"#,
+            summary.edge_count,
+            summary.value_backed_edge_count,
+            summary.latest_observed_at_epoch.map(|value| value.to_string()).unwrap_or_else(|| "none".into())
+        ),
+        Err(error) => {
+            tracing::warn!(%error, "revenue intelligence graph unavailable");
+            r#"<div class="card"><h2>Revenue intelligence graph</h2><div class="metric">Evidence unavailable</div><p class="muted">Lineage data is unavailable, so the dashboard is not showing a fabricated zero.</p></div>"#.into()
+        }
+    };
+
     let tiktok_oauth_html = match state.store.tiktok_oauth_status(&state.company_id).await {
         Ok(Some(connection)) if connection.status == "ACTIVE" => {
             let access_expires = connection.access_token_expires_at_epoch;
@@ -887,6 +900,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <div class="card"><small>Contribution margin MTD</small><div class="metric">{}</div><small>{}</small></div>
 <div class="card"><small>Affiliate reconciliation MTD</small><div class="metric">{}</div><small>variance · reported · attributed · paid: {} · {} · {} · {}</small></div>
 <div class="card"><h2>Growth pipeline</h2><p class="muted">Evidence-backed trend signals become scored opportunities before any content plan is created.</p>{}</div>
+{}
 <div class="card"><h2>Capital allocation</h2><p class="muted">Expected contribution, downside, speed, reversibility and evidence are evaluated before any capital movement.</p>{}</div>
 {}
 {}
@@ -922,6 +936,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         format_minor(affiliate_reconciliation.attributed_commission_mtd_minor, &state.currency),
         format_minor(affiliate_reconciliation.recorded_payout_mtd_minor, &state.currency),
         growth_html,
+        revenue_graph_html,
         capital_plan_html,
         safety_controls_html,
         tiktok_oauth_html,
