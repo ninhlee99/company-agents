@@ -360,77 +360,77 @@ export default function App() {
         />
 
         {/* Clean Executive Navigation Bar */}
-        <nav className="border-t border-slate-800/80 bg-slate-900/40 px-4 lg:px-8">
-          <div className="max-w-6xl mx-auto flex items-center justify-start gap-1.5 py-2 overflow-x-auto scrollbar-none">
+        <nav className="border-t border-slate-800/80 bg-slate-950 px-4 lg:px-8">
+          <div className="max-w-6xl mx-auto flex items-center justify-start gap-1 py-2 overflow-x-auto scrollbar-none">
             <button
               onClick={() => setActiveTab('overview')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                 activeTab === 'overview'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                  ? 'bg-slate-800 text-white font-semibold border border-slate-700 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
               }`}
             >
-              <LayoutDashboard className="w-3.5 h-3.5" />
+              <LayoutDashboard className="w-3.5 h-3.5 text-slate-300" />
               <span>Tổng Quan Điều Hành</span>
             </button>
 
             <button
               onClick={() => setActiveTab('workforce')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                 activeTab === 'workforce'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                  ? 'bg-slate-800 text-white font-semibold border border-slate-700 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
               }`}
             >
-              <Users className="w-3.5 h-3.5" />
+              <Users className="w-3.5 h-3.5 text-slate-300" />
               <span>Đội Ngũ AI &amp; Nhân Sự ({customAgents.length})</span>
             </button>
 
             <button
               onClick={() => setActiveTab('livestream')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                 activeTab === 'livestream'
-                  ? 'bg-pink-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                  ? 'bg-slate-800 text-white font-semibold border border-slate-700 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
               }`}
             >
-              <Radio className="w-3.5 h-3.5 text-pink-400" />
+              <Radio className="w-3.5 h-3.5 text-slate-300" />
               <span>Kênh &amp; Livestream 24/7 ({channels.length})</span>
             </button>
 
             <button
               onClick={() => setActiveTab('pipeline')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                 activeTab === 'pipeline'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                  ? 'bg-slate-800 text-white font-semibold border border-slate-700 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
               }`}
             >
-              <Sparkles className="w-3.5 h-3.5" />
+              <Sparkles className="w-3.5 h-3.5 text-slate-300" />
               <span>Quy Trình &amp; Dây Chuyền</span>
             </button>
 
             <button
               onClick={() => setActiveTab('contracts')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                 activeTab === 'contracts' || activeTab === 'order'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                  ? 'bg-slate-800 text-white font-semibold border border-slate-700 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
               }`}
             >
-              <Briefcase className="w-3.5 h-3.5" />
+              <Briefcase className="w-3.5 h-3.5 text-slate-300" />
               <span>Kinh Doanh &amp; Hợp Đồng ({clientContracts.length})</span>
             </button>
 
             <button
               onClick={() => setActiveTab('finances')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                 activeTab === 'finances'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                  ? 'bg-slate-800 text-white font-semibold border border-slate-700 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
               }`}
             >
-              <Wallet className="w-3.5 h-3.5" />
+              <Wallet className="w-3.5 h-3.5 text-slate-300" />
               <span>Tài Chính &amp; Sổ Cái</span>
             </button>
           </div>

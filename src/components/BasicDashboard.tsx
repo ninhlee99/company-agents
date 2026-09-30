@@ -279,7 +279,7 @@ export const BasicDashboard: React.FC<BasicDashboardProps> = ({
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-yellow-400" />
+                    <Sparkles className="w-4 h-4 text-slate-300" />
                     <div>
                       <div className="text-white font-medium">{isAuto ? 'Auto-Pilot Đang Chạy' : 'Bật Tự Động Hóa 24/7'}</div>
                       <div className="text-[11px] text-slate-400">Tự động xuất bản & kiếm doanh thu</div>
