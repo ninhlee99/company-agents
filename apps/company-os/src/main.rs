@@ -1259,66 +1259,6 @@ async fn autonomy_budget_consume_api(
     }
 }
 
-async fn autonomy_controls_api(
-    State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    let controls = state
-        .store
-        .autonomy_controls(&state.company_id)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let budgets = state
-        .store
-        .autonomy_budget_statuses(
-            &state.company_id,
-            time::OffsetDateTime::now_utc().unix_timestamp(),
-        )
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-
-    Ok(Json(serde_json::json!({
-        "company_id": state.company_id,
-        "controls": controls,
-        "budgets": budgets,
-        "identity_boundary": "actor is audit metadata; operator identity is still the control-plane bearer token"
-    })))
-}
-
-async fn autonomy_controls_update_api(
-    State(state): State<AppState>,
-    Json(request): Json<AutonomyControlsRequest>,
-) -> Result<Json<company_store::AutonomyControlRecord>, StatusCode> {
-    state
-        .store
-        .set_autonomy_controls(
-            &state.company_id,
-            request.emergency_stop,
-            request.reason.as_deref(),
-            &request.actor,
-            &request.budgets,
-        )
-        .await
-        .map(Json)
-        .map_err(|error| {
-            tracing::warn!(%error, "autonomy controls update rejected");
-            StatusCode::BAD_REQUEST
-        })
-}
-
-async fn autonomy_budget_status_api(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<company_safety_controls::BudgetStatus>>, StatusCode> {
-    state
-        .store
-        .autonomy_budget_statuses(
-            &state.company_id,
-            time::OffsetDateTime::now_utc().unix_timestamp(),
-        )
-        .await
-        .map(Json)
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
-}
-
 async fn autonomy_assess_api(
     State(state): State<AppState>,
     Json(request): Json<AutonomyAssessRequest>,
