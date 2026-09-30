@@ -3110,25 +3110,98 @@ fn control_plane_request_id(request: &Request) -> String {
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct ControlPlanePrincipalConfig {
+    id: String,
+    role: String,
+    token: String,
+}
+
+fn control_plane_principals(
+    operator_token: &str,
+    read_token: Option<&str>,
+) -> Result<Vec<ControlPlanePrincipalConfig>, String> {
+    if let Ok(raw) = std::env::var("CONTROL_PLANE_PRINCIPALS_JSON") {
+        let principals: Vec<ControlPlanePrincipalConfig> =
+            serde_json::from_str(&raw).map_err(|error| format!("invalid CONTROL_PLANE_PRINCIPALS_JSON: {error}"))?;
+        if principals.is_empty() {
+            return Err("CONTROL_PLANE_PRINCIPALS_JSON must contain at least one principal".into());
+        }
+        for principal in &principals {
+            if principal.id.trim().is_empty() || principal.id.len() > 128 {
+                return Err("control-plane principal id must be 1..128 bytes".into());
+            }
+            if principal.token.is_empty() {
+                return Err(format!("control-plane principal {} has an empty token", principal.id));
+            }
+            if !matches!(principal.role.as_str(), "admin" | "operator" | "read-only") {
+                return Err(format!("control-plane principal {} has unsupported role", principal.id));
+            }
+        }
+        return Ok(principals);
+    }
+
+    let mut principals = vec![ControlPlanePrincipalConfig {
+        id: "legacy-operator".into(),
+        role: "operator".into(),
+        token: operator_token.to_owned(),
+    }];
+    if let Some(read_token) = read_token.filter(|value| !value.is_empty()) {
+        principals.push(ControlPlanePrincipalConfig {
+            id: "legacy-read-only".into(),
+            role: "read-only".into(),
+            token: read_token.to_owned(),
+        });
+    }
+    if let Ok(admin_token) = std::env::var("CONTROL_PLANE_ADMIN_TOKEN") {
+        if !admin_token.is_empty() {
+            principals.push(ControlPlanePrincipalConfig {
+                id: "legacy-admin".into(),
+                role: "admin".into(),
+                token: admin_token,
+            });
+        }
+    }
+    Ok(principals)
+}
+
+fn control_plane_auth_principal(
+    method: &str,
+    provided: Option<&str>,
+    operator_token: &str,
+    read_token: Option<&str>,
+) -> Result<Option<(String, &'static str)>, String> {
+    let provided = match provided.filter(|value| !value.is_empty()) {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+
+    for principal in control_plane_principals(operator_token, read_token)? {
+        if bool::from(principal.token.as_bytes().ct_eq(provided.as_bytes())) {
+            let role = match principal.role.as_str() {
+                "admin" => "admin",
+                "operator" => "operator",
+                "read-only" if matches!(method, "GET" | "HEAD") => "read-only",
+                "read-only" => return Ok(None),
+                _ => return Err("unsupported control-plane role".into()),
+            };
+            return Ok(Some((principal.id, role)));
+        }
+    }
+
+    Ok(None)
+}
+
 fn control_plane_auth_scope(
     method: &str,
     provided: Option<&str>,
     operator_token: &str,
     read_token: Option<&str>,
 ) -> Option<&'static str> {
-    let provided = provided.filter(|value| !value.is_empty())?;
-
-    if bool::from(operator_token.as_bytes().ct_eq(provided.as_bytes())) {
-        return Some("operator");
-    }
-
-    if matches!(method, "GET" | "HEAD")
-        && read_token.is_some_and(|token| bool::from(token.as_bytes().ct_eq(provided.as_bytes())))
-    {
-        return Some("read-only");
-    }
-
-    None
+    control_plane_auth_principal(method, provided, operator_token, read_token)
+        .ok()
+        .flatten()
+        .map(|(_, role)| role)
 }
 
 fn control_plane_actor_id(token: Option<&str>) -> String {
@@ -3309,14 +3382,14 @@ async fn require_control_plane_auth(
         .ok()
         .filter(|value| !value.is_empty());
 
-    let role = match control_plane_auth_scope(
+    let (principal_id, role) = match control_plane_auth_principal(
         &method,
         provided,
         &operator_token,
         read_token.as_deref(),
     ) {
-        Some(role) => role,
-        None => {
+        Ok(Some(value)) => value,
+        Ok(None) => {
             mark_control_plane_denied(&state, false, started);
             record_control_plane_audit(
                 &state,
@@ -3331,8 +3404,15 @@ async fn require_control_plane_auth(
             .await;
             return Err(StatusCode::UNAUTHORIZED);
         }
+        Err(error) => {
+            tracing::warn!(%error, "invalid control-plane principal configuration");
+            mark_control_plane_denied(&state, false, started);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
     };
 
+    let actor_id = format!("principal:{principal_id}");
+    
     let mut response = next.run(request).await;
     record_control_plane_audit(
         &state,
@@ -3600,6 +3680,42 @@ mod control_plane_audit_tests {
         assert!(first.starts_with("bearer-sha256:"));
         assert!(!first.contains("token-value"));
         assert_eq!(control_plane_actor_id(None), "anonymous");
+    }
+
+    #[test]
+    fn named_principals_support_explicit_roles_without_exposing_tokens() {
+        std::env::set_var(
+            "CONTROL_PLANE_PRINCIPALS_JSON",
+            r#"[{"id":"alice","role":"admin","token":"admin-secret"},{"id":"bob","role":"operator","token":"operator-secret"},{"id":"carol","role":"read-only","token":"reader-secret"}]"#,
+        );
+        assert_eq!(
+            control_plane_auth_principal("POST", Some("admin-secret"), "unused", None)
+                .unwrap(),
+            Some(("alice".into(), "admin"))
+        );
+        assert_eq!(
+            control_plane_auth_principal("POST", Some("operator-secret"), "unused", None)
+                .unwrap(),
+            Some(("bob".into(), "operator"))
+        );
+        assert_eq!(
+            control_plane_auth_principal("GET", Some("reader-secret"), "unused", None)
+                .unwrap(),
+            Some(("carol".into(), "read-only"))
+        );
+        assert_eq!(
+            control_plane_auth_principal("POST", Some("reader-secret"), "unused", None)
+                .unwrap(),
+            None
+        );
+        std::env::remove_var("CONTROL_PLANE_PRINCIPALS_JSON");
+    }
+
+    #[test]
+    fn malformed_named_principal_config_fails_closed() {
+        std::env::set_var("CONTROL_PLANE_PRINCIPALS_JSON", "{bad-json");
+        assert!(control_plane_auth_principal("GET", Some("anything"), "unused", None).is_err());
+        std::env::remove_var("CONTROL_PLANE_PRINCIPALS_JSON");
     }
 
     #[test]
