@@ -105,6 +105,7 @@ pub struct CommandCenterSummary {
 }
 
 pub fn summarize(input: &CommandCenterInput) -> Result<CommandCenterSummary, String> {
+    validate_input(input)?;
     if input.revenue_target_minor <= 0 {
         return Err("revenue target must be positive".into());
     }
@@ -238,6 +239,65 @@ pub fn summarize(input: &CommandCenterInput) -> Result<CommandCenterSummary, Str
     })
 }
 
+fn validate_input(input: &CommandCenterInput) -> Result<(), String> {
+    for (name, value) in [
+        ("content.views_7d", input.content.views_7d),
+        ("content.clicks_7d", input.content.clicks_7d),
+        ("content.conversions_7d", input.content.conversions_7d),
+        ("content.content_count_7d", input.content.content_count_7d),
+        ("live.sessions_30d", input.live.sessions_30d),
+        ("live.gift_count_30d", input.live.gift_count_30d),
+        ("affiliate orders", input.affiliate_orders_mtd),
+    ] {
+        if value < 0 {
+            return Err(format!("{name} cannot be negative"));
+        }
+    }
+    if input.content.clicks_7d > input.content.views_7d
+        || input.content.conversions_7d > input.content.clicks_7d
+    {
+        return Err("content funnel counters must be monotonic".into());
+    }
+    for (name, value) in [
+        ("content.spend_7d_minor", input.content.spend_7d_minor),
+        ("content.commission_7d_minor", input.content.commission_7d_minor),
+        (
+            "content.contribution_margin_7d_minor",
+            input.content.contribution_margin_7d_minor,
+        ),
+        (
+            "live.gift_value_30d_minor",
+            input.live.gift_value_30d_minor,
+        ),
+        (
+            "affiliate_reported_commission_mtd_minor",
+            input.affiliate_reported_commission_mtd_minor,
+        ),
+        (
+            "affiliate_attributed_commission_mtd_minor",
+            input.affiliate_attributed_commission_mtd_minor,
+        ),
+        ("affiliate_payout_mtd_minor", input.affiliate_payout_mtd_minor),
+        ("affiliate_net_order_value_mtd_minor", input.affiliate_net_order_value_mtd_minor),
+    ] {
+        if value < 0 {
+            return Err(format!("{name} cannot be negative"));
+        }
+    }
+    if input.affiliate_variance_mtd_minor
+        != input.affiliate_reported_commission_mtd_minor
+            - input.affiliate_attributed_commission_mtd_minor
+    {
+        return Err("affiliate variance does not reconcile with reported and attributed commission".into());
+    }
+    for point in &input.daily_revenue {
+        if point.day.trim().is_empty() || point.revenue_minor < 0 {
+            return Err("daily revenue points must have a day and non-negative revenue".into());
+        }
+    }
+    Ok(())
+}
+
 fn ratio_bps(numerator: i128, denominator: i128) -> u32 {
     if numerator <= 0 || denominator <= 0 {
         return 0;
@@ -348,6 +408,20 @@ mod tests {
     fn content_productivity_uses_same_seven_day_window() {
         let summary = summarize(&input()).unwrap();
         assert_eq!(summary.commission_7d_per_content_minor, Some(800));
+    }
+
+    #[test]
+    fn invalid_nested_funnel_fails_closed() {
+        let mut value = input();
+        value.content.conversions_7d = 900;
+        assert!(summarize(&value).is_err());
+    }
+
+    #[test]
+    fn affiliate_variance_must_reconcile() {
+        let mut value = input();
+        value.affiliate_variance_mtd_minor = 0;
+        assert!(summarize(&value).is_err());
     }
 
     #[test]
