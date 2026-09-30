@@ -9977,6 +9977,17 @@ fn content_record_from_row(
     company_content::validate_item(&item).map_err(|error| error.to_string())?;
     Ok(ContentRecord { item, created_at: row.get(28) })
 }
+fn parse_bool_env(name: &str, default: bool) -> bool {
+    match std::env::var(name) {
+        Ok(value) => match value.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => true,
+            "0" | "false" | "no" | "off" => false,
+            _ => default,
+        },
+        Err(_) => default,
+    }
+}
+
 fn parse_i128_numeric(
     value: &str,
 ) -> Result<i128, Box<dyn std::error::Error + Send + Sync>> {
