@@ -20,6 +20,7 @@ import { MediaStudioTab } from './components/MediaStudioTab';
 import { ClientContractsTab } from './components/ClientContractsTab';
 import { CreateContractTab } from './components/CreateContractTab';
 import { ManageFinances } from './components/ManageFinances';
+import { SettingsTab } from './components/SettingsTab';
 
 import { 
   LayoutDashboard, 
@@ -29,11 +30,12 @@ import {
   Briefcase, 
   Wallet,
   CheckCircle2,
-  Video
+  Video,
+  Settings
 } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'workforce' | 'livestream' | 'pipeline' | 'contracts' | 'order' | 'finances'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'workforce' | 'livestream' | 'pipeline' | 'contracts' | 'order' | 'finances' | 'settings'>('overview');
   const [pipelineSubTab, setPipelineSubTab] = useState<'flow' | 'studio'>('flow');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [dataMode, setDataMode] = useState<'SIMULATION' | 'UNKNOWN'>('UNKNOWN');
@@ -433,6 +435,18 @@ export default function App() {
               <Wallet className="w-3.5 h-3.5 text-slate-300" />
               <span>Tài Chính &amp; Sổ Cái</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                activeTab === 'settings'
+                  ? 'bg-slate-800 text-white font-semibold border border-slate-700 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+              }`}
+            >
+              <Settings className="w-3.5 h-3.5 text-blue-400" />
+              <span>Cấu Hình &amp; Tích Hợp</span>
+            </button>
           </div>
         </nav>
       </div>
@@ -517,6 +531,14 @@ export default function App() {
             ledger={ledger}
             employees={employees}
             agents={customAgents}
+          />
+        )}
+
+        {/* Tab 7: Settings & Integrations */}
+        {activeTab === 'settings' && (
+          <SettingsTab
+            snapshot={snapshot}
+            onSaveNotification={triggerToast}
           />
         )}
       </main>
