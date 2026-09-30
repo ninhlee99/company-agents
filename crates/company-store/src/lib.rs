@@ -3395,17 +3395,18 @@ impl CompanyStore {
             .into_iter()
             .map(|kind| {
                 let daily_limit = controls.budgets.limit(kind);
-                let used = if controls.emergency_stop.enabled {
+                let used = *used_by_kind.get(&kind).unwrap_or(&0);
+                let remaining = if controls.emergency_stop.enabled {
                     0
                 } else {
-                    *used_by_kind.get(&kind).unwrap_or(&0)
+                    daily_limit.saturating_sub(used).max(0)
                 };
                 company_safety_controls::BudgetStatus {
                     kind,
                     period_start_epoch: period,
                     daily_limit,
                     used,
-                    remaining: daily_limit.saturating_sub(used).max(0),
+                    remaining,
                 }
             })
             .collect())
