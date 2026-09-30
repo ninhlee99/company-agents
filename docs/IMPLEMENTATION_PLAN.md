@@ -24,7 +24,7 @@
 - Capability matrix, context envelope, proposal validation, Tool Registry, durable memory and rate limits.
 - Durable scheduler/journal/outbox and operational CI/recovery gates.
 
-**Next acceptance work:** run distributed observability, load and chaos tests on the target deployment topology.
+**Next acceptance work:** extend restart smoke into target-topology load/chaos runs and distributed tracing acceptance.
 
 ## Phase 4 — Agents
 **Status: implemented and safety-tested**
@@ -58,7 +58,7 @@ Durable media jobs, sandboxed FFmpeg, FFprobe QA and publishing approval contrac
 **Status: controlled runtime implemented**
 Proposal → Governor → bounded execution, durable audit, replay-safe scheduling and explicit external-side-effect gates are active.
 
-**Next acceptance work:** production-like restart/chaos validation and real account acceptance tests.
+**Next acceptance work:** broaden restart/chaos to target production topology and complete real account acceptance tests.
 
 ## Phase 9 — Portfolio Company
 **Status: foundations implemented; autonomous portfolio control gated**
