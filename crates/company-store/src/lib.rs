@@ -303,6 +303,15 @@ async fn enqueue_company_event_tx(
     Ok(inserted == 1)
 }
 
+fn publish_completion_correlation_id(identity: &str) -> Uuid {
+    let digest = Sha256::digest(identity.as_bytes());
+    Uuid::from_bytes(
+        digest[..16]
+            .try_into()
+            .expect("sha256 digest always has at least 16 bytes"),
+    )
+}
+
 fn conversion_correlation_id(conversion_id: &str) -> Uuid {
     let digest = Sha256::digest(conversion_id.as_bytes());
     Uuid::from_bytes(
@@ -3411,24 +3420,24 @@ impl CompanyStore {
                 )
                 .await?;
             if changed > 0 {
-                tx.execute(
-                    "INSERT INTO outbox_events
-                     (company_id,event_type,aggregate_id,idempotency_key,payload)
-                     VALUES ($1,'PUBLISH_INTENT_COMPLETED',$2,$3,$4)
-                     ON CONFLICT (company_id,idempotency_key) DO NOTHING",
-                    &[
-                        &company_uuid,
-                        &publish_id,
-                        &format!("outbox:tiktok-webhook:{event_key}"),
-                        &serde_json::json!({
-                            "event": event_name,
-                            "publish_id": publish_id,
-                            "success": success,
-                            "error_message": error_message,
-                        }),
-                    ],
-                )
-                .await?;
+                let publish_event = company_domain::CompanyEventEnvelope::new(
+                    company_uuid,
+                    company_domain::CompanyEventType::PublishIntentCompleted,
+                    "publish_intent",
+                    None,
+                    time::OffsetDateTime::now_utc().unix_timestamp(),
+                    publish_completion_correlation_id(&format!("webhook:{event_key}")),
+                    None,
+                    format!("outbox:tiktok-webhook:{event_key}"),
+                    serde_json::json!({
+                        "source": "tiktok_webhook",
+                        "event": event_name,
+                        "publish_id": publish_id,
+                        "success": success,
+                        "error_message": error_message,
+                    }),
+                )?;
+                enqueue_company_event_tx(&tx, &publish_event).await?;
             }
         }
 
@@ -3488,24 +3497,28 @@ impl CompanyStore {
             return Err("publish execution token is invalid or lease is no longer owned".into());
         }
 
-        tx.execute(
-            "INSERT INTO outbox_events
-             (company_id,event_type,aggregate_id,idempotency_key,payload)
-             VALUES ($1,'PUBLISH_INTENT_COMPLETED',$2,$3,$4)
-             ON CONFLICT (company_id,idempotency_key) DO NOTHING",
-            &[
-                &company_uuid,
-                &intent_id,
-                &format!("outbox:publish-completed:{intent_id}:{final_status}:{external_reference.unwrap_or("")}"),
-                &serde_json::json!({
-                    "intent_id": intent_id,
-                    "status": final_status,
-                    "external_reference": external_reference,
-                    "error": error_message,
-                }),
-            ],
-        )
-        .await?;
+        let completion_key = format!(
+            "publish-completed:{intent_id}:{final_status}:{}",
+            external_reference.unwrap_or("")
+        );
+        let publish_event = company_domain::CompanyEventEnvelope::new(
+            company_uuid,
+            company_domain::CompanyEventType::PublishIntentCompleted,
+            "publish_intent",
+            Some(intent_uuid),
+            time::OffsetDateTime::now_utc().unix_timestamp(),
+            publish_completion_correlation_id(intent_id),
+            None,
+            format!("outbox:{completion_key}"),
+            serde_json::json!({
+                "source": "publish_execution",
+                "intent_id": intent_id,
+                "status": final_status,
+                "external_reference": external_reference,
+                "error": error_message,
+            }),
+        )?;
+        enqueue_company_event_tx(&tx, &publish_event).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -10480,6 +10493,39 @@ mod customer_intelligence_tests {
         assert_eq!(collection_rate_bps(0, 0), 0);
         assert_eq!(collection_rate_bps(100, 50), 5_000);
         assert_eq!(collection_rate_bps(100, 120), 10_000);
+    }
+}
+
+#[cfg(test)]
+mod publish_intent_completed_event_tests {
+    use super::*;
+
+    #[test]
+    fn publish_completion_event_keeps_external_outcome_evidence() {
+        let company = Uuid::from_u128(71);
+        let intent = Uuid::from_u128(72);
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::PublishIntentCompleted,
+            "publish_intent",
+            Some(intent),
+            1_800_000_400,
+            publish_completion_correlation_id(&intent.to_string()),
+            None,
+            "outbox:publish-completed:72:SUCCEEDED:publish-99",
+            serde_json::json!({
+                "source": "publish_execution",
+                "intent_id": intent,
+                "status": "SUCCEEDED",
+                "external_reference": "publish-99"
+            }),
+        ).unwrap();
+
+        assert_eq!(event.event_type_name(), "PUBLISH_INTENT_COMPLETED");
+        assert_eq!(event.aggregate_id, Some(intent));
+        assert_eq!(event.payload["external_reference"], "publish-99");
+        assert_eq!(event.payload["status"], "SUCCEEDED");
+        assert_eq!(event.idempotency_key, "outbox:publish-completed:72:SUCCEEDED:publish-99");
     }
 }
 
