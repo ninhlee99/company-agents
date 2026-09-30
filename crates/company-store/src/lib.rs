@@ -456,6 +456,105 @@ impl CompanyStore {
             .await
     }
 
+    pub async fn record_revenue_graph_edge(
+        &self,
+        edge: &company_revenue_graph::RevenueGraphEdge,
+    ) -> Result<company_revenue_graph::RevenueGraphEdge, Box<dyn std::error::Error + Send + Sync>> {
+        company_revenue_graph::validate_edge(edge).map_err(|error| error.to_string())?;
+        let company = edge.company_id;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let stored = record_revenue_graph_edge_tx(&tx, edge).await?;
+        tx.commit().await?;
+        Ok(stored)
+    }
+
+    pub async fn revenue_graph_lineage(
+        &self,
+        company_id: &str,
+        root_type: company_revenue_graph::RevenueNodeType,
+        root_ref: &str,
+        max_depth: i32,
+        limit: i64,
+    ) -> Result<Vec<(i32, company_revenue_graph::RevenueGraphEdge)>, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        if root_ref.trim().is_empty() || root_ref.len() > 512 {
+            return Err("revenue graph root_ref is invalid".into());
+        }
+        if !(0..=12).contains(&max_depth) || !(1..=500).contains(&limit) {
+            return Err("revenue graph depth/limit is outside safe bounds".into());
+        }
+        let client = self.client.lock().await;
+        let rows = client.query(
+            "WITH RECURSIVE walk AS (
+                SELECT e.id,e.company_id,e.edge_key,e.from_type,e.from_ref,e.relation,
+                       e.to_type,e.to_ref,e.value_minor::text,e.currency,e.confidence_bps,
+                       e.evidence_ref,e.source,e.observed_at_epoch,e.created_at::text,
+                       0::int AS depth,
+                       ARRAY[(e.from_type || ':' || e.from_ref),(e.to_type || ':' || e.to_ref)] AS visited
+                  FROM revenue_graph_edges e
+                 WHERE e.company_id=$1
+                   AND e.from_type=$2
+                   AND e.from_ref=$3
+                UNION ALL
+                SELECT e.id,e.company_id,e.edge_key,e.from_type,e.from_ref,e.relation,
+                       e.to_type,e.to_ref,e.value_minor::text,e.currency,e.confidence_bps,
+                       e.evidence_ref,e.source,e.observed_at_epoch,e.created_at::text,
+                       w.depth + 1,
+                       w.visited || (e.to_type || ':' || e.to_ref)
+                  FROM walk w
+                  JOIN revenue_graph_edges e
+                    ON e.company_id=w.company_id
+                   AND e.from_type=w.to_type
+                   AND e.from_ref=w.to_ref
+                 WHERE w.depth < $4
+                   AND NOT ((e.to_type || ':' || e.to_ref) = ANY(w.visited))
+            )
+            SELECT id,company_id,edge_key,from_type,from_ref,relation,to_type,to_ref,
+                   value_minor,currency,confidence_bps,evidence_ref,source,observed_at_epoch,
+                   created_at,depth
+              FROM walk
+             ORDER BY depth ASC,observed_at_epoch DESC,created_at DESC
+             LIMIT $5",
+            &[
+                &company,
+                &company_revenue_graph::RevenueNodeType::as_str(root_type),
+                &root_ref.trim(),
+                &max_depth,
+                &limit,
+            ],
+        ).await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok((
+                    row.get::<_, i32>(15),
+                    revenue_graph_edge_from_row(row)?,
+                ))
+            })
+            .collect()
+    }
+
+    pub async fn revenue_graph_summary(
+        &self,
+        company_id: &str,
+    ) -> Result<RevenueGraphSummary, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client.query_one(
+            "SELECT COUNT(*)::bigint,
+                    COUNT(*) FILTER (WHERE value_minor IS NOT NULL)::bigint,
+                    MAX(observed_at_epoch)
+               FROM revenue_graph_edges
+              WHERE company_id=$1",
+            &[&company],
+        ).await?;
+        Ok(RevenueGraphSummary {
+            edge_count: row.get(0),
+            value_backed_edge_count: row.get(1),
+            latest_observed_at_epoch: row.get(2),
+        })
+    }
+
     pub async fn record_policy_snapshot(
         &self,
         snapshot: &company_compliance::PolicySnapshot,
