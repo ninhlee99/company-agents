@@ -641,6 +641,13 @@ small,.muted{{color:#94a3b8}} code{{background:#f3f3f3;padding:2px 4px}}
 .cc-alert.opportunity strong{{color:#67e8f9}}
 .cc-alert.healthy strong{{color:#86efac}}
 .cc-footer{{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #273550;font-size:12px;color:#94a3b8}}
+.evaluation-table{{width:100%;border-collapse:collapse}}
+.evaluation-table th,.evaluation-table td{{padding:10px 8px;border-bottom:1px solid #273550;text-align:left;font-size:13px;vertical-align:top}}
+.evaluation-table th{{color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:.08em}}
+.evaluation-status{{font-weight:800}}
+.evaluation-status.insufficient{{color:#fbbf24}}
+.evaluation-status.partial{{color:#67e8f9}}
+.evaluation-status.evaluated{{color:#86efac}}
 nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;text-decoration:none;padding:8px 10px;border-radius:8px}} nav a:hover{{background:#171e30;color:#fff}}
 @media(max-width:1050px){{.cc-kpis{{grid-template-columns:repeat(3,minmax(0,1fr))}}.cc-body{{grid-template-columns:repeat(2,minmax(0,1fr))}}.cc-alerts{{grid-template-columns:1fr}}}}
 @media(max-width:800px){{.grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}.cc-head{{flex-direction:column}}.cc-trend{{align-items:flex-start}}}}
