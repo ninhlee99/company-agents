@@ -487,20 +487,20 @@ mod tests {
         let results = vec![
             AgentRunResult {
                 agent: AgentRole::Experiment,
-                proposal: governed(ActionKind::CreateExperiment, 800).proposal.clone(),
-                governance: Some(governed(ActionKind::CreateExperiment, 800)),
+                proposal: governed(ActionKind::CreateExperiment, 400).proposal.clone(),
+                governance: Some(governed(ActionKind::CreateExperiment, 400)),
             },
             AgentRunResult {
-                agent: AgentRole::Growth,
-                proposal: governed(ActionKind::CreateExperiment, 800).proposal.clone(),
-                governance: Some(governed(ActionKind::CreateExperiment, 800)),
+                agent: AgentRole::Experiment,
+                proposal: governed(ActionKind::CreateExperiment, 400).proposal.clone(),
+                governance: Some(governed(ActionKind::CreateExperiment, 400)),
             },
         ];
         let batch = execute_approved_results(
             snapshot(),
             &results,
             ExecutionPolicy {
-                max_spend_per_cycle_minor: 1_000,
+                max_spend_per_cycle_minor: 600,
             },
         )
         .unwrap();
