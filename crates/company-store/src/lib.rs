@@ -7842,9 +7842,17 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         company_id: &str,
         intent_id: &str,
     ) -> Result<PaymentExecutionIntentRecord, Box<dyn std::error::Error + Send + Sync>> {
-        if !parse_bool_env("PAYMENT_EXECUTION_SIMULATION", false) {
+        let production_environment = ["NODE_ENV", "RUST_ENV", "APP_ENV", "ENVIRONMENT"]
+            .iter()
+            .filter_map(|name| std::env::var(name).ok())
+            .any(|value| value.trim().eq_ignore_ascii_case("production"));
+
+        if !payment_simulation_allowed(
+            parse_bool_env("PAYMENT_EXECUTION_SIMULATION", false),
+            production_environment,
+        ) {
             return Err(
-                "simulated payment execution is disabled; set PAYMENT_EXECUTION_SIMULATION=true only in a non-production acceptance environment"
+                "simulated payment execution is disabled in production; enable PAYMENT_EXECUTION_SIMULATION only in a non-production acceptance environment"
                     .into(),
             );
         }
@@ -9977,6 +9985,10 @@ fn content_record_from_row(
     company_content::validate_item(&item).map_err(|error| error.to_string())?;
     Ok(ContentRecord { item, created_at: row.get(28) })
 }
+fn payment_simulation_allowed(simulation_enabled: bool, production_environment: bool) -> bool {
+    simulation_enabled && !production_environment
+}
+
 fn parse_bool_env(name: &str, default: bool) -> bool {
     match std::env::var(name) {
         Ok(value) => match value.trim().to_ascii_lowercase().as_str() {
