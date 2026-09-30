@@ -7806,6 +7806,33 @@ fn safety_controls_from_row(
     Ok(controls)
 }
 
+fn tiktok_connection_from_row(
+    company_id: Uuid,
+    row: &tokio_postgres::Row,
+) -> Result<TikTokConnectionRecord, Box<dyn std::error::Error + Send + Sync>> {
+    let access_expires = row
+        .get::<_, Option<i64>>(3)
+        .ok_or("TikTok access token expiry is unavailable")?;
+    let refresh_expires = row
+        .get::<_, Option<i64>>(4)
+        .ok_or("TikTok refresh token expiry is unavailable")?;
+    let status: String = row.get(5);
+    if !matches!(status.as_str(), "ACTIVE" | "REVOKED" | "REAUTH_REQUIRED") {
+        return Err("invalid stored TikTok OAuth status".into());
+    }
+    Ok(TikTokConnectionRecord {
+        company_id,
+        open_id: row.get(0),
+        scopes: row.get(1),
+        token_type: row.get(2),
+        access_token_expires_at_epoch: access_expires,
+        refresh_token_expires_at_epoch: refresh_expires,
+        status,
+        last_error: row.get(6),
+        updated_at: row.get(7),
+    })
+}
+
 fn growth_opportunity_from_row(
     row: tokio_postgres::Row,
 ) -> Result<GrowthOpportunityRecord, Box<dyn std::error::Error + Send + Sync>> {
