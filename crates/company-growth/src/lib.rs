@@ -209,7 +209,6 @@ pub fn match_creators_to_products(
     Ok(results)
 }
 
-
 pub fn evaluate_content_whitespace(
     observations: &[CompetitorObservation],
     owned_coverage: &[OwnedContentCoverage],
