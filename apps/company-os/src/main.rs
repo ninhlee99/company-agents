@@ -1655,7 +1655,12 @@ async fn build_integration_readiness(
         && std::env::var("RESEND_FROM")
             .ok()
             .is_some_and(|v| !v.trim().is_empty());
+    let production_environment = ["NODE_ENV", "RUST_ENV", "APP_ENV", "ENVIRONMENT"]
+        .iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .any(|value| value.trim().eq_ignore_ascii_case("production"));
     let payment_execution_simulation = parse_bool_env("PAYMENT_EXECUTION_SIMULATION", false);
+    let payment_simulation_allowed = payment_execution_simulation && !production_environment;
 
     let browser_session = std::env::var("CONTROL_PLANE_BROWSER_SECRET")
         .ok()
@@ -1717,17 +1722,21 @@ async fn build_integration_readiness(
         live,
         IntegrationReadiness {
             key: "payment_execution".into(),
-            status: if payment_execution_simulation {
+            status: if payment_simulation_allowed {
                 "SIMULATION_ONLY"
+            } else if payment_execution_simulation && production_environment {
+                "GATED"
             } else {
                 "GATED"
             }
             .into(),
-            configured: payment_execution_simulation,
+            configured: payment_simulation_allowed,
             authenticated: false,
             evidence_fresh: false,
-            reason: if payment_execution_simulation {
+            reason: if payment_simulation_allowed {
                 "Only provider=mock is executable in this boundary; no external funds move and invoice accounting remains unchanged.".into()
+            } else if payment_execution_simulation && production_environment {
+                "Simulation is configured but blocked because this process is running in a production environment.".into()
             } else {
                 "Payment execution is gated. Enable PAYMENT_EXECUTION_SIMULATION only for non-production acceptance; real settlement adapters are not enabled.".into()
             },
