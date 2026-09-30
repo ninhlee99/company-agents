@@ -1070,6 +1070,7 @@ impl CompanyStore {
             return Err("agent outcome evidence identity is invalid".into());
         }
         let company = Uuid::parse_str(company_id)?;
+        let evidence_ref = evidence_ref.trim();
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
 
