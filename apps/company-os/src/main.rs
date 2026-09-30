@@ -3219,6 +3219,7 @@ struct ControlPlanePrincipalConfig {
     id: String,
     role: String,
     token: String,
+    company_id: Option<uuid::Uuid>,
 }
 
 fn parse_control_plane_principals(raw: &str) -> Result<Vec<ControlPlanePrincipalConfig>, String> {
@@ -3233,6 +3234,9 @@ fn parse_control_plane_principals(raw: &str) -> Result<Vec<ControlPlanePrincipal
         }
         if principal.token.is_empty() {
             return Err(format!("control-plane principal {} has an empty token", principal.id));
+        }
+        if principal.company_id.is_none() {
+            return Err(format!("control-plane principal {} must declare company_id", principal.id));
         }
         if !matches!(principal.role.as_str(), "admin" | "operator" | "read-only") {
             return Err(format!("control-plane principal {} has unsupported role", principal.id));
@@ -3261,6 +3265,7 @@ fn control_plane_principals(
             id: "legacy-operator".into(),
             role: "operator".into(),
             token: operator_token.to_owned(),
+            company_id: None,
         });
     }
     if let Some(read_token) = read_token.filter(|value| !value.is_empty()) {
@@ -3268,6 +3273,7 @@ fn control_plane_principals(
             id: "legacy-read-only".into(),
             role: "read-only".into(),
             token: read_token.to_owned(),
+            company_id: None,
         });
     }
     if let Ok(admin_token) = std::env::var("CONTROL_PLANE_ADMIN_TOKEN") {
@@ -3276,6 +3282,7 @@ fn control_plane_principals(
                 id: "legacy-admin".into(),
                 role: "admin".into(),
                 token: admin_token,
+                company_id: None,
             });
         }
     }
@@ -3286,6 +3293,7 @@ fn control_plane_principals(
 }
 
 fn control_plane_auth_principal_from(
+    company_id: uuid::Uuid,
     method: &str,
     provided: Option<&str>,
     principals: &[ControlPlanePrincipalConfig],
@@ -3296,6 +3304,9 @@ fn control_plane_auth_principal_from(
     };
 
     for principal in principals {
+        if principal.company_id.is_some_and(|bound_company| bound_company != company_id) {
+            continue;
+        }
         if bool::from(principal.token.as_bytes().ct_eq(provided.as_bytes())) {
             let role = match principal.role.as_str() {
                 "admin" => "admin",
@@ -3312,22 +3323,24 @@ fn control_plane_auth_principal_from(
 }
 
 fn control_plane_auth_principal(
+    company_id: uuid::Uuid,
     method: &str,
     provided: Option<&str>,
     operator_token: &str,
     read_token: Option<&str>,
 ) -> Result<Option<(String, &'static str)>, String> {
     let principals = control_plane_principals(operator_token, read_token)?;
-    control_plane_auth_principal_from(method, provided, &principals)
+    control_plane_auth_principal_from(company_id, method, provided, &principals)
 }
 
 fn control_plane_auth_scope(
+    company_id: uuid::Uuid,
     method: &str,
     provided: Option<&str>,
     operator_token: &str,
     read_token: Option<&str>,
 ) -> Option<&'static str> {
-    control_plane_auth_principal(method, provided, operator_token, read_token)
+    control_plane_auth_principal(company_id, method, provided, operator_token, read_token)
         .ok()
         .flatten()
         .map(|(_, role)| role)
@@ -3495,6 +3508,7 @@ async fn require_control_plane_auth(
         .filter(|value| !value.is_empty());
 
     let (principal_id, role) = match control_plane_auth_principal(
+        state.company_id,
         &method,
         provided,
         &operator_token,
@@ -3796,27 +3810,47 @@ mod control_plane_audit_tests {
 
     #[test]
     fn named_principal_config_validates_and_scopes_roles() {
-        let raw = r#"[{"id":"alice","role":"admin","token":"admin-secret"},{"id":"bob","role":"operator","token":"operator-secret"},{"id":"carol","role":"read-only","token":"reader-secret"}]"#;
-        let principals = parse_control_plane_principals(raw).unwrap();
+        let company_id = uuid::Uuid::new_v4();
+        let other_company_id = uuid::Uuid::new_v4();
+        let raw = format!(
+            r#"[{{"id":"alice","role":"admin","token":"admin-secret","company_id":"{company_id}"}},{{"id":"bob","role":"operator","token":"operator-secret","company_id":"{company_id}"}},{{"id":"carol","role":"read-only","token":"reader-secret","company_id":"{company_id}"}}]"#
+        );
+        let principals = parse_control_plane_principals(&raw).unwrap();
         assert_eq!(principals.len(), 3);
         assert_eq!(
-            control_plane_auth_principal_from("POST", Some("admin-secret"), &principals)
-                .unwrap(),
+            control_plane_auth_principal_from(
+                company_id,
+                "POST",
+                Some("admin-secret"),
+                &principals
+            ).unwrap(),
             Some(("alice".into(), "admin"))
         );
         assert_eq!(
-            control_plane_auth_principal_from("POST", Some("operator-secret"), &principals)
-                .unwrap(),
-            Some(("bob".into(), "operator"))
-        );
-        assert_eq!(
-            control_plane_auth_principal_from("GET", Some("reader-secret"), &principals)
-                .unwrap(),
+            control_plane_auth_principal_from(
+                company_id,
+                "GET",
+                Some("reader-secret"),
+                &principals
+            ).unwrap(),
             Some(("carol".into(), "read-only"))
         );
         assert_eq!(
-            control_plane_auth_principal_from("POST", Some("reader-secret"), &principals)
-                .unwrap(),
+            control_plane_auth_principal_from(
+                company_id,
+                "POST",
+                Some("reader-secret"),
+                &principals
+            ).unwrap(),
+            None
+        );
+        assert_eq!(
+            control_plane_auth_principal_from(
+                other_company_id,
+                "POST",
+                Some("admin-secret"),
+                &principals
+            ).unwrap(),
             None
         );
     }
@@ -3824,9 +3858,10 @@ mod control_plane_audit_tests {
     #[test]
     fn malformed_or_ambiguous_named_principal_config_fails_closed() {
         assert!(parse_control_plane_principals("{bad-json").is_err());
-        assert!(parse_control_plane_principals(r#"[{"id":"x","role":"root","token":"secret"}]"#).is_err());
-        assert!(parse_control_plane_principals(r#"[{"id":"x","role":"operator","token":"secret"},{"id":"x","role":"admin","token":"other"}]"#).is_err());
-        assert!(parse_control_plane_principals(r#"[{"id":"x","role":"operator","token":"secret"},{"id":"y","role":"admin","token":"secret"}]"#).is_err());
+        assert!(parse_control_plane_principals(r#"[{"id":"x","role":"root","token":"secret","company_id":"00000000-0000-0000-0000-000000000001"}]"#).is_err());
+        assert!(parse_control_plane_principals(r#"[{"id":"x","role":"operator","token":"secret","company_id":"00000000-0000-0000-0000-000000000001"},{"id":"x","role":"admin","token":"other","company_id":"00000000-0000-0000-0000-000000000001"}]"#).is_err());
+        assert!(parse_control_plane_principals(r#"[{"id":"x","role":"operator","token":"secret","company_id":"00000000-0000-0000-0000-000000000001"},{"id":"y","role":"admin","token":"secret","company_id":"00000000-0000-0000-0000-000000000001"}]"#).is_err());
+        assert!(parse_control_plane_principals(r#"[{"id":"x","role":"operator","token":"secret"}]"#).is_err());
     }
 
 

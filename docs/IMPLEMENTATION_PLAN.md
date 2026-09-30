@@ -57,6 +57,8 @@ Durable media jobs, sandboxed FFmpeg, FFprobe QA and publishing approval contrac
 
 - Control-plane RBAC baseline: named config-driven principals (`admin`/`operator`/`read-only`) are supported; SSO/directory identity and durable user lifecycle remain outside the current scope.
 
+- Tenant binding baseline: named control-plane principals are explicitly company-scoped; legacy shared-token compatibility and deployment-scoped tenancy remain.
+
 ## Phase 8 — Controlled Autonomy
 **Status: controlled runtime implemented**
 Proposal → Governor → bounded execution, durable audit, replay-safe scheduling and explicit external-side-effect gates are active.
