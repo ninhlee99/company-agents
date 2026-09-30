@@ -191,6 +191,14 @@ pub fn plan(
     policy: &CapitalPolicy,
     candidates: &[CapitalCandidate],
 ) -> Result<CapitalAllocationPlan, String> {
+    plan_with_id(Uuid::new_v4(), policy, candidates)
+}
+
+pub fn plan_with_id(
+    plan_id: Uuid,
+    policy: &CapitalPolicy,
+    candidates: &[CapitalCandidate],
+) -> Result<CapitalAllocationPlan, String> {
     validate_policy(policy)?;
     let mut candidates = candidates.to_vec();
     for candidate in &candidates {
@@ -235,7 +243,7 @@ pub fn plan(
 
     let planned_capital_minor = total_capital_minor.saturating_sub(remaining);
     Ok(CapitalAllocationPlan {
-        plan_id: Uuid::new_v4(),
+        plan_id,
         total_capital_minor,
         planned_capital_minor,
         unallocated_minor: remaining,
