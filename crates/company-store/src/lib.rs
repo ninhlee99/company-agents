@@ -88,6 +88,26 @@ pub struct CeoCommandCenterRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PaymentExecutionIntentRecord {
+    pub id: Uuid,
+    pub company_id: Uuid,
+    pub invoice_id: Uuid,
+    pub amount_minor: i128,
+    pub currency: String,
+    pub provider: String,
+    pub payment_method_ref: String,
+    pub status: String,
+    pub approval_reference: Option<String>,
+    pub approved_by: Option<String>,
+    pub approved_at_epoch: Option<i64>,
+    pub submitted_at_epoch: Option<i64>,
+    pub completed_at_epoch: Option<i64>,
+    pub provider_execution_ref: Option<String>,
+    pub failure_reason: Option<String>,
+    pub idempotency_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GrowthOpportunityRecord {
     pub opportunity: company_growth::Opportunity,
     pub status: company_growth::OpportunityStatus,
@@ -7634,6 +7654,397 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         tx.commit().await?; Ok(())
     }
 
+    pub async fn create_payment_execution_intent(
+        &self,
+        company_id: &str,
+        invoice_id: &str,
+        amount_minor: i128,
+        currency: &str,
+        provider: &str,
+        payment_method_ref: &str,
+        idempotency_key: &str,
+    ) -> Result<PaymentExecutionIntentRecord, Box<dyn std::error::Error + Send + Sync>> {
+        if amount_minor <= 0
+            || currency.len() != 3
+            || provider.trim().is_empty()
+            || payment_method_ref.trim().is_empty()
+            || idempotency_key.trim().is_empty()
+        {
+            return Err("invalid payment execution intent".into());
+        }
+        if payment_method_ref.len() > 256 || provider.len() > 128 || idempotency_key.len() > 256 {
+            return Err("payment execution field is too long".into());
+        }
+
+        let company = Uuid::parse_str(company_id)?;
+        let invoice = Uuid::parse_str(invoice_id)?;
+        let currency = currency.to_ascii_uppercase();
+        let provider = provider.trim().to_owned();
+        let payment_method_ref = payment_method_ref.trim().to_owned();
+
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        if let Some(row) = tx
+            .query_opt(
+                "SELECT id,company_id,invoice_id,amount_minor::text,currency,provider,payment_method_ref,status,
+                        approval_reference,approved_by,approved_at_epoch,submitted_at_epoch,completed_at_epoch,
+                        provider_execution_ref,failure_reason,idempotency_key
+                   FROM payment_execution_intents
+                  WHERE company_id=$1 AND idempotency_key=$2",
+                &[&company, &idempotency_key],
+            )
+            .await?
+        {
+            tx.rollback().await?;
+            return payment_execution_record_from_row(&row);
+        }
+
+        let invoice_row = tx
+            .query_opt(
+                "SELECT subtotal_minor::text,paid_minor::text,currency,status
+                   FROM invoices
+                  WHERE company_id=$1 AND id=$2
+                  FOR UPDATE",
+                &[&company, &invoice],
+            )
+            .await?
+            .ok_or("invoice not found")?;
+        let total = parse_i128_numeric(&invoice_row.get::<_, String>(0))?;
+        let paid = parse_i128_numeric(&invoice_row.get::<_, String>(1))?;
+        let invoice_currency: String = invoice_row.get(2);
+        let invoice_status: String = invoice_row.get(3);
+        if invoice_currency != currency {
+            return Err("payment execution currency does not match invoice".into());
+        }
+        if !matches!(invoice_status.as_str(), "ISSUED" | "PARTIALLY_PAID") {
+            return Err("invoice is not eligible for payment execution".into());
+        }
+        let remaining = total.checked_sub(paid).ok_or("invoice remaining overflow")?;
+        if amount_minor > remaining {
+            return Err("payment execution exceeds invoice remaining balance".into());
+        }
+
+        let id = Uuid::new_v4();
+        tx.execute(
+            "INSERT INTO payment_execution_intents
+             (id,company_id,invoice_id,amount_minor,currency,provider,payment_method_ref,status,idempotency_key)
+             VALUES ($1,$2,$3,$4::numeric,$5,$6,$7,'PENDING_APPROVAL',$8)",
+            &[
+                &id,
+                &company,
+                &invoice,
+                &amount_minor.to_string(),
+                &currency,
+                &provider,
+                &payment_method_ref,
+                &idempotency_key,
+            ],
+        )
+        .await?;
+        tx.commit().await?;
+
+        Ok(PaymentExecutionIntentRecord {
+            id,
+            company_id: company,
+            invoice_id: invoice,
+            amount_minor,
+            currency,
+            provider,
+            payment_method_ref,
+            status: "PENDING_APPROVAL".into(),
+            approval_reference: None,
+            approved_by: None,
+            approved_at_epoch: None,
+            submitted_at_epoch: None,
+            completed_at_epoch: None,
+            provider_execution_ref: None,
+            failure_reason: None,
+            idempotency_key: idempotency_key.to_owned(),
+        })
+    }
+
+    pub async fn approve_payment_execution_intent(
+        &self,
+        company_id: &str,
+        intent_id: &str,
+        approved_by: &str,
+        approval_reference: &str,
+        approved_at_epoch: i64,
+    ) -> Result<PaymentExecutionIntentRecord, Box<dyn std::error::Error + Send + Sync>> {
+        if approved_by.trim().is_empty()
+            || approval_reference.trim().is_empty()
+            || approved_at_epoch <= 0
+        {
+            return Err("invalid payment execution approval".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let intent = Uuid::parse_str(intent_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        let row = tx
+            .query_opt(
+                "SELECT id,company_id,invoice_id,amount_minor::text,currency,provider,payment_method_ref,status,
+                        approval_reference,approved_by,approved_at_epoch,submitted_at_epoch,completed_at_epoch,
+                        provider_execution_ref,failure_reason,idempotency_key
+                   FROM payment_execution_intents
+                  WHERE company_id=$1 AND id=$2
+                  FOR UPDATE",
+                &[&company, &intent],
+            )
+            .await?
+            .ok_or("payment execution intent not found")?;
+        let status: String = row.get(7);
+        if status == "APPROVED" {
+            tx.rollback().await?;
+            return payment_execution_record_from_row(&row);
+        }
+        if status != "PENDING_APPROVAL" {
+            return Err("payment execution intent is not awaiting approval".into());
+        }
+
+        tx.execute(
+            "UPDATE payment_execution_intents
+                SET status='APPROVED',
+                    approval_reference=$3,
+                    approved_by=$4,
+                    approved_at_epoch=$5,
+                    updated_at=now()
+              WHERE company_id=$1 AND id=$2",
+            &[
+                &company,
+                &intent,
+                &approval_reference.trim(),
+                &approved_by.trim(),
+                &approved_at_epoch,
+            ],
+        )
+        .await?;
+
+        let updated = tx
+            .query_one(
+                "SELECT id,company_id,invoice_id,amount_minor::text,currency,provider,payment_method_ref,status,
+                        approval_reference,approved_by,approved_at_epoch,submitted_at_epoch,completed_at_epoch,
+                        provider_execution_ref,failure_reason,idempotency_key
+                   FROM payment_execution_intents
+                  WHERE company_id=$1 AND id=$2",
+                &[&company, &intent],
+            )
+            .await?;
+        let record = payment_execution_record_from_row(&updated)?;
+        tx.commit().await?;
+        Ok(record)
+    }
+
+    pub async fn execute_payment_execution_intent(
+        &self,
+        company_id: &str,
+        intent_id: &str,
+    ) -> Result<PaymentExecutionIntentRecord, Box<dyn std::error::Error + Send + Sync>> {
+        let production_environment = ["NODE_ENV", "RUST_ENV", "APP_ENV", "ENVIRONMENT"]
+            .iter()
+            .filter_map(|name| std::env::var(name).ok())
+            .any(|value| value.trim().eq_ignore_ascii_case("production"));
+
+        if !payment_simulation_allowed(
+            parse_bool_env("PAYMENT_EXECUTION_SIMULATION", false),
+            production_environment,
+        ) {
+            return Err(
+                "simulated payment execution is disabled in production; enable PAYMENT_EXECUTION_SIMULATION only in a non-production acceptance environment"
+                    .into(),
+            );
+        }
+
+        let company = Uuid::parse_str(company_id)?;
+        let intent = Uuid::parse_str(intent_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        let row = tx
+            .query_opt(
+                "SELECT id,company_id,invoice_id,amount_minor::text,currency,provider,payment_method_ref,status,
+                        approval_reference,approved_by,approved_at_epoch,submitted_at_epoch,completed_at_epoch,
+                        provider_execution_ref,failure_reason,idempotency_key
+                   FROM payment_execution_intents
+                  WHERE company_id=$1 AND id=$2
+                  FOR UPDATE",
+                &[&company, &intent],
+            )
+            .await?
+            .ok_or("payment execution intent not found")?;
+
+        let status: String = row.get(7);
+        let provider: String = row.get(5);
+        if status == "SUCCEEDED" {
+            tx.rollback().await?;
+            return payment_execution_record_from_row(&row);
+        }
+        if provider.to_ascii_lowercase() != "mock" {
+            return Err("only provider=mock is available in simulated execution".into());
+        }
+        if status != "APPROVED" {
+            return Err("payment execution intent must be APPROVED before execution".into());
+        }
+
+        let invoice_id: Uuid = row.get(2);
+        let amount_minor = parse_i128_numeric(&row.get::<_, String>(3))?;
+        let currency: String = row.get(4);
+        let invoice_row = tx
+            .query_one(
+                "SELECT subtotal_minor::text,paid_minor::text,currency,status
+                   FROM invoices
+                  WHERE company_id=$1 AND id=$2
+                  FOR UPDATE",
+                &[&company, &invoice_id],
+            )
+            .await?;
+        let total = parse_i128_numeric(&invoice_row.get::<_, String>(0))?;
+        let paid = parse_i128_numeric(&invoice_row.get::<_, String>(1))?;
+        let invoice_currency: String = invoice_row.get(2);
+        let invoice_status: String = invoice_row.get(3);
+        if invoice_currency != currency
+            || !matches!(invoice_status.as_str(), "ISSUED" | "PARTIALLY_PAID")
+            || amount_minor > total.checked_sub(paid).ok_or("invoice remaining overflow")?
+        {
+            return Err("invoice is no longer eligible for simulated payment execution".into());
+        }
+
+        let now = time::OffsetDateTime::now_utc().unix_timestamp();
+        let provider_ref = format!("simulated:{intent}");
+        let mut hasher = Sha256::new();
+        hasher.update(format!("{provider_ref}:{amount_minor}:{currency}").as_bytes());
+        let evidence_hash = format!("{:x}", hasher.finalize());
+
+        tx.execute(
+            "UPDATE payment_execution_intents
+                SET status='SUBMITTED',
+                    submitted_at_epoch=$3,
+                    provider_execution_ref=$4,
+                    updated_at=now()
+              WHERE company_id=$1 AND id=$2",
+            &[&company, &intent, &now, &provider_ref],
+        )
+        .await?;
+
+        tx.execute(
+            "INSERT INTO payment_execution_evidence
+             (id,company_id,intent_id,provider,provider_execution_ref,amount_minor,currency,observed_at_epoch,evidence_hash,status,reason)
+             VALUES ($1,$2,$3,'mock',$4,$5::numeric,$6,$7,$8,'OBSERVED',$9)
+             ON CONFLICT(company_id,provider,provider_execution_ref) DO NOTHING",
+            &[
+                &Uuid::new_v4(),
+                &company,
+                &intent,
+                &provider_ref,
+                &amount_minor.to_string(),
+                &currency,
+                &now,
+                &evidence_hash,
+                &"simulation-only; no external funds moved; invoice remains unpaid",
+            ],
+        )
+        .await?;
+
+        tx.execute(
+            "UPDATE payment_execution_intents
+                SET status='SUCCEEDED',
+                    completed_at_epoch=$3,
+                    updated_at=now()
+              WHERE company_id=$1 AND id=$2",
+            &[&company, &intent, &now],
+        )
+        .await?;
+
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'PAYMENT_EXECUTION_SIMULATED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[
+                &company,
+                &intent,
+                &format!("payment-execution-simulated:{intent}"),
+                &serde_json::json!({
+                    "intent_id": intent,
+                    "provider": "mock",
+                    "provider_execution_ref": provider_ref,
+                    "amount_minor": amount_minor,
+                    "currency": currency,
+                    "simulated": true,
+                    "funds_moved": false,
+                    "invoice_paid": false,
+                    "evidence_hash": evidence_hash
+                }),
+            ],
+        )
+        .await?;
+
+        let updated = tx
+            .query_one(
+                "SELECT id,company_id,invoice_id,amount_minor::text,currency,provider,payment_method_ref,status,
+                        approval_reference,approved_by,approved_at_epoch,submitted_at_epoch,completed_at_epoch,
+                        provider_execution_ref,failure_reason,idempotency_key
+                   FROM payment_execution_intents
+                  WHERE company_id=$1 AND id=$2",
+                &[&company, &intent],
+            )
+            .await?;
+        let record = payment_execution_record_from_row(&updated)?;
+        tx.commit().await?;
+        Ok(record)
+    }
+
+    pub async fn payment_execution_record(
+        &self,
+        company_id: &str,
+        intent_id: &str,
+    ) -> Result<PaymentExecutionIntentRecord, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let intent = Uuid::parse_str(intent_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "SELECT id,company_id,invoice_id,amount_minor::text,currency,provider,payment_method_ref,status,
+                        approval_reference,approved_by,approved_at_epoch,submitted_at_epoch,completed_at_epoch,
+                        provider_execution_ref,failure_reason,idempotency_key
+                   FROM payment_execution_intents
+                  WHERE company_id=$1 AND id=$2",
+                &[&company, &intent],
+            )
+            .await?
+            .ok_or("payment execution intent not found")?;
+        payment_execution_record_from_row(&row)
+    }
+
+    pub async fn list_payment_execution_intents(
+        &self,
+        company_id: &str,
+        limit: i64,
+    ) -> Result<Vec<PaymentExecutionIntentRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=200).contains(&limit) {
+            return Err("payment execution limit must be between 1 and 200".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT id,company_id,invoice_id,amount_minor::text,currency,provider,payment_method_ref,status,
+                        approval_reference,approved_by,approved_at_epoch,submitted_at_epoch,completed_at_epoch,
+                        provider_execution_ref,failure_reason,idempotency_key
+                   FROM payment_execution_intents
+                  WHERE company_id=$1
+                  ORDER BY created_at DESC,id DESC
+                  LIMIT $2",
+                &[&company, &limit],
+            )
+            .await?;
+        rows.iter().map(payment_execution_record_from_row).collect()
+    }
+
+
+
     pub async fn record_payment_reconciliation_evidence(
         &self,
         company_id: &str,
@@ -9484,6 +9895,29 @@ async fn record_revenue_graph_edge_tx(
     Ok(edge.clone())
 }
 
+fn payment_execution_record_from_row(
+    row: &tokio_postgres::Row,
+) -> Result<PaymentExecutionIntentRecord, Box<dyn std::error::Error + Send + Sync>> {
+    Ok(PaymentExecutionIntentRecord {
+        id: row.get(0),
+        company_id: row.get(1),
+        invoice_id: row.get(2),
+        amount_minor: parse_i128_numeric(&row.get::<_, String>(3))?,
+        currency: row.get(4),
+        provider: row.get(5),
+        payment_method_ref: row.get(6),
+        status: row.get(7),
+        approval_reference: row.get(8),
+        approved_by: row.get(9),
+        approved_at_epoch: row.get(10),
+        submitted_at_epoch: row.get(11),
+        completed_at_epoch: row.get(12),
+        provider_execution_ref: row.get(13),
+        failure_reason: row.get(14),
+        idempotency_key: row.get(15),
+    })
+}
+
 fn revenue_graph_edge_from_row(
     row: tokio_postgres::Row,
 ) -> Result<company_revenue_graph::RevenueGraphEdge, Box<dyn std::error::Error + Send + Sync>> {
@@ -9553,6 +9987,21 @@ fn content_record_from_row(
     company_content::validate_item(&item).map_err(|error| error.to_string())?;
     Ok(ContentRecord { item, created_at: row.get(28) })
 }
+fn payment_simulation_allowed(simulation_enabled: bool, production_environment: bool) -> bool {
+    simulation_enabled && !production_environment
+}
+
+fn parse_bool_env(name: &str, default: bool) -> bool {
+    match std::env::var(name) {
+        Ok(value) => match value.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => true,
+            "0" | "false" | "no" | "off" => false,
+            _ => default,
+        },
+        Err(_) => default,
+    }
+}
+
 fn parse_i128_numeric(
     value: &str,
 ) -> Result<i128, Box<dyn std::error::Error + Send + Sync>> {
