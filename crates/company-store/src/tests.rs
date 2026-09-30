@@ -60,6 +60,87 @@ async fn connect_store() -> Option<CompanyStore> {
 }
 
 #[tokio::test]
+async fn payment_execution_intent_is_idempotent_approval_gated_and_non_accounting() {
+    let Some(store) = connect_store().await else { return; };
+
+    let company_id = uuid::Uuid::new_v4().to_string();
+    store.ensure_company(&company_id, "Payment Execution Test", "USD").await.unwrap();
+    let customer_id = uuid::Uuid::new_v4();
+
+    store.create_customer(
+        &company_id, customer_id, "Payment Customer", None, None, "ACTIVE", None,
+        "payment-exec-customer",
+    ).await.unwrap();
+
+    let invoice = commercial_sales::Invoice {
+        id: uuid::Uuid::new_v4(),
+        company_id: uuid::Uuid::parse_str(&company_id).unwrap(),
+        customer_id,
+        currency: "USD".into(),
+        subtotal_minor: 10_000,
+        paid_minor: 0,
+        status: commercial_sales::InvoiceStatus::Draft,
+        due_epoch: 1_900_000_000,
+        idempotency_key: "payment-exec-invoice".into(),
+    };
+    let lines = vec![commercial_sales::InvoiceLine {
+        description: "Governed payment test".into(),
+        quantity: 1,
+        unit_price_minor: 10_000,
+    }];
+    store.create_invoice(&invoice, &lines).await.unwrap();
+    store.issue_invoice(&company_id, &invoice.id.to_string()).await.unwrap();
+
+    let first = store.create_payment_execution_intent(
+        &company_id, &invoice.id.to_string(), 2_500, "USD", "mock", "test-method", "payment-execution-1",
+    ).await.unwrap();
+    let second = store.create_payment_execution_intent(
+        &company_id, &invoice.id.to_string(), 9_000, "USD", "mock", "test-method", "payment-execution-1",
+    ).await.unwrap();
+
+    assert_eq!(first.id, second.id);
+    assert_eq!(second.amount_minor, 2_500);
+    assert_eq!(second.status, "PENDING_APPROVAL");
+    assert!(store.execute_payment_execution_intent(&company_id, &first.id.to_string()).await.is_err());
+
+    store.approve_payment_execution_intent(
+        &company_id, &first.id.to_string(), "operator-test", "approval-test-1", 1_900_000_001,
+    ).await.unwrap();
+
+    let executed = store
+        .execute_payment_execution_intent_with_gate(
+            &company_id,
+            &first.id.to_string(),
+            true,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(executed.status, "SUCCEEDED");
+    assert!(executed.provider_execution_ref.as_deref().unwrap_or_default().starts_with("simulated:"));
+
+    let client = store.client.lock().await;
+    let invoice_row = client.query_one(
+        "SELECT paid_minor::text FROM invoices WHERE company_id=$1 AND id=$2",
+        &[&uuid::Uuid::parse_str(&company_id).unwrap(), &invoice.id],
+    ).await.unwrap();
+    assert_eq!(invoice_row.get::<_, String>(0), "0");
+
+    let cash_row = client.query_one(
+        "SELECT COALESCE(SUM(le.debit_minor - le.credit_minor),0)::text
+           FROM ledger_entries le
+           JOIN ledger_accounts la ON la.id=le.account_id
+          WHERE la.company_id=$1 AND la.code='CASH'",
+        &[&uuid::Uuid::parse_str(&company_id).unwrap()],
+    ).await.unwrap();
+    assert_eq!(cash_row.get::<_, String>(0), "0");
+
+    let again = store.execute_payment_execution_intent(&company_id, &first.id.to_string()).await.unwrap();
+    assert_eq!(again.provider_execution_ref, executed.provider_execution_ref);
+    assert_eq!(again.status, "SUCCEEDED");
+}
+
+#[tokio::test]
 async fn postgres_round_trip_is_idempotent_and_persists_authoritative_cycle() {
     let Some(store) = connect_store().await else {
         return;
