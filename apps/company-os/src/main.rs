@@ -4530,6 +4530,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/growth/opportunities", get(growth_opportunities_api))
         .route("/api/growth/content", post(growth_content_api))
         .route("/api/capital/plan", get(latest_capital_plan_api).post(create_capital_plan_api))
+        .route("/api/capital/profit-cockpit", post(profit_cockpit_api))
         .route("/api/compliance/policies", post(policy_snapshot_api))
         .route("/api/compliance/checks", post(compliance_check_api))
         .route("/api/compliance/status", get(compliance_status_api))
