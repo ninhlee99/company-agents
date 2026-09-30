@@ -284,6 +284,13 @@ struct CapitalAllocationRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct ProfitCockpitRequest {
+    budget_minor: i128,
+    policy: company_capital::CapitalPolicy,
+    candidates: Vec<company_capital::CapitalCandidate>,
+}
+
+#[derive(Debug, Deserialize)]
 struct ContentObservationRequest {
     observation: company_content::ContentObservation,
 }
