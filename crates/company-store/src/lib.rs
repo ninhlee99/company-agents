@@ -4003,7 +4003,7 @@ impl CompanyStore {
             )
             .await?;
         if changed == 1 {
-            tx.execute(
+            client.execute(
                 "INSERT INTO audit_log
                  (company_id,actor_type,actor_id,action,resource_type,resource_id,decision,metadata)
                  VALUES ($1,'SYSTEM','tiktok-oauth','TIKTOK_OAUTH_REAUTH_REQUIRED','TIKTOK_CONNECTION',$2,'REAUTH_REQUIRED',$3)",
