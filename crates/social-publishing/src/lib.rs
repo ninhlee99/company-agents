@@ -646,7 +646,7 @@ mod tests {
     fn title_utf16_limit_is_enforced() {
         let approval = ApprovalAuthority::new(vec![1_u8; 32]).unwrap();
         let publisher = TikTokPublisher {
-            access_token: "test".into(),
+            access_token: Some("test".into()),
             api_base: "https://example.invalid".into(),
             client: reqwest::Client::new(),
             approval,
@@ -677,7 +677,7 @@ mod tests {
     fn remote_or_wrong_extension_artifacts_are_rejected() {
         let approval = ApprovalAuthority::new(vec![1_u8; 32]).unwrap();
         let publisher = TikTokPublisher {
-            access_token: "test".into(),
+            access_token: Some("test".into()),
             api_base: "https://example.invalid".into(),
             client: reqwest::Client::new(),
             approval,
