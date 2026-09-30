@@ -7192,6 +7192,53 @@ fn growth_trend_from_row(
     })
 }
 
+async fn load_safety_controls_for_tx(
+    tx: &tokio_postgres::Transaction<'_>,
+    company: Uuid,
+) -> Result<company_safety_controls::SafetyControls, Box<dyn std::error::Error + Send + Sync>> {
+    let row = tx
+        .query_one(
+            "SELECT emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
+                    emergency_stop_changed_at_epoch, content_publish_daily::text,
+                    ads_spend_daily_minor::text, live_minutes_daily::text,
+                    outbound_messages_daily::text, autonomous_capital_daily_minor::text,
+                    updated_at_epoch, updated_at::text
+               FROM autonomy_control_state
+              WHERE company_id=$1
+              FOR SHARE",
+            &[&company],
+        )
+        .await?;
+    safety_controls_from_row(&row, company)
+}
+
+fn safety_controls_from_row(
+    row: &tokio_postgres::Row,
+    company: Uuid,
+) -> Result<company_safety_controls::SafetyControls, Box<dyn std::error::Error + Send + Sync>> {
+    let controls = company_safety_controls::SafetyControls {
+        company_id: company,
+        emergency_stop: company_safety_controls::EmergencyStop {
+            enabled: row.get(0),
+            reason: row.get(1),
+            actor: row.get(2),
+            changed_at_epoch: row.get(3),
+        },
+        budgets: company_safety_controls::AutonomyBudgets {
+            content_publish_daily: parse_i128_numeric(&row.get::<_, String>(4))?,
+            ads_spend_daily_minor: parse_i128_numeric(&row.get::<_, String>(5))?,
+            live_minutes_daily: parse_i128_numeric(&row.get::<_, String>(6))?,
+            outbound_messages_daily: parse_i128_numeric(&row.get::<_, String>(7))?,
+            autonomous_capital_daily_minor: parse_i128_numeric(&row.get::<_, String>(8))?,
+        },
+        updated_at_epoch: row.get(9),
+    };
+    controls
+        .validate()
+        .map_err(|error| error.to_string())?;
+    Ok(controls)
+}
+
 fn growth_opportunity_from_row(
     row: tokio_postgres::Row,
 ) -> Result<GrowthOpportunityRecord, Box<dyn std::error::Error + Send + Sync>> {
