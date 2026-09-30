@@ -495,6 +495,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/043_control_plane_audit_hardening.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/044_company_isolation_hardening.sql"
+            ))
             .await
     }
 
