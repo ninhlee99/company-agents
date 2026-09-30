@@ -149,6 +149,13 @@ struct ContentCreateRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct CapitalAllocationRequest {
+    plan_key: String,
+    policy: company_capital::CapitalPolicy,
+    candidates: Vec<company_capital::CapitalCandidate>,
+}
+
+#[derive(Debug, Deserialize)]
 struct ContentObservationRequest {
     observation: company_content::ContentObservation,
 }
