@@ -6176,16 +6176,22 @@ impl CompanyStore {
             verified_commission_minor,
             verified_at.unwrap_or("")
         );
+        let conversion_digest = Sha256::digest(conversion_id.as_bytes());
+        let correlation_id = Uuid::from_bytes(
+            conversion_digest[..16]
+                .try_into()
+                .expect("sha256 digest always has at least 16 bytes"),
+        );
         let event = company_domain::CompanyEventEnvelope::new(
             company_uuid,
             company_domain::CompanyEventType::CommissionVerified,
             "affiliate_conversion",
-            Uuid::parse_str(conversion_id).ok(),
+            None,
             verified_at
                 .map(parse_rfc3339_epoch)
                 .transpose()?
                 .unwrap_or_else(|| time::OffsetDateTime::now_utc().unix_timestamp()),
-            Uuid::parse_str(conversion_id).unwrap_or_else(|_| Uuid::new_v4()),
+            correlation_id,
             None,
             provider_event_key.clone(),
             serde_json::json!({
@@ -10452,8 +10458,8 @@ mod commission_verified_event_tests {
             }),
         ).unwrap();
         assert_eq!(event.event_type_name(), "COMMISSION_VERIFIED");
-        assert_eq!(event.aggregate_id, Some(conversion));
-        assert_eq!(event.correlation_id, conversion);
+        assert_eq!(event.aggregate_id, None);
+        assert_ne!(event.correlation_id, Uuid::nil());
         assert_eq!(event.idempotency_key, provider_event_key);
         assert_eq!(event.payload["verification_source"], "awin");
         assert_eq!(event.payload["verified_commission_minor"], 1250);
