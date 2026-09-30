@@ -2685,7 +2685,6 @@ mod control_plane_audit_tests {
     }
 
     #[test]
-    #[test]
     fn read_only_scope_cannot_mutate() {
         assert_eq!(
             control_plane_auth_scope(
