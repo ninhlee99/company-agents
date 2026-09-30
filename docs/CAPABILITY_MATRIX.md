@@ -147,6 +147,13 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Publishing integration:** when `TIKTOK_OAUTH_ENABLED=true`, Content Posting API calls fetch the current token from the durable store and refresh it when near expiry; the legacy env-token path remains available when OAuth mode is disabled.
 - **External prerequisites:** the TikTok developer app still needs the requested scopes, consent and an exact registered HTTPS redirect URI; Content Posting API production/public posting remains subject to TikTok's app approval/audit rules.
 
+## Affiliate Attribution & Reconciliation
+
+- **Three ledgers stay separate:** provider-reported commission, company-attributed commission, and recorded affiliate payout/cash receipt are exposed independently.
+- **Variance directions:** reported-attributed, attributed-paid, and reported-paid variances are all explicit; no single variance is used as a proxy for the others.
+- **Company scope:** reconciliation queries remain tenant/company scoped and month-to-date by ledger/provider timestamps.
+- **Lineage:** affiliate graph edges preserve click/order/commission/payout evidence without silently inventing missing campaign/content provenance.
+
 ## Contribution Margin Accounting
 
 - **Authoritative CM:** contribution margin remains `revenue - variable_cost`; category fields are explanatory and are not summed into CM again.

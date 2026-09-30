@@ -148,6 +148,9 @@ pub struct AffiliateReconciliationMetrics {
     pub attributed_commission_mtd_minor: i128,
     pub recorded_payout_mtd_minor: i128,
     pub variance_mtd_minor: i128,
+    pub reported_attributed_variance_mtd_minor: i128,
+    pub attributed_paid_variance_mtd_minor: i128,
+    pub reported_paid_variance_mtd_minor: i128,
     pub conversion_count_mtd: i64,
     pub verified_conversion_count_mtd: i64,
     pub partial_or_rejected_count_mtd: i64,
@@ -1383,11 +1386,18 @@ impl CompanyStore {
 
         let reported = parse_i128_numeric(&row.get::<_, String>(0))?;
         let attributed = parse_i128_numeric(&row.get::<_, String>(1))?;
+        let paid = parse_i128_numeric(&row.get::<_, String>(2))?;
+        let reported_attributed = reported.checked_sub(attributed).ok_or("affiliate reconciliation overflow")?;
+        let attributed_paid = attributed.checked_sub(paid).ok_or("affiliate paid reconciliation overflow")?;
+        let reported_paid = reported.checked_sub(paid).ok_or("affiliate paid reconciliation overflow")?;
         Ok(AffiliateReconciliationMetrics {
             reported_commission_mtd_minor: reported,
             attributed_commission_mtd_minor: attributed,
-            recorded_payout_mtd_minor: parse_i128_numeric(&row.get::<_, String>(2))?,
-            variance_mtd_minor: reported.checked_sub(attributed).ok_or("affiliate reconciliation overflow")?,
+            recorded_payout_mtd_minor: paid,
+            variance_mtd_minor: reported_attributed,
+            reported_attributed_variance_mtd_minor: reported_attributed,
+            attributed_paid_variance_mtd_minor: attributed_paid,
+            reported_paid_variance_mtd_minor: reported_paid,
             conversion_count_mtd: row.get(3),
             verified_conversion_count_mtd: row.get(4),
             partial_or_rejected_count_mtd: row.get(5),

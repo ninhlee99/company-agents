@@ -515,6 +515,9 @@ async fn index(
                 attributed_commission_mtd_minor: 0,
                 recorded_payout_mtd_minor: 0,
                 variance_mtd_minor: 0,
+                reported_attributed_variance_mtd_minor: 0,
+                attributed_paid_variance_mtd_minor: 0,
+                reported_paid_variance_mtd_minor: 0,
                 conversion_count_mtd: 0,
                 verified_conversion_count_mtd: 0,
                 partial_or_rejected_count_mtd: 0,
@@ -906,7 +909,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <div class="card"><small>Runway</small><div class="metric">{} days</div></div>
 </div>
 <div class="card"><small>Contribution margin MTD</small><div class="metric">{}</div><small>{}</small><div class="muted" style="margin-top:8px">platform {} · affiliate commission {} · refunds/cancellations {} · production/AI {} · ads {}</div></div>
-<div class="card"><small>Affiliate reconciliation MTD</small><div class="metric">{}</div><small>variance · reported · attributed · paid: {} · {} · {} · {}</small></div>
+<div class="card"><small>Affiliate reconciliation MTD</small><div class="metric">{}</div><small>reported · attributed · paid: {} · {} · {}</small><div class="muted" style="margin-top:8px">reported-attributed {} · attributed-paid {} · reported-paid {}</div></div>
 <div class="card"><h2>Growth pipeline</h2><p class="muted">Evidence-backed trend signals become scored opportunities before any content plan is created.</p>{}</div>
 {}
 <div class="card"><h2>Capital allocation</h2><p class="muted">Expected contribution, downside, speed, reversibility and evidence are evaluated before any capital movement.</p>{}</div>
@@ -951,6 +954,9 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         format_minor(affiliate_reconciliation.reported_commission_mtd_minor, &state.currency),
         format_minor(affiliate_reconciliation.attributed_commission_mtd_minor, &state.currency),
         format_minor(affiliate_reconciliation.recorded_payout_mtd_minor, &state.currency),
+        format_minor(affiliate_reconciliation.reported_attributed_variance_mtd_minor, &state.currency),
+        format_minor(affiliate_reconciliation.attributed_paid_variance_mtd_minor, &state.currency),
+        format_minor(affiliate_reconciliation.reported_paid_variance_mtd_minor, &state.currency),
         growth_html,
         revenue_graph_html,
         capital_plan_html,
