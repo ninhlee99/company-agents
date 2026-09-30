@@ -3708,9 +3708,9 @@ async fn require_control_plane_auth(
                     .await;
                     let header_value = observe_control_plane_request(&state, &request_id, started);
                     response.headers_mut().insert("x-request-id", header_value);
-        if let Ok(value) = HeaderValue::from_str(&trace_id) {
-            response.headers_mut().insert("x-trace-id", value);
-        }
+                    if let Ok(value) = HeaderValue::from_str(&trace_id) {
+                        response.headers_mut().insert("x-trace-id", value);
+                    }
                     return Ok(response);
                 }
 
@@ -3769,7 +3769,7 @@ async fn require_control_plane_auth(
 
     let actor_id = format!("principal:{principal_id}");
 
-    let mut response = next.run(request).await;
+    let mut response = next.run(request).instrument(span).await;
     record_control_plane_audit(
         &state,
         &actor_id,
