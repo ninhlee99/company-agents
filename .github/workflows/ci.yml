@@ -58,3 +58,22 @@ jobs:
         run: |
           docker build --target media-runtime -t media-worker:ci .
           docker build --target outbox-worker-runtime -t outbox-worker:ci .
+
+  web_smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install web dependencies
+        run: npm install
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Typecheck web
+        run: npm run lint
+      - name: Build web
+        run: npm run build
+      - name: Browser smoke
+        run: npm run test:browser
