@@ -25,6 +25,7 @@ pub enum CompanyEventType {
     ExperimentCompleted,
     AffiliatePayoutSettled,
     AgentDecisionRecorded,
+    AffiliateConversionReconciled,
 }
 
 impl CompanyEventType {
@@ -46,6 +47,7 @@ impl CompanyEventType {
             Self::ExperimentCompleted => "EXPERIMENT_COMPLETED",
             Self::AffiliatePayoutSettled => "AFFILIATE_PAYOUT_SETTLED",
             Self::AgentDecisionRecorded => "AGENT_DECISION_RECORDED",
+            Self::AffiliateConversionReconciled => "AFFILIATE_CONVERSION_RECONCILED",
         }
     }
 }

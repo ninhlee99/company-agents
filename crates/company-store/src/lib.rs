@@ -303,6 +303,15 @@ async fn enqueue_company_event_tx(
     Ok(inserted == 1)
 }
 
+fn conversion_correlation_id(conversion_id: &str) -> Uuid {
+    let digest = Sha256::digest(conversion_id.as_bytes());
+    Uuid::from_bytes(
+        digest[..16]
+            .try_into()
+            .expect("sha256 digest always has at least 16 bytes"),
+    )
+}
+
 fn decision_correlation_id(proposal_key: &str) -> Uuid {
     let digest = Sha256::digest(proposal_key.as_bytes());
     Uuid::from_bytes(
@@ -5878,19 +5887,28 @@ impl CompanyStore {
         )
         .await?;
 
-        tx.execute(
-            "INSERT INTO outbox_events
-             (company_id,event_type,aggregate_id,idempotency_key,payload)
-             VALUES ($1,'AFFILIATE_CONVERSION_RECONCILED',$2,$3,$4)
-             ON CONFLICT (company_id, idempotency_key) DO NOTHING",
-            &[
-                &company_id,
-                &event.conversion_id,
-                &format!("outbox:{idempotency_key}"),
-                &serde_json::to_value(&reconciled)?,
-            ],
-        )
-        .await?;
+        let reconciliation_event = company_domain::CompanyEventEnvelope::new(
+            company_id,
+            company_domain::CompanyEventType::AffiliateConversionReconciled,
+            "affiliate_conversion",
+            None,
+            time::OffsetDateTime::now_utc().unix_timestamp(),
+            conversion_correlation_id(&event.conversion_id),
+            None,
+            format!("outbox:{idempotency_key}"),
+            serde_json::json!({
+                "conversion_id": event.conversion_id,
+                "order_id": event.order_id,
+                "product_id": event.product_id,
+                "advertiser_id": event.advertiser_id,
+                "reconciliation": &reconciled,
+                "recognized_minor": target_recognized,
+                "reconciliation_status": format!("{:?}", reconciled.status),
+                "reconciliation_variance_minor": reconciled.reconciliation_variance_minor,
+                "ledger_transaction_id": ledger_transaction_id,
+            }),
+        )?;
+        enqueue_company_event_tx(&tx, &reconciliation_event).await?;
 
         tx.commit().await?;
         Ok(reconciled)
@@ -10462,6 +10480,42 @@ mod customer_intelligence_tests {
         assert_eq!(collection_rate_bps(0, 0), 0);
         assert_eq!(collection_rate_bps(100, 50), 5_000);
         assert_eq!(collection_rate_bps(100, 120), 10_000);
+    }
+}
+
+#[cfg(test)]
+mod affiliate_conversion_reconciled_event_tests {
+    use super::*;
+
+    #[test]
+    fn conversion_reconciliation_event_preserves_attribution_identity() {
+        let company = Uuid::from_u128(61);
+        let conversion_id = "conversion-99";
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::AffiliateConversionReconciled,
+            "affiliate_conversion",
+            None,
+            1_800_000_300,
+            conversion_correlation_id(conversion_id),
+            None,
+            "outbox:conversion:conversion-99",
+            serde_json::json!({
+                "conversion_id": conversion_id,
+                "order_id": "order-99",
+                "product_id": "product-99",
+                "advertiser_id": "advertiser-99",
+                "recognized_minor": 1250,
+                "reconciliation_status": "RECONCILED",
+                "reconciliation_variance_minor": 0,
+            }),
+        ).unwrap();
+
+        assert_eq!(event.event_type_name(), "AFFILIATE_CONVERSION_RECONCILED");
+        assert_eq!(event.aggregate_type, "affiliate_conversion");
+        assert_eq!(event.correlation_id, conversion_correlation_id(conversion_id));
+        assert_eq!(event.payload["conversion_id"], conversion_id);
+        assert_eq!(event.payload["recognized_minor"], 1250);
     }
 }
 
