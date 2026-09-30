@@ -49,6 +49,10 @@ Durable media jobs, sandboxed FFmpeg, FFprobe QA and publishing approval contrac
 - Competitor intelligence foundation: evidence-backed observations and owned-content coverage can be scored deterministically into content whitespace gaps.
 
 - Creator intelligence foundation: evidence-backed creator profiles can be matched to fresh, in-stock product economics through deterministic specialty/category and performance scoring.
+## FP&A / Cash Flow
+
+- Forecast-vs-actual variance report: implemented baseline via `/api/fpa/forecast-variance` and `/fpa/variance`, company-scoped and evidence-aware.
+
 ## Phase 7 — Human Organization
 **Status: core economics implemented**
 - Hiring governance, employees, payroll obligations, accrual/payment accounting and business-unit economics.

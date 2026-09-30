@@ -17,6 +17,7 @@ This document intentionally separates implemented behavior from contracts, simul
 | Double-entry ledger | Implemented | Ledger transactions/entries are immutable and database validation enforces balance/company/currency invariants. |
 | Scheduler | Implemented | Database leases and replay-safe run tokens are used for recurring cycles. |
 | Outbox | Implemented | Durable events have leases, bounded retries and signed HTTPS webhook delivery. |
+| Forecast-vs-actual variance | Implemented baseline | Read-only FPA variance reports compare the latest ACTIVE forecast with same-period cash-flow observations. Missing actual evidence stays unavailable; no values are fabricated. |
 | Unified event architecture | Implemented foundation | `company-domain` defines canonical event names and a versioned company event envelope with correlation/causation IDs, aggregate references, idempotency keys and validated payloads. `company-store` can persist the typed envelope idempotently through the durable outbox; existing producers are migrated incrementally. |
 | Web research / web-session relay | Environment-gated | Browser/web relay protocols and workers exist, but usable capability depends on configured relay/browser credentials. |
 | Affiliate product discovery | Environment-gated | Mock, Awin and TikTok Shop adapters exist; real data requires operator credentials/contracts. |
@@ -82,6 +83,8 @@ It should not be described as an AI company that can independently operate every
 
 
 ### Commercial lifecycle hardening
+
+- **Forecast-vs-actual cash flow:** `GET /api/fpa/forecast-variance` and `/fpa/variance` read the newest ACTIVE forecast and match the latest same-period cash-flow observation. Missing actual evidence remains `Unavailable`; variance is `actual net cash flow − forecast net cash flow` and is never treated as a forecast or guaranteed outcome.
 
 - **Tenant-bound principals:** named RBAC principals must declare `company_id`; a principal bound to another company cannot authenticate against this runtime. This closes the identity→company boundary for the named-principal path without claiming full SaaS tenancy.
 

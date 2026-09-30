@@ -319,6 +319,12 @@ struct ContentStatusTransitionRequest {
 }
 
 #[derive(Debug, Deserialize, Default)]
+struct ForecastVarianceQuery {
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Default)]
 struct AgentEvaluationQuery {
     days: Option<i64>,
 }
@@ -1152,7 +1158,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 @media(max-width:520px){{.grid{{grid-template-columns:1fr}}.cc-kpis{{grid-template-columns:1fr 1fr}}.cc-body{{grid-template-columns:1fr}}.autonomy-steps{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
 </style></head><body>
 <header><h1>Veridara AI</h1><small>Autonomous Company OS · {}</small></header>
-<nav><a href="/auth/login">Browser sign-in</a><a href="#integrations">Integrations</a><form method="post" action="/auth/logout" style="display:inline"><button type="submit">Sign out</button></form><a href="/">Overview</a><a href="#revenue-command-center">Revenue command center</a><a href="#capital">Capital planning</a><a href="#safety">Safety controls</a><a href="#autonomy">Autonomy policy</a><a href="#agent-outcomes">Agent outcomes</a><a href="#revenue-graph">Revenue graph</a><a href="#growth">Growth pipeline</a><a href="#tiktok">TikTok LIVE</a><a href="#compliance">Policy intelligence</a></nav>
+<nav><a href="/fpa/variance">FPA variance</a><a href="/auth/login">Browser sign-in</a><a href="#integrations">Integrations</a><form method="post" action="/auth/logout" style="display:inline"><button type="submit">Sign out</button></form><a href="/">Overview</a><a href="#revenue-command-center">Revenue command center</a><a href="#capital">Capital planning</a><a href="#safety">Safety controls</a><a href="#autonomy">Autonomy policy</a><a href="#agent-outcomes">Agent outcomes</a><a href="#revenue-graph">Revenue graph</a><a href="#growth">Growth pipeline</a><a href="#tiktok">TikTok LIVE</a><a href="#compliance">Policy intelligence</a></nav>
 <div id="revenue-command-center">{}</div>
 <div id="agent-outcomes">{}</div>
 <div id="autonomy">{}</div>
@@ -1966,6 +1972,82 @@ async fn agent_outcome_evaluations_api(
         .await
         .map(Json)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn forecast_variance_api(
+    State(state): State<AppState>,
+    Query(query): Query<ForecastVarianceQuery>,
+) -> Result<Json<Vec<company_store::ForecastVarianceRecord>>, StatusCode> {
+    let limit = query.limit.unwrap_or(12);
+    if !(1..=60).contains(&limit) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    state
+        .store
+        .forecast_cashflow_variance(&state.company_id, limit)
+        .await
+        .map(Json)
+        .map_err(|error| {
+            tracing::warn!(%error, "forecast variance query failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })
+}
+
+fn render_fpa_variance_html(
+    rows: &[company_store::ForecastVarianceRecord],
+) -> String {
+    let mut table = String::from(
+        r#"<div class="card"><h2>Forecast vs actual cash flow</h2><p class="muted">Variance = actual net cash flow − forecast net cash flow. Missing actual evidence is shown as unavailable, not zero.</p><table><thead><tr><th>Period</th><th>Forecast net</th><th>Actual net</th><th>Variance</th><th>Variance %</th><th>Closing cash</th></tr></thead><tbody>"#,
+    );
+    for row in rows {
+        let period = time::OffsetDateTime::from_unix_timestamp(row.period_start_epoch)
+            .map(|value| value.date().to_string())
+            .unwrap_or_else(|_| row.period_start_epoch.to_string());
+        let actual = row
+            .actual_net_cashflow_minor
+            .map(|value| format_minor(value, &row.currency))
+            .unwrap_or_else(|| "Unavailable".into());
+        let variance = row
+            .variance_minor
+            .map(|value| format_minor(value, &row.currency))
+            .unwrap_or_else(|| "Unavailable".into());
+        let variance_pct = row
+            .variance_bps
+            .map(|value| format!("{:.2}%", value as f64 / 100.0))
+            .unwrap_or_else(|| "Unavailable".into());
+        let closing_cash = row
+            .actual_closing_cash_minor
+            .map(|value| format_minor(value, &row.currency))
+            .unwrap_or_else(|| "Unavailable".into());
+        table.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            escape_html(&period),
+            escape_html(&format_minor(row.forecast_net_cashflow_minor, &row.currency)),
+            escape_html(&actual),
+            escape_html(&variance),
+            escape_html(&variance_pct),
+            escape_html(&closing_cash),
+        ));
+    }
+    if rows.is_empty() {
+        table.push_str(r#"<tr><td colspan="6">No active forecast periods available.</td></tr>"#);
+    }
+    table.push_str(r#"</tbody></table><p><a href="/api/fpa/forecast-variance">View JSON</a></p></div>"#);
+    table
+}
+
+async fn fpa_variance_page(State(state): State<AppState>) -> Html<String> {
+    match state.store.forecast_cashflow_variance(&state.company_id, 12).await {
+        Ok(rows) => Html(format!(
+            r#"<!doctype html><html><head><meta charset="utf-8"><title>FPA variance</title><style>body{{font-family:system-ui;max-width:1100px;margin:40px auto;padding:0 18px;background:#0b1020;color:#eef}}table{{width:100%;border-collapse:collapse}}th,td{{padding:10px;border-bottom:1px solid #26304a;text-align:left}}a{{color:#93c5fd}}.muted{{color:#94a3b8}}</style></head><body><h1>FPA variance</h1>{}</body></html>"#,
+            render_fpa_variance_html(&rows)
+        )),
+        Err(error) => {
+            tracing::warn!(%error, "FPA variance page unavailable");
+            Html(r#"<!doctype html><html><head><meta charset="utf-8"><title>FPA variance</title></head><body><h1>FPA variance unavailable</h1><p>Financial forecast or actual cash-flow evidence could not be loaded. Inspect operational logs.</p></body></html>"#.into())
+        },
+    }
 }
 
 async fn ceo_command_center_api(
@@ -3783,6 +3865,23 @@ mod control_plane_audit_tests {
     }
 
     #[test]
+    fn fpa_variance_renderer_marks_missing_actual_unavailable() {
+        let html = render_fpa_variance_html(&[company_store::ForecastVarianceRecord {
+            forecast_id: uuid::Uuid::nil(),
+            period_start_epoch: 1_800_000_000,
+            currency: "USD".into(),
+            forecast_net_cashflow_minor: 100,
+            actual_net_cashflow_minor: None,
+            variance_minor: None,
+            variance_bps: None,
+            actual_closing_cash_minor: None,
+        }]);
+        assert!(html.contains("USD 1.00"));
+        assert!(html.contains("Unavailable"));
+        assert!(!html.contains("<td>0</td>"));
+    }
+
+    #[test]
     fn readiness_renderer_keeps_state_dimensions_explicit() {
         let html = render_integration_readiness(&[IntegrationReadiness {
             key: "demo".into(),
@@ -3799,6 +3898,7 @@ mod control_plane_audit_tests {
         assert!(html.contains("external acceptance is not verified"));
     }
 
+    #[test]
     fn actor_id_is_a_non_secret_fingerprint() {
         let first = control_plane_actor_id(Some("token-value"));
         let second = control_plane_actor_id(Some("token-value"));
@@ -3896,6 +3996,7 @@ mod control_plane_audit_tests {
         );
     }
 
+    #[test]
     fn request_id_uses_safe_header_or_generates_one() {
         let request = Request::builder()
             .uri("/api/run")
@@ -4098,12 +4199,14 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/auth/session", post(browser_login))
         .route("/auth/logout", post(browser_logout))
         .route("/", get(index))
+        .route("/fpa/variance", get(fpa_variance_page))
         .route("/run", post(run_html))
         .route("/live/session", post(live_create_html))
         .route("/live/start", post(live_start_html))
         .route("/live/stop", post(live_stop_html))
         .route("/api/run", post(run_api))
         .route("/api/ceo/command-center", get(ceo_command_center_api))
+        .route("/api/fpa/forecast-variance", get(forecast_variance_api))
         .route("/api/agents", get(agents_api))
         .route("/api/agents/outcome-evidence", post(agent_outcome_evidence_api))
         .route("/api/agents/evaluation", get(agent_outcome_evaluations_api))
