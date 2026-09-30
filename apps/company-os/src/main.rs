@@ -1731,27 +1731,29 @@ fn spawn_tiktok_refresh_worker(state: AppState) {
             if material.access_token_expires_at_epoch > now_epoch + 1_800 {
                 continue;
             }
-            match company_tiktok_auth::TikTokOAuthClient::new(config.clone())
-                .and_then(|client| Ok((client, material.refresh_token)))
-            {
-                Ok((client, refresh_token)) => match client.refresh(&refresh_token).await {
-                    Ok(token) => {
-                        if let Err(error) = state
-                            .store
-                            .save_tiktok_token_set(&state.company_id, &token, &cipher)
-                            .await
-                        {
-                            tracing::warn!(%error, "TikTok OAuth refresh token persistence failed");
-                        }
+            let oauth = match company_tiktok_auth::TikTokOAuthClient::new(config.clone()) {
+                Ok(client) => client,
+                Err(error) => {
+                    tracing::warn!(%error, "TikTok OAuth refresh client unavailable");
+                    continue;
+                }
+            };
+            match oauth.refresh(&material.refresh_token).await {
+                Ok(token) => {
+                    if let Err(error) = state
+                        .store
+                        .save_tiktok_token_set(&state.company_id, &token, &cipher)
+                        .await
+                    {
+                        tracing::warn!(%error, "TikTok OAuth refresh token persistence failed");
                     }
-                    Err(error) => {
-                        let _ = state
-                            .store
-                            .mark_tiktok_reauth_required(&state.company_id, &error.to_string())
-                            .await;
-                    }
-                },
-                Err(error) => tracing::warn!(%error, "TikTok OAuth refresh client unavailable"),
+                }
+                Err(error) => {
+                    let _ = state
+                        .store
+                        .mark_tiktok_reauth_required(&state.company_id, &error.to_string())
+                        .await;
+                }
             }
         }
     });
