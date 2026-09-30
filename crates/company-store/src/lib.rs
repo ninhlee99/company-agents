@@ -408,10 +408,10 @@ impl CompanyStore {
                 .query_opt(
                     "SELECT effective_at_epoch
                        FROM policy_snapshots
-                      WHERE company_id=$1 AND policy_key=$2 AND active=true AND id<>$3
+                      WHERE company_id=$1 AND policy_key=$2 AND platform=$4 AND jurisdiction=$5 AND active=true AND id<>$3
                       ORDER BY effective_at_epoch DESC
                       LIMIT 1",
-                    &[&snapshot.company_id, &snapshot.policy_key, &snapshot.id],
+                    &[&snapshot.company_id, &snapshot.policy_key, &snapshot.id, &snapshot.platform, &snapshot.jurisdiction],
                 )
                 .await?
                 .map(|row| row.get::<_, i64>(0));
@@ -423,7 +423,7 @@ impl CompanyStore {
             tx.execute(
                 "UPDATE policy_snapshots
                     SET active=false
-                  WHERE company_id=$1 AND policy_key=$2 AND id<>$3",
+                  WHERE company_id=$1 AND policy_key=$2 AND platform=$4 AND jurisdiction=$5 AND id<>$3",
                 &[&snapshot.company_id, &snapshot.policy_key, &snapshot.id],
             ).await?;
             if inserted.is_some() {
