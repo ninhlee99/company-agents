@@ -295,8 +295,35 @@ pub async fn execute_tiktok(
         return Err(fail_message(error));
     }
 
-    let publisher = publisher(&state).await.map_err(fail_message)?;
-    let creator = publisher.query_creator_info().await.map_err(|e| fail_message(e))?;
+    let publisher = match publisher(&state).await {
+        Ok(value) => value,
+        Err(error) => {
+            let _ = state.store.complete_publish_intent(
+                &state.company_id,
+                &request.intent_id,
+                &job.execution_token,
+                false,
+                None,
+                Some(&error),
+            ).await;
+            return Err(fail_message(error));
+        }
+    };
+    let creator = match publisher.query_creator_info().await {
+        Ok(value) => value,
+        Err(error) => {
+            let message = error.to_string();
+            let _ = state.store.complete_publish_intent(
+                &state.company_id,
+                &request.intent_id,
+                &job.execution_token,
+                false,
+                None,
+                Some(&message),
+            ).await;
+            return Err(fail_message(message));
+        }
+    };
 
     let publish_request = VideoPublishRequest {
         artifact_id: job.intent.content_id.clone(),
