@@ -409,3 +409,61 @@ export interface ClientContract {
   clientFeedback?: string;
 }
 
+export interface LiveStreamComment {
+  id: string;
+  userName: string;
+  avatar: string;
+  message: string;
+  timestamp: string;
+  aiHostReply?: string;
+  isPurchased?: boolean;
+}
+
+export interface PinnedProduct {
+  id: string;
+  title: string;
+  priceMinor: number;
+  originalPriceMinor: number;
+  discountPercent: number;
+  commissionRatePercent: number;
+  salesCount: number;
+  stockRemaining: number;
+  imageUrl?: string;
+}
+
+export interface LivestreamSession {
+  id: string;
+  channelId: string;
+  channelName: string;
+  platform: 'TikTok Shop' | 'Shopee Live' | 'YouTube Shopping' | 'Facebook Live';
+  hostAgentName: string;
+  hostAgentAvatar: string;
+  title: string;
+  streamStatus: 'Live' | 'Paused' | 'Ended';
+  viewersCount: number;
+  peakViewers: number;
+  pinnedProduct: PinnedProduct;
+  liveDurationSec: number;
+  revenueEarnedMinor: number;
+  ordersCount: number;
+  comments: LiveStreamComment[];
+  startedAt: string;
+}
+
+export interface SocialChannel {
+  id: string;
+  platform: 'TikTok Shop' | 'Shopee Live' | 'YouTube Shorts' | 'Facebook Reels' | 'Instagram';
+  name: string;
+  handle: string;
+  avatar: string;
+  status: 'LiveNow' | 'Active' | 'Scheduled' | 'Disconnected';
+  followers: number;
+  views30d: number;
+  gmvMinor: number;
+  engagementRateBps: number;
+  niche: string;
+  activeStreamSession?: LivestreamSession;
+  totalStreamsRun: number;
+}
+
+

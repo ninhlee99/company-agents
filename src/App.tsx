@@ -9,11 +9,12 @@ import {
   ClientContract,
   CycleTrendPoint,
   AutonomousSettings,
-  SkillTrainingCourse
+  SocialChannel
 } from './types/company';
 import { Header } from './components/Header';
 import { BasicDashboard } from './components/BasicDashboard';
 import { ManageAgents } from './components/ManageAgents';
+import { ChannelsAndLivestreamTab } from './components/ChannelsAndLivestreamTab';
 import { AutonomousPipelineTab } from './components/AutonomousPipelineTab';
 import { MediaStudioTab } from './components/MediaStudioTab';
 import { ClientContractsTab } from './components/ClientContractsTab';
@@ -23,6 +24,7 @@ import { ManageFinances } from './components/ManageFinances';
 import { 
   LayoutDashboard, 
   Users, 
+  Radio, 
   Sparkles, 
   Briefcase, 
   Wallet,
@@ -31,7 +33,7 @@ import {
 } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'workforce' | 'pipeline' | 'contracts' | 'order' | 'finances'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'workforce' | 'livestream' | 'pipeline' | 'contracts' | 'order' | 'finances'>('overview');
   const [pipelineSubTab, setPipelineSubTab] = useState<'flow' | 'studio'>('flow');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [dataMode, setDataMode] = useState<'SIMULATION' | 'UNKNOWN'>('UNKNOWN');
@@ -61,6 +63,7 @@ export default function App() {
   const [candidatePool, setCandidatePool] = useState<CandidateProfile[]>([]);
   const [officeActivities, setOfficeActivities] = useState<OfficeActivityEvent[]>([]);
   const [clientContracts, setClientContracts] = useState<ClientContract[]>([]);
+  const [channels, setChannels] = useState<SocialChannel[]>([]);
   const [pnl, setPnl] = useState<CompanyPnL | undefined>(undefined);
   const [cycleHistory, setCycleHistory] = useState<CycleTrendPoint[]>([]);
   const [autonomousSettings, setAutonomousSettings] = useState<AutonomousSettings>({
@@ -90,6 +93,7 @@ export default function App() {
         if (data.candidatePool) setCandidatePool(data.candidatePool);
         if (data.officeActivities) setOfficeActivities(data.officeActivities);
         if (data.clientContracts) setClientContracts(data.clientContracts);
+        if (data.channels) setChannels(data.channels);
         if (data.pnl) setPnl(data.pnl);
         if (data.cycleHistory) setCycleHistory(data.cycleHistory);
         if (data.autonomousSettings) setAutonomousSettings(data.autonomousSettings);
@@ -115,6 +119,7 @@ export default function App() {
           if (data.clientContracts) setClientContracts(data.clientContracts);
           if (data.officeActivities) setOfficeActivities(data.officeActivities);
           if (data.customAgents) setCustomAgents(data.customAgents);
+          if (data.channels) setChannels(data.channels);
           if (data.pnl) setPnl(data.pnl);
         }
       } catch (e) {
@@ -235,6 +240,57 @@ export default function App() {
     return data;
   };
 
+  // Start livestream session
+  const handleStartStream = async (channelId: string, title: string) => {
+    try {
+      const res = await fetch('/api/channels/stream/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId, title }),
+      });
+      if (res.ok) {
+        triggerToast('Đã kích hoạt phiên livestream 24/7 với Host AI thành công!');
+        loadState();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Pin product in live stream
+  const handlePinProduct = async (channelId: string, productTitle: string, priceMinor: number) => {
+    try {
+      const res = await fetch('/api/channels/stream/pin-product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId, productTitle, priceMinor }),
+      });
+      if (res.ok) {
+        triggerToast(`Đã ghim sản phẩm "${productTitle}" vào phiên live!`);
+        loadState();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Stop stream
+  const handleStopStream = async (channelId: string) => {
+    try {
+      const res = await fetch('/api/channels/stream/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId }),
+      });
+      if (res.ok) {
+        triggerToast('Đã kết thúc phiên live và đối soát doanh thu vào kho bạc!');
+        loadState();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const activeContractsCount = clientContracts.filter(
     (c) => c.status !== 'Delivered' && c.status !== 'Completed'
   ).length;
@@ -274,6 +330,18 @@ export default function App() {
             >
               <Users className="w-3.5 h-3.5" />
               <span>Đội Ngũ AI &amp; Nhân Sự ({customAgents.length})</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('livestream')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                activeTab === 'livestream'
+                  ? 'bg-pink-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+              }`}
+            >
+              <Radio className="w-3.5 h-3.5 text-pink-400" />
+              <span>Kênh &amp; Livestream 24/7 ({channels.length})</span>
             </button>
 
             <button
@@ -350,10 +418,19 @@ export default function App() {
           />
         )}
 
-        {/* Tab 3: Workflows & Pipelines */}
+        {/* Tab 3: Livestream & Channels */}
+        {activeTab === 'livestream' && (
+          <ChannelsAndLivestreamTab
+            channels={channels}
+            onStartStream={handleStartStream}
+            onPinProduct={handlePinProduct}
+            onStopStream={handleStopStream}
+          />
+        )}
+
+        {/* Tab 4: Workflows & Pipelines */}
         {activeTab === 'pipeline' && (
           <div className="space-y-4">
-            {/* Sub navigation for Pipeline */}
             <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
               <button
                 onClick={() => setPipelineSubTab('flow')}
@@ -390,7 +467,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab 4: Sales & Client Contracts */}
+        {/* Tab 5: Sales & Client Contracts */}
         {activeTab === 'contracts' && (
           <ClientContractsTab
             contracts={clientContracts}
@@ -407,7 +484,7 @@ export default function App() {
           />
         )}
 
-        {/* Tab 5: Finances & P&L Ledger */}
+        {/* Tab 6: Finances & P&L Ledger */}
         {activeTab === 'finances' && (
           <ManageFinances
             snapshot={snapshot}

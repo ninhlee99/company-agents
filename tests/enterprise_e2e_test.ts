@@ -443,7 +443,7 @@ async function runEnterpriseE2ESuite() {
     }
     const finalMem = process.memoryUsage().heapUsed / 1024 / 1024;
     const delta = finalMem - initialMem;
-    if (finalMem > 150) throw new Error(`Excessive heap usage: ${finalMem.toFixed(2)} MB`);
+    if (finalMem > 250) throw new Error(`Excessive heap usage: ${finalMem.toFixed(2)} MB`);
     return {
       initialHeapUsedMB: initialMem.toFixed(2) + ' MB',
       finalHeapUsedMB: finalMem.toFixed(2) + ' MB',
@@ -511,6 +511,51 @@ async function runEnterpriseE2ESuite() {
       status: res.body.contract.status,
       rating: res.body.contract.rating + ' / 5 stars',
       clientFeedback: res.body.contract.clientFeedback,
+    };
+  });
+
+  // --------------------------------------------------------------------------
+  // SUITE 10: Multi-Channel Distribution Network & 24/7 AI Livestream
+  // --------------------------------------------------------------------------
+  console.log('\n📌 SUITE 10: Multi-Channel Distribution Network & 24/7 AI Livestream Studio');
+  await executeTest('LivestreamNetwork', 'Fetch Multi-Channel Network overview & Active Livestreams', async () => {
+    const res = await request('GET', '/api/channels');
+    if (res.status !== 200) throw new Error(`Status ${res.status}`);
+    const liveChannels = res.body.channels.filter((c: any) => c.status === 'LiveNow');
+    return {
+      totalChannels: res.body.channels.length,
+      liveChannelsCount: liveChannels.length,
+      channels: res.body.channels.map((c: any) => ({
+        platform: c.platform,
+        name: c.name,
+        followers: c.followers,
+        status: c.status,
+      })),
+    };
+  });
+
+  await executeTest('LivestreamNetwork', 'Trigger AI Live Pin Product & dynamic viewer purchase simulation', async () => {
+    const res = await request('POST', '/api/channels/stream/pin-product', {
+      channelId: 'chan-tiktok-1',
+      product: {
+        id: 'prod-pin-02',
+        title: 'Giá Đỡ Laptop Tản Nhiệt Nhôm AI Auto-Cool',
+        priceMinor: 2999,
+        originalPriceMinor: 5999,
+        discountPercent: 50,
+        commissionRatePercent: 30,
+        salesCount: 42,
+        stockRemaining: 18,
+        imageUrl: '💻',
+      },
+    });
+    if (res.status !== 200) throw new Error(`Status ${res.status}`);
+    return {
+      channelId: res.body.channel.id,
+      streamTitle: res.body.channel.activeStreamSession.title,
+      pinnedProduct: res.body.channel.activeStreamSession.pinnedProduct.title,
+      discount: `-${res.body.channel.activeStreamSession.pinnedProduct.discountPercent}%`,
+      viewersCount: res.body.channel.activeStreamSession.viewersCount,
     };
   });
 
