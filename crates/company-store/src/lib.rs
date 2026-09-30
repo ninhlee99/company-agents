@@ -1083,6 +1083,9 @@ impl CompanyStore {
             .load_snapshot(company_id)
             .await?
             .ok_or("authoritative company snapshot is unavailable")?;
+        if snapshot.company_id != company_id {
+            return Err("authoritative snapshot belongs to a different company".into());
+        }
 
         let simulation =
             company_autonomy::simulate_proposal(&snapshot, proposal, twin_config)?;
