@@ -492,6 +492,13 @@ async fn index(
                 month_to_date_revenue_minor: 0,
                 month_to_date_variable_cost_minor: 0,
                 month_to_date_contribution_margin_minor: None,
+                platform_fees_minor: 0,
+                affiliate_commission_minor: 0,
+                refunds_cancellations_minor: 0,
+                production_ai_cost_minor: 0,
+                ad_spend_minor: 0,
+                operating_cost_minor: 0,
+                cash_minor: 0,
                 unclassified_expense_minor: 0,
                 unclassified_expense_entry_count: 0,
                 variable_cost_transaction_count: 0,
@@ -621,18 +628,14 @@ async fn index(
         .month_to_date_contribution_margin_minor
         .map(|value| format_minor(value, &state.currency))
         .unwrap_or_else(|| "Incomplete".into());
-    let contribution_margin_detail = if contribution_margin.unclassified_expense_entry_count > 0 {
-        format!(
-            "{} unclassified expense across {} entries",
-            format_minor(contribution_margin.unclassified_expense_minor, &state.currency),
-            contribution_margin.unclassified_expense_entry_count
-        )
-    } else {
-        format!(
-            "{} variable-cost transactions",
-            contribution_margin.variable_cost_transaction_count
-        )
-    };
+    let contribution_margin_detail = format!(
+        "variable cost {} · fixed operating cost {} · cash {} · unclassified {} across {} entries",
+        format_minor(contribution_margin.month_to_date_variable_cost_minor, &state.currency),
+        format_minor(contribution_margin.operating_cost_minor, &state.currency),
+        format_minor(contribution_margin.cash_minor, &state.currency),
+        format_minor(contribution_margin.unclassified_expense_minor, &state.currency),
+        contribution_margin.unclassified_expense_entry_count
+    );
     let budget_statuses = state
         .store
         .autonomy_budget_statuses(
@@ -902,7 +905,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <div class="card"><small>30d run-rate</small><div class="metric">{}</div><small>last 30d scaled to a month · MTD: {}</small></div>
 <div class="card"><small>Runway</small><div class="metric">{} days</div></div>
 </div>
-<div class="card"><small>Contribution margin MTD</small><div class="metric">{}</div><small>{}</small></div>
+<div class="card"><small>Contribution margin MTD</small><div class="metric">{}</div><small>{}</small><div class="muted" style="margin-top:8px">platform {} · affiliate commission {} · refunds/cancellations {} · production/AI {} · ads {}</div></div>
 <div class="card"><small>Affiliate reconciliation MTD</small><div class="metric">{}</div><small>variance · reported · attributed · paid: {} · {} · {} · {}</small></div>
 <div class="card"><h2>Growth pipeline</h2><p class="muted">Evidence-backed trend signals become scored opportunities before any content plan is created.</p>{}</div>
 {}
@@ -939,6 +942,11 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         format_minor(revenue_periods.month_to_date_minor, &state.currency),
         contribution_margin_label,
         contribution_margin_detail,
+        format_minor(contribution_margin.platform_fees_minor, &state.currency),
+        format_minor(contribution_margin.affiliate_commission_minor, &state.currency),
+        format_minor(contribution_margin.refunds_cancellations_minor, &state.currency),
+        format_minor(contribution_margin.production_ai_cost_minor, &state.currency),
+        format_minor(contribution_margin.ad_spend_minor, &state.currency),
         format_minor(affiliate_reconciliation.variance_mtd_minor, &state.currency),
         format_minor(affiliate_reconciliation.reported_commission_mtd_minor, &state.currency),
         format_minor(affiliate_reconciliation.attributed_commission_mtd_minor, &state.currency),
