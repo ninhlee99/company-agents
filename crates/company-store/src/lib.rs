@@ -348,7 +348,323 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/034_live_attention.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/035_policy_intelligence.sql"
+            ))
             .await
+    }
+
+    pub async fn record_policy_snapshot(
+        &self,
+        snapshot: &company_compliance::PolicySnapshot,
+    ) -> Result<company_compliance::PolicySnapshot, Box<dyn std::error::Error + Send + Sync>> {
+        snapshot.validate().map_err(|error| error.to_string())?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        let inserted = tx.query_opt(
+            "INSERT INTO policy_snapshots
+             (id,company_id,policy_key,platform,jurisdiction,version,source_reference,
+              evidence_hash,observed_at_epoch,effective_at_epoch,active,rules_json)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+             ON CONFLICT(company_id,policy_key,version) DO NOTHING
+             RETURNING id",
+            &[
+                &snapshot.id,
+                &snapshot.company_id,
+                &snapshot.policy_key,
+                &snapshot.platform,
+                &snapshot.jurisdiction,
+                &snapshot.version,
+                &snapshot.source_reference,
+                &snapshot.evidence_hash,
+                &snapshot.observed_at_epoch,
+                &snapshot.effective_at_epoch,
+                &snapshot.active,
+                &serde_json::to_value(&snapshot.rules)?,
+            ],
+        ).await?;
+
+        let row = tx
+            .query_one(
+                "SELECT id,company_id,policy_key,platform,jurisdiction,version,
+                        source_reference,evidence_hash,observed_at_epoch,effective_at_epoch,
+                        active,rules_json
+                   FROM policy_snapshots
+                  WHERE company_id=$1 AND policy_key=$2 AND version=$3
+                  FOR UPDATE",
+                &[&snapshot.company_id, &snapshot.policy_key, &snapshot.version],
+            )
+            .await?;
+        let stored = policy_snapshot_from_row(row)?;
+        if stored != *snapshot {
+            return Err("policy snapshot version already exists with different evidence".into());
+        }
+
+        if snapshot.active {
+            let existing_effective = tx
+                .query_opt(
+                    "SELECT effective_at_epoch
+                       FROM policy_snapshots
+                      WHERE company_id=$1 AND policy_key=$2 AND platform=$4 AND jurisdiction=$5 AND active=true AND id<>$3
+                      ORDER BY effective_at_epoch DESC
+                      LIMIT 1",
+                    &[&snapshot.company_id, &snapshot.policy_key, &snapshot.id, &snapshot.platform, &snapshot.jurisdiction],
+                )
+                .await?
+                .map(|row| row.get::<_, i64>(0));
+
+            if existing_effective.is_some_and(|value| value > snapshot.effective_at_epoch) {
+                return Err("cannot activate a policy snapshot older than the active policy".into());
+            }
+
+            tx.execute(
+                "UPDATE policy_snapshots
+                    SET active=false
+                  WHERE company_id=$1 AND policy_key=$2 AND platform=$4 AND jurisdiction=$5 AND id<>$3",
+                &[
+                    &snapshot.company_id,
+                    &snapshot.policy_key,
+                    &snapshot.id,
+                    &snapshot.platform,
+                    &snapshot.jurisdiction,
+                ],
+            ).await?;
+            if inserted.is_some() {
+                tx.execute(
+                    "INSERT INTO outbox_events
+                     (company_id,event_type,aggregate_id,idempotency_key,payload)
+                     VALUES ($1,'POLICY_SNAPSHOT_ACTIVATED',$2,$3,$4)
+                     ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+                    &[
+                        &snapshot.company_id,
+                        &snapshot.id.to_string(),
+                        &format!("outbox:policy-activated:{}:{}", snapshot.policy_key, snapshot.version),
+                        &serde_json::json!({
+                            "policy_key": snapshot.policy_key,
+                            "platform": snapshot.platform,
+                            "jurisdiction": snapshot.jurisdiction,
+                            "version": snapshot.version,
+                            "effective_at_epoch": snapshot.effective_at_epoch,
+                            "evidence_hash": snapshot.evidence_hash,
+                        }),
+                    ],
+                ).await?;
+            }
+        }
+
+        tx.commit().await?;
+        Ok(stored)
+    }
+
+    pub async fn record_compliance_check(
+        &self,
+        input: &company_compliance::ComplianceInput,
+    ) -> Result<company_compliance::ComplianceCheck, Box<dyn std::error::Error + Send + Sync>> {
+        input.validate().map_err(|error| error.to_string())?;
+        let client = self.client.lock().await;
+        let now_epoch: i64 = client
+            .query_one("SELECT EXTRACT(EPOCH FROM now())::bigint", &[])
+            .await?
+            .get(0);
+
+        let snapshot = client
+            .query_opt(
+                "SELECT id,company_id,policy_key,platform,jurisdiction,version,
+                        source_reference,evidence_hash,observed_at_epoch,effective_at_epoch,
+                        active,rules_json
+                   FROM policy_snapshots
+                  WHERE company_id=$1 AND policy_key=$2 AND platform=$3
+                    AND jurisdiction=$4 AND (policy_key || ':' || version)=$5",
+                &[
+                    &input.company_id,
+                    &input.policy_key,
+                    &input.platform,
+                    &input.jurisdiction,
+                    &input.policy_snapshot_key,
+                ],
+            )
+            .await?
+            .map(policy_snapshot_from_row)
+            .transpose()?;
+
+        let check = company_compliance::evaluate(snapshot.as_ref(), input, now_epoch)
+            .map_err(|error| error.to_string())?;
+
+        let input_hash = {
+            let encoded = serde_json::to_vec(input)?;
+            let digest = Sha256::digest(encoded);
+            format!("sha256:{}", digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>())
+        };
+
+        let inserted = client
+            .query_opt(
+                "INSERT INTO compliance_checks
+                 (id,company_id,policy_snapshot_id,surface,policy_key,policy_snapshot_key,
+                  input_hash,decision,reason,evidence_ref,requires_human,checked_at_epoch)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                 ON CONFLICT(company_id,policy_key,policy_snapshot_key,input_hash) DO NOTHING
+                 RETURNING id",
+                &[
+                    &check.id,
+                    &check.company_id,
+                    &check.policy_snapshot_id,
+                    &compliance_surface_name(input.surface),
+                    &input.policy_key,
+                    &input.policy_snapshot_key,
+                    &input_hash,
+                    &compliance_decision_name(check.decision),
+                    &compliance_reason_name(check.reason),
+                    &input.evidence_ref,
+                    &check.requires_human,
+                    &check.checked_at_epoch,
+                ],
+            )
+            .await?;
+
+        if inserted.is_none() {
+            return existing_compliance_check(&client, input, &input_hash)
+            .await;
+        }
+
+        Ok(check)
+    }
+
+    pub async fn compliance_status(
+        &self,
+        company_id: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let latest = client
+            .query_opt(
+                "SELECT policy_key,platform,jurisdiction,version,source_reference,
+                        evidence_hash,effective_at_epoch,active
+                   FROM policy_snapshots
+                  WHERE company_id=$1
+                  ORDER BY effective_at_epoch DESC,created_at DESC
+                  LIMIT 1",
+                &[&company],
+            )
+            .await?;
+        let counts = client
+            .query_one(
+                "SELECT
+                    COUNT(*) FILTER (WHERE decision='ALLOWED')::bigint,
+                    COUNT(*) FILTER (WHERE decision='REVIEW')::bigint,
+                    COUNT(*) FILTER (WHERE decision='BLOCKED')::bigint,
+                    COUNT(*) FILTER (WHERE decision='UNKNOWN')::bigint
+                 FROM compliance_checks
+                WHERE company_id=$1 AND created_at >= now() - interval '24 hours'",
+                &[&company],
+            )
+            .await?;
+        Ok(serde_json::json!({
+            "latest_policy": latest.map(|row| serde_json::json!({
+                "policy_key": row.get::<_,String>(0),
+                "platform": row.get::<_,String>(1),
+                "jurisdiction": row.get::<_,String>(2),
+                "version": row.get::<_,String>(3),
+                "source_reference": row.get::<_,String>(4),
+                "evidence_hash": row.get::<_,String>(5),
+                "effective_at_epoch": row.get::<_,i64>(6),
+                "active": row.get::<_,bool>(7)
+            })),
+            "checks_last_24h": {
+                "allowed": counts.get::<_,i64>(0),
+                "review": counts.get::<_,i64>(1),
+                "blocked": counts.get::<_,i64>(2),
+                "unknown": counts.get::<_,i64>(3)
+            }
+        }))
+    }
+
+    pub async fn check_tiktok_compliance_for_publish(
+        &self,
+        company_id: &str,
+        intent_id: &str,
+        policy_snapshot_key: &str,
+        evidence_ref: &str,
+        disclosure_present: bool,
+        claim_evidence_present: bool,
+        product_eligibility_verified: bool,
+        rights_evidence_present: bool,
+    ) -> Result<company_compliance::ComplianceCheck, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let intent = Uuid::parse_str(intent_id)?;
+        let policy_key = std::env::var("TIKTOK_POLICY_KEY")
+            .unwrap_or_else(|_| "TIKTOK_SHOP_VN".into());
+        let jurisdiction =
+            std::env::var("COMPLIANCE_JURISDICTION").unwrap_or_else(|_| "VN".into());
+        let client = self.client.lock().await;
+        let row = client
+            .query_one(
+                "SELECT title,caption
+                   FROM publish_intents
+                  WHERE company_id=$1 AND id=$2",
+                &[&company, &intent],
+            )
+            .await?;
+        let title: String = row.get(0);
+        let caption: String = row.get(1);
+        let input = company_compliance::ComplianceInput {
+            company_id: company,
+            surface: company_compliance::ComplianceSurface::Content,
+            platform: "TIKTOK_SHOP".into(),
+            jurisdiction,
+            policy_key,
+            policy_snapshot_key: policy_snapshot_key.trim().into(),
+            evidence_ref: evidence_ref.trim().into(),
+            text: format!("{title}\n{caption}"),
+            product_category: None,
+            disclosure_present,
+            claim_evidence_present,
+            product_eligibility_verified,
+            simulcast: false,
+            fake_engagement_detected: false,
+            rights_evidence_present,
+        };
+        drop(client);
+        self.record_compliance_check(&input).await
+    }
+
+    pub async fn check_tiktok_compliance_for_live(
+        &self,
+        company_id: &str,
+        title: &str,
+        policy_snapshot_key: &str,
+        evidence_ref: &str,
+        disclosure_present: bool,
+        claim_evidence_present: bool,
+        product_eligibility_verified: bool,
+        rights_evidence_present: bool,
+        simulcast: bool,
+    ) -> Result<company_compliance::ComplianceCheck, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let policy_key = std::env::var("TIKTOK_POLICY_KEY")
+            .unwrap_or_else(|_| "TIKTOK_SHOP_VN".into());
+        let jurisdiction =
+            std::env::var("COMPLIANCE_JURISDICTION").unwrap_or_else(|_| "VN".into());
+        let input = company_compliance::ComplianceInput {
+            company_id: company,
+            surface: company_compliance::ComplianceSurface::Live,
+            platform: "TIKTOK_SHOP".into(),
+            jurisdiction,
+            policy_key,
+            policy_snapshot_key: policy_snapshot_key.trim().into(),
+            evidence_ref: evidence_ref.trim().into(),
+            text: title.trim().into(),
+            product_category: None,
+            disclosure_present,
+            claim_evidence_present,
+            product_eligibility_verified,
+            simulcast,
+            fake_engagement_detected: false,
+            rights_evidence_present,
+        };
+        self.record_compliance_check(&input).await
     }
 
     pub async fn ensure_company(
@@ -4054,6 +4370,113 @@ fn attention_decision_from_row(
         decided_at_epoch: row.get(7),
         requires_human: row.get(8),
     })
+}
+
+fn policy_snapshot_from_row(
+    row: tokio_postgres::Row,
+) -> Result<company_compliance::PolicySnapshot, Box<dyn std::error::Error + Send + Sync>> {
+    Ok(company_compliance::PolicySnapshot {
+        id: row.get(0),
+        company_id: row.get(1),
+        policy_key: row.get(2),
+        platform: row.get(3),
+        jurisdiction: row.get(4),
+        version: row.get(5),
+        source_reference: row.get(6),
+        evidence_hash: row.get(7),
+        observed_at_epoch: row.get(8),
+        effective_at_epoch: row.get(9),
+        active: row.get(10),
+        rules: serde_json::from_value(row.get(11))?,
+    })
+}
+
+fn compliance_surface_name(value: company_compliance::ComplianceSurface) -> &'static str {
+    match value {
+        company_compliance::ComplianceSurface::Content => "CONTENT",
+        company_compliance::ComplianceSurface::Affiliate => "AFFILIATE",
+        company_compliance::ComplianceSurface::Live => "LIVE",
+        company_compliance::ComplianceSurface::Advertising => "ADVERTISING",
+        company_compliance::ComplianceSurface::Copyright => "COPYRIGHT",
+        company_compliance::ComplianceSurface::ProductEligibility => "PRODUCT_ELIGIBILITY",
+        company_compliance::ComplianceSurface::Claims => "CLAIMS",
+    }
+}
+
+fn compliance_decision_name(value: company_compliance::ComplianceDecision) -> &'static str {
+    match value {
+        company_compliance::ComplianceDecision::Allowed => "ALLOWED",
+        company_compliance::ComplianceDecision::Review => "REVIEW",
+        company_compliance::ComplianceDecision::Blocked => "BLOCKED",
+        company_compliance::ComplianceDecision::Unknown => "UNKNOWN",
+    }
+}
+
+fn compliance_reason_name(value: company_compliance::ComplianceReason) -> &'static str {
+    match value {
+        company_compliance::ComplianceReason::PolicyUnavailable => "POLICY_UNAVAILABLE",
+        company_compliance::ComplianceReason::MissingPolicyEvidence => "MISSING_POLICY_EVIDENCE",
+        company_compliance::ComplianceReason::MissingDisclosure => "MISSING_DISCLOSURE",
+        company_compliance::ComplianceReason::ProhibitedProduct => "PROHIBITED_PRODUCT",
+        company_compliance::ComplianceReason::UnsupportedProduct => "UNSUPPORTED_PRODUCT",
+        company_compliance::ComplianceReason::UnverifiedClaim => "UNVERIFIED_CLAIM",
+        company_compliance::ComplianceReason::FakeEngagement => "FAKE_ENGAGEMENT",
+        company_compliance::ComplianceReason::Simulcast => "SIMULCAST",
+        company_compliance::ComplianceReason::MissingRightsEvidence => "MISSING_RIGHTS_EVIDENCE",
+        company_compliance::ComplianceReason::HumanReviewRequired => "HUMAN_REVIEW_REQUIRED",
+        company_compliance::ComplianceReason::AllowedByPolicy => "ALLOWED_BY_POLICY",
+    }
+}
+
+fn compliance_check_from_row(
+    row: tokio_postgres::Row,
+    input: &company_compliance::ComplianceInput,
+) -> Result<company_compliance::ComplianceCheck, Box<dyn std::error::Error + Send + Sync>> {
+    let decision = match row.get::<_, String>(3).as_str() {
+        "ALLOWED" => company_compliance::ComplianceDecision::Allowed,
+        "REVIEW" => company_compliance::ComplianceDecision::Review,
+        "BLOCKED" => company_compliance::ComplianceDecision::Blocked,
+        "UNKNOWN" => company_compliance::ComplianceDecision::Unknown,
+        other => return Err(format!("invalid stored compliance decision: {other}").into()),
+    };
+    let reason = match row.get::<_, String>(4).as_str() {
+        "POLICY_UNAVAILABLE" => company_compliance::ComplianceReason::PolicyUnavailable,
+        "MISSING_POLICY_EVIDENCE" => company_compliance::ComplianceReason::MissingPolicyEvidence,
+        "MISSING_DISCLOSURE" => company_compliance::ComplianceReason::MissingDisclosure,
+        "PROHIBITED_PRODUCT" => company_compliance::ComplianceReason::ProhibitedProduct,
+        "UNSUPPORTED_PRODUCT" => company_compliance::ComplianceReason::UnsupportedProduct,
+        "UNVERIFIED_CLAIM" => company_compliance::ComplianceReason::UnverifiedClaim,
+        "FAKE_ENGAGEMENT" => company_compliance::ComplianceReason::FakeEngagement,
+        "SIMULCAST" => company_compliance::ComplianceReason::Simulcast,
+        "MISSING_RIGHTS_EVIDENCE" => company_compliance::ComplianceReason::MissingRightsEvidence,
+        "HUMAN_REVIEW_REQUIRED" => company_compliance::ComplianceReason::HumanReviewRequired,
+        "ALLOWED_BY_POLICY" => company_compliance::ComplianceReason::AllowedByPolicy,
+        other => return Err(format!("invalid stored compliance reason: {other}").into()),
+    };
+    Ok(company_compliance::ComplianceCheck {
+        id: row.get(0),
+        company_id: row.get(1),
+        policy_snapshot_id: row.get(2),
+        input: input.clone(),
+        decision,
+        reason,
+        requires_human: row.get(5),
+        checked_at_epoch: row.get(6),
+    })
+}
+
+async fn existing_compliance_check(
+    client: &tokio_postgres::Client,
+    input: &company_compliance::ComplianceInput,
+    input_hash: &str,
+) -> Result<company_compliance::ComplianceCheck, Box<dyn std::error::Error + Send + Sync>> {
+    let row = client.query_one(
+        "SELECT id,company_id,policy_snapshot_id,decision,reason,requires_human,checked_at_epoch
+           FROM compliance_checks
+          WHERE company_id=$1 AND policy_key=$2 AND policy_snapshot_key=$3 AND input_hash=$4",
+        &[&input.company_id, &input.policy_key, &input.policy_snapshot_key, &input_hash],
+    ).await?;
+    compliance_check_from_row(row, input)
 }
 
 fn parse_reconciliation_status(

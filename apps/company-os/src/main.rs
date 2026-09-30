@@ -123,6 +123,16 @@ struct AffiliateConversionRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct PolicySnapshotRequest {
+    snapshot: company_compliance::PolicySnapshot,
+}
+
+#[derive(Debug, Deserialize)]
+struct ComplianceCheckRequest {
+    input: company_compliance::ComplianceInput,
+}
+
+#[derive(Debug, Deserialize)]
 struct GrowthTrendRequest {
     signal: company_growth::TrendSignal,
 }
@@ -464,6 +474,35 @@ async fn index(
             score_pct
         ));
     }
+    let mut compliance_data_available = true;
+    let compliance_status = match state.store.compliance_status(&state.company_id).await {
+        Ok(value) => value,
+        Err(error) => {
+            compliance_data_available = false;
+            tracing::warn!(%error, "compliance status unavailable");
+            serde_json::json!({})
+        }
+    };
+    let compliance_html = if !compliance_data_available {
+        r#"<p class="muted">Policy intelligence is unavailable. External side effects remain fail-closed.</p>"#.to_string()
+    } else if let Some(policy) = compliance_status.get("latest_policy") {
+        let version = policy.get("version").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let active = policy.get("active").and_then(|v| v.as_bool()).unwrap_or(false);
+        let counts = compliance_status.get("checks_last_24h").cloned().unwrap_or_else(|| serde_json::json!({}));
+        format!(
+            r#"<div class="metric">{}</div><div class="muted">{} · {} · 24h: {} allowed / {} review / {} blocked / {} unknown</div>"#,
+            if active { "Policy ready" } else { "Policy inactive" },
+            escape_html(version),
+            escape_html(policy.get("evidence_hash").and_then(|v| v.as_str()).unwrap_or("evidence unavailable")),
+            counts.get("allowed").and_then(|v| v.as_i64()).unwrap_or(0),
+            counts.get("review").and_then(|v| v.as_i64()).unwrap_or(0),
+            counts.get("blocked").and_then(|v| v.as_i64()).unwrap_or(0),
+            counts.get("unknown").and_then(|v| v.as_i64()).unwrap_or(0),
+        )
+    } else {
+        r#"<p class="muted">No verified policy snapshot is loaded. External publishing/LIVE launch will remain blocked.</p>"#.to_string()
+    };
+
     if !growth_data_available {
         growth_html.push_str(r#"<p class="muted">Growth pipeline data is unavailable. The dashboard is not treating this as “no opportunities.”</p>"#);
     } else if growth_html.is_empty() {
@@ -544,6 +583,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <div class="card"><small>Contribution margin MTD</small><div class="metric">{}</div><small>{}</small></div>
 <div class="card"><small>Affiliate reconciliation MTD</small><div class="metric">{}</div><small>variance · reported · attributed · paid: {} · {} · {} · {}</small></div>
 <div class="card"><h2>Growth pipeline</h2><p class="muted">Evidence-backed trend signals become scored opportunities before any content plan is created.</p>{}</div>
+<div class="card"><h2>Policy intelligence</h2><p class="muted">External content/LIVE side effects require a matching versioned policy snapshot and evidence.</p>{}</div>
 <div class="grid"><div class="card"><small>Status</small><div class="metric">{:?}</div></div><div class="card"><small>Agent cycle</small><div class="metric">{}</div></div><div class="card"><small>Backlog / capacity</small><div class="metric">{}%</div></div><div class="card"><small>Agent results</small><div class="metric">{}</div></div></div>
 <div class="grid"><div class="card"><small>Active workforce</small><div class="metric">{}</div></div><div class="card"><small>Payroll due</small><div class="metric">{}</div></div><div class="card"><small>Business units</small><div class="metric">{}</div></div><div class="card"><small>Operating loop</small><div class="metric">observe → act → learn</div></div></div>
 <div class="card"><h2>Operate</h2>
@@ -572,6 +612,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         format_minor(affiliate_reconciliation.attributed_commission_mtd_minor, &state.currency),
         format_minor(affiliate_reconciliation.recorded_payout_mtd_minor, &state.currency),
         growth_html,
+        compliance_html,
         company.runway_days,
         company.status,
         cycle_state,
@@ -674,6 +715,47 @@ async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, S
 
 async fn agents_api(State(state): State<AppState>) -> Json<Vec<AgentRunResult>> {
     Json(state.latest.read().await.clone())
+}
+
+async fn policy_snapshot_api(
+    State(state): State<AppState>,
+    Json(request): Json<PolicySnapshotRequest>,
+) -> Result<Json<company_compliance::PolicySnapshot>, StatusCode> {
+    if request.snapshot.company_id.to_string() != state.company_id {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    state
+        .store
+        .record_policy_snapshot(&request.snapshot)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn compliance_check_api(
+    State(state): State<AppState>,
+    Json(request): Json<ComplianceCheckRequest>,
+) -> Result<Json<company_compliance::ComplianceCheck>, StatusCode> {
+    if request.input.company_id.to_string() != state.company_id {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    state
+        .store
+        .record_compliance_check(&request.input)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn compliance_status_api(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    state
+        .store
+        .compliance_status(&state.company_id)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 async fn growth_trend_api(
@@ -1420,6 +1502,9 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/growth/trends", get(growth_trends_api).post(growth_trend_api))
         .route("/api/growth/opportunities", get(growth_opportunities_api))
         .route("/api/growth/content", post(growth_content_api))
+        .route("/api/compliance/policies", post(policy_snapshot_api))
+        .route("/api/compliance/checks", post(compliance_check_api))
+        .route("/api/compliance/status", get(compliance_status_api))
         .route("/api/affiliate/search", get(affiliate_search_api))
         .route("/api/affiliate/click", post(affiliate_click_api))
         .route("/api/affiliate/conversion", post(affiliate_conversion_api))

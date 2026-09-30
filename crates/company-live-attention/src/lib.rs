@@ -343,6 +343,7 @@ mod tests {
             gift_value_minor,
             currency: "VND".into(),
             pk_score: Some(1),
+            viewer_value_bps: None,
             occurred_at_epoch: 1_750_000_000,
         }
     }

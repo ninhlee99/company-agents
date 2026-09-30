@@ -23,7 +23,8 @@ members = [
   "crates/company-learning",
   "crates/company-content",
   "crates/company-growth",
-  "crates/company-live-attention"
+  "crates/company-live-attention",
+  "crates/company-compliance"
 ]
 
 [profile.release]

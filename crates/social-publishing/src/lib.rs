@@ -5,6 +5,7 @@ use reqwest::{header, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::Sha256;
+use subtle::ConstantTimeEq;
 use std::{
     fmt,
     path::{Path, PathBuf},

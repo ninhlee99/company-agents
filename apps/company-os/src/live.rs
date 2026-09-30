@@ -11,6 +11,20 @@ pub struct CreateSessionRequest {
     pub room_id: Option<String>,
     pub started_at_epoch: i64,
     pub approved_for_external_publish: bool,
+    #[serde(default)]
+    pub policy_snapshot_key: Option<String>,
+    #[serde(default)]
+    pub policy_evidence_ref: Option<String>,
+    #[serde(default)]
+    pub disclosure_present: bool,
+    #[serde(default)]
+    pub claim_evidence_present: bool,
+    #[serde(default)]
+    pub product_eligibility_verified: bool,
+    #[serde(default)]
+    pub rights_evidence_present: bool,
+    #[serde(default)]
+    pub simulcast: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -34,6 +48,28 @@ pub async fn create_session(
             .is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"));
         let destination = std::env::var("TIKTOK_LIVE_STREAM_DESTINATION").ok();
         if !approved || !destination.as_deref().is_some_and(|value| value.starts_with("rtmp://") || value.starts_with("rtmps://")) {
+            return Err(StatusCode::PRECONDITION_FAILED);
+        }
+
+        let policy_snapshot_key = req.policy_snapshot_key.as_deref().ok_or(StatusCode::PRECONDITION_FAILED)?;
+        let policy_evidence_ref = req.policy_evidence_ref.as_deref().ok_or(StatusCode::PRECONDITION_FAILED)?;
+        let compliance = state
+            .store
+            .check_tiktok_compliance_for_live(
+                &state.company_id,
+                &req.title,
+                policy_snapshot_key,
+                policy_evidence_ref,
+                req.disclosure_present,
+                req.claim_evidence_present,
+                req.product_eligibility_verified,
+                req.rights_evidence_present,
+                req.simulcast,
+            )
+            .await
+            .map_err(|_| StatusCode::PRECONDITION_FAILED)?;
+
+        if compliance.decision != company_compliance::ComplianceDecision::Allowed {
             return Err(StatusCode::PRECONDITION_FAILED);
         }
     }
@@ -181,11 +217,48 @@ pub struct OverlayRequest {
 pub async fn start_stream(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let controller = state.live_stream.as_ref().ok_or(StatusCode::PRECONDITION_FAILED)?;
+    let controller = state
+        .live_stream
+        .as_ref()
+        .ok_or(StatusCode::PRECONDITION_FAILED)?;
+
+    let policy_snapshot_key = std::env::var("TIKTOK_LIVE_POLICY_SNAPSHOT_KEY")
+        .map_err(|_| StatusCode::PRECONDITION_FAILED)?;
+    let policy_evidence_ref = std::env::var("TIKTOK_LIVE_POLICY_EVIDENCE_REF")
+        .map_err(|_| StatusCode::PRECONDITION_FAILED)?;
+    let compliance = state
+        .store
+        .check_tiktok_compliance_for_live(
+            &state.company_id,
+            "Veridara AI LIVE",
+            &policy_snapshot_key,
+            &policy_evidence_ref,
+            env_bool("TIKTOK_LIVE_DISCLOSURE_PRESENT")?,
+            env_bool("TIKTOK_LIVE_CLAIM_EVIDENCE_PRESENT")?,
+            env_bool("TIKTOK_LIVE_PRODUCT_ELIGIBILITY_VERIFIED")?,
+            env_bool("TIKTOK_LIVE_RIGHTS_EVIDENCE_PRESENT")?,
+            env_bool("TIKTOK_LIVE_SIMULCAST")?,
+        )
+        .await
+        .map_err(|_| StatusCode::PRECONDITION_FAILED)?;
+
+    if compliance.decision != company_compliance::ComplianceDecision::Allowed {
+        return Err(StatusCode::PRECONDITION_FAILED);
+    }
+
     controller
         .start("Veridara AI LIVE — đang khởi động...")
         .map_err(|_| StatusCode::BAD_REQUEST)?;
     Ok(Json(serde_json::json!({"running": true})))
+}
+
+fn env_bool(name: &str) -> Result<bool, StatusCode> {
+    let value = std::env::var(name).map_err(|_| StatusCode::PRECONDITION_FAILED)?;
+    match value.to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Ok(true),
+        "0" | "false" | "no" | "off" => Ok(false),
+        _ => Err(StatusCode::PRECONDITION_FAILED),
+    }
 }
 
 pub async fn update_overlay(

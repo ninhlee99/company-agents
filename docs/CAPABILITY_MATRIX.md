@@ -113,6 +113,15 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Persistent evidence:** experiment definitions and observations are company-scoped and persisted before terminal decisions are returned.
 - **No fabricated outcomes:** the engine evaluates supplied observations; it does not invent traffic, orders, conversion, revenue or platform metrics.
 
+## Compliance / Policy Intelligence
+
+- **Versioned policy evidence:** company-scoped policy snapshots persist platform, jurisdiction, version, source reference, evidence hash, observed/effective timestamps and explicit rule flags.
+- **Fail-closed decisioning:** missing, inactive, future, or mismatched policy snapshots resolve to UNKNOWN/human review; missing disclosure, unverified claims, prohibited products, fake engagement and simulcast are blocked when the declared policy requires it.
+- **Side-effect gate:** TikTok publishing and LIVE publisher start/externally approved LIVE session creation require an exact policy snapshot key plus evidence flags and proceed only when the deterministic compliance decision is ALLOWED.
+- **Auditability:** every compliance check is idempotently persisted and exposes 24-hour ALLOWED/REVIEW/BLOCKED/UNKNOWN counts on the command center.
+- **Policy activation event:** activating a new version deactivates the prior active snapshot, rejects rollback to an older effective policy, and emits `POLICY_SNAPSHOT_ACTIVATED` for downstream watchers.
+- **Current boundary:** no automatic policy scraping is claimed. Operators or a verified policy watcher must supply the policy snapshot and evidence; changing platform rules do not silently become trusted.
+
 ## Trend → Opportunity → Content loop
 
 - **Evidence-gated trend ingestion:** trend signals require a source, evidence reference, timestamp, normalized scoring inputs, confidence and policy evidence before they can enter the growth loop.
