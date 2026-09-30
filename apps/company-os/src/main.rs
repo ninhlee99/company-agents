@@ -1701,9 +1701,24 @@ async fn create_capital_plan_api(
     policy.company_status = snapshot.status;
     policy.cash_available_minor = snapshot.cash_minor.max(0);
     policy.runway_days = snapshot.runway_days.max(0);
-    if autonomy_emergency_stop_from_env().unwrap_or(true) {
-        policy.emergency_stop = true;
-    }
+    let env_stop = autonomy_emergency_stop_from_env().unwrap_or(true);
+    let controls = state
+        .store
+        .autonomy_controls(&state.company_id)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    policy.emergency_stop = policy.emergency_stop || env_stop || controls.controls.emergency_stop.enabled;
+    let now_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
+    let capital_remaining = state
+        .store
+        .autonomy_budget_remaining(
+            &state.company_id,
+            company_safety_controls::BudgetKind::AutonomousCapital,
+            now_epoch,
+        )
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    policy.discretionary_budget_minor = policy.discretionary_budget_minor.min(capital_remaining);
     state
         .store
         .create_capital_allocation_plan(
