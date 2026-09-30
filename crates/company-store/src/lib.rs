@@ -1109,6 +1109,8 @@ impl CompanyStore {
         if snapshot.company_id != company_id {
             return Err("authoritative snapshot belongs to a different company".into());
         }
+        let persistent_stop = self.autonomy_controls(company_id).await?;
+        let emergency_stop = emergency_stop || persistent_stop.controls.emergency_stop.enabled;
 
         let simulation =
             company_autonomy::simulate_proposal(&snapshot, proposal, twin_config)?;
