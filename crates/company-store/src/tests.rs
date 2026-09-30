@@ -1398,4 +1398,86 @@ async fn typed_company_event_is_idempotent_in_outbox() {
     assert_eq!(row.get::<_, String>(2), "ORDER_CREATED");
 }
 
+#[tokio::test]
+async fn forecast_cashflow_variance_is_company_scoped_and_evidence_aware() {
+    let Some(store) = connect_store().await else { return; };
+
+    let company_a = uuid::Uuid::new_v4();
+    let company_b = uuid::Uuid::new_v4();
+    store.ensure_company(&company_a.to_string(), "Forecast A", "USD").await.unwrap();
+    store.ensure_company(&company_b.to_string(), "Forecast B", "USD").await.unwrap();
+
+    let forecast_a = uuid::Uuid::new_v4();
+    let forecast_b = uuid::Uuid::new_v4();
+    let period_a_observed = 1_800_000_000_i64;
+    let period_a_missing = 1_802_678_400_i64;
+
+    {
+        let client = store.client.lock().await;
+        client.execute(
+            "INSERT INTO financial_forecasts
+             (id,company_id,name,currency,horizon_months,methodology,status,idempotency_key)
+             VALUES ($1,$2,'Forecast A','USD',3,'test','ACTIVE',$3),
+                    ($4,$5,'Forecast B','USD',3,'test','ACTIVE',$6)",
+            &[
+                &forecast_a,
+                &company_a,
+                &"forecast-a",
+                &forecast_b,
+                &company_b,
+                &"forecast-b",
+            ],
+        ).await.unwrap();
+
+        client.execute(
+            "INSERT INTO financial_forecast_periods
+             (id,forecast_id,period_start_epoch,revenue_minor,operating_inflow_minor,
+              operating_outflow_minor,capex_minor,financing_inflow_minor,financing_outflow_minor)
+             VALUES
+              ($1,$2,$3,1000,1000,600,100,0,0),
+              ($4,$2,$5,1000,2000,400,0,0,100),
+              ($6,$7,$8,1000,9000,0,0,0,0)",
+            &[
+                &uuid::Uuid::new_v4(),
+                &forecast_a,
+                &period_a_observed,
+                &uuid::Uuid::new_v4(),
+                &period_a_missing,
+                &uuid::Uuid::new_v4(),
+                &forecast_b,
+                &period_a_observed,
+            ],
+        ).await.unwrap();
+
+        client.execute(
+            "INSERT INTO cashflow_observations
+             (id,company_id,period_start_epoch,currency,inflow_minor,outflow_minor,closing_cash_minor,source,evidence_hash,idempotency_key)
+             VALUES ($1,$2,$3,'USD',450,100,10500,'test','hash-a','obs-a')",
+            &[
+                &uuid::Uuid::new_v4(),
+                &company_a,
+                &period_a_observed,
+            ],
+        ).await.unwrap();
+    }
+
+    let variance = store.forecast_cashflow_variance(&company_a.to_string(), 10).await.unwrap();
+    assert_eq!(variance.len(), 2);
+    assert_eq!(variance[0].forecast_id, forecast_a);
+    assert_eq!(variance[0].period_start_epoch, period_a_missing);
+    assert_eq!(variance[0].actual_net_cashflow_minor, None);
+    assert_eq!(variance[0].variance_minor, None);
+
+    assert_eq!(variance[1].forecast_net_cashflow_minor, 300);
+    assert_eq!(variance[1].actual_net_cashflow_minor, Some(350));
+    assert_eq!(variance[1].variance_minor, Some(50));
+    assert_eq!(variance[1].variance_bps, Some(1666));
+    assert_eq!(variance[1].actual_closing_cash_minor, Some(10500));
+
+    let other = store.forecast_cashflow_variance(&company_b.to_string(), 10).await.unwrap();
+    assert_eq!(other.len(), 1);
+    assert_eq!(other[0].forecast_id, forecast_b);
+    assert_eq!(other[0].actual_net_cashflow_minor, None);
+}
+
 }
