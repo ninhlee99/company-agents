@@ -5067,7 +5067,7 @@ impl CompanyStore {
                     Some(&currency),
                     attribution.confidence_bps,
                     &format!("affiliate:conversion:{}", event.conversion_id),
-                    &event.source,
+                    graph_source(&event.source)?,
                     observed_at_epoch,
                 ),
             )
