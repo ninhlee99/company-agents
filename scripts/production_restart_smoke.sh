@@ -57,70 +57,15 @@ assert_readonly_load() {
   mkdir -p /tmp/company-agents-load
 
   seq "$total" | xargs -P "$parallel" -I{} bash -c '
-    code="$(curl -sS -o "/tmp/company-agents-load/{}.body" -w "%{http_code}"       -H "Authorization: Bearer $CONTROL_PLANE_TOKEN"       -H "X-Request-Id: load-smoke-{}"       "$0" || true)"
+    code="$(curl -sS       -o "/tmp/company-agents-load/{}.body"       -w "%{http_code}"       -H "Authorization: Bearer $CONTROL_PLANE_TOKEN"       -H "X-Request-Id: load-smoke-{}"       "$0" || true)"
     printf "%s\n" "$code" > "/tmp/company-agents-load/{}.status"
   ' "$url"
 
   local failed
-  failed="$(grep -L '^200  local metrics
-  metrics="$(curl -sS "http://127.0.0.1:8080/metrics")"
-  grep -q 'company_control_plane_requests_total' <<<"$metrics"
-  grep -Eq 'company_control_plane_requests_total [1-9][0-9]*' <<<"$metrics"
-  grep -q 'company_control_plane_last_latency_ms' <<<"$metrics"
-}
-
-docker compose up -d postgres redis
-docker compose build company-os outbox-worker
-docker compose up -d company-os outbox-worker
-wait_ready
-assert_authenticated_request
-assert_readonly_load
-assert_metrics_observed
-
-docker compose restart company-os
-wait_ready
-assert_authenticated_request
-
-docker compose restart postgres
-wait_ready
-assert_authenticated_request
-
-docker compose restart outbox-worker
-docker compose ps --status running outbox-worker >/tmp/company-agents-smoke-worker
-grep -q 'outbox-worker' /tmp/company-agents-smoke-worker
-
-echo "RESTART + READONLY LOAD CHAOS SMOKE PASSED"
- /tmp/company-agents-load/*.status | wc -l | tr -d ' ')"
+  failed="$(grep -L '^200$' /tmp/company-agents-load/*.status | wc -l | tr -d ' ')"
   if [[ "$failed" != "0" ]]; then
     echo "Readonly load smoke had $failed non-200 responses" >&2
-    grep -H -v '^200  local metrics
-  metrics="$(curl -sS "http://127.0.0.1:8080/metrics")"
-  grep -q 'company_control_plane_requests_total' <<<"$metrics"
-  grep -Eq 'company_control_plane_requests_total [1-9][0-9]*' <<<"$metrics"
-  grep -q 'company_control_plane_last_latency_ms' <<<"$metrics"
-}
-
-docker compose up -d postgres redis
-docker compose build company-os outbox-worker
-docker compose up -d company-os outbox-worker
-wait_ready
-assert_authenticated_request
-assert_metrics_observed
-
-docker compose restart company-os
-wait_ready
-assert_authenticated_request
-
-docker compose restart postgres
-wait_ready
-assert_authenticated_request
-
-docker compose restart outbox-worker
-docker compose ps --status running outbox-worker >/tmp/company-agents-smoke-worker
-grep -q 'outbox-worker' /tmp/company-agents-smoke-worker
-
-echo "RESTART CHAOS SMOKE PASSED"
- /tmp/company-agents-load/*.status >&2 || true
+    grep -H -v '^200$' /tmp/company-agents-load/*.status >&2 || true
     return 1
   fi
 
