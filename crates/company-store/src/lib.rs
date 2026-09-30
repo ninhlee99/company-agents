@@ -3194,23 +3194,22 @@ impl CompanyStore {
         )
         .await?;
 
-        tx.execute(
-            "INSERT INTO outbox_events
-             (company_id,event_type,aggregate_id,idempotency_key,payload)
-             VALUES ($1,'PUBLISH_INTENT_APPROVED',$2,$3,$4)
-             ON CONFLICT (company_id,idempotency_key) DO NOTHING",
-            &[
-                &company_uuid,
-                &intent_id,
-                &format!("outbox:publish-approved:{intent_id}:{expires_at}"),
-                &serde_json::json!({
-                    "intent_id": intent_id,
-                    "approved_by": approved_by,
-                    "expires_at": expires_at,
-                }),
-            ],
-        )
-        .await?;
+        let approval_event = company_domain::CompanyEventEnvelope::new(
+            company_uuid,
+            company_domain::CompanyEventType::PublishIntentApproved,
+            "publish_intent",
+            Some(intent_uuid),
+            time::OffsetDateTime::now_utc().unix_timestamp(),
+            intent_uuid,
+            None,
+            format!("outbox:publish-approved:{intent_id}:{expires_at}"),
+            serde_json::json!({
+                "intent_id": intent_id,
+                "approved_by": approved_by,
+                "expires_at": expires_at,
+            }),
+        )?;
+        enqueue_company_event_tx(&tx, &approval_event).await?;
 
         tx.commit().await?;
 
@@ -10493,6 +10492,39 @@ mod customer_intelligence_tests {
         assert_eq!(collection_rate_bps(0, 0), 0);
         assert_eq!(collection_rate_bps(100, 50), 5_000);
         assert_eq!(collection_rate_bps(100, 120), 10_000);
+    }
+}
+
+#[cfg(test)]
+mod publish_intent_approved_event_tests {
+    use super::*;
+
+    #[test]
+    fn publish_approval_event_preserves_actor_and_expiry_without_token() {
+        let company = Uuid::from_u128(81);
+        let intent = Uuid::from_u128(82);
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::PublishIntentApproved,
+            "publish_intent",
+            Some(intent),
+            1_800_000_500,
+            intent,
+            None,
+            "outbox:publish-approved:82:2026-09-30T20:00:00Z",
+            serde_json::json!({
+                "intent_id": intent,
+                "approved_by": "operator",
+                "expires_at": "2026-09-30T20:00:00Z"
+            }),
+        ).unwrap();
+
+        assert_eq!(event.event_type_name(), "PUBLISH_INTENT_APPROVED");
+        assert_eq!(event.aggregate_id, Some(intent));
+        assert_eq!(event.correlation_id, intent);
+        assert_eq!(event.idempotency_key, "outbox:publish-approved:82:2026-09-30T20:00:00Z");
+        assert_eq!(event.payload["approved_by"], "operator");
+        assert!(event.payload.get("approval_token").is_none());
     }
 }
 
