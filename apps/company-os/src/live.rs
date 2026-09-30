@@ -246,10 +246,44 @@ pub async fn start_stream(
         return Err(StatusCode::PRECONDITION_FAILED);
     }
 
+    let controls = state
+        .store
+        .autonomy_controls(&state.company_id)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if controls.controls.emergency_stop.enabled {
+        return Err(StatusCode::PRECONDITION_FAILED);
+    }
+
+    let reservation_minutes = std::env::var("AUTONOMY_LIVE_SESSION_RESERVATION_MINUTES")
+        .ok()
+        .and_then(|value| value.parse::<i128>().ok())
+        .filter(|value| (1..=1_440).contains(value))
+        .unwrap_or(60);
+    let now_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
+    let budget = state
+        .store
+        .consume_autonomy_budget(
+            &state.company_id,
+            company_safety_controls::BudgetKind::LiveMinutes,
+            reservation_minutes,
+            &format!("live-session:{}:{}", state.company_id, now_epoch),
+            now_epoch,
+        )
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if !budget.allowed {
+        return Err(StatusCode::PRECONDITION_FAILED);
+    }
+
     controller
         .start("Veridara AI LIVE — đang khởi động...")
         .map_err(|_| StatusCode::BAD_REQUEST)?;
-    Ok(Json(serde_json::json!({"running": true})))
+    Ok(Json(serde_json::json!({
+        "running": true,
+        "reserved_minutes": reservation_minutes,
+        "budget": budget
+    })))
 }
 
 fn env_bool(name: &str) -> Result<bool, StatusCode> {
