@@ -49,6 +49,7 @@ Durable media jobs, sandboxed FFmpeg, FFprobe QA and publishing approval contrac
 - Competitor intelligence foundation: evidence-backed observations and owned-content coverage can be scored deterministically into content whitespace gaps.
 
 - Creator intelligence foundation: evidence-backed creator profiles can be matched to fresh, in-stock product economics through deterministic specialty/category and performance scoring.
+- Ads decision engine foundation: evidence-backed campaigns are ranked on incremental contribution margin, lift, confidence and feedback speed; execution/spend remains separately gated.
 ## FP&A / Cash Flow
 
 - Forecast-vs-actual variance report: implemented baseline via `/api/fpa/forecast-variance` and `/fpa/variance`, company-scoped and evidence-aware.
