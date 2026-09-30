@@ -35,7 +35,7 @@ This document intentionally separates implemented behavior from contracts, simul
 | Business-unit economics | Implemented baseline | Units and portfolio metrics exist; automatic capital allocation is still gated. |
 | Portfolio autonomy | Policy implemented; execution gated | A deterministic evidence-backed reinvest/hold/reduce/close policy now exists with liquidity protection and hard allocation caps. It produces decisions only; persisted execution and real capital movement remain separately gated. |
 | Human approval / material side effects | Implemented | Material publishing and other sensitive actions are designed to remain explicitly gated. |
-| Control-plane authentication | Implemented baseline | Bearer token authentication is required by default for non-health endpoints, with constant-time comparison. |
+| Control-plane authentication | Implemented baseline + audit | Bearer token authentication is required by default for non-health endpoints, with constant-time comparison. Auth ALLOW/DENY decisions are now persisted to a company-scoped append-only audit log using a non-secret token fingerprint and request ID. |
 | Multi-user identity / RBAC / SSO | NOT achieved | Authentication is a shared control-plane token, not an operator identity system. |
 | Multi-tenant SaaS isolation | NOT achieved | The runtime is company-scoped by deployment configuration, not a full user/tenant authorization model. |
 | Observability | Implemented baseline | Health/readiness and Prometheus-style counters exist. Distributed tracing/load/chaos acceptance is still environment-dependent. |
@@ -167,6 +167,10 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Target separation:** the configured monthly target is planning input and is never substituted for observed revenue.
 - **Forecast boundary:** the monthly forecast is a deterministic calendar-day run-rate projection; its confidence field is time-coverage (elapsed-month) coverage, not a statistical guarantee.
 - **No lifetime-vs-monthly comparison:** dashboard target progress uses only month-to-date observed revenue.
+
+## Control-plane audit
+
+- **Control-plane audit:** authenticated/denied requests are durably recorded with company, coarse operator role, method/path, outcome, request ID, and non-secret bearer-token fingerprint. The system still does not provide multi-user identity, RBAC, or SSO.
 
 ## Model routing (shadow)
 
