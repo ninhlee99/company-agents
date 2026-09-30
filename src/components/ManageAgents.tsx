@@ -20,7 +20,7 @@ interface ManageAgentsProps {
   agents: CustomAgent[];
   candidates?: CandidateProfile[];
   onHireAgent: (data: { name: string; role: string; department: 'Leadership' | 'Growth' | 'Ops' | 'Sales' | 'Tech'; description: string; salary_minor: number }) => Promise<{ success: boolean; reason?: string }>;
-  onToggleStatus: (agentId: string) => void;
+  onToggleStatus?: (agentId: string) => void;
   onOpenTraining?: (agentId?: string) => void;
   onAutoRecruit?: (thresholdMinor?: number) => Promise<{ success: boolean; reason?: string }>;
   onAutoTalentCycle?: (options: { autoRecruit: boolean; autoTrain: boolean; cashSafetyThreshold: number }) => Promise<{ success: boolean; message: string; actionsTaken: boolean }>;
@@ -247,7 +247,7 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
                     </button>
                   )}
                   <button
-                    onClick={() => onToggleStatus(agent.id)}
+                    onClick={() => onToggleStatus?.(agent.id)}
                     className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
                     title={agent.status === 'Active' ? 'Tạm dừng' : 'Kích hoạt'}
                   >

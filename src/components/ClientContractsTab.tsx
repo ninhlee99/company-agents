@@ -14,7 +14,9 @@ import {
   ChevronRight,
   TrendingUp,
   Search,
-  MessageSquare
+  MessageSquare,
+  PlusCircle,
+  Briefcase
 } from 'lucide-react';
 
 interface ClientContractsTabProps {
@@ -47,6 +49,8 @@ export const ClientContractsTab: React.FC<ClientContractsTabProps> = ({
       maximumFractionDigits: 0,
     }).format(minor / 100);
   };
+
+  const totalContractValue = contracts.reduce((acc, c) => acc + c.budgetMinor, 0);
 
   const handleAccept = async () => {
     if (!selectedContract) return;
@@ -83,22 +87,27 @@ export const ClientContractsTab: React.FC<ClientContractsTabProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <span className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
-              <FileText className="w-5 h-5" />
+              <Briefcase className="w-5 h-5" />
             </span>
             <div>
-              <h2 className="text-base font-bold text-white">Quản Lý Hợp Đồng Thuê Khoán Của Bạn</h2>
-              <p className="text-xs text-slate-400">Theo dõi tiến độ sản xuất tự động và tải thành phẩm do Công ty AI bàn giao</p>
+              <h2 className="text-base font-bold text-white">Quản Lý Hợp Đồng Kinh Doanh & Thuê Khoán</h2>
+              <p className="text-xs text-slate-400">Theo dõi tiến độ AI tự động thực thi hợp đồng khách hàng và doanh thu đã thu về</p>
             </div>
           </div>
         </div>
 
         <div className="flex items-center gap-3 w-full md:w-auto">
+          <div className="text-right hidden sm:block mr-2">
+            <span className="text-[10px] text-slate-400 block">Tổng Doanh Số Hợp Đồng:</span>
+            <span className="text-sm font-bold text-emerald-400 font-mono">{formatMoney(totalContractValue)}</span>
+          </div>
+
           <button
             onClick={onNavigateToOrder}
             className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition-colors shadow-sm"
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>+ Tạo Hợp Đồng / Đặt Hàng Mới</span>
+            <span>+ Nhập Hợp Đồng / Deal Mới</span>
           </button>
         </div>
       </div>
@@ -120,7 +129,7 @@ export const ClientContractsTab: React.FC<ClientContractsTabProps> = ({
               filter === 'ACTIVE' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Đang sản xuất ({contracts.filter(c => c.status !== 'Delivered' && c.status !== 'Completed').length})
+            Đang thực hiện ({contracts.filter(c => c.status !== 'Delivered' && c.status !== 'Completed').length})
           </button>
           <button
             onClick={() => setFilter('DELIVERED')}
@@ -128,7 +137,7 @@ export const ClientContractsTab: React.FC<ClientContractsTabProps> = ({
               filter === 'DELIVERED' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Đã bàn giao ({contracts.filter(c => c.status === 'Delivered' || c.status === 'Completed').length})
+            Đã hoàn thành ({contracts.filter(c => c.status === 'Delivered' || c.status === 'Completed').length})
           </button>
         </div>
       </div>
@@ -140,13 +149,13 @@ export const ClientContractsTab: React.FC<ClientContractsTabProps> = ({
             <FileText className="w-8 h-8 text-slate-600 mx-auto" />
             <div className="text-sm font-medium text-slate-300">Chưa có hợp đồng nào trong mục này</div>
             <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              Hãy gửi yêu cầu hoặc đặt hàng dịch vụ để công ty AI tự động nhận việc và bàn giao sản phẩm.
+              Hãy nhập thêm hợp đồng hoặc tiếp nhận yêu cầu từ đối tác để công ty AI tự động xử lý và thu tiền về kho bạc.
             </p>
             <button
               onClick={onNavigateToOrder}
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold"
             >
-              Đặt hàng ngay
+              Nhập Hợp Đồng Mới
             </button>
           </div>
         ) : (
@@ -206,7 +215,7 @@ export const ClientContractsTab: React.FC<ClientContractsTabProps> = ({
                 {/* Action Row */}
                 <div className="flex items-center justify-between pt-2 border-t border-slate-800/60 text-xs">
                   <div className="text-[11px] text-slate-500">
-                    Khách hàng: <strong className="text-slate-400">{contract.clientName}</strong> • Tạo ngày: {new Date(contract.createdAt).toLocaleDateString('vi-VN')}
+                    Khách hàng: <strong className="text-slate-400">{contract.clientName}</strong> • Ngày tạo: {new Date(contract.createdAt).toLocaleDateString('vi-VN')}
                   </div>
 
                   <button
@@ -248,13 +257,13 @@ export const ClientContractsTab: React.FC<ClientContractsTabProps> = ({
             {/* Contract Summary */}
             <div className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2 text-xs">
               <div className="flex justify-between text-slate-400">
-                <span>Phí dịch vụ trọn gói:</span>
+                <span>Doanh thu hợp đồng:</span>
                 <strong className="text-emerald-400 font-mono text-sm">{formatMoney(selectedContract.budgetMinor)}</strong>
               </div>
               <div className="flex justify-between text-slate-400">
                 <span>Trạng thái thanh toán:</span>
                 <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Đã thanh toán vào kho bạc
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Đã ghi nhận vào kho bạc
                 </span>
               </div>
               <div className="flex justify-between text-slate-400">
@@ -344,7 +353,7 @@ export const ClientContractsTab: React.FC<ClientContractsTabProps> = ({
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
                 <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>Nghiệm Thu & Đánh Giá Chất Lượng Dịch Vụ:</span>
+                  <span>Nghiệm Thu & Đánh Giá Chất Lượng:</span>
                 </h4>
 
                 <div className="flex items-center gap-1">
@@ -364,7 +373,7 @@ export const ClientContractsTab: React.FC<ClientContractsTabProps> = ({
                 <textarea
                   value={feedback}
                   onChange={(e) => setFeedback(e.target.value)}
-                  placeholder="Nhận xét của bạn về sản phẩm..."
+                  placeholder="Nhận xét chất lượng bàn giao..."
                   className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                   rows={2}
                 />
@@ -381,7 +390,7 @@ export const ClientContractsTab: React.FC<ClientContractsTabProps> = ({
 
             {selectedContract.status === 'Completed' && (
               <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-xl p-3 text-center text-xs text-emerald-300">
-                ✓ Hợp đồng đã được nghiệm thu hoàn tất với đánh giá {selectedContract.rating ?? 5} sao!
+                ✓ Hợp đồng đã nghiệm thu hoàn tất với đánh giá {selectedContract.rating ?? 5} sao!
               </div>
             )}
           </div>

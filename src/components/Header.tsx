@@ -4,19 +4,22 @@ import {
   Building2, 
   Sparkles,
   ShieldCheck,
-  FileText
+  TrendingUp,
+  Wallet,
+  DollarSign,
+  Briefcase
 } from 'lucide-react';
 
 interface HeaderProps {
   snapshot: CompanySnapshot;
   activeContractsCount?: number;
-  onNavigateToOrder?: () => void;
+  onNavigateToNewContract?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   snapshot,
   activeContractsCount = 0,
-  onNavigateToOrder,
+  onNavigateToNewContract,
 }) => {
   const formatMoney = (minor: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -26,51 +29,63 @@ export const Header: React.FC<HeaderProps> = ({
     }).format(minor / 100);
   };
 
+  const netMonthly = snapshot.revenue_minor - snapshot.expenses_minor;
+
   return (
-    <header className="px-4 lg:px-8 py-3.5 border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-md sticky top-0 z-40">
-      <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
-        {/* Brand & Status */}
+    <header className="px-4 lg:px-8 py-3.5 border-b border-slate-800/80 bg-slate-950/95 backdrop-blur-md sticky top-0 z-40">
+      <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
+        {/* Brand & Executive Identity */}
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200 shadow-sm">
             <Building2 className="w-5 h-5 text-blue-400" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-white text-sm tracking-tight">Cổng Thuê Khoán Doanh Nghiệp AI</span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">
+              <span className="font-bold text-white text-sm tracking-tight">AI Enterprise Command Center</span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-950/60 text-blue-400 border border-blue-800/50">
+                👔 Chủ Tịch / Founder
+              </span>
+              <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                 Tự Động 24/7
               </span>
             </div>
             <p className="text-[11px] text-slate-400 hidden sm:block">
-              Hệ thống nhận hợp đồng, tự phân công nhân sự và bàn giao sản phẩm tự động
+              Hệ thống điều hành doanh nghiệp AI: Thống kê, nhân sự, quy trình & hợp đồng kinh doanh
             </p>
           </div>
         </div>
 
-        {/* Right Financial & Action Elements */}
+        {/* Right Executive Financial Metrics & Quick Action */}
         <div className="flex items-center gap-3">
-          {/* Contracts In Progress Metric */}
+          {/* Key Metrics */}
           <div className="hidden sm:flex items-center gap-4 px-3.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs">
             <div>
-              <span className="text-slate-400 text-[10px] block">Hợp Đồng Đang Xử Lý</span>
-              <span className="font-semibold text-white font-mono text-xs">{activeContractsCount} đơn</span>
+              <span className="text-slate-400 text-[10px] block">Quỹ Tiền Mặt</span>
+              <span className="font-semibold text-emerald-400 font-mono text-xs">{formatMoney(snapshot.cash_minor)}</span>
             </div>
             <div className="w-px h-6 bg-slate-800"></div>
             <div>
-              <span className="text-slate-400 text-[10px] block">Quỹ Bảo Chứng Dịch Vụ</span>
-              <span className="font-semibold text-emerald-400 font-mono text-xs">{formatMoney(snapshot.cash_minor)}</span>
+              <span className="text-slate-400 text-[10px] block">Doanh Thu Tháng</span>
+              <span className="font-semibold text-white font-mono text-xs">{formatMoney(snapshot.revenue_minor)}</span>
+            </div>
+            <div className="w-px h-6 bg-slate-800"></div>
+            <div>
+              <span className="text-slate-400 text-[10px] block">Lợi Nhuận Ròng</span>
+              <span className={`font-semibold font-mono text-xs ${netMonthly >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {netMonthly >= 0 ? `+${formatMoney(netMonthly)}` : formatMoney(netMonthly)}
+              </span>
             </div>
           </div>
 
-          {/* New Order CTA */}
-          {onNavigateToOrder && (
+          {/* Quick Create Deal/Contract Button */}
+          {onNavigateToNewContract && (
             <button
-              onClick={onNavigateToOrder}
+              onClick={onNavigateToNewContract}
               className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs shadow-sm transition-all active:scale-95"
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>+ Đặt Hàng Dịch Vụ</span>
+              <Briefcase className="w-3.5 h-3.5" />
+              <span>+ Thêm Hợp Đồng / Deal Mới</span>
             </button>
           )}
         </div>

@@ -6,24 +6,33 @@ import {
   CandidateProfile,
   OfficeActivityEvent,
   CompanyPnL,
-  ClientContract
+  ClientContract,
+  CycleTrendPoint,
+  AutonomousSettings,
+  SkillTrainingCourse
 } from './types/company';
 import { Header } from './components/Header';
+import { BasicDashboard } from './components/BasicDashboard';
+import { ManageAgents } from './components/ManageAgents';
+import { AutonomousPipelineTab } from './components/AutonomousPipelineTab';
+import { MediaStudioTab } from './components/MediaStudioTab';
 import { ClientContractsTab } from './components/ClientContractsTab';
 import { CreateContractTab } from './components/CreateContractTab';
-import { CompanyCapabilitiesTab } from './components/CompanyCapabilitiesTab';
 import { ManageFinances } from './components/ManageFinances';
 
 import { 
-  FileText, 
+  LayoutDashboard, 
+  Users, 
   Sparkles, 
-  Building2, 
+  Briefcase, 
   Wallet,
-  CheckCircle2
+  CheckCircle2,
+  Video
 } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'contracts' | 'order' | 'capabilities' | 'finances'>('contracts');
+  const [activeTab, setActiveTab] = useState<'overview' | 'workforce' | 'pipeline' | 'contracts' | 'order' | 'finances'>('overview');
+  const [pipelineSubTab, setPipelineSubTab] = useState<'flow' | 'studio'>('flow');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [dataMode, setDataMode] = useState<'SIMULATION' | 'UNKNOWN'>('UNKNOWN');
 
@@ -49,8 +58,18 @@ export default function App() {
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [employees, setEmployees] = useState<{ id: string; role: string; name: string; salary_minor: number; hiredAtCycle: number }[]>([]);
   const [customAgents, setCustomAgents] = useState<CustomAgent[]>([]);
+  const [candidatePool, setCandidatePool] = useState<CandidateProfile[]>([]);
   const [officeActivities, setOfficeActivities] = useState<OfficeActivityEvent[]>([]);
   const [clientContracts, setClientContracts] = useState<ClientContract[]>([]);
+  const [pnl, setPnl] = useState<CompanyPnL | undefined>(undefined);
+  const [cycleHistory, setCycleHistory] = useState<CycleTrendPoint[]>([]);
+  const [autonomousSettings, setAutonomousSettings] = useState<AutonomousSettings>({
+    isAutoPilotActive: true,
+    intervalSeconds: 10,
+    autoHireWhenBacklogHigh: true,
+    autoReinvestProfitPct: 25,
+    maxSpendPerAutoCycleMinor: 50000,
+  });
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
@@ -68,8 +87,12 @@ export default function App() {
         setLedger(data.ledger || []);
         setEmployees(data.employees || []);
         if (data.customAgents) setCustomAgents(data.customAgents);
+        if (data.candidatePool) setCandidatePool(data.candidatePool);
         if (data.officeActivities) setOfficeActivities(data.officeActivities);
         if (data.clientContracts) setClientContracts(data.clientContracts);
+        if (data.pnl) setPnl(data.pnl);
+        if (data.cycleHistory) setCycleHistory(data.cycleHistory);
+        if (data.autonomousSettings) setAutonomousSettings(data.autonomousSettings);
         setDataMode(data.dataMode === 'SIMULATION' ? 'SIMULATION' : 'UNKNOWN');
       }
     } catch (err) {
@@ -81,7 +104,7 @@ export default function App() {
     loadState();
   }, []);
 
-  // 24/7 Autonomous Background Engine (Auto-updates contract & office activities)
+  // 24/7 Autonomous Background Engine Sync
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
@@ -92,6 +115,7 @@ export default function App() {
           if (data.clientContracts) setClientContracts(data.clientContracts);
           if (data.officeActivities) setOfficeActivities(data.officeActivities);
           if (data.customAgents) setCustomAgents(data.customAgents);
+          if (data.pnl) setPnl(data.pnl);
         }
       } catch (e) {
         // silent background sync
@@ -101,7 +125,27 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Client creates a new contract
+  // Run autonomous multi-agent pipeline
+  const handleRunPipeline = async (topic: string) => {
+    try {
+      const res = await fetch('/api/run-pipeline', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        triggerToast(`Dây chuyền hoàn tất cho "${topic}"!`);
+        loadState();
+        return { success: true, steps: data.steps, simulatedRevenueGainMinor: data.simulatedRevenueGainMinor };
+      }
+      return { success: false, steps: [], simulatedRevenueGainMinor: 0 };
+    } catch (err) {
+      return { success: false, steps: [], simulatedRevenueGainMinor: 0 };
+    }
+  };
+
+  // Create new contract / deal
   const handleOrderContract = async (orderData: {
     clientName: string;
     clientEmail: string;
@@ -118,7 +162,7 @@ export default function App() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        triggerToast(`Hợp đồng "${orderData.title}" đã được AI tiếp nhận & hoàn tất thành công!`);
+        triggerToast(`Hợp đồng "${orderData.title}" đã được tiếp nhận & hoàn tất tự động!`);
         loadState();
         return { success: true, message: data.message };
       } else {
@@ -129,7 +173,7 @@ export default function App() {
     }
   };
 
-  // Client accepts and rates deliverables
+  // Client accept contract
   const handleAcceptContract = async (contractId: string, rating: number, feedback: string) => {
     try {
       const res = await fetch(`/api/contracts/${contractId}/accept`, {
@@ -138,12 +182,57 @@ export default function App() {
         body: JSON.stringify({ rating, feedback }),
       });
       if (res.ok) {
-        triggerToast(`Đã nghiệm thu hợp đồng thành công với đánh giá ${rating} sao!`);
+        triggerToast(`Đã nghiệm thu hợp đồng với đánh giá ${rating} sao!`);
         loadState();
       }
     } catch (err) {
       console.error(err);
     }
+  };
+
+  // AI Hire Agent Handler
+  const handleHireAgent = async (data: { name: string; role: string; department: 'Leadership' | 'Growth' | 'Ops' | 'Sales' | 'Tech'; description: string; salary_minor: number }) => {
+    try {
+      const res = await fetch('/api/hire-custom-agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const resData = await res.json();
+      if (res.ok) {
+        triggerToast(`Đã bổ sung chuyên gia ${data.name} vào đội ngũ!`);
+        loadState();
+        return { success: true };
+      }
+      return { success: false, reason: resData.reason };
+    } catch (err: any) {
+      return { success: false, reason: err.message };
+    }
+  };
+
+  // Interview candidate
+  const handleInterviewCandidate = async (candidateId: string) => {
+    const res = await fetch('/api/candidates/interview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ candidateId }),
+    });
+    return res.json();
+  };
+
+  // Hire candidate
+  const handleHireCandidate = async (candidateId: string) => {
+    const res = await fetch('/api/candidates/hire', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ candidateId }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      triggerToast(`Đã tuyển dụng ${data.agent.name} thành công!`);
+      loadState();
+    }
+    return data;
   };
 
   const activeContractsCount = clientContracts.filter(
@@ -152,58 +241,63 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
-      {/* Simulation Info Bar */}
-      {dataMode === 'SIMULATION' && (
-        <div className="bg-slate-900 border-b border-slate-800 px-4 py-1.5 text-center text-[11px] font-medium text-slate-400">
-          CỔNG THUÊ KHOÁN KHÁCH HÀNG — Doanh nghiệp AI vận hành hoàn toàn tự động 24/7 (Black-Box Autonomous). Khách hàng giao việc dưới dạng hợp đồng và nhận bàn giao thành phẩm.
-        </div>
-      )}
-
       {/* Sticky Top Header */}
       <div className="sticky top-0 z-50 bg-slate-950/95 backdrop-blur-md border-b border-slate-800 shadow-sm">
         <Header
           snapshot={snapshot}
           activeContractsCount={activeContractsCount}
-          onNavigateToOrder={() => setActiveTab('order')}
+          onNavigateToNewContract={() => setActiveTab('order')}
         />
 
-        {/* Clean Client Navigation Bar */}
+        {/* Clean Executive Navigation Bar */}
         <nav className="border-t border-slate-800/80 bg-slate-900/40 px-4 lg:px-8">
-          <div className="max-w-5xl mx-auto flex items-center justify-start gap-2 py-2 overflow-x-auto scrollbar-none">
+          <div className="max-w-6xl mx-auto flex items-center justify-start gap-1.5 py-2 overflow-x-auto scrollbar-none">
             <button
-              onClick={() => setActiveTab('contracts')}
+              onClick={() => setActiveTab('overview')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                activeTab === 'contracts'
+                activeTab === 'overview'
                   ? 'bg-blue-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
               }`}
             >
-              <FileText className="w-3.5 h-3.5" />
-              <span>Hợp Đồng Của Tôi ({clientContracts.length})</span>
+              <LayoutDashboard className="w-3.5 h-3.5" />
+              <span>Tổng Quan Điều Hành</span>
             </button>
 
             <button
-              onClick={() => setActiveTab('order')}
+              onClick={() => setActiveTab('workforce')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                activeTab === 'order'
+                activeTab === 'workforce'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>Đội Ngũ AI &amp; Nhân Sự ({customAgents.length})</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('pipeline')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                activeTab === 'pipeline'
                   ? 'bg-blue-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
               }`}
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Đặt Hàng Thuê Khoán</span>
+              <span>Quy Trình &amp; Dây Chuyền</span>
             </button>
 
             <button
-              onClick={() => setActiveTab('capabilities')}
+              onClick={() => setActiveTab('contracts')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                activeTab === 'capabilities'
+                activeTab === 'contracts' || activeTab === 'order'
                   ? 'bg-blue-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
               }`}
             >
-              <Building2 className="w-3.5 h-3.5" />
-              <span>Hồ Sơ Năng Lực Doanh Nghiệp ({customAgents.length} AI)</span>
+              <Briefcase className="w-3.5 h-3.5" />
+              <span>Kinh Doanh &amp; Hợp Đồng ({clientContracts.length})</span>
             </button>
 
             <button
@@ -215,14 +309,88 @@ export default function App() {
               }`}
             >
               <Wallet className="w-3.5 h-3.5" />
-              <span>Đối Soát Hóa Đơn & Sổ Cái</span>
+              <span>Tài Chính &amp; Sổ Cái</span>
             </button>
           </div>
         </nav>
       </div>
 
-      {/* Main Content */}
-      <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-5">
+      {/* Main Content Viewport */}
+      <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-5">
+        {/* Tab 1: Executive Overview */}
+        {activeTab === 'overview' && (
+          <BasicDashboard
+            snapshot={snapshot}
+            recentProposals={[]}
+            cycleHistory={cycleHistory}
+            agents={customAgents}
+            officeActivities={officeActivities}
+            pnl={pnl}
+            autonomousSettings={autonomousSettings}
+            onRunCycle={() => {}}
+            isRunningCycle={false}
+            onOverride={() => {}}
+            onNavigate={(view) => {
+              if (view === 'agents') setActiveTab('workforce');
+              else if (view === 'pipeline' || view === 'studio') setActiveTab('pipeline');
+              else if (view === 'finances') setActiveTab('finances');
+            }}
+          />
+        )}
+
+        {/* Tab 2: Workforce & AI Agents */}
+        {activeTab === 'workforce' && (
+          <ManageAgents
+            snapshot={snapshot}
+            agents={customAgents}
+            candidates={candidatePool}
+            onHireAgent={handleHireAgent}
+            onInterviewCandidate={handleInterviewCandidate}
+            onHireCandidate={handleHireCandidate}
+          />
+        )}
+
+        {/* Tab 3: Workflows & Pipelines */}
+        {activeTab === 'pipeline' && (
+          <div className="space-y-4">
+            {/* Sub navigation for Pipeline */}
+            <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+              <button
+                onClick={() => setPipelineSubTab('flow')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  pipelineSubTab === 'flow' ? 'bg-slate-800 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                <span>Dây Chuyền Tự Động 4 Khâu</span>
+              </button>
+
+              <button
+                onClick={() => setPipelineSubTab('studio')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  pipelineSubTab === 'studio' ? 'bg-slate-800 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Video className="w-3.5 h-3.5 text-purple-400" />
+                <span>Xưởng Sáng Tạo Media (5-in-1)</span>
+              </button>
+            </div>
+
+            {pipelineSubTab === 'flow' ? (
+              <AutonomousPipelineTab
+                snapshot={snapshot}
+                onRunPipeline={handleRunPipeline}
+              />
+            ) : (
+              <MediaStudioTab
+                snapshot={snapshot}
+                onPublishToCycle={(title) => handleRunPipeline(title)}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Tab 4: Sales & Client Contracts */}
         {activeTab === 'contracts' && (
           <ClientContractsTab
             contracts={clientContracts}
@@ -231,6 +399,7 @@ export default function App() {
           />
         )}
 
+        {/* Sub-view: Create Contract / Deal */}
         {activeTab === 'order' && (
           <CreateContractTab
             onSubmitContract={handleOrderContract}
@@ -238,14 +407,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'capabilities' && (
-          <CompanyCapabilitiesTab
-            snapshot={snapshot}
-            agents={customAgents}
-            officeActivities={officeActivities}
-          />
-        )}
-
+        {/* Tab 5: Finances & P&L Ledger */}
         {activeTab === 'finances' && (
           <ManageFinances
             snapshot={snapshot}
