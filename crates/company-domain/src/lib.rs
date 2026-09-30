@@ -33,6 +33,8 @@ pub enum CompanyEventType {
     AgentOutcomeEvidenceRecorded,
     LearningEntryRecorded,
     OpportunityCreated,
+    AutonomyControlsChanged,
+    AutonomyBudgetConsumed,
 }
 
 impl CompanyEventType {
@@ -61,6 +63,8 @@ impl CompanyEventType {
             Self::AutonomyAssessmentRecorded => "AUTONOMY_ASSESSMENT_RECORDED",
             Self::AgentOutcomeEvidenceRecorded => "AGENT_OUTCOME_EVIDENCE_RECORDED",
             Self::OpportunityCreated => "OPPORTUNITY_CREATED",
+            Self::AutonomyControlsChanged => "AUTONOMY_CONTROLS_CHANGED",
+            Self::AutonomyBudgetConsumed => "AUTONOMY_BUDGET_CONSUMED",
             Self::LearningEntryRecorded => "LEARNING_ENTRY_RECORDED",
         }
     }
