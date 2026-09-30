@@ -3326,6 +3326,19 @@ impl CompanyStore {
             .await?
             .get(0);
 
+        let previous = tx
+            .query_opt(
+                "SELECT emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
+                        content_publish_daily::text, ads_spend_daily_minor::text,
+                        live_minutes_daily::text, outbound_messages_daily::text,
+                        autonomous_capital_daily_minor::text
+                   FROM autonomy_control_state
+                  WHERE company_id=$1
+                  FOR UPDATE",
+                &[&company],
+            )
+            .await?;
+
         tx.execute(
             "INSERT INTO autonomy_control_state
              (company_id, emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
