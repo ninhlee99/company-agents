@@ -101,6 +101,31 @@ pub struct AutonomyControlRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TikTokConnectionRecord {
+    pub company_id: Uuid,
+    pub open_id: String,
+    pub scopes: String,
+    pub token_type: String,
+    pub access_token_expires_at_epoch: i64,
+    pub refresh_token_expires_at_epoch: i64,
+    pub status: String,
+    pub last_error: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TikTokTokenMaterial {
+    pub company_id: Uuid,
+    pub open_id: String,
+    pub access_token: String,
+    pub refresh_token: String,
+    pub access_token_expires_at_epoch: i64,
+    pub refresh_token_expires_at_epoch: i64,
+    pub scopes: String,
+    pub token_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CapitalAllocationRecord {
     pub plan: company_capital::CapitalAllocationPlan,
     pub policy: company_capital::CapitalPolicy,
