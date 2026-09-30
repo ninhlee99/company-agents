@@ -5115,6 +5115,13 @@ fn autonomy_simulation_from_row(
     let proposal = serde_json::from_value(row.get(1))?;
     let assessment: company_autonomy::AutonomyAssessment =
         serde_json::from_value(row.get::<_, serde_json::Value>(6))?;
+    if row.get::<_, String>(2) != assessment.decision.as_str()
+        || row.get::<_, String>(3) != assessment.ceiling.as_str()
+        || row.get::<_, String>(4) != assessment.required_level.as_str()
+        || row.get::<_, String>(5) != assessment.reason
+    {
+        return Err("persisted autonomy assessment summary does not match its JSON payload".into());
+    }
     Ok(AutonomySimulationRecord {
         id: row.get(0),
         company_id,
