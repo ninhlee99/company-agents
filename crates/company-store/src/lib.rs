@@ -10046,6 +10046,14 @@ mod numeric_parser_tests {
     }
 }
 
+    #[test]
+    fn payment_simulation_gate_requires_non_production_explicit_opt_in() {
+        assert!(!payment_simulation_allowed(false, false));
+        assert!(payment_simulation_allowed(true, false));
+        assert!(!payment_simulation_allowed(true, true));
+    }
+
+
 #[cfg(test)]
 mod live_attention_learning_tests {
     use super::*;
