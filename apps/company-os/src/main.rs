@@ -2434,6 +2434,10 @@ async fn competitor_whitespace_api(
         .observations
         .iter()
         .any(|observation| observation.company_id.to_string() != state.company_id)
+        || request
+            .owned_coverage
+            .iter()
+            .any(|coverage| coverage.company_id.to_string() != state.company_id)
     {
         return Err(StatusCode::BAD_REQUEST);
     }
