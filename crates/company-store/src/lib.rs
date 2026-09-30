@@ -1911,7 +1911,49 @@ impl CompanyStore {
                 total_spend_minor: 0,
             }
         } else {
-            execute_approved_results(current_snapshot, &authoritative_results, execution_policy())?
+            let proposed_batch =
+                execute_approved_results(current_snapshot.clone(), &authoritative_results, execution_policy())?;
+
+            if proposed_batch.total_spend_minor > 0 {
+                let now_epoch: i64 = tx
+                    .query_one("SELECT EXTRACT(EPOCH FROM now())::bigint", &[])
+                    .await?
+                    .get(0);
+                let budget = Self::consume_autonomy_budget_tx(
+                    &tx,
+                    company_id,
+                    company_safety_controls::BudgetKind::AutonomousCapital,
+                    proposed_batch.total_spend_minor,
+                    &format!("autonomy-cycle:{cycle_key}"),
+                    now_epoch,
+                )
+                .await?;
+
+                if budget.allowed {
+                    proposed_batch
+                } else {
+                    company_execution::ExecutionBatch {
+                        snapshot: current_snapshot.clone(),
+                        receipts: authoritative_results
+                            .iter()
+                            .map(|result| company_execution::ExecutionReceipt {
+                                idempotency_key: proposal_idempotency_key(&result.proposal),
+                                agent: result.agent,
+                                action: result.proposal.action,
+                                status: company_execution::ExecutionStatus::Deferred,
+                                cost_minor: result.proposal.cost_minor,
+                                reason: format!(
+                                    "autonomous capital budget blocked cycle execution: {}",
+                                    budget.reason
+                                ),
+                            })
+                            .collect(),
+                        total_spend_minor: 0,
+                    }
+                }
+            } else {
+                proposed_batch
+            }
         };
 
         for result in &authoritative_results {
