@@ -2306,6 +2306,11 @@ impl CompanyStore {
             .await?
             .ok_or("publish intent not found")?;
 
+        let safety_controls = load_safety_controls_for_tx(&tx, company_uuid).await?;
+        if safety_controls.emergency_stop.enabled {
+            return Err("persistent emergency stop blocks publish claims".into());
+        }
+
         let status: String = row.get(9);
         if status != publishing_contract::PublishIntentStatus::Approved.as_str() {
             return Ok(None);
