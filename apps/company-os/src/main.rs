@@ -370,6 +370,24 @@ fn format_minor(value: i128, currency: &str) -> String {
     format!("{}{} {}", prefix, currency.to_ascii_uppercase(), rendered)
 }
 
+fn minor_or_unavailable(value: Option<i128>, currency: &str) -> String {
+    value
+        .map(|minor| format_minor(minor, currency))
+        .unwrap_or_else(|| "Unavailable".into())
+}
+
+fn count_or_unavailable(value: Option<i64>) -> String {
+    value
+        .map(|count| count.to_string())
+        .unwrap_or_else(|| "Unavailable".into())
+}
+
+fn percent_or_unavailable(value_bps: Option<u32>) -> String {
+    value_bps
+        .map(|bps| format!("{:.2}%", bps as f64 / 100.0))
+        .unwrap_or_else(|| "Unavailable".into())
+}
+
 fn seed_company(company_id: String) -> CompanySnapshot {
     CompanySnapshot {
         company_id,
@@ -539,63 +557,27 @@ async fn index(
 
     let target_minor = configured_revenue_target_minor(&state.currency)
         .unwrap_or_else(|_| if state.currency.eq_ignore_ascii_case("VND") { 50_000_000 } else { 500_000 });
-    let revenue_periods = state
-        .store
-        .revenue_period_metrics(&state.company_id)
-        .await
-        .unwrap_or_else(|error| {
+    let revenue_periods = match state.store.revenue_period_metrics(&state.company_id).await {
+        Ok(value) => Some(value),
+        Err(error) => {
             tracing::warn!(%error, "revenue period metrics unavailable");
-            company_store::RevenuePeriodMetrics {
-                month_to_date_minor: 0,
-                last_30_days_minor: 0,
-                lifetime_minor: 0,
-                forecast_month_minor: 0,
-                run_rate_month_minor: 0,
-                forecast_confidence_bps: 0,
-                revenue_transaction_count: 0,
-            }
-        });
-    let contribution_margin = state
-        .store
-        .contribution_margin_metrics(&state.company_id)
-        .await
-        .unwrap_or_else(|error| {
+            None
+        }
+    };
+    let contribution_margin = match state.store.contribution_margin_metrics(&state.company_id).await {
+        Ok(value) => Some(value),
+        Err(error) => {
             tracing::warn!(%error, "contribution margin metrics unavailable");
-            company_store::ContributionMarginMetrics {
-                month_to_date_revenue_minor: 0,
-                month_to_date_variable_cost_minor: 0,
-                month_to_date_contribution_margin_minor: None,
-                platform_fees_minor: 0,
-                affiliate_commission_minor: 0,
-                refunds_cancellations_minor: 0,
-                production_ai_cost_minor: 0,
-                ad_spend_minor: 0,
-                operating_cost_minor: 0,
-                cash_minor: 0,
-                unclassified_expense_minor: 0,
-                unclassified_expense_entry_count: 0,
-                variable_cost_transaction_count: 0,
-            }
-        });
-    let affiliate_reconciliation = state
-        .store
-        .affiliate_reconciliation_metrics(&state.company_id)
-        .await
-        .unwrap_or_else(|error| {
+            None
+        }
+    };
+    let affiliate_reconciliation = match state.store.affiliate_reconciliation_metrics(&state.company_id).await {
+        Ok(value) => Some(value),
+        Err(error) => {
             tracing::warn!(%error, "affiliate reconciliation metrics unavailable");
-            company_store::AffiliateReconciliationMetrics {
-                reported_commission_mtd_minor: 0,
-                attributed_commission_mtd_minor: 0,
-                recorded_payout_mtd_minor: 0,
-                variance_mtd_minor: 0,
-                reported_attributed_variance_mtd_minor: 0,
-                attributed_paid_variance_mtd_minor: 0,
-                reported_paid_variance_mtd_minor: 0,
-                conversion_count_mtd: 0,
-                verified_conversion_count_mtd: 0,
-                partial_or_rejected_count_mtd: 0,
-            }
-        });
+            None
+        }
+    };
     let mut growth_data_available = true;
     let growth_opportunities = match state
         .store
@@ -701,17 +683,36 @@ async fn index(
     };
 
     let contribution_margin_label = contribution_margin
-        .month_to_date_contribution_margin_minor
+        .as_ref()
+        .and_then(|value| value.month_to_date_contribution_margin_minor)
         .map(|value| format_minor(value, &state.currency))
-        .unwrap_or_else(|| "Incomplete".into());
-    let contribution_margin_detail = format!(
-        "variable cost {} · fixed operating cost {} · cash {} · unclassified {} across {} entries",
-        format_minor(contribution_margin.month_to_date_variable_cost_minor, &state.currency),
-        format_minor(contribution_margin.operating_cost_minor, &state.currency),
-        format_minor(contribution_margin.cash_minor, &state.currency),
-        format_minor(contribution_margin.unclassified_expense_minor, &state.currency),
-        contribution_margin.unclassified_expense_entry_count
-    );
+        .unwrap_or_else(|| "Unavailable".into());
+    let contribution_margin_detail = match contribution_margin.as_ref() {
+        Some(value) => format!(
+            "variable cost {} · fixed operating cost {} · cash {} · unclassified {} across {} entries",
+            format_minor(value.month_to_date_variable_cost_minor, &state.currency),
+            format_minor(value.operating_cost_minor, &state.currency),
+            format_minor(value.cash_minor, &state.currency),
+            format_minor(value.unclassified_expense_minor, &state.currency),
+            value.unclassified_expense_entry_count
+        ),
+        None => "Contribution-margin evidence is unavailable.".into(),
+    };
+    let contribution_margin_platform_fees = contribution_margin
+        .as_ref()
+        .map(|value| value.platform_fees_minor);
+    let contribution_margin_affiliate_commission = contribution_margin
+        .as_ref()
+        .map(|value| value.affiliate_commission_minor);
+    let contribution_margin_refunds = contribution_margin
+        .as_ref()
+        .map(|value| value.refunds_cancellations_minor);
+    let contribution_margin_production = contribution_margin
+        .as_ref()
+        .map(|value| value.production_ai_cost_minor);
+    let contribution_margin_ads = contribution_margin
+        .as_ref()
+        .map(|value| value.ad_spend_minor);
     let budget_statuses = state
         .store
         .autonomy_budget_statuses(
@@ -846,11 +847,41 @@ async fn index(
         _ => r#"<section class="autonomy-shell"><div class="section-kicker">Autonomy ladder</div><h2>Policy unavailable</h2><p class="muted">Autonomy policy cannot be loaded safely, so no autonomous execution ceiling is advertised.</p></section>"#.into(),
     };
 
-    let target_pct = if revenue_periods.month_to_date_minor > 0 {
-        ((revenue_periods.month_to_date_minor as f64 / target_minor as f64) * 100.0).round().min(999.0) as u64
-    } else {
-        0
-    };
+    let target_pct = revenue_periods
+        .as_ref()
+        .map(|metrics| {
+            ((metrics.month_to_date_minor.max(0) as f64 / target_minor as f64) * 100.0)
+                .round()
+                .min(999.0) as u64
+        })
+        .unwrap_or(0);
+    let target_pct_label = revenue_periods
+        .as_ref()
+        .map(|_| format!("{target_pct}% of planning target · MTD evidence"))
+        .unwrap_or_else(|| "Planning target progress unavailable · MTD evidence unavailable".into());
+
+    let revenue_mtd_label = revenue_periods
+        .as_ref()
+        .map(|value| format_minor(value.month_to_date_minor, &state.currency))
+        .unwrap_or_else(|| "Unavailable".into());
+    let revenue_count_label = count_or_unavailable(
+        revenue_periods.as_ref().map(|value| value.revenue_transaction_count),
+    );
+    let revenue_forecast_label = revenue_periods
+        .as_ref()
+        .map(|value| format_minor(value.forecast_month_minor, &state.currency))
+        .unwrap_or_else(|| "Unavailable".into());
+    let revenue_confidence_label = percent_or_unavailable(
+        revenue_periods.as_ref().map(|value| value.forecast_confidence_bps),
+    );
+    let revenue_run_rate_label = revenue_periods
+        .as_ref()
+        .map(|value| format_minor(value.run_rate_month_minor, &state.currency))
+        .unwrap_or_else(|| "Unavailable".into());
+    let revenue_last_30d_label = revenue_periods
+        .as_ref()
+        .map(|value| format_minor(value.last_30_days_minor, &state.currency))
+        .unwrap_or_else(|| "Unavailable".into());
     let capacity_pct = if company.capacity > 0 {
         ((company.backlog.max(0) as f64 / company.capacity as f64) * 100.0).round().min(999.0) as u64
     } else { 0 };
@@ -1025,29 +1056,50 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         agent_evaluation_html,
         autonomy_html,
         format_minor(company.cash_minor, &state.currency),
-        format_minor(revenue_periods.month_to_date_minor, &state.currency),
-        revenue_periods.revenue_transaction_count,
+        revenue_mtd_label,
+        revenue_count_label,
         format_minor(target_minor, &state.currency),
         target_pct,
-        target_pct,
-        format_minor(revenue_periods.forecast_month_minor, &state.currency),
-        revenue_periods.forecast_confidence_bps as f64 / 100.0,
-        format_minor(revenue_periods.run_rate_month_minor, &state.currency),
-        format_minor(revenue_periods.month_to_date_minor, &state.currency),
+        target_pct_label,
+        revenue_forecast_label,
+        revenue_confidence_label,
+        revenue_run_rate_label,
+        revenue_last_30d_label,
         contribution_margin_label,
         contribution_margin_detail,
-        format_minor(contribution_margin.platform_fees_minor, &state.currency),
-        format_minor(contribution_margin.affiliate_commission_minor, &state.currency),
-        format_minor(contribution_margin.refunds_cancellations_minor, &state.currency),
-        format_minor(contribution_margin.production_ai_cost_minor, &state.currency),
-        format_minor(contribution_margin.ad_spend_minor, &state.currency),
-        format_minor(affiliate_reconciliation.variance_mtd_minor, &state.currency),
-        format_minor(affiliate_reconciliation.reported_commission_mtd_minor, &state.currency),
-        format_minor(affiliate_reconciliation.attributed_commission_mtd_minor, &state.currency),
-        format_minor(affiliate_reconciliation.recorded_payout_mtd_minor, &state.currency),
-        format_minor(affiliate_reconciliation.reported_attributed_variance_mtd_minor, &state.currency),
-        format_minor(affiliate_reconciliation.attributed_paid_variance_mtd_minor, &state.currency),
-        format_minor(affiliate_reconciliation.reported_paid_variance_mtd_minor, &state.currency),
+        minor_or_unavailable(contribution_margin_platform_fees, &state.currency),
+        minor_or_unavailable(contribution_margin_affiliate_commission, &state.currency),
+        minor_or_unavailable(contribution_margin_refunds, &state.currency),
+        minor_or_unavailable(contribution_margin_production, &state.currency),
+        minor_or_unavailable(contribution_margin_ads, &state.currency),
+        affiliate_reconciliation
+            .as_ref()
+            .map(|value| format_minor(value.variance_mtd_minor, &state.currency))
+            .unwrap_or_else(|| "Unavailable".into()),
+        affiliate_reconciliation
+            .as_ref()
+            .map(|value| format_minor(value.reported_commission_mtd_minor, &state.currency))
+            .unwrap_or_else(|| "Unavailable".into()),
+        affiliate_reconciliation
+            .as_ref()
+            .map(|value| format_minor(value.attributed_commission_mtd_minor, &state.currency))
+            .unwrap_or_else(|| "Unavailable".into()),
+        affiliate_reconciliation
+            .as_ref()
+            .map(|value| format_minor(value.recorded_payout_mtd_minor, &state.currency))
+            .unwrap_or_else(|| "Unavailable".into()),
+        affiliate_reconciliation
+            .as_ref()
+            .map(|value| format_minor(value.reported_attributed_variance_mtd_minor, &state.currency))
+            .unwrap_or_else(|| "Unavailable".into()),
+        affiliate_reconciliation
+            .as_ref()
+            .map(|value| format_minor(value.attributed_paid_variance_mtd_minor, &state.currency))
+            .unwrap_or_else(|| "Unavailable".into()),
+        affiliate_reconciliation
+            .as_ref()
+            .map(|value| format_minor(value.reported_paid_variance_mtd_minor, &state.currency))
+            .unwrap_or_else(|| "Unavailable".into()),
         growth_html,
         revenue_graph_html,
         capital_plan_html,
@@ -3363,6 +3415,16 @@ mod control_plane_audit_tests {
         let id = control_plane_actor_id_for_cookie(cookie);
         assert!(id.starts_with("browser-session-sha256:"));
         assert!(!id.contains(cookie));
+    }
+
+    #[test]
+    fn dashboard_metric_helpers_never_turn_missing_evidence_into_zero() {
+        assert_eq!(minor_or_unavailable(Some(12_345), "USD"), "USD 123.45");
+        assert_eq!(minor_or_unavailable(None, "USD"), "Unavailable");
+        assert_eq!(count_or_unavailable(Some(4)), "4");
+        assert_eq!(count_or_unavailable(None), "Unavailable");
+        assert_eq!(percent_or_unavailable(Some(8_765)), "87.65%");
+        assert_eq!(percent_or_unavailable(None), "Unavailable");
     }
 
     #[test]
