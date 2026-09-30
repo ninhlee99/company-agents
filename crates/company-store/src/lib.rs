@@ -393,6 +393,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/037_autonomy_simulations.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/038_capital_allocation.sql"
+            ))
             .await
     }
 
