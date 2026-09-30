@@ -54,6 +54,8 @@ Durable media jobs, sandboxed FFmpeg, FFprobe QA and publishing approval contrac
 
 **Next product work:** richer contractor/performance workflows.
 
+- Control-plane RBAC baseline: named config-driven principals (`admin`/`operator`/`read-only`) are supported; SSO/directory identity remains outside the current scope.
+
 ## Phase 8 — Controlled Autonomy
 **Status: controlled runtime implemented**
 Proposal → Governor → bounded execution, durable audit, replay-safe scheduling and explicit external-side-effect gates are active.
