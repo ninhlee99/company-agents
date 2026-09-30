@@ -303,6 +303,15 @@ async fn enqueue_company_event_tx(
     Ok(inserted == 1)
 }
 
+fn decision_correlation_id(proposal_key: &str) -> Uuid {
+    let digest = Sha256::digest(proposal_key.as_bytes());
+    Uuid::from_bytes(
+        digest[..16]
+            .try_into()
+            .expect("sha256 digest always has at least 16 bytes"),
+    )
+}
+
 fn payout_correlation_id(payout_id: &str) -> Uuid {
     let digest = Sha256::digest(payout_id.as_bytes());
     Uuid::from_bytes(
@@ -2948,23 +2957,28 @@ impl CompanyStore {
             )
             .await?;
 
-            tx.execute(
-                "INSERT INTO outbox_events
-                 (company_id, event_type, aggregate_id, idempotency_key, payload)
-                 VALUES ($1, 'AGENT_DECISION_RECORDED', $2, $3, $4)
-                 ON CONFLICT (company_id, idempotency_key) DO NOTHING",
-                &[
-                    &company_id,
-                    &proposed_snapshot.company_id,
-                    &format!("outbox:{proposal_key}"),
-                    &serde_json::json!({
-                        "cycle_id": cycle_id,
-                        "agent": result.agent.as_str(),
-                        "execution": execution,
-                    }),
-                ],
-            )
-            .await?;
+            let decision_event = company_domain::CompanyEventEnvelope::new(
+                company_id,
+                company_domain::CompanyEventType::AgentDecisionRecorded,
+                "agent_decision",
+                None,
+                time::OffsetDateTime::now_utc().unix_timestamp(),
+                decision_correlation_id(&proposal_key),
+                None,
+                format!("outbox:{proposal_key}"),
+                serde_json::json!({
+                    "cycle_id": cycle_id,
+                    "proposal_idempotency_key": proposal_digest,
+                    "proposal_key": proposal_key,
+                    "agent": result.agent.as_str(),
+                    "action": format!("{:?}", proposal.action),
+                    "governor_decision": decision,
+                    "reason": reason,
+                    "execution": execution,
+                }),
+            )?;
+            enqueue_company_event_tx(&tx, &decision_event).await?;
+
             upsert_agent_memory_tx(
                 &tx,
                 company_id,
@@ -10448,6 +10462,43 @@ mod customer_intelligence_tests {
         assert_eq!(collection_rate_bps(0, 0), 0);
         assert_eq!(collection_rate_bps(100, 50), 5_000);
         assert_eq!(collection_rate_bps(100, 120), 10_000);
+    }
+}
+
+#[cfg(test)]
+mod agent_decision_event_tests {
+    use super::*;
+
+    #[test]
+    fn agent_decision_event_preserves_cycle_correlation_and_execution() {
+        let company = Uuid::from_u128(51);
+        let proposal_key = "cycle-1:proposal-1";
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::AgentDecisionRecorded,
+            "agent_decision",
+            None,
+            1_800_000_200,
+            decision_correlation_id(proposal_key),
+            None,
+            format!("outbox:{proposal_key}"),
+            serde_json::json!({
+                "cycle_id": Uuid::from_u128(52),
+                "proposal_idempotency_key": "proposal-1",
+                "proposal_key": proposal_key,
+                "agent": "CEO",
+                "action": "Propose",
+                "governor_decision": "APPROVE",
+                "reason": "within guardrails",
+                "execution": {"status": "Executed"}
+            }),
+        ).unwrap();
+
+        assert_eq!(event.event_type_name(), "AGENT_DECISION_RECORDED");
+        assert_eq!(event.aggregate_type, "agent_decision");
+        assert_eq!(event.idempotency_key, "outbox:cycle-1:proposal-1");
+        assert_eq!(event.payload["agent"], "CEO");
+        assert_eq!(event.payload["execution"]["status"], "Executed");
     }
 }
 
