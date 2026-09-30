@@ -8,6 +8,7 @@
 - Automated CI and weekly PostgreSQL recovery drill are now part of the release gates.
 
 - Unified event architecture foundation: canonical event names, versioned envelope, correlation/causation metadata and idempotent outbox persistence are implemented; producer migration remains incremental.
+
 ## Phase 2 — Simulator
 **Status: implemented baseline**
 - Seeded/replayable company world.
