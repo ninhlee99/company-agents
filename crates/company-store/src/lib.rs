@@ -1018,15 +1018,8 @@ impl CompanyStore {
         let now = time::OffsetDateTime::now_utc();
         let days_in_month = now.date().month().length(now.year()) as i128;
         let elapsed_days = now.day() as i128;
-        let forecast_month_minor = month_to_date_minor
-            .saturating_mul(days_in_month)
-            .checked_div(elapsed_days)
-            .unwrap_or(month_to_date_minor);
-        let run_rate_month_minor = last_30_days_minor
-            .saturating_mul(days_in_month)
-            .checked_div(30)
-            .unwrap_or(last_30_days_minor);
-        let forecast_confidence_bps = ((elapsed_days * 10_000) / days_in_month).min(10_000) as u32;
+        let (forecast_month_minor, run_rate_month_minor, forecast_confidence_bps) =
+            revenue_period_projection(month_to_date_minor, last_30_days_minor, elapsed_days, days_in_month);
 
         Ok(RevenuePeriodMetrics {
             month_to_date_minor,
@@ -1038,6 +1031,45 @@ impl CompanyStore {
             revenue_transaction_count: row.get(3),
         })
     }
+
+fn revenue_period_projection(
+    month_to_date_minor: i128,
+    last_30_days_minor: i128,
+    elapsed_days: i128,
+    days_in_month: i128,
+) -> (i128, i128, u32) {
+    if days_in_month <= 0 || elapsed_days <= 0 {
+        return (month_to_date_minor, last_30_days_minor, 0);
+    }
+    let elapsed_days = elapsed_days.min(days_in_month);
+    let forecast = month_to_date_minor
+        .saturating_mul(days_in_month)
+        .checked_div(elapsed_days)
+        .unwrap_or(month_to_date_minor);
+    let run_rate = last_30_days_minor
+        .saturating_mul(days_in_month)
+        .checked_div(30)
+        .unwrap_or(last_30_days_minor);
+    let coverage_bps = ((elapsed_days * 10_000) / days_in_month).min(10_000) as u32;
+    (forecast, run_rate, coverage_bps)
+}
+
+#[cfg(test)]
+mod revenue_period_tests {
+    use super::revenue_period_projection;
+
+    #[test]
+    fn forecast_uses_only_mtd_and_calendar_coverage() {
+        assert_eq!(revenue_period_projection(10_000, 99_000, 10, 30), (30_000, 99_000, 3333));
+        assert_eq!(revenue_period_projection(10_000, 99_000, 30, 30), (10_000, 99_000, 10_000));
+    }
+
+    #[test]
+    fn invalid_period_inputs_fail_closed_to_observed_values() {
+        assert_eq!(revenue_period_projection(10_000, 99_000, 0, 30), (10_000, 99_000, 0));
+        assert_eq!(revenue_period_projection(10_000, 99_000, 31, 30), (10_000, 99_000, 10_000));
+    }
+}
 
     pub async fn create_experiment(
         &self,
