@@ -3994,8 +3994,7 @@ impl CompanyStore {
             return Err("TikTok reauth error is invalid".into());
         }
         let client = self.client.lock().await;
-        let mut tx = client; 
-        let changed = tx
+        let changed = client
             .execute(
                 "UPDATE tiktok_oauth_connections
                     SET status='REAUTH_REQUIRED',last_error=$2,updated_at=now()
