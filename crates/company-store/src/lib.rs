@@ -55,6 +55,12 @@ pub struct GrowthTrendRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CeoCommandCenterRecord {
+    pub input: company_command_center::CommandCenterInput,
+    pub summary: company_command_center::CommandCenterSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GrowthOpportunityRecord {
     pub opportunity: company_growth::Opportunity,
     pub status: company_growth::OpportunityStatus,
