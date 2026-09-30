@@ -10,8 +10,20 @@ affiliate-attribution = { path = "../../crates/affiliate-attribution" }
 company-execution = { path = "../../crates/company-execution" }
 publishing-contract = { path = "../../crates/publishing-contract" }
 company-store = { path = "../../crates/company-store" }
+company-content = { path = "../../crates/company-content" }
+company-growth = { path = "../../crates/company-growth" }
+company-live-attention = { path = "../../crates/company-live-attention" }
+company-compliance = { path = "../../crates/company-compliance" }
+company-command-center = { path = "../../crates/company-command-center" }
+company-agent-evaluation = { path = "../../crates/company-agent-evaluation" }
+company-autonomy = { path = "../../crates/company-autonomy" }
+company-capital = { path = "../../crates/company-capital" }
+company-safety-controls = { path = "../../crates/company-safety-controls" }
+company-tiktok-auth = { path = "../../crates/company-tiktok-auth" }
+company-revenue-graph = { path = "../../crates/company-revenue-graph" }
 commercial-sales = { path = "../../crates/commercial-sales" }
 social-publishing = { path = "../../crates/social-publishing" }
+tiktok-live-streaming = { path = "../../crates/tiktok-live-streaming" }
 axum = "0.8"
 economic-core = { path = "../../crates/economic-core" }
 serde = { version = "1", features = ["derive"] }
@@ -24,3 +36,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"]
 subtle = "2"
 sha2 = "0.10"
 url = "2"
+hmac = "0.12"

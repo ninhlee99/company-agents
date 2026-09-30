@@ -11,8 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{env, sync::Arc, time::{Duration, Instant}};
-use tokio::sync::Mutex;
-use tokio_postgres::{Client, NoTls};
+use tokio_postgres::{types::ToSql, Client, NoTls};
 use uuid::Uuid;
 
 const MAX_REQUEST_BYTES: usize = 512 * 1024;
@@ -21,7 +20,7 @@ const MAX_ERROR_BYTES: usize = 4096;
 
 #[derive(Clone)]
 struct AppState {
-    db: Arc<Mutex<Client>>,
+    db: Arc<Client>,
     api_token: String,
     worker_token: String,
     wait_timeout: Duration,
@@ -158,7 +157,11 @@ fn request_hash(request: &GenerateRequest) -> String {
         request.response_format,
         request.allow_tools
     );
-    format!("sha256:{:x}", Sha256::digest(canonical.as_bytes()))
+    format!("sha256:{}", hex_digest(&Sha256::digest(canonical.as_bytes())))
+}
+
+fn hex_digest(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn validate_request(request: &GenerateRequest) -> Result<(), ApiError> {
@@ -213,7 +216,7 @@ async fn generate(
     let job_id = Uuid::new_v4();
 
     {
-        let client = state.db.lock().await;
+        let client = state.db.clone();
         if let Some(row) = client
             .query_opt(
                 "SELECT id, status, output_json, expires_at <= now(), request_hash
@@ -249,7 +252,7 @@ async fn generate(
     }
 
     {
-        let client = state.db.lock().await;
+        let client = state.db.clone();
         let inserted = client
             .execute(
                 "INSERT INTO llm_web_relay_jobs
@@ -259,7 +262,7 @@ async fn generate(
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'QUEUED',0,$10,
                          now() + ($11::double precision * interval '1 second'))",
                 &[
-                    &job_id,
+                    &job_id as &(dyn ToSql + Sync),
                     &idempotency_key,
                     &request_hash,
                     &request.backend,
@@ -321,7 +324,7 @@ async fn wait_for_job(
 
     loop {
         let row = {
-            let client = state.db.lock().await;
+            let client = state.db.lock().await.clone();
             client
                 .query_opt(
                     "SELECT status, output_json
@@ -366,7 +369,7 @@ async fn claim(
 ) -> Result<Json<Option<WorkerJob>>, ApiError> {
     authorize(&headers, &state.worker_token)?;
 
-    let mut client = state.db.lock().await;
+    let mut client = state.db.as_ref().clone();
     let tx = client.transaction().await.map_err(|_| ApiError::Internal)?;
 
     tx.execute(
@@ -411,7 +414,6 @@ async fn claim(
     let user: String = row.get(4);
     let response_format: String = row.get(5);
     let allow_tools: bool = row.get(6);
-    let attempt: i32 = row.get(7);
     let lease_token = Uuid::new_v4();
 
     let row = tx
@@ -424,7 +426,11 @@ async fn claim(
                     updated_at=now()
               WHERE id=$1
               RETURNING attempt",
-            &[&job_id, &lease_token, &state.lease.as_secs_f64()],
+            &[
+                &job_id as &(dyn ToSql + Sync),
+                &lease_token,
+                &state.lease.as_secs_f64(),
+            ],
         )
         .await
         .map_err(|_| ApiError::Internal)?;
@@ -468,7 +474,7 @@ async fn complete(
     authorize(&headers, &state.worker_token)?;
     validate_output(&request.output)?;
 
-    let client = state.db.lock().await;
+    let client = state.db.lock().await.clone();
     let changed = client
         .execute(
             "UPDATE llm_web_relay_jobs
@@ -480,7 +486,11 @@ async fn complete(
                     updated_at=now()
               WHERE id=$1 AND status='RUNNING' AND lease_token=$2
                 AND expires_at > now()",
-            &[&job_id, &request.lease_token, &request.output],
+            &[
+                &job_id as &(dyn ToSql + Sync),
+                &request.lease_token,
+                &request.output,
+            ],
         )
         .await
         .map_err(|_| ApiError::Internal)?;
@@ -502,7 +512,7 @@ async fn fail(
         return Err(ApiError::BadRequest);
     }
 
-    let client = state.db.lock().await;
+    let client = state.db.clone();
     let changed = client
         .execute(
             "UPDATE llm_web_relay_jobs
@@ -512,7 +522,11 @@ async fn fail(
                     error_message=$3,
                     updated_at=now()
               WHERE id=$1 AND status='RUNNING' AND lease_token=$2",
-            &[&job_id, &request.lease_token, &request.error],
+            &[
+                &job_id as &(dyn ToSql + Sync),
+                &request.lease_token,
+                &request.error,
+            ],
         )
         .await
         .map_err(|_| ApiError::Internal)?;
@@ -542,7 +556,7 @@ async fn metrics(
 ) -> Result<Json<Metrics>, ApiError> {
     authorize(&headers, &state.api_token)?;
 
-    let client = state.db.lock().await;
+    let client = state.db.lock().await.clone();
     let row = client
         .query_one(
             "SELECT
@@ -656,7 +670,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     drop(client);
 
     let state = AppState {
-        db: Arc::new(Mutex::new(connect(&database_url).await?)),
+        db: Arc::new(connect(&database_url).await?),
         api_token,
         worker_token,
         wait_timeout: parse_duration_env("LLM_RELAY_WAIT_TIMEOUT_SECONDS", 55, 5, 90),

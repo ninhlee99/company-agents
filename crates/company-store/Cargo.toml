@@ -11,6 +11,7 @@ publishing-contract = { path = "../publishing-contract" }
 company-organization = { path = "../company-organization" }
 affiliate-attribution = { path = "../affiliate-attribution" }
 commercial-sales = { path = "../commercial-sales" }
+tiktok-live-engine = { path = "../tiktok-live-engine" }
 media-pipeline = { path = "../media-pipeline" }
 economic-core = { path = "../economic-core" }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
@@ -20,3 +21,17 @@ serde_json = "1"
 sha2 = "0.10"
 time = { version = "0.3", features = ["parsing", "formatting"] }
 uuid = { version = "1", features = ["v4"] }
+
+company-experiments = { path = "../company-experiments" }
+company-content = { path = "../company-content" }
+company-growth = { path = "../company-growth" }
+company-live-attention = { path = "../company-live-attention" }
+company-compliance = { path = "../company-compliance" }
+company-command-center = { path = "../company-command-center" }
+company-agent-evaluation = { path = "../company-agent-evaluation" }
+company-autonomy = { path = "../company-autonomy" }
+company-capital = { path = "../company-capital" }
+company-safety-controls = { path = "../company-safety-controls" }
+company-tiktok-auth = { path = "../company-tiktok-auth" }
+company-revenue-graph = { path = "../company-revenue-graph" }
+company-learning = { path = "../company-learning" }

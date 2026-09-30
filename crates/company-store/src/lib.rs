@@ -15,6 +15,178 @@ pub struct CompanyStore {
     client: Mutex<Client>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RevenuePeriodMetrics {
+    pub month_to_date_minor: i128,
+    pub last_30_days_minor: i128,
+    pub lifetime_minor: i128,
+    pub forecast_month_minor: i128,
+    pub run_rate_month_minor: i128,
+    pub forecast_confidence_bps: u32,
+    pub revenue_transaction_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExperimentRecord {
+    pub id: Uuid,
+    pub company_id: Uuid,
+    pub spec: company_experiments::ExperimentSpec,
+    pub status: company_experiments::ExperimentStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContentRecord {
+    pub item: company_content::ContentItem,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContentObservationRecord {
+    pub id: Uuid,
+    pub observation: company_content::ContentObservation,
+    pub decision: company_content::ContentDecision,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GrowthTrendRecord {
+    pub id: Uuid,
+    pub signal: company_growth::TrendSignal,
+    pub score_bps: u32,
+    pub decision: company_growth::TrendDecision,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AutonomySimulationRecord {
+    pub id: Uuid,
+    pub company_id: Uuid,
+    pub idempotency_key: String,
+    pub proposal: agent_runtime::types::Proposal,
+    pub assessment: company_autonomy::AutonomyAssessment,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentOutcomeEvidenceRecord {
+    pub id: Uuid,
+    pub company_id: Uuid,
+    pub decision_journal_id: i64,
+    pub agent_name: String,
+    pub action: String,
+    pub evidence_ref: String,
+    pub observed_revenue_delta_minor: i128,
+    pub observed_contribution_margin_delta_minor: i128,
+    pub observed_at_epoch: i64,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CeoCommandCenterRecord {
+    pub input: company_command_center::CommandCenterInput,
+    pub summary: company_command_center::CommandCenterSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GrowthOpportunityRecord {
+    pub opportunity: company_growth::Opportunity,
+    pub status: company_growth::OpportunityStatus,
+    pub content_item_id: Option<Uuid>,
+    pub content_created_at_epoch: Option<i64>,
+    pub ttfc_seconds: Option<i64>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AutonomyControlRecord {
+    pub controls: company_safety_controls::SafetyControls,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RevenueGraphSummary {
+    pub edge_count: i64,
+    pub value_backed_edge_count: i64,
+    pub latest_observed_at_epoch: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TikTokConnectionRecord {
+    pub company_id: Uuid,
+    pub open_id: String,
+    pub scopes: String,
+    pub token_type: String,
+    pub access_token_expires_at_epoch: i64,
+    pub refresh_token_expires_at_epoch: i64,
+    pub status: String,
+    pub last_error: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TikTokTokenMaterial {
+    pub company_id: Uuid,
+    pub open_id: String,
+    pub access_token: String,
+    pub refresh_token: String,
+    pub access_token_expires_at_epoch: i64,
+    pub refresh_token_expires_at_epoch: i64,
+    pub scopes: String,
+    pub token_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CapitalAllocationRecord {
+    pub plan: company_capital::CapitalAllocationPlan,
+    pub policy: company_capital::CapitalPolicy,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AffiliateReconciliationMetrics {
+    pub reported_commission_mtd_minor: i128,
+    pub attributed_commission_mtd_minor: i128,
+    pub recorded_payout_mtd_minor: i128,
+    pub variance_mtd_minor: i128,
+    pub reported_attributed_variance_mtd_minor: i128,
+    pub attributed_paid_variance_mtd_minor: i128,
+    pub reported_paid_variance_mtd_minor: i128,
+    pub conversion_count_mtd: i64,
+    pub verified_conversion_count_mtd: i64,
+    pub partial_or_rejected_count_mtd: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContributionMarginMetrics {
+    pub month_to_date_revenue_minor: i128,
+    pub month_to_date_variable_cost_minor: i128,
+    pub month_to_date_contribution_margin_minor: Option<i128>,
+    pub platform_fees_minor: i128,
+    pub affiliate_commission_minor: i128,
+    pub refunds_cancellations_minor: i128,
+    pub production_ai_cost_minor: i128,
+    pub ad_spend_minor: i128,
+    pub operating_cost_minor: i128,
+    pub cash_minor: i128,
+    pub unclassified_expense_minor: i128,
+    pub unclassified_expense_entry_count: i64,
+    pub variable_cost_transaction_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ControlPlaneAuditRecord {
+    pub id: i64,
+    pub company_id: Uuid,
+    pub actor_id: String,
+    pub actor_role: String,
+    pub method: String,
+    pub path: String,
+    pub action: String,
+    pub outcome: String,
+    pub request_id: Option<String>,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct OutboxEvent {
     pub id: i64,
@@ -176,6 +348,11 @@ impl CompanyStore {
             .await?;
         client
             .batch_execute(include_str!(
+                "../../../infra/db/migrations/015_outbound_messages.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
                 "../../../infra/db/migrations/015_tiktok_webhook_receipts.sql"
             ))
             .await?;
@@ -186,14 +363,736 @@ impl CompanyStore {
             .await?;
         client
             .batch_execute(include_str!(
+                "../../../infra/db/migrations/018_outbound_messages.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/019_control_plane_rbac_audit.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
                 "../../../infra/db/migrations/020_customer_success_tasks.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/021_procurement_vendor_lifecycle.sql"
             ))
             .await?;
         client
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/022_fpa_forecasts_cashflow.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/022_tiktok_live.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/023_ledger_cost_class.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/024_growth_experiments.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/025_legal_compliance.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/026_recurring_revenue.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/027_payment_execution.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/028_fpa_variance_alerts.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/029_customer_support.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/030_content_factory.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/031_content_performance.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/032_content_status_evidence.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/033_growth_loop.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/034_live_attention.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/035_policy_intelligence.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/036_agent_outcome_evaluation.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/037_autonomy_simulations.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/038_capital_allocation.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/039_autonomy_controls.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/040_tiktok_oauth.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/041_revenue_intelligence_graph.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/042_learning_entries_immutability.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/043_control_plane_audit_hardening.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/044_company_isolation_hardening.sql"
+            ))
             .await
+    }
+
+    pub async fn record_control_plane_audit(
+        &self,
+        company_id: &str,
+        actor_id: &str,
+        actor_role: &str,
+        method: &str,
+        path: &str,
+        action: &str,
+        outcome: &str,
+        request_id: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        if actor_id.trim().is_empty()
+            || actor_id.len() > 128
+            || actor_role.trim().is_empty()
+            || actor_role.len() > 64
+            || method.trim().is_empty()
+            || method.len() > 16
+            || path.trim().is_empty()
+            || path.len() > 2048
+            || action.trim().is_empty()
+            || action.len() > 256
+            || !matches!(outcome, "ALLOWED" | "DENIED")
+        {
+            return Err("control-plane audit metadata is invalid".into());
+        }
+
+        let request_id = request_id.map(str::trim).filter(|value| !value.is_empty());
+        if request_id.is_some_and(|value| value.len() > 128) {
+            return Err("control-plane request id is too long".into());
+        }
+
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "INSERT INTO control_plane_audit_log
+                 (company_id,actor_id,actor_role,method,path,action,outcome,request_id)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+                &[
+                    &company,
+                    &actor_id.trim(),
+                    &actor_role.trim(),
+                    &method.trim().to_ascii_uppercase(),
+                    &path.trim(),
+                    &action.trim(),
+                    &outcome,
+                    &request_id,
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_control_plane_audit(
+        &self,
+        company_id: &str,
+        limit: i64,
+    ) -> Result<Vec<ControlPlaneAuditRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        if !(1..=200).contains(&limit) {
+            return Err("control-plane audit limit must be between 1 and 200".into());
+        }
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT id,company_id,actor_id,actor_role,method,path,action,outcome,request_id,created_at::text
+                   FROM control_plane_audit_log
+                  WHERE company_id=$1
+                  ORDER BY created_at DESC,id DESC
+                  LIMIT $2",
+                &[&company, &limit],
+            )
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| ControlPlaneAuditRecord {
+                id: row.get(0),
+                company_id: row.get(1),
+                actor_id: row.get(2),
+                actor_role: row.get(3),
+                method: row.get(4),
+                path: row.get(5),
+                action: row.get(6),
+                outcome: row.get(7),
+                request_id: row.get(8),
+                created_at: row.get(9),
+            })
+            .collect())
+    }
+
+    pub async fn record_revenue_graph_edge(
+        &self,
+        edge: &company_revenue_graph::RevenueGraphEdge,
+    ) -> Result<company_revenue_graph::RevenueGraphEdge, Box<dyn std::error::Error + Send + Sync>> {
+        company_revenue_graph::validate_edge(edge).map_err(|error| error.to_string())?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let stored = record_revenue_graph_edge_tx(&tx, edge).await?;
+        tx.commit().await?;
+        Ok(stored)
+    }
+
+    pub async fn revenue_graph_lineage(
+        &self,
+        company_id: &str,
+        root_type: company_revenue_graph::RevenueNodeType,
+        root_ref: &str,
+        max_depth: i32,
+        limit: i64,
+    ) -> Result<Vec<(i32, company_revenue_graph::RevenueGraphEdge)>, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        if root_ref.trim().is_empty() || root_ref.len() > 512 {
+            return Err("revenue graph root_ref is invalid".into());
+        }
+        if !(0..=12).contains(&max_depth) || !(1..=500).contains(&limit) {
+            return Err("revenue graph depth/limit is outside safe bounds".into());
+        }
+        let client = self.client.lock().await;
+        let rows = client.query(
+            "WITH RECURSIVE walk AS (
+                SELECT e.id,e.company_id,e.edge_key,e.from_type,e.from_ref,e.relation,
+                       e.to_type,e.to_ref,e.value_minor::text,e.currency,e.confidence_bps,
+                       e.evidence_ref,e.source,e.observed_at_epoch,e.created_at::text,
+                       0::int AS depth,
+                       ARRAY[(e.from_type || ':' || e.from_ref),(e.to_type || ':' || e.to_ref)] AS visited
+                  FROM revenue_graph_edges e
+                 WHERE e.company_id=$1
+                   AND e.from_type=$2
+                   AND e.from_ref=$3
+                UNION ALL
+                SELECT e.id,e.company_id,e.edge_key,e.from_type,e.from_ref,e.relation,
+                       e.to_type,e.to_ref,e.value_minor::text,e.currency,e.confidence_bps,
+                       e.evidence_ref,e.source,e.observed_at_epoch,e.created_at::text,
+                       w.depth + 1,
+                       w.visited || (e.to_type || ':' || e.to_ref)
+                  FROM walk w
+                  JOIN revenue_graph_edges e
+                    ON e.company_id=w.company_id
+                   AND e.from_type=w.to_type
+                   AND e.from_ref=w.to_ref
+                 WHERE w.depth < $4
+                   AND NOT ((e.to_type || ':' || e.to_ref) = ANY(w.visited))
+            )
+            SELECT id,company_id,edge_key,from_type,from_ref,relation,to_type,to_ref,
+                   value_minor,currency,confidence_bps,evidence_ref,source,observed_at_epoch,
+                   created_at,depth
+              FROM walk
+             ORDER BY depth ASC,observed_at_epoch DESC,created_at DESC
+             LIMIT $5",
+            &[
+                &company,
+                &company_revenue_graph::RevenueNodeType::as_str(root_type),
+                &root_ref.trim(),
+                &max_depth,
+                &limit,
+            ],
+        ).await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok((
+                    row.get::<_, i32>(15),
+                    revenue_graph_edge_from_row(row)?,
+                ))
+            })
+            .collect()
+    }
+
+    pub async fn revenue_graph_summary(
+        &self,
+        company_id: &str,
+    ) -> Result<RevenueGraphSummary, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client.query_one(
+            "SELECT COUNT(*)::bigint,
+                    COUNT(*) FILTER (WHERE value_minor IS NOT NULL)::bigint,
+                    MAX(observed_at_epoch)
+               FROM revenue_graph_edges
+              WHERE company_id=$1",
+            &[&company],
+        ).await?;
+        Ok(RevenueGraphSummary {
+            edge_count: row.get(0),
+            value_backed_edge_count: row.get(1),
+            latest_observed_at_epoch: row.get(2),
+        })
+    }
+
+    pub async fn record_revenue_graph_edge(
+        &self,
+        edge: &company_revenue_graph::RevenueGraphEdge,
+    ) -> Result<company_revenue_graph::RevenueGraphEdge, Box<dyn std::error::Error + Send + Sync>> {
+        company_revenue_graph::validate_edge(edge).map_err(|error| error.to_string())?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let stored = record_revenue_graph_edge_tx(&tx, edge).await?;
+        tx.commit().await?;
+        Ok(stored)
+    }
+
+    pub async fn revenue_graph_lineage(
+        &self,
+        company_id: &str,
+        root_type: company_revenue_graph::RevenueNodeType,
+        root_ref: &str,
+        max_depth: i32,
+        limit: i64,
+    ) -> Result<Vec<(i32, company_revenue_graph::RevenueGraphEdge)>, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        if root_ref.trim().is_empty() || root_ref.len() > 512 {
+            return Err("revenue graph root_ref is invalid".into());
+        }
+        if !(0..=12).contains(&max_depth) || !(1..=500).contains(&limit) {
+            return Err("revenue graph depth/limit is outside safe bounds".into());
+        }
+        let root_type = root_type.as_str();
+        let client = self.client.lock().await;
+        let rows = client.query(
+            "WITH RECURSIVE walk AS (
+                SELECT e.id,e.company_id,e.edge_key,e.from_type,e.from_ref,e.relation,
+                       e.to_type,e.to_ref,e.value_minor::text,e.currency,e.confidence_bps,
+                       e.evidence_ref,e.source,e.observed_at_epoch,e.created_at::text,
+                       0::int AS depth,
+                       ARRAY[(e.from_type || ':' || e.from_ref),(e.to_type || ':' || e.to_ref)] AS visited
+                  FROM revenue_graph_edges e
+                 WHERE e.company_id=$1
+                   AND e.from_type=$2
+                   AND e.from_ref=$3
+                UNION ALL
+                SELECT e.id,e.company_id,e.edge_key,e.from_type,e.from_ref,e.relation,
+                       e.to_type,e.to_ref,e.value_minor::text,e.currency,e.confidence_bps,
+                       e.evidence_ref,e.source,e.observed_at_epoch,e.created_at::text,
+                       w.depth + 1,
+                       w.visited || (e.to_type || ':' || e.to_ref)
+                  FROM walk w
+                  JOIN revenue_graph_edges e
+                    ON e.company_id=w.company_id
+                   AND e.from_type=w.to_type
+                   AND e.from_ref=w.to_ref
+                 WHERE w.depth < $4
+                   AND NOT ((e.to_type || ':' || e.to_ref) = ANY(w.visited))
+            )
+            SELECT id,company_id,edge_key,from_type,from_ref,relation,to_type,to_ref,
+                   value_minor,currency,confidence_bps,evidence_ref,source,observed_at_epoch,
+                   created_at,depth
+              FROM walk
+             ORDER BY depth ASC,observed_at_epoch DESC,created_at DESC
+             LIMIT $5",
+            &[&company, &root_type, &root_ref.trim(), &max_depth, &limit],
+        ).await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok((
+                    row.get::<_, i32>(15),
+                    revenue_graph_edge_from_row(row)?,
+                ))
+            })
+            .collect()
+    }
+
+    pub async fn revenue_graph_summary(
+        &self,
+        company_id: &str,
+    ) -> Result<RevenueGraphSummary, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client.query_one(
+            "SELECT COUNT(*)::bigint,
+                    COUNT(*) FILTER (WHERE value_minor IS NOT NULL)::bigint,
+                    MAX(observed_at_epoch)
+               FROM revenue_graph_edges
+              WHERE company_id=$1",
+            &[&company],
+        ).await?;
+        Ok(RevenueGraphSummary {
+            edge_count: row.get(0),
+            value_backed_edge_count: row.get(1),
+            latest_observed_at_epoch: row.get(2),
+        })
+    }
+
+    pub async fn record_policy_snapshot(
+        &self,
+        snapshot: &company_compliance::PolicySnapshot,
+    ) -> Result<company_compliance::PolicySnapshot, Box<dyn std::error::Error + Send + Sync>> {
+        snapshot.validate().map_err(|error| error.to_string())?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        let inserted = tx.query_opt(
+            "INSERT INTO policy_snapshots
+             (id,company_id,policy_key,platform,jurisdiction,version,source_reference,
+              evidence_hash,observed_at_epoch,effective_at_epoch,active,rules_json)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+             ON CONFLICT(company_id,policy_key,version) DO NOTHING
+             RETURNING id",
+            &[
+                &snapshot.id,
+                &snapshot.company_id,
+                &snapshot.policy_key,
+                &snapshot.platform,
+                &snapshot.jurisdiction,
+                &snapshot.version,
+                &snapshot.source_reference,
+                &snapshot.evidence_hash,
+                &snapshot.observed_at_epoch,
+                &snapshot.effective_at_epoch,
+                &snapshot.active,
+                &serde_json::to_value(&snapshot.rules)?,
+            ],
+        ).await?;
+
+        let row = tx
+            .query_one(
+                "SELECT id,company_id,policy_key,platform,jurisdiction,version,
+                        source_reference,evidence_hash,observed_at_epoch,effective_at_epoch,
+                        active,rules_json
+                   FROM policy_snapshots
+                  WHERE company_id=$1 AND policy_key=$2 AND version=$3
+                  FOR UPDATE",
+                &[&snapshot.company_id, &snapshot.policy_key, &snapshot.version],
+            )
+            .await?;
+        let stored = policy_snapshot_from_row(row)?;
+        if stored != *snapshot {
+            return Err("policy snapshot version already exists with different evidence".into());
+        }
+
+        if snapshot.active {
+            let existing_effective = tx
+                .query_opt(
+                    "SELECT effective_at_epoch
+                       FROM policy_snapshots
+                      WHERE company_id=$1 AND policy_key=$2 AND platform=$4 AND jurisdiction=$5 AND active=true AND id<>$3
+                      ORDER BY effective_at_epoch DESC
+                      LIMIT 1",
+                    &[&snapshot.company_id, &snapshot.policy_key, &snapshot.id, &snapshot.platform, &snapshot.jurisdiction],
+                )
+                .await?
+                .map(|row| row.get::<_, i64>(0));
+
+            if existing_effective.is_some_and(|value| value > snapshot.effective_at_epoch) {
+                return Err("cannot activate a policy snapshot older than the active policy".into());
+            }
+
+            tx.execute(
+                "UPDATE policy_snapshots
+                    SET active=false
+                  WHERE company_id=$1 AND policy_key=$2 AND platform=$4 AND jurisdiction=$5 AND id<>$3",
+                &[
+                    &snapshot.company_id,
+                    &snapshot.policy_key,
+                    &snapshot.id,
+                    &snapshot.platform,
+                    &snapshot.jurisdiction,
+                ],
+            ).await?;
+            if inserted.is_some() {
+                tx.execute(
+                    "INSERT INTO outbox_events
+                     (company_id,event_type,aggregate_id,idempotency_key,payload)
+                     VALUES ($1,'POLICY_SNAPSHOT_ACTIVATED',$2,$3,$4)
+                     ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+                    &[
+                        &snapshot.company_id,
+                        &snapshot.id.to_string(),
+                        &format!("outbox:policy-activated:{}:{}", snapshot.policy_key, snapshot.version),
+                        &serde_json::json!({
+                            "policy_key": snapshot.policy_key,
+                            "platform": snapshot.platform,
+                            "jurisdiction": snapshot.jurisdiction,
+                            "version": snapshot.version,
+                            "effective_at_epoch": snapshot.effective_at_epoch,
+                            "evidence_hash": snapshot.evidence_hash,
+                        }),
+                    ],
+                ).await?;
+            }
+        }
+
+        tx.commit().await?;
+        Ok(stored)
+    }
+
+    pub async fn record_compliance_check(
+        &self,
+        input: &company_compliance::ComplianceInput,
+    ) -> Result<company_compliance::ComplianceCheck, Box<dyn std::error::Error + Send + Sync>> {
+        input.validate().map_err(|error| error.to_string())?;
+        let client = self.client.lock().await;
+        let now_epoch: i64 = client
+            .query_one("SELECT EXTRACT(EPOCH FROM now())::bigint", &[])
+            .await?
+            .get(0);
+
+        let snapshot = client
+            .query_opt(
+                "SELECT id,company_id,policy_key,platform,jurisdiction,version,
+                        source_reference,evidence_hash,observed_at_epoch,effective_at_epoch,
+                        active,rules_json
+                   FROM policy_snapshots
+                  WHERE company_id=$1 AND policy_key=$2 AND platform=$3
+                    AND jurisdiction=$4 AND (policy_key || ':' || version)=$5",
+                &[
+                    &input.company_id,
+                    &input.policy_key,
+                    &input.platform,
+                    &input.jurisdiction,
+                    &input.policy_snapshot_key,
+                ],
+            )
+            .await?
+            .map(policy_snapshot_from_row)
+            .transpose()?;
+
+        let check = company_compliance::evaluate(snapshot.as_ref(), input, now_epoch)
+            .map_err(|error| error.to_string())?;
+
+        let input_hash = {
+            let encoded = serde_json::to_vec(input)?;
+            let digest = Sha256::digest(encoded);
+            format!("sha256:{}", digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>())
+        };
+
+        let inserted = client
+            .query_opt(
+                "INSERT INTO compliance_checks
+                 (id,company_id,policy_snapshot_id,surface,policy_key,policy_snapshot_key,
+                  input_hash,decision,reason,evidence_ref,requires_human,checked_at_epoch)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                 ON CONFLICT(company_id,policy_key,policy_snapshot_key,input_hash) DO NOTHING
+                 RETURNING id",
+                &[
+                    &check.id,
+                    &check.company_id,
+                    &check.policy_snapshot_id,
+                    &compliance_surface_name(input.surface),
+                    &input.policy_key,
+                    &input.policy_snapshot_key,
+                    &input_hash,
+                    &compliance_decision_name(check.decision),
+                    &compliance_reason_name(check.reason),
+                    &input.evidence_ref,
+                    &check.requires_human,
+                    &check.checked_at_epoch,
+                ],
+            )
+            .await?;
+
+        if inserted.is_none() {
+            return existing_compliance_check(&client, input, &input_hash)
+            .await;
+        }
+
+        Ok(check)
+    }
+
+    pub async fn compliance_status(
+        &self,
+        company_id: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let latest = client
+            .query_opt(
+                "SELECT policy_key,platform,jurisdiction,version,source_reference,
+                        evidence_hash,effective_at_epoch,active
+                   FROM policy_snapshots
+                  WHERE company_id=$1
+                  ORDER BY effective_at_epoch DESC,created_at DESC
+                  LIMIT 1",
+                &[&company],
+            )
+            .await?;
+        let counts = client
+            .query_one(
+                "SELECT
+                    COUNT(*) FILTER (WHERE decision='ALLOWED')::bigint,
+                    COUNT(*) FILTER (WHERE decision='REVIEW')::bigint,
+                    COUNT(*) FILTER (WHERE decision='BLOCKED')::bigint,
+                    COUNT(*) FILTER (WHERE decision='UNKNOWN')::bigint
+                 FROM compliance_checks
+                WHERE company_id=$1 AND created_at >= now() - interval '24 hours'",
+                &[&company],
+            )
+            .await?;
+        Ok(serde_json::json!({
+            "latest_policy": latest.map(|row| serde_json::json!({
+                "policy_key": row.get::<_,String>(0),
+                "platform": row.get::<_,String>(1),
+                "jurisdiction": row.get::<_,String>(2),
+                "version": row.get::<_,String>(3),
+                "source_reference": row.get::<_,String>(4),
+                "evidence_hash": row.get::<_,String>(5),
+                "effective_at_epoch": row.get::<_,i64>(6),
+                "active": row.get::<_,bool>(7)
+            })),
+            "checks_last_24h": {
+                "allowed": counts.get::<_,i64>(0),
+                "review": counts.get::<_,i64>(1),
+                "blocked": counts.get::<_,i64>(2),
+                "unknown": counts.get::<_,i64>(3)
+            }
+        }))
+    }
+
+    pub async fn check_tiktok_compliance_for_publish(
+        &self,
+        company_id: &str,
+        intent_id: &str,
+        policy_snapshot_key: &str,
+        evidence_ref: &str,
+        disclosure_present: bool,
+        claim_evidence_present: bool,
+        product_eligibility_verified: bool,
+        rights_evidence_present: bool,
+    ) -> Result<company_compliance::ComplianceCheck, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let intent = Uuid::parse_str(intent_id)?;
+        let policy_key = std::env::var("TIKTOK_POLICY_KEY")
+            .unwrap_or_else(|_| "TIKTOK_SHOP_VN".into());
+        let jurisdiction =
+            std::env::var("COMPLIANCE_JURISDICTION").unwrap_or_else(|_| "VN".into());
+        let client = self.client.lock().await;
+        let row = client
+            .query_one(
+                "SELECT title,caption
+                   FROM publish_intents
+                  WHERE company_id=$1 AND id=$2",
+                &[&company, &intent],
+            )
+            .await?;
+        let title: String = row.get(0);
+        let caption: String = row.get(1);
+        let input = company_compliance::ComplianceInput {
+            company_id: company,
+            surface: company_compliance::ComplianceSurface::Content,
+            platform: "TIKTOK_SHOP".into(),
+            jurisdiction,
+            policy_key,
+            policy_snapshot_key: policy_snapshot_key.trim().into(),
+            evidence_ref: evidence_ref.trim().into(),
+            text: format!("{title}\n{caption}"),
+            product_category: None,
+            disclosure_present,
+            claim_evidence_present,
+            product_eligibility_verified,
+            simulcast: false,
+            fake_engagement_detected: false,
+            rights_evidence_present,
+        };
+        drop(client);
+        self.record_compliance_check(&input).await
+    }
+
+    pub async fn check_tiktok_compliance_for_live(
+        &self,
+        company_id: &str,
+        title: &str,
+        policy_snapshot_key: &str,
+        evidence_ref: &str,
+        disclosure_present: bool,
+        claim_evidence_present: bool,
+        product_eligibility_verified: bool,
+        rights_evidence_present: bool,
+        simulcast: bool,
+    ) -> Result<company_compliance::ComplianceCheck, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let policy_key = std::env::var("TIKTOK_POLICY_KEY")
+            .unwrap_or_else(|_| "TIKTOK_SHOP_VN".into());
+        let jurisdiction =
+            std::env::var("COMPLIANCE_JURISDICTION").unwrap_or_else(|_| "VN".into());
+        let input = company_compliance::ComplianceInput {
+            company_id: company,
+            surface: company_compliance::ComplianceSurface::Live,
+            platform: "TIKTOK_SHOP".into(),
+            jurisdiction,
+            policy_key,
+            policy_snapshot_key: policy_snapshot_key.trim().into(),
+            evidence_ref: evidence_ref.trim().into(),
+            text: title.trim().into(),
+            product_category: None,
+            disclosure_present,
+            claim_evidence_present,
+            product_eligibility_verified,
+            simulcast,
+            fake_engagement_detected: false,
+            rights_evidence_present,
+        };
+        self.record_compliance_check(&input).await
     }
 
     pub async fn ensure_company(
@@ -215,6 +1114,1216 @@ impl CompanyStore {
             )
             .await?;
         Ok(())
+    }
+
+    pub async fn revenue_period_metrics(
+        &self,
+        company_id: &str,
+    ) -> Result<RevenuePeriodMetrics, Box<dyn std::error::Error + Send + Sync>> {
+        let id = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_one(
+                "SELECT
+                    COALESCE(SUM(CASE WHEN t.created_at >= date_trunc('month', now())
+                                      THEN e.credit_minor - e.debit_minor ELSE 0 END), 0)::text,
+                    COALESCE(SUM(CASE WHEN t.created_at >= now() - interval '30 days'
+                                      THEN e.credit_minor - e.debit_minor ELSE 0 END), 0)::text,
+                    COALESCE(SUM(e.credit_minor - e.debit_minor), 0)::text,
+                    COUNT(DISTINCT t.id)
+                 FROM ledger_transactions t
+                 JOIN ledger_entries e ON e.transaction_id = t.id
+                 JOIN ledger_accounts a ON a.id = e.account_id
+                WHERE t.company_id = $1
+                  AND a.company_id = $1
+                  AND a.account_type = 'REVENUE'",
+                &[&id],
+            )
+            .await?;
+
+        let month_to_date_minor = parse_i128_numeric(&row.get::<_, String>(0))?;
+        let last_30_days_minor = parse_i128_numeric(&row.get::<_, String>(1))?;
+        let lifetime_minor = parse_i128_numeric(&row.get::<_, String>(2))?;
+        let now = time::OffsetDateTime::now_utc();
+        let days_in_month = now.date().month().length(now.year()) as i128;
+        let elapsed_days = now.day() as i128;
+        let (forecast_month_minor, run_rate_month_minor, forecast_confidence_bps) =
+            revenue_period_projection(month_to_date_minor, last_30_days_minor, elapsed_days, days_in_month);
+
+        Ok(RevenuePeriodMetrics {
+            month_to_date_minor,
+            last_30_days_minor,
+            lifetime_minor,
+            forecast_month_minor,
+            run_rate_month_minor,
+            forecast_confidence_bps,
+            revenue_transaction_count: row.get(3),
+        })
+    }
+
+    fn revenue_period_projection(
+        month_to_date_minor: i128,
+        last_30_days_minor: i128,
+        elapsed_days: i128,
+        days_in_month: i128,
+    ) -> (i128, i128, u32) {
+        if days_in_month <= 0 || elapsed_days <= 0 {
+            return (month_to_date_minor, last_30_days_minor, 0);
+        }
+        let elapsed_days = elapsed_days.min(days_in_month);
+        let forecast = month_to_date_minor
+            .saturating_mul(days_in_month)
+            .checked_div(elapsed_days)
+            .unwrap_or(month_to_date_minor);
+        let run_rate = last_30_days_minor
+            .saturating_mul(days_in_month)
+            .checked_div(30)
+            .unwrap_or(last_30_days_minor);
+        let coverage_bps = ((elapsed_days * 10_000) / days_in_month).min(10_000) as u32;
+        (forecast, run_rate, coverage_bps)
+    }
+
+    pub async fn create_experiment(
+        &self,
+        company_id: &str,
+        id: Uuid,
+        spec: &company_experiments::ExperimentSpec,
+    ) -> Result<ExperimentRecord, Box<dyn std::error::Error + Send + Sync>> {
+        company_experiments::validate_spec(spec).map_err(|error| error.to_string())?;
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        client.execute(
+            "INSERT INTO growth_experiments
+             (id,company_id,hypothesis,control_variant,treatment_variant,max_budget_minor,min_observations,duration_seconds,success_metric_bps,kill_metric_bps,status)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PROPOSED')",
+            &[&id,&company,&spec.hypothesis,&spec.control,&spec.treatment,&spec.max_budget_minor.to_string(),
+              &(spec.min_observations as i64),&(spec.duration_seconds as i64),&spec.success_metric_bps,&spec.kill_metric_bps],
+        ).await?;
+        Ok(ExperimentRecord { id, company_id: company, spec: spec.clone(), status: company_experiments::ExperimentStatus::Proposed })
+    }
+
+    pub async fn create_content_item(
+        &self,
+        item: &company_content::ContentItem,
+    ) -> Result<ContentRecord, Box<dyn std::error::Error + Send + Sync>> {
+        company_content::validate_item(item).map_err(|error| error.to_string())?;
+        let client = self.client.lock().await;
+        let brief = &item.brief;
+        let variant = &item.variant;
+        let format = content_format_name(brief.format);
+        let metric = success_metric_name(brief.success_metric);
+        let status = content_status_name(item.status);
+        let decision = item.decision.map(content_decision_name);
+        let row = client.query_one(
+            "INSERT INTO content_items
+             (id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
+              expected_cost_minor,max_loss_minor,max_duration_seconds,success_metric,success_threshold_bps,
+              variant_key,hook,first_frame,emotion,pacing,scene_count,text_density,voice_speed,
+              product_placement,cta,comment_trigger,music_style,visual_style,status,decision)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
+             RETURNING created_at::text",
+            &[
+                &item.id, &item.company_id, &brief.hypothesis, &brief.audience, &format,
+                &brief.product_ref, &brief.offer_ref, &brief.disclosure_required,
+                &brief.expected_cost_minor.to_string(), &brief.max_loss_minor.to_string(),
+                &(brief.max_duration_seconds as i64), &metric, &(brief.success_threshold_bps as i32),
+                &variant.variant_key, &variant.hook, &variant.first_frame, &variant.emotion,
+                &variant.pacing, &(variant.scene_count as i32), &variant.text_density,
+                &variant.voice_speed, &variant.product_placement, &variant.cta,
+                &variant.comment_trigger, &variant.music_style, &variant.visual_style,
+                &status, &decision,
+            ],
+        ).await?;
+        Ok(ContentRecord { item: item.clone(), created_at: row.get(0) })
+    }
+
+    pub async fn list_content_items(
+        &self,
+        company_id: &str,
+        limit: i64,
+    ) -> Result<Vec<ContentRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=500).contains(&limit) {
+            return Err("content limit must be between 1 and 500".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client.query(
+            "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
+                    expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
+                    success_threshold_bps,variant_key,hook,first_frame,emotion,pacing,scene_count,
+                    text_density,voice_speed,product_placement,cta,comment_trigger,music_style,
+                    visual_style,status,decision,created_at::text
+               FROM content_items
+              WHERE company_id=$1
+              ORDER BY created_at DESC
+              LIMIT $2",
+            &[&company, &limit],
+        ).await?;
+        rows.into_iter().map(content_record_from_row).collect()
+    }
+
+    pub async fn transition_content_status(
+        &self,
+        company_id: &str,
+        content_id: Uuid,
+        next: company_content::ContentStatus,
+        evidence_ref: Option<&str>,
+    ) -> Result<ContentRecord, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client.query_opt(
+            "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
+                    expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
+                    success_threshold_bps,variant_key,hook,first_frame,emotion,pacing,scene_count,
+                    text_density,voice_speed,product_placement,cta,comment_trigger,music_style,
+                    visual_style,status,decision,created_at::text
+               FROM content_items
+              WHERE company_id=$1 AND id=$2",
+            &[&company, &content_id],
+        ).await?.ok_or("content item not found")?;
+        let current = parse_content_status(row.get::<_, String>(26))?;
+        company_content::validate_status_transition(current, next, evidence_ref)
+            .map_err(|error| error.to_string())?;
+        let next_name = content_status_name(next);
+        client.execute(
+            "UPDATE content_items
+                SET status=$3, status_evidence_ref=$4
+              WHERE company_id=$1 AND id=$2",
+            &[&company, &content_id, &next_name, &evidence_ref],
+        ).await?;
+        let refreshed = client.query_one(
+            "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
+                    expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
+                    success_threshold_bps,variant_key,hook,first_frame,emotion,pacing,scene_count,
+                    text_density,voice_speed,product_placement,cta,comment_trigger,music_style,
+                    visual_style,status,decision,created_at::text
+               FROM content_items WHERE company_id=$1 AND id=$2",
+            &[&company, &content_id],
+        ).await?;
+        content_record_from_row(refreshed)
+    }
+
+    pub async fn record_content_observation(
+        &self,
+        observation: &company_content::ContentObservation,
+    ) -> Result<ContentObservationRecord, Box<dyn std::error::Error + Send + Sync>> {
+        company_content::validate_observation(observation).map_err(|error| error.to_string())?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let row = tx.query_opt(
+            "SELECT hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
+                    expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,
+                    success_metric,success_threshold_bps,variant_key,hook,first_frame,emotion,
+                    pacing,scene_count,text_density,voice_speed,product_placement,cta,
+                    comment_trigger,music_style,visual_style,status,decision
+               FROM content_items
+              WHERE company_id=$1 AND id=$2",
+            &[&observation.company_id, &observation.content_id],
+        ).await?.ok_or("content item not found")?;
+        let status: String = row.get(26);
+        if !matches!(status.as_str(), "PUBLISHED" | "MEASURED") {
+            return Err("content must be published before performance can be recorded".into());
+        }
+        let item = content_record_from_row(row)?.item;
+        let decision = company_content::decide_from_observation(&item.brief, observation)
+            .map_err(|error| error.to_string())?;
+
+        let id = Uuid::new_v4();
+        let inserted = tx.query_opt(
+            "INSERT INTO content_observations
+             (id,company_id,content_id,observation_key,source,evidence_hash,observed_at_epoch,
+              sample_count,spend_minor,metric_bps,views,clicks,conversions,commission_minor,
+              contribution_margin_minor,decision)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+             ON CONFLICT(company_id,observation_key) DO NOTHING
+             RETURNING id,created_at::text",
+            &[
+                &id, &observation.company_id, &observation.content_id, &observation.observation_key,
+                &observation.source, &observation.evidence_hash, &observation.observed_at_epoch,
+                &(observation.sample_count as i64), &observation.spend_minor.to_string(),
+                &(observation.metric_bps as i32), &(observation.views as i64), &(observation.clicks as i64),
+                &(observation.conversions as i64), &observation.commission_minor.to_string(),
+                &observation.contribution_margin_minor.to_string(), &content_decision_name(decision),
+            ],
+        ).await?;
+
+        if let Some(inserted) = inserted {
+            if matches!(decision, company_content::ContentDecision::Scale | company_content::ContentDecision::Kill) {
+                let next_status = if decision == company_content::ContentDecision::Scale {
+                    "MEASURED"
+                } else {
+                    "KILLED"
+                };
+                tx.execute(
+                    "UPDATE content_items SET status=$3,decision=$4
+                     WHERE company_id=$1 AND id=$2",
+                    &[&observation.company_id,&observation.content_id,&next_status,&content_decision_name(decision)],
+                ).await?;
+            }
+
+            let learning = content_learning_entry(&item, observation, decision);
+            company_learning::validate_evidence(&learning)
+                .map_err(|error| error.to_string())?;
+
+            let learning_inserted = tx.query_opt(
+                "INSERT INTO learning_entries
+                 (id,company_id,entry_key,source_type,source_id,kind,severity,hypothesis,context,
+                  expected_outcome,actual_outcome,impact_minor,confidence_bps,root_cause,
+                  corrective_action,reusable_rule,decision)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+                 ON CONFLICT(company_id,entry_key) DO NOTHING
+                 RETURNING id",
+                &[
+                    &Uuid::new_v4(),
+                    &observation.company_id,
+                    &learning.entry_key,
+                    &learning.source_type,
+                    &learning.source_id,
+                    &learning_kind_name(learning.kind),
+                    &failure_severity_name(learning.severity),
+                    &learning.hypothesis,
+                    &learning.context,
+                    &learning.expected_outcome,
+                    &learning.actual_outcome,
+                    &learning.impact_minor.to_string(),
+                    &learning.confidence_bps,
+                    &learning.root_cause,
+                    &learning.corrective_action,
+                    &learning.reusable_rule,
+                    &learning_decision_name(learning.decision),
+                ],
+            ).await?;
+
+            let learning_id = match learning_inserted {
+                Some(row) => row.get(0),
+                None => tx.query_one(
+                    "SELECT id FROM learning_entries WHERE company_id=$1 AND entry_key=$2",
+                    &[&observation.company_id, &learning.entry_key],
+                ).await?.get(0),
+            };
+
+            let outbox_key = format!("outbox:learning:{}", learning.entry_key);
+            let payload = serde_json::json!({
+                "entry_key": &learning.entry_key,
+                "source_type": &learning.source_type,
+                "source_id": &learning.source_id,
+                "kind": learning.kind,
+                "decision": learning.decision,
+                "confidence_bps": learning.confidence_bps
+            });
+            tx.execute(
+                "INSERT INTO outbox_events
+                 (company_id,event_type,aggregate_id,idempotency_key,payload)
+                 VALUES ($1,'LEARNING_ENTRY_RECORDED',$2,$3,$4)
+                 ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+                &[
+                    &observation.company_id,
+                    &learning_id,
+                    &outbox_key,
+                    &payload,
+                ],
+            ).await?;
+
+            tx.commit().await?;
+            return Ok(ContentObservationRecord {
+                id: inserted.get(0),
+                observation: observation.clone(),
+                decision,
+                created_at: inserted.get(1),
+            });
+        }
+
+        tx.commit().await?;
+        content_observation_by_key(&client, &observation.company_id, &observation.observation_key).await
+    }
+
+    pub async fn record_experiment_observation(
+        &self,
+        company_id: &str,
+        experiment_id: Uuid,
+        observation: &company_experiments::ExperimentObservation,
+        observation_key: &str,
+    ) -> Result<company_experiments::ExperimentDecision, Box<dyn std::error::Error + Send + Sync>> {
+        if observation_key.trim().is_empty() { return Err("experiment observation key is required".into()); }
+        if observation.spend_minor < 0 { return Err("experiment spend cannot be negative".into()); }
+        let company = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let existing = tx.query_opt(
+            "SELECT decision FROM growth_experiment_observations
+              WHERE company_id=$1 AND experiment_id=$2 AND observation_key=$3",
+            &[&company, &experiment_id, &observation_key],
+        ).await?;
+        if let Some(existing) = existing {
+            let decision: String = existing.get(0);
+            return match decision.as_str() {
+                "CONTINUE" => Ok(company_experiments::ExperimentDecision::Continue),
+                "SUCCEED" => Ok(company_experiments::ExperimentDecision::Succeed),
+                "KILL" => Ok(company_experiments::ExperimentDecision::Kill),
+                "EXPIRE" => Ok(company_experiments::ExperimentDecision::Expire),
+                _ => Err("invalid persisted experiment decision".into()),
+            };
+        }
+
+        let row = tx.query_opt(
+            "SELECT hypothesis,control_variant,treatment_variant,max_budget_minor::text,min_observations,duration_seconds,success_metric_bps,kill_metric_bps,status
+               FROM growth_experiments WHERE company_id=$1 AND id=$2 FOR UPDATE",
+            &[&company,&experiment_id],
+        ).await?.ok_or("experiment not found")?;
+        let current_status: String = row.get(8);
+        if matches!(current_status.as_str(), "SUCCEEDED" | "KILLED" | "EXPIRED" | "FAILED") {
+            return Err("terminal experiment cannot accept new observations".into());
+        }
+        let spec = company_experiments::ExperimentSpec {
+            hypothesis: row.get(0), control: row.get(1), treatment: row.get(2),
+            max_budget_minor: row.get::<_,String>(3).parse()?,
+            min_observations: row.get::<_,i64>(4) as u64,
+            duration_seconds: row.get::<_,i64>(5) as u64,
+            success_metric_bps: row.get(6), kill_metric_bps: row.get(7),
+        };
+        let decision = company_experiments::decide(&spec, observation).map_err(|error| error.to_string())?;
+        let status = match decision {
+            company_experiments::ExperimentDecision::Continue => "RUNNING",
+            company_experiments::ExperimentDecision::Succeed => "SUCCEEDED",
+            company_experiments::ExperimentDecision::Kill => "KILLED",
+            company_experiments::ExperimentDecision::Expire => "EXPIRED",
+        };
+        tx.execute(
+            "INSERT INTO growth_experiment_observations
+             (company_id,experiment_id,control_observations,treatment_observations,control_metric_bps,treatment_metric_bps,spend_minor,elapsed_seconds,decision,observation_key)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+            &[&company,&experiment_id,&(observation.control_observations as i64),&(observation.treatment_observations as i64),
+              &observation.control_metric_bps,&observation.treatment_metric_bps,&observation.spend_minor.to_string(),
+              &(observation.elapsed_seconds as i64),&format!("{:?}",decision).to_uppercase(),&observation_key],
+        ).await?;
+        tx.execute(
+            "UPDATE growth_experiments SET status=$3,
+                started_at=COALESCE(started_at,CASE WHEN $3='RUNNING' THEN now() ELSE started_at END),
+                completed_at=CASE WHEN $3 IN ('SUCCEEDED','KILLED','EXPIRED') THEN now() ELSE completed_at END
+              WHERE company_id=$1 AND id=$2",
+            &[&company,&experiment_id,&status],
+        ).await?;
+
+        let decision_ref = format!(
+            "experiment:{}:decision:{}:{}",
+            experiment_id,
+            format!("{:?}", decision).to_ascii_uppercase(),
+            observation_key
+        );
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company,
+                company_revenue_graph::RevenueNodeType::Experiment,
+                &experiment_id.to_string(),
+                "RESULTS_IN",
+                company_revenue_graph::RevenueNodeType::Decision,
+                &decision_ref,
+                None,
+                None,
+                10_000,
+                &format!("experiment:{}:{}", experiment_id, observation_key),
+                "experiment-engine",
+                time::OffsetDateTime::now_utc().unix_timestamp(),
+            ),
+        )
+        .await?;
+
+        if !matches!(decision, company_experiments::ExperimentDecision::Continue) {
+            let learning = experiment_learning_entry(
+                experiment_id,
+                &spec,
+                observation,
+                decision,
+                observation_key,
+            );
+            company_learning::validate_evidence(&learning)
+                .map_err(|error| error.to_string())?;
+
+            let inserted = tx.query_opt(
+                "INSERT INTO learning_entries
+                 (id,company_id,entry_key,source_type,source_id,kind,severity,hypothesis,context,
+                  expected_outcome,actual_outcome,impact_minor,confidence_bps,root_cause,
+                  corrective_action,reusable_rule,decision)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+                 ON CONFLICT(company_id,entry_key) DO NOTHING
+                 RETURNING id",
+                &[
+                    &Uuid::new_v4(),
+                    &company,
+                    &learning.entry_key,
+                    &learning.source_type,
+                    &learning.source_id,
+                    &learning_kind_name(learning.kind),
+                    &failure_severity_name(learning.severity),
+                    &learning.hypothesis,
+                    &learning.context,
+                    &learning.expected_outcome,
+                    &learning.actual_outcome,
+                    &learning.impact_minor.to_string(),
+                    &learning.confidence_bps,
+                    &learning.root_cause,
+                    &learning.corrective_action,
+                    &learning.reusable_rule,
+                    &learning_decision_name(learning.decision),
+                ],
+            )
+            .await?;
+            let learning_id = match inserted {
+                Some(row) => row.get(0),
+                None => tx
+                    .query_one(
+                        "SELECT id FROM learning_entries WHERE company_id=$1 AND entry_key=$2",
+                        &[&company, &learning.entry_key],
+                    )
+                    .await?
+                    .get(0),
+            };
+
+            let outbox_key = format!("outbox:learning:{}", learning.entry_key);
+            let payload = serde_json::json!({
+                "entry_key": &learning.entry_key,
+                "source_type": &learning.source_type,
+                "source_id": &learning.source_id,
+                "kind": learning.kind,
+                "decision": learning.decision,
+                "confidence_bps": learning.confidence_bps
+            });
+            tx.execute(
+                "INSERT INTO outbox_events
+                 (company_id,event_type,aggregate_id,idempotency_key,payload)
+                 VALUES ($1,'LEARNING_ENTRY_RECORDED',$2,$3,$4)
+                 ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+                &[
+                    &company,
+                    &learning_id,
+                    &outbox_key,
+                    &payload,
+                ],
+            )
+            .await?;
+        }
+
+        tx.commit().await?;
+        Ok(decision)
+    }
+
+    pub async fn affiliate_reconciliation_metrics(
+        &self,
+        company_id: &str,
+    ) -> Result<AffiliateReconciliationMetrics, Box<dyn std::error::Error + Send + Sync>> {
+        let id = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_one(
+                "WITH conversions AS (
+                    SELECT conversion_id, commission_minor::text AS commission, reconciliation_status
+                      FROM affiliate_conversions
+                     WHERE company_id = $1
+                       AND created_at >= date_trunc('month', now())
+                 ),
+                 attributed AS (
+                    SELECT a.conversion_id, COALESCE(SUM(a.attributed_commission_minor),0)::text AS commission
+                      FROM affiliate_attributions a
+                      JOIN conversions c ON c.conversion_id = a.conversion_id
+                     WHERE a.company_id = $1
+                     GROUP BY a.conversion_id
+                 ),
+                 totals AS (
+                    SELECT
+                      COALESCE((SELECT SUM(commission::numeric) FROM conversions),0)::text AS reported,
+                      COALESCE((SELECT SUM(commission::numeric) FROM attributed),0)::text AS attributed,
+                      COALESCE((SELECT SUM(amount_minor) FROM affiliate_payouts
+                                WHERE company_id=$1 AND occurred_at >= date_trunc('month', now())),0)::text AS paid,
+                      (SELECT COUNT(*) FROM conversions) AS conversion_count,
+                      (SELECT COUNT(*) FROM conversions WHERE reconciliation_status='VERIFIED') AS verified_count,
+                      (SELECT COUNT(*) FROM conversions WHERE reconciliation_status IN ('PARTIAL','REJECTED')) AS partial_or_rejected_count
+                 )
+                 SELECT reported, attributed, paid, conversion_count, verified_count, partial_or_rejected_count
+                   FROM totals",
+                &[&id],
+            )
+            .await?;
+
+        let reported = parse_i128_numeric(&row.get::<_, String>(0))?;
+        let attributed = parse_i128_numeric(&row.get::<_, String>(1))?;
+        let paid = parse_i128_numeric(&row.get::<_, String>(2))?;
+        let reported_attributed = reported.checked_sub(attributed).ok_or("affiliate reconciliation overflow")?;
+        let attributed_paid = attributed.checked_sub(paid).ok_or("affiliate paid reconciliation overflow")?;
+        let reported_paid = reported.checked_sub(paid).ok_or("affiliate paid reconciliation overflow")?;
+        Ok(AffiliateReconciliationMetrics {
+            reported_commission_mtd_minor: reported,
+            attributed_commission_mtd_minor: attributed,
+            recorded_payout_mtd_minor: paid,
+            variance_mtd_minor: reported_attributed,
+            reported_attributed_variance_mtd_minor: reported_attributed,
+            attributed_paid_variance_mtd_minor: attributed_paid,
+            reported_paid_variance_mtd_minor: reported_paid,
+            conversion_count_mtd: row.get(3),
+            verified_conversion_count_mtd: row.get(4),
+            partial_or_rejected_count_mtd: row.get(5),
+        })
+    }
+
+    pub async fn assess_autonomy_for_company(
+        &self,
+        company_id: &str,
+        proposal: &agent_runtime::types::Proposal,
+        policy: company_autonomy::AutonomyPolicy,
+        emergency_stop: bool,
+        twin_config: &company_autonomy::DigitalTwinConfig,
+    ) -> Result<AutonomySimulationRecord, Box<dyn std::error::Error + Send + Sync>> {
+        proposal.validate().map_err(|error| error.to_string())?;
+        twin_config.validate().map_err(|error| error.to_string())?;
+        let company = Uuid::parse_str(company_id)?;
+        let snapshot = self
+            .load_snapshot(company_id)
+            .await?
+            .ok_or("authoritative company snapshot is unavailable")?;
+        if snapshot.company_id != company_id {
+            return Err("authoritative snapshot belongs to a different company".into());
+        }
+        let persistent_stop = self.autonomy_controls(company_id).await?;
+        let emergency_stop = emergency_stop || persistent_stop.controls.emergency_stop.enabled;
+
+        let simulation =
+            company_autonomy::simulate_proposal(&snapshot, proposal, twin_config)?;
+        let input = company_autonomy::AutonomyGateInput {
+            emergency_stop,
+            company_status: snapshot.status,
+            action: proposal.action,
+            cost_minor: proposal.cost_minor,
+            risk: proposal.risk,
+            confidence_bps: proposal.confidence_bps,
+            evidence_count: proposal.evidence.len().min(u8::MAX as usize) as u8,
+            reversible: proposal.reversible,
+            external_side_effect: proposal.action.inherently_material(),
+            policy,
+            simulation: Some(simulation.clone()),
+        };
+        let assessment = company_autonomy::assess(&input)?;
+
+        let key_payload = serde_json::json!({
+            "company_id": company_id,
+            "proposal": proposal,
+            "policy": policy,
+            "emergency_stop": emergency_stop,
+            "twin_config": twin_config,
+            "snapshot": {
+                "cash_minor": snapshot.cash_minor,
+                "revenue_minor": snapshot.revenue_minor,
+                "expenses_minor": snapshot.expenses_minor,
+                "liabilities_minor": snapshot.liabilities_minor,
+                "assets_minor": snapshot.assets_minor,
+                "runway_days": snapshot.runway_days,
+                "status": snapshot.status,
+                "budget_remaining_minor": snapshot.budget_remaining_minor,
+                "experiment_budget_minor": snapshot.experiment_budget_minor,
+                "backlog": snapshot.backlog,
+                "capacity": snapshot.capacity
+            }
+        });
+        let payload_bytes = serde_json::to_vec(&key_payload)?;
+        let digest = Sha256::digest(payload_bytes);
+        let idempotency_key = format!("autonomy:{}", digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>());
+        let assessment_json = serde_json::to_value(&assessment)?;
+
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        if let Some(row) = tx
+            .query_opt(
+                "SELECT id,proposal,decision,ceiling,required_level,reason,assessment_json,created_at::text
+                   FROM autonomy_simulations
+                  WHERE company_id=$1 AND idempotency_key=$2",
+                &[&company, &idempotency_key],
+            )
+            .await?
+        {
+            let existing = autonomy_simulation_from_row(
+                row,
+                company,
+                idempotency_key.clone(),
+            )?;
+            tx.rollback().await?;
+            return Ok(existing);
+        }
+
+        let id = Uuid::new_v4();
+        let row = tx
+            .query_one(
+                "INSERT INTO autonomy_simulations
+                 (id,company_id,idempotency_key,proposal,decision,ceiling,required_level,reason,assessment_json)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                 RETURNING created_at::text",
+                &[
+                    &id,
+                    &company,
+                    &idempotency_key,
+                    &serde_json::to_value(proposal)?,
+                    &assessment.decision.as_str(),
+                    &assessment.ceiling.as_str(),
+                    &assessment.required_level.as_str(),
+                    &assessment.reason,
+                    &assessment_json,
+                ],
+            )
+            .await?;
+
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'AUTONOMY_ASSESSMENT_RECORDED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[
+                &company,
+                &id,
+                &format!("outbox:{idempotency_key}"),
+                &serde_json::json!({
+                    "simulation_id": id,
+                    "decision": assessment.decision.as_str(),
+                    "ceiling": assessment.ceiling.as_str(),
+                    "required_level": assessment.required_level.as_str(),
+                }),
+            ],
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(AutonomySimulationRecord {
+            id,
+            company_id: company,
+            idempotency_key,
+            proposal: proposal.clone(),
+            assessment,
+            created_at: row.get(0),
+        })
+    }
+
+    pub async fn record_agent_outcome_evidence(
+        &self,
+        company_id: &str,
+        decision_journal_id: i64,
+        evidence_ref: &str,
+        observed_revenue_delta_minor: i128,
+        observed_contribution_margin_delta_minor: i128,
+        observed_at_epoch: i64,
+    ) -> Result<AgentOutcomeEvidenceRecord, Box<dyn std::error::Error + Send + Sync>> {
+        if decision_journal_id <= 0
+            || evidence_ref.trim().is_empty()
+            || evidence_ref.len() > 1024
+            || observed_at_epoch <= 0
+        {
+            return Err("agent outcome evidence identity is invalid".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let evidence_ref = evidence_ref.trim();
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        let journal = tx
+            .query_opt(
+                "SELECT agent_name, action, governor_decision, execution, EXTRACT(EPOCH FROM created_at)::bigint
+                   FROM decision_journal
+                  WHERE company_id=$1 AND id=$2
+                  FOR UPDATE",
+                &[&company, &decision_journal_id],
+            )
+            .await?
+            .ok_or("decision journal record not found for company")?;
+
+        let agent_name: String = journal.get(0);
+        let action: String = journal.get(1);
+        let governor_decision: String = journal.get(2);
+        let execution: Option<serde_json::Value> = journal.get(3);
+        let decision_created_at_epoch: i64 = journal.get(4);
+
+        if governor_decision != "Approve"
+            && governor_decision != "APPROVE"
+        {
+            return Err("outcome evidence requires a Governor-approved decision".into());
+        }
+        if execution
+            .as_ref()
+            .and_then(|value| value.get("status"))
+            .and_then(|value| value.as_str())
+            != Some("Executed")
+        {
+            return Err("outcome evidence requires an executed decision".into());
+        }
+        if observed_at_epoch < decision_created_at_epoch {
+            return Err("outcome evidence cannot predate the decision".into());
+        }
+
+        if let Some(row) = tx
+            .query_opt(
+                "SELECT id,agent_name,action,evidence_ref,
+                        observed_revenue_delta_minor::text,
+                        observed_contribution_margin_delta_minor::text,
+                        observed_at_epoch,created_at::text
+                   FROM agent_outcome_evidence oe
+                  JOIN decision_journal dj
+                    ON dj.company_id=oe.company_id
+                   AND dj.id=oe.decision_journal_id
+                  WHERE oe.company_id=$1 AND oe.decision_journal_id=$2
+                  FOR UPDATE",
+                &[&company, &decision_journal_id],
+            )
+            .await?
+        {
+            let existing = agent_outcome_evidence_from_row(row, company, decision_journal_id)?;
+            if existing.evidence_ref != evidence_ref
+                || existing.observed_revenue_delta_minor != observed_revenue_delta_minor
+                || existing.observed_contribution_margin_delta_minor
+                    != observed_contribution_margin_delta_minor
+                || existing.observed_at_epoch != observed_at_epoch
+            {
+                return Err("agent outcome evidence is immutable and already recorded with different values".into());
+            }
+            tx.rollback().await?;
+            return Ok(existing);
+        }
+
+        let id = Uuid::new_v4();
+        let row = tx
+            .query_one(
+                "INSERT INTO agent_outcome_evidence
+                 (id,company_id,decision_journal_id,evidence_ref,
+                  observed_revenue_delta_minor,observed_contribution_margin_delta_minor,
+                  observed_at_epoch)
+                 VALUES ($1,$2,$3,$4,$5::numeric,$6::numeric,$7)
+                 RETURNING created_at::text",
+                &[
+                    &id,
+                    &company,
+                    &decision_journal_id,
+                    &evidence_ref,
+                    &observed_revenue_delta_minor.to_string(),
+                    &observed_contribution_margin_delta_minor.to_string(),
+                    &observed_at_epoch,
+                ],
+            )
+            .await?;
+
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'AGENT_OUTCOME_EVIDENCE_RECORDED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[
+                &company,
+                &decision_journal_id.to_string(),
+                &format!("outbox:agent-outcome:{decision_journal_id}"),
+                &serde_json::json!({
+                    "decision_journal_id": decision_journal_id,
+                    "agent": agent_name,
+                    "action": action,
+                    "evidence_ref": evidence_ref,
+                    "observed_revenue_delta_minor": observed_revenue_delta_minor,
+                    "observed_contribution_margin_delta_minor": observed_contribution_margin_delta_minor,
+                    "observed_at_epoch": observed_at_epoch,
+                }),
+            ],
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(AgentOutcomeEvidenceRecord {
+            id,
+            company_id: company,
+            decision_journal_id,
+            agent_name,
+            action,
+            evidence_ref: evidence_ref.trim().to_owned(),
+            observed_revenue_delta_minor,
+            observed_contribution_margin_delta_minor,
+            observed_at_epoch,
+            created_at: row.get(0),
+        })
+    }
+
+    pub async fn agent_outcome_evaluations(
+        &self,
+        company_id: &str,
+        days: i64,
+    ) -> Result<Vec<company_agent_evaluation::AgentEvaluation>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=365).contains(&days) {
+            return Err("agent evaluation window must be between 1 and 365 days".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT
+                    dj.agent_name,
+                    COUNT(*)::bigint AS proposal_count,
+                    COUNT(*) FILTER (WHERE dj.governor_decision IN ('Approve','APPROVE'))::bigint,
+                    COUNT(*) FILTER (WHERE dj.governor_decision IN ('Reject','REJECT'))::bigint,
+                    COUNT(*) FILTER (WHERE dj.governor_decision IN ('RequestRevision','REQUESTREVISION','REQUEST_REVISION'))::bigint,
+                    COUNT(*) FILTER (WHERE dj.governor_decision IN ('Escalate','ESCALATE'))::bigint,
+                    COUNT(*) FILTER (WHERE dj.execution->>'status'='Executed')::bigint,
+                    COUNT(*) FILTER (WHERE dj.execution->>'status'='Deferred')::bigint,
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN dj.execution->>'status'='Executed'
+                                THEN (dj.execution->>'cost_minor')::numeric
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    )::text,
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN dj.execution->>'status'='Executed'
+                                THEN (dj.proposal->>'expected_revenue_minor')::numeric
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    )::text,
+                    COUNT(oe.id)::bigint,
+                    COALESCE(SUM(oe.observed_revenue_delta_minor),0)::text,
+                    COALESCE(SUM(oe.observed_contribution_margin_delta_minor),0)::text
+                 FROM decision_journal dj
+            LEFT JOIN agent_outcome_evidence oe
+                   ON oe.company_id=dj.company_id
+                  AND oe.decision_journal_id=dj.id
+                WHERE dj.company_id=$1
+                  AND dj.created_at >= now() - ($2::double precision * interval '1 day')
+                GROUP BY dj.agent_name
+                ORDER BY dj.agent_name ASC",
+                &[&company, &days],
+            )
+            .await?;
+
+        rows.into_iter()
+            .map(agent_evaluation_from_row)
+            .collect()
+    }
+
+    pub async fn ceo_command_center(
+        &self,
+        company_id: &str,
+        revenue_target_minor: i128,
+    ) -> Result<CeoCommandCenterRecord, Box<dyn std::error::Error + Send + Sync>> {
+        if revenue_target_minor <= 0 {
+            return Err("CEO command center revenue target must be positive".into());
+        }
+
+        let company = Uuid::parse_str(company_id)?;
+        let snapshot = self
+            .load_snapshot(company_id)
+            .await?
+            .ok_or("authoritative company snapshot is unavailable")?;
+
+        let revenue = self.revenue_period_metrics(company_id).await?;
+        let margin = self.contribution_margin_metrics(company_id).await?;
+        let affiliate = self.affiliate_reconciliation_metrics(company_id).await?;
+
+        let client = self.client.lock().await;
+
+        let affiliate_order_row = client
+            .query_one(
+                "SELECT
+                    COUNT(DISTINCT order_id) FILTER (WHERE cancelled=false),
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN cancelled=false
+                                THEN GREATEST(order_value_minor - refunded_minor, 0)
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    )::text
+                 FROM affiliate_conversions
+                WHERE company_id=$1
+                  AND created_at >= date_trunc('month', now())",
+                &[&company],
+            )
+            .await?;
+        let affiliate_orders_mtd: i64 = affiliate_order_row.get(0);
+        let affiliate_net_order_value_mtd_minor =
+            parse_i128_numeric(&affiliate_order_row.get::<_, String>(1))?;
+
+        let content_row = client
+            .query_one(
+                "WITH latest AS (
+                    SELECT DISTINCT ON (content_id)
+                        content_id,
+                        views,
+                        clicks,
+                        conversions,
+                        spend_minor::text AS spend_minor,
+                        commission_minor::text AS commission_minor,
+                        contribution_margin_minor::text AS contribution_margin_minor
+                      FROM content_observations
+                     WHERE company_id=$1
+                       AND observed_at_epoch >= EXTRACT(EPOCH FROM (now() - interval '7 days'))::bigint
+                     ORDER BY content_id, observed_at_epoch DESC, created_at DESC
+                 )
+                 SELECT
+                    COALESCE(SUM(views),0)::bigint,
+                    COALESCE(SUM(clicks),0)::bigint,
+                    COALESCE(SUM(conversions),0)::bigint,
+                    COALESCE(SUM(spend_minor::numeric),0)::text,
+                    COALESCE(SUM(commission_minor::numeric),0)::text,
+                    COALESCE(SUM(contribution_margin_minor::numeric),0)::text,
+                    COUNT(*)::bigint
+                   FROM latest",
+                &[&company],
+            )
+            .await?;
+        let views_7d: i64 = content_row.get(0);
+        let clicks_7d: i64 = content_row.get(1);
+        let conversions_7d: i64 = content_row.get(2);
+        let spend_7d_minor = parse_i128_numeric(&content_row.get::<_, String>(3))?;
+        let commission_7d_minor = parse_i128_numeric(&content_row.get::<_, String>(4))?;
+        let contribution_margin_7d_minor =
+            parse_i128_numeric(&content_row.get::<_, String>(5))?;
+        let content_count_7d: i64 = content_row.get(6);
+
+        let content = company_command_center::ContentFunnel {
+            views_7d,
+            clicks_7d,
+            conversions_7d,
+            spend_7d_minor,
+            commission_7d_minor,
+            contribution_margin_7d_minor,
+            content_count_7d,
+            ctr_bps: metric_bps(clicks_7d, views_7d)?,
+            cvr_bps: metric_bps(conversions_7d, clicks_7d)?,
+            commission_rpm_minor: scaled_minor(commission_7d_minor, views_7d, 1_000)?,
+        };
+
+        let live_row = client
+            .query_one(
+                "SELECT
+                    COUNT(DISTINCT s.id)::bigint,
+                    COALESCE(
+                        SUM(
+                            CASE WHEN e.kind='GIFT' THEN e.gift_quantity ELSE 0 END
+                        ),
+                        0
+                    )::numeric::text,
+                    COALESCE(
+                        SUM(
+                            CASE WHEN e.kind='GIFT' THEN e.gift_value_minor ELSE 0 END
+                        ),
+                        0
+                    )::numeric::text
+                   FROM tiktok_live_sessions s
+              LEFT JOIN tiktok_live_events e
+                     ON e.company_id=s.company_id
+                    AND e.session_id=s.id
+                  WHERE s.company_id=$1
+                    AND s.started_at_epoch >= EXTRACT(EPOCH FROM (now() - interval '30 days'))::bigint",
+                &[&company],
+            )
+            .await?;
+        let live = company_command_center::LivePulse {
+            sessions_30d: live_row.get(0),
+            gift_count_30d: parse_i128_numeric(&live_row.get::<_, String>(1))?,
+            gift_value_30d_minor: parse_i128_numeric(&live_row.get::<_, String>(2))?,
+        };
+
+        let daily_rows = client
+            .query(
+                "WITH days AS (
+                    SELECT generate_series(
+                        date_trunc('day', now()) - interval '6 days',
+                        date_trunc('day', now()),
+                        interval '1 day'
+                    ) AS day
+                ),
+                revenue AS (
+                    SELECT date_trunc('day', t.created_at) AS day,
+                           COALESCE(SUM(e.credit_minor - e.debit_minor),0)::text AS revenue_minor
+                      FROM ledger_transactions t
+                      JOIN ledger_entries e ON e.transaction_id=t.id
+                      JOIN ledger_accounts a ON a.id=e.account_id
+                     WHERE t.company_id=$1
+                       AND a.company_id=$1
+                       AND a.account_type='REVENUE'
+                       AND t.created_at >= now() - interval '7 days'
+                     GROUP BY 1
+                )
+                SELECT to_char(days.day,'YYYY-MM-DD'),
+                       COALESCE(revenue.revenue_minor,'0')
+                  FROM days
+                  LEFT JOIN revenue ON revenue.day=days.day
+                 ORDER BY days.day ASC",
+                &[&company],
+            )
+            .await?;
+        let mut daily_revenue = Vec::with_capacity(daily_rows.len());
+        for row in daily_rows {
+            daily_revenue.push(company_command_center::DailyRevenuePoint {
+                day: row.get(0),
+                revenue_minor: parse_i128_numeric(&row.get::<_, String>(1))?,
+            });
+        }
+        drop(client);
+
+        let compliance = self.compliance_status(company_id).await?;
+        let latest_policy = compliance.get("latest_policy");
+        let compliance_counts = compliance
+            .get("checks_last_24h")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+        let compliance_pulse = company_command_center::CompliancePulse {
+            policy_ready: latest_policy
+                .and_then(|policy| policy.get("active"))
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false),
+            allowed_24h: compliance_counts
+                .get("allowed")
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0),
+            review_24h: compliance_counts
+                .get("review")
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0),
+            blocked_24h: compliance_counts
+                .get("blocked")
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0),
+            unknown_24h: compliance_counts
+                .get("unknown")
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0),
+        };
+
+        let growth_records = self.list_growth_opportunities(company_id, 5).await?;
+        let growth_opportunities = growth_records
+            .into_iter()
+            .map(|record| {
+                let status = match record.status {
+                    company_growth::OpportunityStatus::Ready => "READY",
+                    company_growth::OpportunityStatus::ContentCreated => "CONTENT_CREATED",
+                };
+                company_command_center::GrowthOpportunityDigest {
+                    title: record.opportunity.title,
+                    score_bps: record.opportunity.score_bps,
+                    confidence_bps: record.opportunity.confidence_bps,
+                    status: status.into(),
+                    ttfc_seconds: record.ttfc_seconds,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let input = company_command_center::CommandCenterInput {
+            cash_minor: snapshot.cash_minor,
+            revenue_mtd_minor: revenue.month_to_date_minor,
+            revenue_last_30d_minor: revenue.last_30_days_minor,
+            revenue_lifetime_minor: revenue.lifetime_minor,
+            revenue_target_minor,
+            revenue_transaction_count: revenue.revenue_transaction_count,
+            contribution_margin_mtd_minor: margin.month_to_date_contribution_margin_minor,
+            unclassified_expense_entry_count: margin.unclassified_expense_entry_count,
+            affiliate_reported_commission_mtd_minor: affiliate.reported_commission_mtd_minor,
+            affiliate_attributed_commission_mtd_minor: affiliate.attributed_commission_mtd_minor,
+            affiliate_payout_mtd_minor: affiliate.recorded_payout_mtd_minor,
+            affiliate_variance_mtd_minor: affiliate.variance_mtd_minor,
+            affiliate_orders_mtd,
+            affiliate_net_order_value_mtd_minor,
+            runway_days: snapshot.runway_days,
+            active_employee_count: {
+                let employees = self.list_employees(company_id).await?;
+                employees
+                    .iter()
+                    .filter(|employee| {
+                        matches!(
+                            employee.status,
+                            company_organization::EmployeeStatus::Active
+                        )
+                    })
+                    .count() as i64
+            },
+            payroll_due_count: self.payroll_due(company_id, 500).await?.len() as i64,
+            content,
+            live,
+            compliance: compliance_pulse,
+            growth_opportunities,
+            daily_revenue,
+        };
+
+        let summary =
+            company_command_center::summarize(&input).map_err(|error| error.to_string())?;
+        Ok(CeoCommandCenterRecord { input, summary })
+    }
+
+    pub async fn contribution_margin_metrics(
+        &self,
+        company_id: &str,
+    ) -> Result<ContributionMarginMetrics, Box<dyn std::error::Error + Send + Sync>> {
+        let id = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_one(
+                "SELECT
+                    COALESCE(SUM(CASE WHEN a.account_type = 'REVENUE'
+                                       THEN e.credit_minor - e.debit_minor ELSE 0 END), 0)::text,
+                    COALESCE(SUM(CASE WHEN a.account_type = 'EXPENSE'
+                                       AND a.cost_class = 'VARIABLE'
+                                       THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text,
+                    COALESCE(SUM(CASE WHEN a.account_type = 'EXPENSE'
+                                       AND a.cost_class = 'UNCLASSIFIED'
+                                       THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text,
+                    COUNT(*) FILTER (WHERE a.account_type = 'EXPENSE'
+                                      AND a.cost_class = 'UNCLASSIFIED'),
+                    COUNT(DISTINCT CASE WHEN a.account_type = 'EXPENSE'
+                                          AND a.cost_class = 'VARIABLE'
+                                        THEN t.id END),
+                    COALESCE(SUM(CASE WHEN a.account_type = 'EXPENSE' AND (a.code IN ('PLATFORM_FEE_EXPENSE','PLATFORM_FEES') OR lower(a.name) LIKE '%platform fee%' OR lower(a.name) LIKE '%processing fee%') THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text,
+                    COALESCE(SUM(CASE WHEN a.account_type = 'EXPENSE' AND (a.code IN ('AFFILIATE_COMMISSION_EXPENSE','AFFILIATE_COMMISSION') OR lower(a.name) LIKE '%affiliate commission%') THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text,
+                    COALESCE(SUM(CASE WHEN a.account_type = 'EXPENSE' AND (a.code IN ('REFUND_EXPENSE','REFUNDS_CANCELLATIONS') OR lower(a.name) LIKE '%refund%' OR lower(a.name) LIKE '%cancellation%') THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text,
+                    COALESCE(SUM(CASE WHEN a.account_type = 'EXPENSE' AND (a.code IN ('PRODUCTION_AI_EXPENSE','AI_PRODUCTION') OR lower(a.name) LIKE '%production%' OR lower(a.name) LIKE '%ai cost%') THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text,
+                    COALESCE(SUM(CASE WHEN a.account_type = 'EXPENSE' AND (a.code IN ('AD_SPEND_EXPENSE','AD_SPEND') OR lower(a.name) LIKE '%ad spend%' OR lower(a.name) LIKE '%advertising%') THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text,
+                    COALESCE(SUM(CASE WHEN a.account_type = 'EXPENSE' AND a.cost_class = 'FIXED' THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text,
+                    COALESCE((
+                        SELECT SUM(ce.debit_minor - ce.credit_minor)
+                          FROM ledger_entries ce
+                          JOIN ledger_accounts ca ON ca.id = ce.account_id
+                         WHERE ca.company_id = $1
+                           AND ca.code = 'CASH'
+                    ), 0)::text
+                 FROM ledger_transactions t
+                 JOIN ledger_entries e ON e.transaction_id = t.id
+                 JOIN ledger_accounts a ON a.id = e.account_id
+                WHERE t.company_id = $1
+                  AND a.company_id = $1
+                  AND t.created_at >= date_trunc('month', now())",
+                &[&id],
+            )
+            .await?;
+
+        let revenue = parse_i128_numeric(&row.get::<_, String>(0))?;
+        let variable_cost = parse_i128_numeric(&row.get::<_, String>(1))?;
+        let unclassified = parse_i128_numeric(&row.get::<_, String>(2))?;
+        let unclassified_entries: i64 = row.get(3);
+
+        Ok(ContributionMarginMetrics {
+            month_to_date_revenue_minor: revenue,
+            month_to_date_variable_cost_minor: variable_cost,
+            month_to_date_contribution_margin_minor: if unclassified_entries == 0 {
+                Some(revenue.checked_sub(variable_cost).ok_or("contribution margin overflow")?)
+            } else {
+                None
+            },
+            platform_fees_minor: parse_i128_numeric(&row.get::<_, String>(5))?,
+            affiliate_commission_minor: parse_i128_numeric(&row.get::<_, String>(6))?,
+            refunds_cancellations_minor: parse_i128_numeric(&row.get::<_, String>(7))?,
+            production_ai_cost_minor: parse_i128_numeric(&row.get::<_, String>(8))?,
+            ad_spend_minor: parse_i128_numeric(&row.get::<_, String>(9))?,
+            operating_cost_minor: parse_i128_numeric(&row.get::<_, String>(10))?,
+            cash_minor: parse_i128_numeric(&row.get::<_, String>(11))?,
+            unclassified_expense_minor: unclassified,
+            unclassified_expense_entry_count: unclassified_entries,
+            variable_cost_transaction_count: row.get(4),
+        })
     }
 
     pub async fn load_snapshot(
@@ -312,6 +2421,21 @@ impl CompanyStore {
             return Err("authoritative snapshot belongs to another company".into());
         }
 
+        let safety_controls = {
+            tx.execute(
+                "INSERT INTO autonomy_control_state
+                 (company_id, emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
+                  emergency_stop_changed_at_epoch, content_publish_daily, ads_spend_daily_minor,
+                  live_minutes_daily, outbound_messages_daily, autonomous_capital_daily_minor,
+                  updated_at_epoch)
+                 VALUES ($1,false,NULL,'system-default',EXTRACT(EPOCH FROM now())::bigint,10,0,60,100,0,EXTRACT(EPOCH FROM now())::bigint)
+                 ON CONFLICT(company_id) DO NOTHING",
+                &[&company_id],
+            )
+            .await?;
+            load_safety_controls_for_tx(&tx, company_id).await?
+        };
+
         let governor = agent_runtime::governor::Governor;
         let authoritative_results = results
             .iter()
@@ -364,8 +2488,67 @@ impl CompanyStore {
         )
         .await?;
 
-        let batch =
-            execute_approved_results(current_snapshot, &authoritative_results, execution_policy())?;
+        let batch = if safety_controls.emergency_stop.enabled {
+            company_execution::ExecutionBatch {
+                snapshot: current_snapshot.clone(),
+                receipts: authoritative_results
+                    .iter()
+                    .map(|result| company_execution::ExecutionReceipt {
+                        idempotency_key: proposal_idempotency_key(&result.proposal),
+                        agent: result.agent,
+                        action: result.proposal.action,
+                        status: company_execution::ExecutionStatus::Rejected,
+                        cost_minor: result.proposal.cost_minor,
+                        reason: "persistent emergency stop blocks autonomous cycle side effects".into(),
+                    })
+                    .collect(),
+                total_spend_minor: 0,
+            }
+        } else {
+            let proposed_batch =
+                execute_approved_results(current_snapshot.clone(), &authoritative_results, execution_policy())?;
+
+            if proposed_batch.total_spend_minor > 0 {
+                let now_epoch: i64 = tx
+                    .query_one("SELECT EXTRACT(EPOCH FROM now())::bigint", &[])
+                    .await?
+                    .get(0);
+                let budget = Self::consume_autonomy_budget_tx(
+                    &tx,
+                    company_id,
+                    company_safety_controls::BudgetKind::AutonomousCapital,
+                    proposed_batch.total_spend_minor,
+                    &format!("autonomy-cycle:{cycle_key}"),
+                    now_epoch,
+                )
+                .await?;
+
+                if budget.allowed {
+                    proposed_batch
+                } else {
+                    company_execution::ExecutionBatch {
+                        snapshot: current_snapshot.clone(),
+                        receipts: authoritative_results
+                            .iter()
+                            .map(|result| company_execution::ExecutionReceipt {
+                                idempotency_key: proposal_idempotency_key(&result.proposal),
+                                agent: result.agent,
+                                action: result.proposal.action,
+                                status: company_execution::ExecutionStatus::Deferred,
+                                cost_minor: result.proposal.cost_minor,
+                                reason: format!(
+                                    "autonomous capital budget blocked cycle execution: {}",
+                                    budget.reason
+                                ),
+                            })
+                            .collect(),
+                        total_spend_minor: 0,
+                    }
+                }
+            } else {
+                proposed_batch
+            }
+        };
 
         for result in &authoritative_results {
             let proposal = &result.proposal;
@@ -716,6 +2899,11 @@ impl CompanyStore {
             )
             .await?
             .ok_or("publish intent not found")?;
+
+        let safety_controls = load_safety_controls_for_tx(&tx, company_uuid).await?;
+        if safety_controls.emergency_stop.enabled {
+            return Err("persistent emergency stop blocks publish claims".into());
+        }
 
         let status: String = row.get(9);
         if status != publishing_contract::PublishIntentStatus::Approved.as_str() {
@@ -1654,6 +3842,1008 @@ impl CompanyStore {
             .collect()
     }
 
+    pub async fn autonomy_controls(
+        &self,
+        company_id: &str,
+    ) -> Result<AutonomyControlRecord, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let now_epoch: i64 = tx
+            .query_one("SELECT EXTRACT(EPOCH FROM now())::bigint", &[])
+            .await?
+            .get(0);
+        tx.execute(
+            "INSERT INTO autonomy_control_state
+             (company_id, emergency_stop_enabled, emergency_stop_reason,
+              emergency_stop_actor, emergency_stop_changed_at_epoch,
+              content_publish_daily, ads_spend_daily_minor, live_minutes_daily,
+              outbound_messages_daily, autonomous_capital_daily_minor, updated_at_epoch)
+             VALUES ($1,false,NULL,'system-default',$2,10,0,60,100,0,$2)
+             ON CONFLICT(company_id) DO NOTHING",
+            &[&company, &now_epoch],
+        )
+        .await?;
+        let row = tx
+            .query_one(
+                "SELECT emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
+                        emergency_stop_changed_at_epoch, content_publish_daily::text,
+                        ads_spend_daily_minor::text, live_minutes_daily::text,
+                        outbound_messages_daily::text, autonomous_capital_daily_minor::text,
+                        updated_at_epoch, updated_at::text
+                   FROM autonomy_control_state
+                  WHERE company_id=$1",
+                &[&company],
+            )
+            .await?;
+        let controls = safety_controls_from_row(&row, company)?;
+        tx.commit().await?;
+        Ok(AutonomyControlRecord {
+            controls,
+            updated_at: row.get(11),
+        })
+    }
+
+    pub async fn set_autonomy_controls(
+        &self,
+        company_id: &str,
+        emergency_stop_enabled: bool,
+        emergency_stop_reason: Option<&str>,
+        actor: &str,
+        budgets: &company_safety_controls::AutonomyBudgets,
+    ) -> Result<AutonomyControlRecord, Box<dyn std::error::Error + Send + Sync>> {
+        if actor.trim().is_empty() || actor.len() > 256 {
+            return Err("autonomy control actor is invalid".into());
+        }
+        budgets.validate().map_err(|error| error.to_string())?;
+        if emergency_stop_enabled
+            && emergency_stop_reason.map(str::trim).filter(|v| !v.is_empty()).is_none()
+        {
+            return Err("enabled emergency stop requires a reason".into());
+        }
+        if let Some(reason) = emergency_stop_reason {
+            if reason.trim().is_empty() || reason.len() > 1_024 {
+                return Err("autonomy control reason is invalid".into());
+            }
+        }
+        let emergency_stop_reason = if emergency_stop_enabled {
+            emergency_stop_reason.map(str::trim)
+        } else {
+            None
+        };
+
+        let company = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let now_epoch: i64 = tx
+            .query_one("SELECT EXTRACT(EPOCH FROM now())::bigint", &[])
+            .await?
+            .get(0);
+
+        let previous = tx
+            .query_opt(
+                "SELECT emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
+                        content_publish_daily::text, ads_spend_daily_minor::text,
+                        live_minutes_daily::text, outbound_messages_daily::text,
+                        autonomous_capital_daily_minor::text
+                   FROM autonomy_control_state
+                  WHERE company_id=$1
+                  FOR UPDATE",
+                &[&company],
+            )
+            .await?;
+
+        let previous_json = previous
+            .as_ref()
+            .map(|row| {
+                serde_json::json!({
+                    "emergency_stop_enabled": row.get::<_, bool>(0),
+                    "emergency_stop_reason": row.get::<_, Option<String>>(1),
+                    "emergency_stop_actor": row.get::<_, String>(2),
+                    "budgets": {
+                        "content_publish_daily": row.get::<_, String>(3),
+                        "ads_spend_daily_minor": row.get::<_, String>(4),
+                        "live_minutes_daily": row.get::<_, String>(5),
+                        "outbound_messages_daily": row.get::<_, String>(6),
+                        "autonomous_capital_daily_minor": row.get::<_, String>(7)
+                    }
+                })
+            })
+            .unwrap_or(serde_json::Value::Null);
+
+        tx.execute(
+            "INSERT INTO autonomy_control_state
+             (company_id, emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
+              emergency_stop_changed_at_epoch, content_publish_daily, ads_spend_daily_minor,
+              live_minutes_daily, outbound_messages_daily, autonomous_capital_daily_minor,
+              updated_at_epoch)
+             VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8::numeric,$9::numeric,$10::numeric,$5)
+             ON CONFLICT(company_id) DO UPDATE
+             SET emergency_stop_enabled=EXCLUDED.emergency_stop_enabled,
+                 emergency_stop_reason=EXCLUDED.emergency_stop_reason,
+                 emergency_stop_actor=EXCLUDED.emergency_stop_actor,
+                 emergency_stop_changed_at_epoch=CASE
+                    WHEN autonomy_control_state.emergency_stop_enabled IS DISTINCT FROM EXCLUDED.emergency_stop_enabled
+                      OR autonomy_control_state.emergency_stop_reason IS DISTINCT FROM EXCLUDED.emergency_stop_reason
+                      OR autonomy_control_state.emergency_stop_actor IS DISTINCT FROM EXCLUDED.emergency_stop_actor
+                    THEN EXCLUDED.emergency_stop_changed_at_epoch
+                    ELSE autonomy_control_state.emergency_stop_changed_at_epoch
+                 END,
+                 content_publish_daily=EXCLUDED.content_publish_daily,
+                 ads_spend_daily_minor=EXCLUDED.ads_spend_daily_minor,
+                 live_minutes_daily=EXCLUDED.live_minutes_daily,
+                 outbound_messages_daily=EXCLUDED.outbound_messages_daily,
+                 autonomous_capital_daily_minor=EXCLUDED.autonomous_capital_daily_minor,
+                 updated_at_epoch=EXCLUDED.updated_at_epoch",
+            &[
+                &company,
+                &emergency_stop_enabled,
+                &emergency_stop_reason,
+                &actor.trim(),
+                &now_epoch,
+                &budgets.content_publish_daily.to_string(),
+                &budgets.ads_spend_daily_minor.to_string(),
+                &budgets.live_minutes_daily.to_string(),
+                &budgets.outbound_messages_daily.to_string(),
+                &budgets.autonomous_capital_daily_minor.to_string(),
+            ],
+        )
+        .await?;
+
+        {
+            tx.execute(
+                "INSERT INTO outbox_events
+                 (company_id,event_type,aggregate_id,idempotency_key,payload)
+                 VALUES ($1,'AUTONOMY_CONTROLS_CHANGED',$2,$3,$4)
+                 ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+                &[
+                    &company,
+                    &company,
+                    &format!("outbox:autonomy-controls:{company}:{now_epoch}"),
+                    &serde_json::json!({
+                        "emergency_stop_enabled": emergency_stop_enabled,
+                        "actor": actor.trim(),
+                        "reason": emergency_stop_reason,
+                        "budgets": budgets
+                    }),
+                ],
+            )
+            .await?;
+        }
+
+        tx.execute(
+            "INSERT INTO audit_log
+             (company_id, actor_type, actor_id, action, resource_type, resource_id, decision, metadata)
+             VALUES ($1,'CONTROL_PLANE',$2,'AUTONOMY_CONTROLS_CHANGED','AUTONOMY_CONTROL',$3,$4,$5)",
+            &[
+                &company,
+                &actor.trim(),
+                &company.to_string(),
+                &if emergency_stop_enabled { "EMERGENCY_STOP_ON" } else { "EMERGENCY_STOP_OFF" },
+                &serde_json::json!({
+                    "previous": previous_json,
+                    "current": {
+                        "emergency_stop_enabled": emergency_stop_enabled,
+                        "emergency_stop_reason": emergency_stop_reason,
+                        "actor": actor.trim(),
+                        "budgets": budgets
+                    }
+                }),
+            ],
+        )
+        .await?;
+
+        let row = tx
+            .query_one(
+                "SELECT emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
+                        emergency_stop_changed_at_epoch, content_publish_daily::text,
+                        ads_spend_daily_minor::text, live_minutes_daily::text,
+                        outbound_messages_daily::text, autonomous_capital_daily_minor::text,
+                        updated_at_epoch, updated_at::text
+                   FROM autonomy_control_state
+                  WHERE company_id=$1",
+                &[&company],
+            )
+            .await?;
+        let controls = safety_controls_from_row(&row, company)?;
+        let created_at: String = row.get(11);
+        tx.commit().await?;
+        Ok(AutonomyControlRecord { controls, updated_at: created_at })
+    }
+
+    pub async fn autonomy_budget_statuses(
+        &self,
+        company_id: &str,
+        now_epoch: i64,
+    ) -> Result<Vec<company_safety_controls::BudgetStatus>, Box<dyn std::error::Error + Send + Sync>> {
+        if now_epoch <= 0 {
+            return Err("autonomy budget time must be positive".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let period = company_safety_controls::period_start_epoch(now_epoch)
+            .map_err(|error| error.to_string())?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        tx.execute(
+            "INSERT INTO autonomy_control_state
+             (company_id, emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
+              emergency_stop_changed_at_epoch, content_publish_daily, ads_spend_daily_minor,
+              live_minutes_daily, outbound_messages_daily, autonomous_capital_daily_minor,
+              updated_at_epoch)
+             VALUES ($1,false,NULL,'system-default',$2,10,0,60,100,0,$2)
+             ON CONFLICT(company_id) DO NOTHING",
+            &[&company, &now_epoch],
+        )
+        .await?;
+        let controls = load_safety_controls_for_tx(&tx, company).await?;
+        let rows = tx
+            .query(
+                "SELECT budget_kind, used::text
+                   FROM autonomy_budget_usage
+                  WHERE company_id=$1 AND period_start_epoch=$2",
+                &[&company, &period],
+            )
+            .await?;
+        let mut used_by_kind = std::collections::HashMap::new();
+        for row in rows {
+            let kind = company_safety_controls::BudgetKind::parse(
+                row.get::<_, String>(0).as_str(),
+            )
+            .ok_or("invalid stored autonomy budget kind")?;
+            used_by_kind.insert(kind, parse_i128_numeric(&row.get::<_, String>(1))?);
+        }
+        tx.rollback().await?;
+        Ok(company_safety_controls::BudgetKind::ALL
+            .into_iter()
+            .map(|kind| {
+                let daily_limit = controls.budgets.limit(kind);
+                let used = *used_by_kind.get(&kind).unwrap_or(&0);
+                let remaining = if controls.emergency_stop.enabled {
+                    0
+                } else {
+                    daily_limit.saturating_sub(used).max(0)
+                };
+                company_safety_controls::BudgetStatus {
+                    kind,
+                    period_start_epoch: period,
+                    daily_limit,
+                    used,
+                    remaining,
+                }
+            })
+            .collect())
+    }
+
+    pub async fn autonomy_budget_remaining(
+        &self,
+        company_id: &str,
+        kind: company_safety_controls::BudgetKind,
+        now_epoch: i64,
+    ) -> Result<i128, Box<dyn std::error::Error + Send + Sync>> {
+        if now_epoch <= 0 {
+            return Err("autonomy budget time must be positive".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let period = company_safety_controls::period_start_epoch(now_epoch)
+            .map_err(|error| error.to_string())?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        tx.execute(
+            "INSERT INTO autonomy_control_state
+             (company_id, emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
+              emergency_stop_changed_at_epoch, content_publish_daily, ads_spend_daily_minor,
+              live_minutes_daily, outbound_messages_daily, autonomous_capital_daily_minor,
+              updated_at_epoch)
+             VALUES ($1,false,NULL,'system-default',$2,10,0,60,100,0,$2)
+             ON CONFLICT(company_id) DO NOTHING",
+            &[&company, &now_epoch],
+        )
+        .await?;
+        let controls = load_safety_controls_for_tx(&tx, company).await?;
+        let used = tx
+            .query_opt(
+                "SELECT used::text
+                   FROM autonomy_budget_usage
+                  WHERE company_id=$1 AND budget_kind=$2 AND period_start_epoch=$3",
+                &[&company, &kind.as_str(), &period],
+            )
+            .await?
+            .map(|row| parse_i128_numeric(&row.get::<_, String>(0)))
+            .transpose()?
+            .unwrap_or(0);
+        tx.rollback().await?;
+        if controls.emergency_stop.enabled {
+            return Ok(0);
+        }
+        Ok(controls.budgets.limit(kind).saturating_sub(used).max(0))
+    }
+
+    async fn consume_autonomy_budget_tx(
+        tx: &tokio_postgres::Transaction<'_>,
+        company: Uuid,
+        kind: company_safety_controls::BudgetKind,
+        amount: i128,
+        idempotency_key: &str,
+        now_epoch: i64,
+    ) -> Result<company_safety_controls::BudgetDecision, Box<dyn std::error::Error + Send + Sync>> {
+        if idempotency_key.trim().is_empty() || idempotency_key.len() > 256 {
+            return Err("autonomy budget idempotency key is invalid".into());
+        }
+        if amount <= 0 {
+            return Err("autonomy budget amount must be positive".into());
+        }
+        let period = company_safety_controls::period_start_epoch(now_epoch)
+            .map_err(|error| error.to_string())?;
+        tx.execute(
+            "INSERT INTO autonomy_control_state
+             (company_id, emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
+              emergency_stop_changed_at_epoch, content_publish_daily, ads_spend_daily_minor,
+              live_minutes_daily, outbound_messages_daily, autonomous_capital_daily_minor,
+              updated_at_epoch)
+             VALUES ($1,false,NULL,'system-default',$2,10,0,60,100,0,$2)
+             ON CONFLICT(company_id) DO NOTHING",
+            &[&company, &now_epoch],
+        )
+        .await?;
+
+        if let Some(row) = tx
+            .query_opt(
+                "SELECT period_start_epoch, amount::text
+                   FROM autonomy_budget_consumptions
+                  WHERE company_id=$1 AND budget_kind=$2 AND idempotency_key=$3",
+                &[&company, &kind.as_str(), &idempotency_key],
+            )
+            .await?
+        {
+            let replay_period: i64 = row.get(0);
+            let requested = parse_i128_numeric(&row.get::<_, String>(1))?;
+            let used_after = parse_i128_numeric(
+                &tx.query_one(
+                    "SELECT used::text
+                       FROM autonomy_budget_usage
+                      WHERE company_id=$1 AND budget_kind=$2 AND period_start_epoch=$3",
+                    &[&company, &kind.as_str(), &replay_period],
+                )
+                .await?
+                .get::<_, String>(0),
+            )?;
+            let controls = load_safety_controls_for_tx(tx, company).await?;
+            let daily_limit = controls.budgets.limit(kind);
+            let used_before = used_after
+                .checked_sub(requested)
+                .ok_or("autonomy budget replay accounting underflow")?;
+            return Ok(company_safety_controls::BudgetDecision {
+                kind,
+                period_start_epoch: replay_period,
+                daily_limit,
+                used_before,
+                requested,
+                remaining_after: daily_limit.saturating_sub(used_after).max(0),
+                allowed: true,
+                reason: "idempotent replay: consumption already recorded".into(),
+            });
+        }
+
+        let controls = load_safety_controls_for_tx(tx, company).await?;
+        tx.execute(
+            "INSERT INTO autonomy_budget_usage
+             (company_id,budget_kind,period_start_epoch,used)
+             VALUES ($1,$2,$3,0)
+             ON CONFLICT(company_id,budget_kind,period_start_epoch) DO NOTHING",
+            &[&company, &kind.as_str(), &period],
+        )
+        .await?;
+        let used = parse_i128_numeric(
+            &tx.query_one(
+                "SELECT used::text
+                   FROM autonomy_budget_usage
+                  WHERE company_id=$1 AND budget_kind=$2 AND period_start_epoch=$3
+                  FOR UPDATE",
+                &[&company, &kind.as_str(), &period],
+            )
+            .await?
+            .get::<_, String>(0),
+        )?;
+
+        let decision = company_safety_controls::decide_budget(
+            &controls,
+            kind,
+            now_epoch,
+            used,
+            amount,
+        )
+        .map_err(|error| error.to_string())?;
+        if !decision.allowed {
+            return Ok(decision);
+        }
+
+        let next_used = used
+            .checked_add(amount)
+            .ok_or("autonomy budget usage overflow")?;
+        tx.execute(
+            "UPDATE autonomy_budget_usage
+                SET used=$4::numeric, updated_at=now()
+              WHERE company_id=$1 AND budget_kind=$2 AND period_start_epoch=$3",
+            &[&company, &kind.as_str(), &period, &next_used.to_string()],
+        )
+        .await?;
+        tx.execute(
+            "INSERT INTO autonomy_budget_consumptions
+             (company_id,budget_kind,period_start_epoch,amount,idempotency_key)
+             VALUES ($1,$2,$3,$4::numeric,$5)",
+            &[&company, &kind.as_str(), &period, &amount.to_string(), &idempotency_key],
+        )
+        .await?;
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'AUTONOMY_BUDGET_CONSUMED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[
+                &company,
+                &company,
+                &format!("outbox:autonomy-budget:{kind:?}:{company}:{idempotency_key}"),
+                &serde_json::json!({
+                    "kind": kind.as_str(),
+                    "amount": amount,
+                    "period_start_epoch": period,
+                    "used_before": used,
+                    "used_after": next_used
+                }),
+            ],
+        )
+        .await?;
+
+        Ok(decision)
+    }
+
+    pub async fn consume_autonomy_budget(
+        &self,
+        company_id: &str,
+        kind: company_safety_controls::BudgetKind,
+        amount: i128,
+        idempotency_key: &str,
+        now_epoch: i64,
+    ) -> Result<company_safety_controls::BudgetDecision, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let decision = Self::consume_autonomy_budget_tx(
+            &tx,
+            company,
+            kind,
+            amount,
+            idempotency_key,
+            now_epoch,
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(decision)
+    }
+
+    pub async fn create_tiktok_oauth_state(
+        &self,
+        company_id: &str,
+        state_hash: &str,
+        redirect_uri: &str,
+        scopes: &str,
+        expires_at_epoch: i64,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        if state_hash.trim().is_empty() || state_hash.len() > 256 {
+            return Err("TikTok OAuth state hash is invalid".into());
+        }
+        if redirect_uri.trim().is_empty() || redirect_uri.len() > 2048 {
+            return Err("TikTok OAuth redirect URI is invalid".into());
+        }
+        if scopes.trim().is_empty() || scopes.len() > 4096 {
+            return Err("TikTok OAuth scopes are invalid".into());
+        }
+        if expires_at_epoch <= 0 {
+            return Err("TikTok OAuth state expiry is invalid".into());
+        }
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "DELETE FROM tiktok_oauth_states
+                  WHERE company_id=$1 AND expires_at_epoch < $2",
+                &[&company, &expires_at_epoch],
+            )
+            .await?;
+        client
+            .execute(
+                "INSERT INTO tiktok_oauth_states
+                 (id,company_id,state_hash,redirect_uri,scopes,expires_at_epoch)
+                 VALUES ($1,$2,$3,$4,$5,$6)
+                 ON CONFLICT(company_id,state_hash) DO UPDATE
+                 SET redirect_uri=EXCLUDED.redirect_uri,
+                     scopes=EXCLUDED.scopes,
+                     expires_at_epoch=EXCLUDED.expires_at_epoch",
+                &[
+                    &Uuid::new_v4(),
+                    &company,
+                    &state_hash.trim(),
+                    &redirect_uri.trim(),
+                    &scopes.trim(),
+                    &expires_at_epoch,
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn consume_tiktok_oauth_state(
+        &self,
+        company_id: &str,
+        state_hash: &str,
+        now_epoch: i64,
+    ) -> Result<Option<(String, String)>, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        if state_hash.trim().is_empty() || now_epoch <= 0 {
+            return Err("TikTok OAuth state identity/time is invalid".into());
+        }
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "DELETE FROM tiktok_oauth_states
+                  WHERE company_id=$1
+                    AND state_hash=$2
+                    AND expires_at_epoch >= $3
+                  RETURNING redirect_uri,scopes",
+                &[&company, &state_hash.trim(), &now_epoch],
+            )
+            .await?;
+        Ok(row.map(|value| (value.get(0), value.get(1))))
+    }
+
+    pub async fn save_tiktok_token_set(
+        &self,
+        company_id: &str,
+        token: &company_tiktok_auth::TokenSet,
+        cipher: &company_tiktok_auth::TokenCipher,
+    ) -> Result<TikTokConnectionRecord, Box<dyn std::error::Error + Send + Sync>> {
+        token.validate().map_err(|error| error.to_string())?;
+        let company = Uuid::parse_str(company_id)?;
+        let now_epoch: i64 = time::OffsetDateTime::now_utc().unix_timestamp();
+        let access_expires_at_epoch = token.access_expires_at(now_epoch).map_err(|error| error.to_string())?;
+        let refresh_expires_at_epoch = token.refresh_expires_at(now_epoch).map_err(|error| error.to_string())?;
+        let encrypted_access_token = cipher.encrypt(company, &token.access_token).map_err(|error| error.to_string())?;
+        let encrypted_refresh_token = cipher.encrypt(company, &token.refresh_token).map_err(|error| error.to_string())?;
+
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        tx.execute(
+            "INSERT INTO tiktok_oauth_connections
+             (company_id,open_id,encrypted_access_token,encrypted_refresh_token,
+              access_token_expires_at_epoch,refresh_token_expires_at_epoch,
+              scopes,token_type,status,last_error,updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'ACTIVE',NULL,now())
+             ON CONFLICT(company_id) DO UPDATE
+             SET open_id=EXCLUDED.open_id,
+                 encrypted_access_token=EXCLUDED.encrypted_access_token,
+                 encrypted_refresh_token=EXCLUDED.encrypted_refresh_token,
+                 access_token_expires_at_epoch=EXCLUDED.access_token_expires_at_epoch,
+                 refresh_token_expires_at_epoch=EXCLUDED.refresh_token_expires_at_epoch,
+                 scopes=EXCLUDED.scopes,
+                 token_type=EXCLUDED.token_type,
+                 status='ACTIVE',
+                 last_error=NULL,
+                 updated_at=now()",
+            &[
+                &company,
+                &token.open_id,
+                &encrypted_access_token,
+                &encrypted_refresh_token,
+                &access_expires_at_epoch,
+                &refresh_expires_at_epoch,
+                &token.scope,
+                &token.token_type,
+            ],
+        )
+        .await?;
+
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'TIKTOK_OAUTH_CONNECTED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[
+                &company,
+                &token.open_id,
+                &format!("outbox:tiktok-oauth:connected:{}:{}", company, access_expires_at_epoch),
+                &serde_json::json!({
+                    "open_id": token.open_id,
+                    "scopes": token.scope,
+                    "access_token_expires_at_epoch": access_expires_at_epoch,
+                    "refresh_token_expires_at_epoch": refresh_expires_at_epoch
+                }),
+            ],
+        )
+        .await?;
+
+        tx.execute(
+            "INSERT INTO audit_log
+             (company_id,actor_type,actor_id,action,resource_type,resource_id,decision,metadata)
+             VALUES ($1,'SYSTEM','tiktok-oauth','TIKTOK_OAUTH_CONNECTED','TIKTOK_CONNECTION',$2,'ACTIVE',$3)",
+            &[
+                &company,
+                &token.open_id,
+                &serde_json::json!({
+                    "scopes": token.scope,
+                    "access_token_expires_at_epoch": access_expires_at_epoch,
+                    "refresh_token_expires_at_epoch": refresh_expires_at_epoch
+                }),
+            ],
+        )
+        .await?;
+
+        let row = tx
+            .query_one(
+                "SELECT open_id,scopes,token_type,access_token_expires_at_epoch,
+                        refresh_token_expires_at_epoch,status,last_error,updated_at::text
+                   FROM tiktok_oauth_connections
+                  WHERE company_id=$1",
+                &[&company],
+            )
+            .await?;
+        let record = tiktok_connection_from_row(company, &row)?;
+        tx.commit().await?;
+        Ok(record)
+    }
+
+    pub async fn tiktok_oauth_status(
+        &self,
+        company_id: &str,
+    ) -> Result<Option<TikTokConnectionRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "SELECT open_id,scopes,token_type,access_token_expires_at_epoch,
+                        refresh_token_expires_at_epoch,status,last_error,updated_at::text
+                   FROM tiktok_oauth_connections
+                  WHERE company_id=$1",
+                &[&company],
+            )
+            .await?;
+        row.map(|value| tiktok_connection_from_row(company, &value)).transpose()
+    }
+
+    pub async fn tiktok_oauth_token_material(
+        &self,
+        company_id: &str,
+        cipher: &company_tiktok_auth::TokenCipher,
+    ) -> Result<Option<TikTokTokenMaterial>, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "SELECT open_id,encrypted_access_token,encrypted_refresh_token,
+                        access_token_expires_at_epoch,refresh_token_expires_at_epoch,
+                        scopes,token_type,status
+                   FROM tiktok_oauth_connections
+                  WHERE company_id=$1",
+                &[&company],
+            )
+            .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let status: String = row.get(7);
+        if status != "ACTIVE" {
+            return Ok(None);
+        }
+        let access_encrypted: String = row.get(1);
+        let refresh_encrypted: String = row.get(2);
+        Ok(Some(TikTokTokenMaterial {
+            company_id: company,
+            open_id: row.get(0),
+            access_token: cipher.decrypt(company, &access_encrypted).map_err(|error| error.to_string())?,
+            refresh_token: cipher.decrypt(company, &refresh_encrypted).map_err(|error| error.to_string())?,
+            access_token_expires_at_epoch: row.get(3),
+            refresh_token_expires_at_epoch: row.get(4),
+            scopes: row.get(5),
+            token_type: row.get(6),
+        }))
+    }
+
+    pub async fn mark_tiktok_reauth_required(
+        &self,
+        company_id: &str,
+        error: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let error = error.trim();
+        if error.is_empty() || error.len() > 2048 {
+            return Err("TikTok reauth error is invalid".into());
+        }
+        let client = self.client.lock().await;
+        let changed = client
+            .execute(
+                "UPDATE tiktok_oauth_connections
+                    SET status='REAUTH_REQUIRED',last_error=$2,updated_at=now()
+                  WHERE company_id=$1",
+                &[&company, &error],
+            )
+            .await?;
+        if changed == 1 {
+            client.execute(
+                "INSERT INTO audit_log
+                 (company_id,actor_type,actor_id,action,resource_type,resource_id,decision,metadata)
+                 VALUES ($1,'SYSTEM','tiktok-oauth','TIKTOK_OAUTH_REAUTH_REQUIRED','TIKTOK_CONNECTION',$2,'REAUTH_REQUIRED',$3)",
+                &[
+                    &company,
+                    &company.to_string(),
+                    &serde_json::json!({"error": error}),
+                ],
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn mark_tiktok_revoked(
+        &self,
+        company_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let changed = client
+            .execute(
+                "UPDATE tiktok_oauth_connections
+                    SET status='REVOKED',last_error=NULL,updated_at=now()
+                  WHERE company_id=$1",
+                &[&company],
+            )
+            .await?;
+        if changed == 1 {
+            client
+                .execute(
+                    "INSERT INTO audit_log
+                     (company_id,actor_type,actor_id,action,resource_type,resource_id,decision,metadata)
+                     VALUES ($1,'SYSTEM','tiktok-oauth','TIKTOK_OAUTH_REVOKED','TIKTOK_CONNECTION',$2,'REVOKED','{}'::jsonb)",
+                    &[&company, &company.to_string()],
+                )
+                .await?;
+            client
+                .execute(
+                    "INSERT INTO outbox_events
+                     (company_id,event_type,aggregate_id,idempotency_key,payload)
+                     VALUES ($1,'TIKTOK_OAUTH_REVOKED',$2,$3,$4)
+                     ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+                    &[
+                        &company,
+                        &company.to_string(),
+                        &format!("outbox:tiktok-oauth:revoked:{}:{}", company, time::OffsetDateTime::now_utc().unix_timestamp()),
+                        &serde_json::json!({"company_id": company}),
+                    ],
+                )
+                .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn create_capital_allocation_plan(
+        &self,
+        company_id: &str,
+        plan_key: &str,
+        policy: &company_capital::CapitalPolicy,
+        candidates: &[company_capital::CapitalCandidate],
+    ) -> Result<CapitalAllocationRecord, Box<dyn std::error::Error + Send + Sync>> {
+        if plan_key.trim().is_empty() || plan_key.len() > 256 {
+            return Err("capital allocation plan key is invalid".into());
+        }
+        company_capital::validate_policy(policy).map_err(|error| error.to_string())?;
+        let company = Uuid::parse_str(company_id)?;
+        let mut seen_candidate_ids = std::collections::HashSet::new();
+        for candidate in candidates {
+            company_capital::validate_candidate(candidate).map_err(|error| error.to_string())?;
+            if !seen_candidate_ids.insert(candidate.candidate_id) {
+                return Err("duplicate capital candidate id".into());
+            }
+        }
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        let authoritative = tx
+            .query_opt(
+                "SELECT state
+                   FROM company_state_snapshots
+                  WHERE company_id=$1
+                  FOR SHARE",
+                &[&company],
+            )
+            .await?
+            .ok_or("authoritative company snapshot is unavailable")?
+            .get::<_, serde_json::Value>(0);
+        let authoritative: CompanySnapshot = serde_json::from_value(authoritative)?;
+        if policy.company_status != authoritative.status
+            || policy.cash_available_minor != authoritative.cash_minor.max(0)
+            || policy.runway_days != authoritative.runway_days.max(0)
+        {
+            return Err("capital policy does not match the authoritative company snapshot".into());
+        }
+
+        for candidate in candidates {
+            let unit_id = Uuid::parse_str(&candidate.unit_id)
+                .map_err(|_| "capital candidate unit_id must be a business unit UUID".to_string())?;
+            let owns_unit = tx
+                .query_opt(
+                    "SELECT 1
+                       FROM business_units
+                      WHERE company_id=$1
+                        AND id=$2
+                        AND lifecycle IN ('TESTING','GROWING','STABLE')
+                      FOR SHARE",
+                    &[&company, &unit_id],
+                )
+                .await?
+                .is_some();
+            if !owns_unit {
+                return Err("capital candidate references a business unit outside the company".into());
+            }
+        }
+
+        let mut fingerprint_payload = serde_json::Map::new();
+        fingerprint_payload.insert("policy".into(), serde_json::to_value(policy)?);
+        fingerprint_payload.insert("candidates".into(), serde_json::to_value(candidates)?);
+        let fingerprint_bytes = serde_json::to_vec(&fingerprint_payload)?;
+        let inputs_hash = format!(
+            "sha256:{}",
+            Sha256::digest(fingerprint_bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        );
+        let plan_id = Uuid::new_v5(
+            &Uuid::NAMESPACE_URL,
+            format!("company-capital:{company}:{plan_key}").as_bytes(),
+        );
+        let plan = company_capital::plan_with_id(plan_id, policy, candidates)
+            .map_err(|error| error.to_string())?;
+        let policy_json = serde_json::to_value(policy)?;
+        let plan_json = serde_json::to_value(&plan)?;
+
+        if let Some(row) = tx
+            .query_opt(
+                "SELECT plan_json,policy_json,inputs_hash,created_at::text
+                   FROM capital_allocation_plans
+                  WHERE company_id=$1 AND plan_key=$2",
+                &[&company, &plan_key],
+            )
+            .await?
+        {
+            let stored_plan: company_capital::CapitalAllocationPlan = serde_json::from_value(row.get(0))?;
+            let stored_policy: company_capital::CapitalPolicy = serde_json::from_value(row.get(1))?;
+            let stored_inputs_hash: String = row.get(2);
+            let created_at: String = row.get(3);
+            if stored_plan != plan || stored_policy != *policy || stored_inputs_hash != inputs_hash {
+                return Err("capital allocation plan key already exists with different evidence".into());
+            }
+            tx.rollback().await?;
+            return Ok(CapitalAllocationRecord {
+                plan: stored_plan,
+                policy: stored_policy,
+                created_at,
+            });
+        }
+
+        let plan_row = tx.query_one(
+            "INSERT INTO capital_allocation_plans
+             (id,company_id,plan_key,inputs_hash,policy_json,total_capital_minor,planned_capital_minor,unallocated_minor)
+             VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8::numeric)
+             RETURNING created_at::text",
+            &[
+                &plan.plan_id,
+                &company,
+                &plan_key,
+                &inputs_hash,
+                &policy_json,
+                &plan.total_capital_minor.to_string(),
+                &plan.planned_capital_minor.to_string(),
+                &plan.unallocated_minor.to_string(),
+            ],
+        )
+        .await?;
+
+        for candidate in candidates {
+            tx.execute(
+                "INSERT INTO capital_allocation_candidates
+                 (id,company_id,plan_id,candidate_key,candidate_json)
+                 VALUES ($1,$2,$3,$4,$5)",
+                &[
+                    &candidate.candidate_id,
+                    &company,
+                    &plan.plan_id,
+                    &candidate.candidate_id.to_string(),
+                    &serde_json::to_value(candidate)?,
+                ],
+            )
+            .await?;
+        }
+
+        let candidate_map = candidates
+            .iter()
+            .map(|candidate| (candidate.candidate_id, candidate))
+            .collect::<std::collections::HashMap<_, _>>();
+
+        for decision in &plan.decisions {
+            let candidate = candidate_map
+                .get(&decision.candidate_id)
+                .ok_or("capital decision references unknown candidate")?;
+            tx.execute(
+                "INSERT INTO capital_allocation_decisions
+                 (id,company_id,plan_id,candidate_id,decision,score_bps,allocation_minor,reason)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7::numeric,$8)",
+                &[
+                    &Uuid::new_v4(),
+                    &company,
+                    &plan.plan_id,
+                    &candidate.candidate_id,
+                    &format!("{:?}", decision.status).to_uppercase(),
+                    &(decision.score_bps as i32),
+                    &decision.allocation_minor.to_string(),
+                    &decision.reason,
+                ],
+            )
+            .await?;
+        }
+
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'CAPITAL_ALLOCATION_PLAN_CREATED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[
+                &company,
+                &plan.plan_id,
+                &format!("outbox:capital-plan:{plan_key}"),
+                &serde_json::json!({
+                    "plan_id": plan.plan_id,
+                    "plan_key": plan_key,
+                    "total_capital_minor": plan.total_capital_minor,
+                    "planned_capital_minor": plan.planned_capital_minor,
+                    "unallocated_minor": plan.unallocated_minor
+                }),
+            ],
+        )
+        .await?;
+
+        let created_at: String = plan_row.get(0);
+        tx.commit().await?;
+        Ok(CapitalAllocationRecord {
+            plan,
+            policy: *policy,
+            created_at,
+        })
+    }
+
+    pub async fn latest_capital_allocation_plan(
+        &self,
+        company_id: &str,
+    ) -> Result<Option<CapitalAllocationRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "SELECT plan_json, policy_json, created_at::text
+                   FROM capital_allocation_plans
+                  WHERE company_id=$1
+                  ORDER BY created_at DESC, id DESC
+                  LIMIT 1",
+                &[&company],
+            )
+            .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        Ok(Some(CapitalAllocationRecord {
+            plan: serde_json::from_value(row.get(0))?,
+            policy: serde_json::from_value(row.get(1))?,
+            created_at: row.get(2),
+        }))
+    }
+
     pub async fn portfolio_metrics(
         &self,
         company_id: &str,
@@ -1959,25 +5149,70 @@ impl CompanyStore {
             return Err("affiliate click has incomplete identifiers".into());
         }
         let company_id = Uuid::parse_str(&event.company_id)?;
-        let client = self.client.lock().await;
-        client
-            .execute(
-                "INSERT INTO affiliate_clicks
-                 (company_id, click_id, product_id, advertiser_id, content_id,
-                  occurred_at, source)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7)
-                 ON CONFLICT (company_id, click_id) DO NOTHING",
-                &[
-                    &company_id,
-                    &event.click_id,
-                    &event.product_id,
-                    &event.advertiser_id,
-                    &event.content_id,
-                    &event.occurred_at,
-                    &event.source,
-                ],
+        let observed_at_epoch = parse_rfc3339_epoch(&event.occurred_at)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        tx.execute(
+            "INSERT INTO affiliate_clicks
+             (company_id, click_id, product_id, advertiser_id, content_id,
+              occurred_at, source)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)
+             ON CONFLICT (company_id, click_id) DO NOTHING",
+            &[
+                &company_id,
+                &event.click_id,
+                &event.product_id,
+                &event.advertiser_id,
+                &event.content_id,
+                &event.occurred_at,
+                &event.source,
+            ],
+        )
+        .await?;
+
+        let content_ref = event.content_id.trim();
+        let product_ref = event.product_id.trim();
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company_id,
+                company_revenue_graph::RevenueNodeType::Content,
+                content_ref,
+                "PROMOTES",
+                company_revenue_graph::RevenueNodeType::Product,
+                product_ref,
+                None,
+                None,
+                10_000,
+                &format!("affiliate:click:{}", event.click_id),
+                graph_source(&event.source)?,
+                observed_at_epoch,
+            ),
+        )
+        .await?;
+
+        if !event.source.trim().is_empty() {
+            record_revenue_graph_edge_tx(
+                &tx,
+                &new_graph_edge(
+                    company_id,
+                    company_revenue_graph::RevenueNodeType::Traffic,
+                    graph_source(&event.source)?,
+                    "DRIVES",
+                    company_revenue_graph::RevenueNodeType::Content,
+                    content_ref,
+                    None,
+                    None,
+                    10_000,
+                    &format!("affiliate:click:{}", event.click_id),
+                    event.source.trim(),
+                    observed_at_epoch,
+                ),
             )
             .await?;
+        }
+
+        tx.commit().await?;
         Ok(())
     }
 
@@ -2106,6 +5341,70 @@ impl CompanyStore {
                     &attributed_commission,
                     &(attribution.confidence_bps as i32),
                 ],
+            )
+            .await?;
+        }
+
+        let observed_at_epoch = parse_rfc3339_epoch(&event.occurred_at)?;
+        let net_order_value = event
+            .order_value_minor
+            .checked_sub(event.refunded_minor)
+            .ok_or("affiliate order value underflow")?;
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company_id,
+                company_revenue_graph::RevenueNodeType::Order,
+                &event.order_id,
+                "PURCHASES",
+                company_revenue_graph::RevenueNodeType::Product,
+                &event.product_id,
+                Some(net_order_value),
+                Some(&currency),
+                if event.cancelled { 2_000 } else { 10_000 },
+                &format!("affiliate:conversion:{}", event.conversion_id),
+                graph_source(&event.source)?,
+                observed_at_epoch,
+            ),
+        )
+        .await?;
+
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company_id,
+                company_revenue_graph::RevenueNodeType::Order,
+                &event.order_id,
+                "REPORTS_COMMISSION",
+                company_revenue_graph::RevenueNodeType::Commission,
+                &event.conversion_id,
+                Some(if event.cancelled { 0 } else { event.commission_minor }),
+                Some(&currency),
+                5_000,
+                &format!("affiliate:conversion:{}", event.conversion_id),
+                graph_source(&event.source)?,
+                observed_at_epoch,
+            ),
+        )
+        .await?;
+
+        for attribution in &reconciled.attributed {
+            record_revenue_graph_edge_tx(
+                &tx,
+                &new_graph_edge(
+                    company_id,
+                    company_revenue_graph::RevenueNodeType::Content,
+                    &attribution.content_id,
+                    "ATTRIBUTED_TO",
+                    company_revenue_graph::RevenueNodeType::Order,
+                    &event.order_id,
+                    Some(attribution.attributed_order_value_minor),
+                    Some(&currency),
+                    attribution.confidence_bps,
+                    &format!("affiliate:conversion:{}", event.conversion_id),
+                    graph_source(&event.source)?,
+                    observed_at_epoch,
+                ),
             )
             .await?;
         }
@@ -2387,6 +5686,39 @@ impl CompanyStore {
             .await?
             .get(0);
 
+        if verified_commission_minor > 0 && status.authorizes_revenue() {
+            let observed_at_epoch = verified_at
+                .map(parse_rfc3339_epoch)
+                .transpose()?
+                .unwrap_or_else(|| time::OffsetDateTime::now_utc().unix_timestamp());
+            let order_id: String = tx
+                .query_one(
+                    "SELECT order_id FROM affiliate_conversions
+                      WHERE company_id=$1 AND conversion_id=$2",
+                    &[&company_uuid, &conversion_id],
+                )
+                .await?
+                .get(0);
+            record_revenue_graph_edge_tx(
+                &tx,
+                &new_graph_edge(
+                    company_uuid,
+                    company_revenue_graph::RevenueNodeType::Order,
+                    &order_id,
+                    "VERIFIED_COMMISSION",
+                    company_revenue_graph::RevenueNodeType::Commission,
+                    &conversion_id,
+                    Some(verified_commission_minor),
+                    Some(&currency),
+                    10_000,
+                    &format!("affiliate:provider-verification:{}:{}", conversion_id, status.as_str()),
+                    graph_source(verification_source)?,
+                    observed_at_epoch,
+                ),
+            )
+            .await?;
+        }
+
         if delta != 0 {
             let (_cash_account, receivable_account, revenue_account) =
                 ensure_affiliate_accounts(&tx, company_uuid, &currency).await?;
@@ -2505,6 +5837,31 @@ impl CompanyStore {
             ],
         )
         .await?;
+
+        if target_recognized > 0 {
+            let observed_at_epoch = verified_at
+                .map(parse_rfc3339_epoch)
+                .transpose()?
+                .unwrap_or_else(|| time::OffsetDateTime::now_utc().unix_timestamp());
+            record_revenue_graph_edge_tx(
+                &tx,
+                &new_graph_edge(
+                    company_uuid,
+                    company_revenue_graph::RevenueNodeType::Commission,
+                    &conversion_id,
+                    "RECOGNIZED_INTO",
+                    company_revenue_graph::RevenueNodeType::Commission,
+                    &format!("affiliate:recognized:{}", company_uuid),
+                    Some(target_recognized),
+                    Some(&currency),
+                    10_000,
+                    &format!("affiliate:provider-verification:{}:{}", conversion_id, status.as_str()),
+                    graph_source(verification_source)?,
+                    observed_at_epoch,
+                ),
+            )
+            .await?;
+        }
 
         let provider_event_key = format!(
             "outbox:affiliate:provider-verified:{conversion_id}:{}:{}:{}",
@@ -2658,6 +6015,25 @@ impl CompanyStore {
              (company_id,payout_id,currency,amount_minor,occurred_at,ledger_transaction_id)
              VALUES ($1,$2,$3,$4::numeric,$5,$6)",
             &[&company_uuid,&payout_id,&currency,&amount,&occurred_text,&payout_uuid],
+        )
+        .await?;
+
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company_uuid,
+                company_revenue_graph::RevenueNodeType::Commission,
+                &format!("affiliate:recognized:{}", company_uuid),
+                "SETTLES_TO_CASH",
+                company_revenue_graph::RevenueNodeType::Cash,
+                &format!("company:{}:cash", company_uuid),
+                Some(amount_minor),
+                Some(&company_currency),
+                10_000,
+                &format!("affiliate:payout:{}", payout_id),
+                "affiliate-payout-ledger",
+                occurred.unix_timestamp(),
+            ),
         )
         .await?;
 
@@ -3012,6 +6388,431 @@ impl CompanyStore {
         Ok(())
     }
 
+    pub async fn create_tiktok_live_session(
+        &self,
+        session: &tiktok_live_engine::LiveSession,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        session.validate().map_err(|error| error.to_string())?;
+        let company_id = session.company_id;
+        let mode = format!("{:?}", session.mode).to_ascii_uppercase();
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "INSERT INTO tiktok_live_sessions
+                 (id, company_id, room_id, title, mode, started_at_epoch,
+                  approved_for_external_publish)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7)
+                 ON CONFLICT (id) DO NOTHING",
+                &[
+                    &session.id,
+                    &company_id,
+                    &session.room_id,
+                    &session.title,
+                    &mode,
+                    &session.started_at_epoch,
+                    &session.approved_for_external_publish,
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn tiktok_live_mode(
+        &self,
+        company_id: &str,
+        session_id: &str,
+    ) -> Result<tiktok_live_engine::LiveMode, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let session_uuid = Uuid::parse_str(session_id)?;
+        let client = self.client.lock().await;
+        let mode: String = client
+            .query_one(
+                "SELECT mode FROM tiktok_live_sessions WHERE id=$1 AND company_id=$2",
+                &[&session_uuid, &company_uuid],
+            )
+            .await?
+            .get(0);
+        match mode.as_str() {
+            "SOLO" => Ok(tiktok_live_engine::LiveMode::Solo),
+            "COHOST" | "CO_HOST" => Ok(tiktok_live_engine::LiveMode::CoHost),
+            "PK" => Ok(tiktok_live_engine::LiveMode::Pk),
+            "GAME" => Ok(tiktok_live_engine::LiveMode::Game),
+            "STORY" => Ok(tiktok_live_engine::LiveMode::Story),
+            "MUSIC" => Ok(tiktok_live_engine::LiveMode::Music),
+            "SHOPPING" | "SHOP" => Ok(tiktok_live_engine::LiveMode::Shopping),
+            other => Err(format!("unknown LIVE mode: {other}").into()),
+        }
+    }
+
+    pub async fn record_tiktok_live_event(
+        &self,
+        company_id: &str,
+        session_id: &str,
+        event: &tiktok_live_engine::LiveEvent,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        event.validate().map_err(|error| error.to_string())?;
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let session_uuid = Uuid::parse_str(session_id)?;
+        if event.gift_quantity > i64::MAX as u64 || event.pk_score.is_some_and(|value| value > i64::MAX as u64) {
+            return Err("LIVE event numeric fields exceed database range".into());
+        }
+        let kind = format!("{:?}", event.kind).to_ascii_uppercase();
+        let gift_value = event.gift_value_minor.to_string();
+        let client = self.client.lock().await;
+        let session_exists = client
+            .query_opt(
+                "SELECT 1 FROM tiktok_live_sessions WHERE id=$1 AND company_id=$2",
+                &[&session_uuid, &company_uuid],
+            )
+            .await?
+            .is_some();
+        if !session_exists {
+            return Err("LIVE session is not owned by company".into());
+        }
+        let changed = client
+            .execute(
+                "INSERT INTO tiktok_live_events
+                 (company_id, session_id, event_id, room_id, kind, user_id,
+                  display_name, event_text, gift_id, gift_name, gift_quantity,
+                  gift_value_minor, currency, pk_score, viewer_value_bps, occurred_at_epoch)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::numeric,$13,$14,$15,$16)
+                 ON CONFLICT (company_id, event_id) DO NOTHING",
+                &[
+                    &company_uuid,
+                    &session_uuid,
+                    &event.event_id,
+                    &event.room_id,
+                    &kind,
+                    &event.user_id,
+                    &event.display_name,
+                    &event.text,
+                    &event.gift_id,
+                    &event.gift_name,
+                    &(event.gift_quantity as i64),
+                    &gift_value,
+                    &event.currency,
+                    &(event.pk_score.map(|value| value as i64)),
+                    &event.viewer_value_bps.map(|value| value as i32),
+                    &event.occurred_at_epoch,
+                ],
+            )
+            .await?;
+        Ok(changed == 1)
+    }
+
+    pub async fn record_tiktok_live_attention(
+        &self,
+        company_id: &str,
+        session_id: &str,
+        event: &tiktok_live_engine::LiveEvent,
+    ) -> Result<company_live_attention::AttentionDecision, Box<dyn std::error::Error + Send + Sync>> {
+        event.validate().map_err(|error| error.to_string())?;
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let session_uuid = Uuid::parse_str(session_id)?;
+
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        let mode_value: String = tx
+            .query_one(
+                "SELECT mode
+                   FROM tiktok_live_sessions
+                  WHERE company_id=$1 AND id=$2
+                  FOR UPDATE",
+                &[&company_uuid, &session_uuid],
+            )
+            .await?
+            .get(0);
+        let mode = match mode_value.as_str() {
+            "SOLO" => tiktok_live_engine::LiveMode::Solo,
+            "COHOST" | "CO_HOST" => tiktok_live_engine::LiveMode::CoHost,
+            "PK" => tiktok_live_engine::LiveMode::Pk,
+            "GAME" => tiktok_live_engine::LiveMode::Game,
+            "STORY" => tiktok_live_engine::LiveMode::Story,
+            "MUSIC" => tiktok_live_engine::LiveMode::Music,
+            "SHOPPING" | "SHOP" => tiktok_live_engine::LiveMode::Shopping,
+            other => return Err(format!("unknown LIVE mode: {other}").into()),
+        };
+
+        tx.query_one(
+            "SELECT 1 FROM tiktok_live_events
+              WHERE company_id=$1 AND session_id=$2 AND event_id=$3",
+            &[&company_uuid, &session_uuid, &event.event_id],
+        ).await?;
+
+        if let Some(row) = tx.query_opt(
+            "SELECT id,company_id,session_id,event_id,action,reason,priority,decided_at_epoch,requires_human
+               FROM live_attention_decisions
+              WHERE company_id=$1 AND session_id=$2 AND event_id=$3",
+            &[&company_uuid, &session_uuid, &event.event_id],
+        ).await? {
+            let decision = attention_decision_from_row(row)?;
+            tx.commit().await?;
+            return Ok(decision);
+        }
+
+        let policy = company_live_attention::AttentionPolicy::default();
+        let now_epoch: i64 = tx
+            .query_one(
+                "SELECT EXTRACT(EPOCH FROM now())::bigint",
+                &[],
+            )
+            .await?
+            .get(0);
+        let window_start = now_epoch.saturating_sub(policy.response_window_seconds);
+        let context_row = tx
+            .query_one(
+                "SELECT
+                    COALESCE(MAX(decided_at_epoch) FILTER (WHERE action IN ('RESPOND','ESCALATE')), 0),
+                    COUNT(*) FILTER (WHERE action IN ('RESPOND','ESCALATE') AND decided_at_epoch >= $3)
+                 FROM live_attention_decisions
+                WHERE company_id=$1 AND session_id=$2",
+                &[&company_uuid, &session_uuid, &window_start],
+            )
+            .await?;
+        let last_value: i64 = context_row.get(0);
+        let responses: i64 = context_row.get(1);
+        let context = company_live_attention::AttentionContext {
+            last_response_at_epoch: if last_value > 0 { Some(last_value) } else { None },
+            window_started_at_epoch: Some(window_start),
+            responses_in_window: responses.clamp(0, u32::MAX as i64) as u32,
+        };
+
+        let decision = company_live_attention::decide_attention(
+            company_uuid,
+            session_uuid,
+            mode,
+            event,
+            &context,
+            now_epoch,
+            &policy,
+        )
+        .map_err(|error| error.to_string())?;
+
+        tx.execute(
+            "INSERT INTO live_attention_decisions
+             (id,company_id,session_id,event_id,action,reason,priority,decided_at_epoch,requires_human,viewer_value_bps)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+             ON CONFLICT(company_id,session_id,event_id) DO NOTHING",
+            &[
+                &decision.decision_id,
+                &company_uuid,
+                &session_uuid,
+                &decision.event_id,
+                &attention_action_name(decision.action),
+                &attention_reason_name(decision.reason),
+                &(decision.priority as i16),
+                &decision.decided_at_epoch,
+                &decision.requires_human,
+                &event.viewer_value_bps.map(|value| value as i32),
+            ],
+        ).await?;
+
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'LIVE_ATTENTION_DECIDED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[
+                &company_uuid,
+                &session_uuid.to_string(),
+                &format!("outbox:live-attention:{}:{}", session_uuid, decision.event_id),
+                &serde_json::to_value(&decision)?,
+            ],
+        ).await?;
+
+        if let Some(learning) = live_attention_learning_entry(event, &decision) {
+            company_learning::validate_evidence(&learning)
+                .map_err(|error| error.to_string())?;
+
+            let learning_inserted = tx.query_opt(
+                "INSERT INTO learning_entries
+                 (id,company_id,entry_key,source_type,source_id,kind,severity,hypothesis,context,
+                  expected_outcome,actual_outcome,impact_minor,confidence_bps,root_cause,
+                  corrective_action,reusable_rule,decision)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+                 ON CONFLICT(company_id,entry_key) DO NOTHING
+                 RETURNING id",
+                &[
+                    &Uuid::new_v4(),
+                    &company_uuid,
+                    &learning.entry_key,
+                    &learning.source_type,
+                    &learning.source_id,
+                    &learning_kind_name(learning.kind),
+                    &failure_severity_name(learning.severity),
+                    &learning.hypothesis,
+                    &learning.context,
+                    &learning.expected_outcome,
+                    &learning.actual_outcome,
+                    &learning.impact_minor.to_string(),
+                    &learning.confidence_bps,
+                    &learning.root_cause,
+                    &learning.corrective_action,
+                    &learning.reusable_rule,
+                    &learning_decision_name(learning.decision),
+                ],
+            ).await?;
+
+            let learning_id = match learning_inserted {
+                Some(row) => row.get(0),
+                None => tx.query_one(
+                    "SELECT id FROM learning_entries WHERE company_id=$1 AND entry_key=$2",
+                    &[&company_uuid, &learning.entry_key],
+                ).await?.get(0),
+            };
+
+            let outbox_key = format!("outbox:learning:{}", learning.entry_key);
+            let payload = serde_json::json!({
+                "entry_key": &learning.entry_key,
+                "source_type": &learning.source_type,
+                "source_id": &learning.source_id,
+                "kind": learning.kind,
+                "decision": learning.decision,
+                "confidence_bps": learning.confidence_bps
+            });
+            tx.execute(
+                "INSERT INTO outbox_events
+                 (company_id,event_type,aggregate_id,idempotency_key,payload)
+                 VALUES ($1,'LEARNING_ENTRY_RECORDED',$2,$3,$4)
+                 ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+                &[
+                    &company_uuid,
+                    &learning_id,
+                    &outbox_key,
+                    &payload,
+                ],
+            ).await?;
+        }
+
+        let persisted = tx.query_one(
+            "SELECT id,company_id,session_id,event_id,action,reason,priority,decided_at_epoch,requires_human
+               FROM live_attention_decisions
+              WHERE company_id=$1 AND session_id=$2 AND event_id=$3",
+            &[&company_uuid, &session_uuid, &event.event_id],
+        ).await?;
+        let decision = attention_decision_from_row(persisted)?;
+        tx.commit().await?;
+        Ok(decision)
+    }
+
+    pub async fn tiktok_live_summary(
+        &self,
+        company_id: &str,
+        session_id: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let session_uuid = Uuid::parse_str(session_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_one(
+                "SELECT
+                    COUNT(*)::bigint,
+                    COUNT(*) FILTER (WHERE kind='GIFT')::bigint,
+                    COALESCE(SUM(gift_quantity) FILTER (WHERE kind='GIFT'),0)::text,
+                    COALESCE(SUM(gift_value_minor) FILTER (WHERE kind='GIFT'),0)::text,
+                    COUNT(*) FILTER (WHERE kind='COMMENT')::bigint,
+                    COUNT(*) FILTER (WHERE kind='FOLLOW')::bigint,
+                    COUNT(*) FILTER (WHERE kind='SHARE')::bigint,
+                    COUNT(*) FILTER (WHERE kind='LIKE')::bigint
+                 FROM tiktok_live_events
+                 WHERE company_id=$1 AND session_id=$2",
+                &[&company_uuid, &session_uuid],
+            )
+            .await?;
+        let attention = client
+            .query_one(
+                "SELECT
+                    COUNT(*) FILTER (WHERE action='RESPOND')::bigint,
+                    COUNT(*) FILTER (WHERE action='DEFER')::bigint,
+                    COUNT(*) FILTER (WHERE action='IGNORE')::bigint,
+                    COUNT(*) FILTER (WHERE action='ESCALATE')::bigint,
+                    COALESCE(MAX(decided_at_epoch),0)::bigint
+                 FROM live_attention_decisions
+                WHERE company_id=$1 AND session_id=$2",
+                &[&company_uuid, &session_uuid],
+            )
+            .await?;
+
+        Ok(serde_json::json!({
+            "session_id": session_id,
+            "events": row.get::<_, i64>(0),
+            "gift_events": row.get::<_, i64>(1),
+            "gift_count": row.get::<_, String>(2),
+            "gift_value_minor": row.get::<_, String>(3),
+            "comments": row.get::<_, i64>(4),
+            "follows": row.get::<_, i64>(5),
+            "shares": row.get::<_, i64>(6),
+            "likes": row.get::<_, i64>(7),
+            "attention": {
+                "responded": attention.get::<_, i64>(0),
+                "deferred": attention.get::<_, i64>(1),
+                "ignored": attention.get::<_, i64>(2),
+                "escalated": attention.get::<_, i64>(3),
+                "last_decided_at_epoch": attention.get::<_, i64>(4),
+            }
+        }))
+    }
+
+    pub async fn reconcile_tiktok_live_gifts(
+        &self,
+        company_id: &str,
+        session_id: &str,
+        statement: &tiktok_live_engine::ProviderGiftStatement,
+    ) -> Result<tiktok_live_engine::GiftReconciliation, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let session_uuid = Uuid::parse_str(session_id)?;
+        let client = self.client.lock().await;
+        let session_exists = client
+            .query_opt(
+                "SELECT 1 FROM tiktok_live_sessions WHERE id=$1 AND company_id=$2",
+                &[&session_uuid, &company_uuid],
+            )
+            .await?
+            .is_some();
+        if !session_exists {
+            return Err("LIVE session is not owned by company".into());
+        }
+        let row = client
+            .query_one(
+                "SELECT
+                    COALESCE(SUM(gift_quantity) FILTER (WHERE kind='GIFT'),0)::text,
+                    COALESCE(SUM(gift_value_minor) FILTER (WHERE kind='GIFT'),0)::text
+                 FROM tiktok_live_events
+                 WHERE company_id=$1 AND session_id=$2",
+                &[&company_uuid, &session_uuid],
+            )
+            .await?;
+        let gift_count_value = parse_i128_numeric(&row.get::<_, String>(0))?;
+        if gift_count_value < 0 {
+            return Err("stored LIVE gift count cannot be negative".into());
+        }
+        let gift_count = gift_count_value as u64;
+        let gift_value_minor = parse_i128_numeric(&row.get::<_, String>(1))?;
+        if gift_value_minor < 0 {
+            return Err("stored LIVE gift value cannot be negative".into());
+        }
+        let ledger = tiktok_live_engine::LiveLedger {
+            processed_event_ids: std::collections::HashSet::new(),
+            gift_count,
+            gift_value_minor: gift_value_minor as u128,
+            comments: 0,
+            follows: 0,
+            shares: 0,
+            likes: 0,
+        };
+        let reconciliation = tiktok_live_engine::reconcile_gifts(&ledger, statement)?;
+        tx_store_live_gift_statement(
+            &client,
+            company_uuid,
+            session_uuid,
+            &reconciliation,
+            &statement.currency,
+        )
+        .await?;
+        Ok(reconciliation)
+    }
+
     pub async fn recent_journal(
         &self,
         company_id: &str,
@@ -3046,6 +6847,315 @@ impl CompanyStore {
             .map(|row| row.get::<_, serde_json::Value>(0))
             .collect())
     }
+}
+
+async fn tx_store_live_gift_statement(
+    client: &Client,
+    company_id: Uuid,
+    session_id: Uuid,
+    reconciliation: &tiktok_live_engine::GiftReconciliation,
+    currency: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    client
+        .execute(
+            "INSERT INTO tiktok_live_gift_statements
+             (id, company_id, session_id, statement_id, gift_count,
+              gross_value_minor, currency, matched, count_delta, value_delta_minor)
+             VALUES ($1,$2,$3,$4,$5,$6::numeric,$7,$8,$9,$10::numeric)
+             ON CONFLICT (company_id, statement_id) DO UPDATE
+             SET gift_count=EXCLUDED.gift_count,
+                 gross_value_minor=EXCLUDED.gross_value_minor,
+                 currency=EXCLUDED.currency,
+                 matched=EXCLUDED.matched,
+                 count_delta=EXCLUDED.count_delta,
+                 value_delta_minor=EXCLUDED.value_delta_minor",
+            &[
+                &Uuid::new_v4(),
+                &company_id,
+                &session_id,
+                &reconciliation.statement_id,
+                &reconciliation.provider_gift_count.to_string(),
+                &reconciliation.provider_value_minor.to_string(),
+                &currency,
+                &reconciliation.matched,
+                &reconciliation.count_delta.to_string(),
+                &reconciliation.value_delta_minor.to_string(),
+            ],
+        )
+        .await?;
+    Ok(())
+}
+
+fn attention_action_name(
+    value: company_live_attention::AttentionAction,
+) -> &'static str {
+    match value {
+        company_live_attention::AttentionAction::Respond => "RESPOND",
+        company_live_attention::AttentionAction::Defer => "DEFER",
+        company_live_attention::AttentionAction::Ignore => "IGNORE",
+        company_live_attention::AttentionAction::Escalate => "ESCALATE",
+    }
+}
+
+fn attention_reason_name(
+    value: company_live_attention::AttentionReason,
+) -> &'static str {
+    match value {
+        company_live_attention::AttentionReason::PurchaseIntent => "PURCHASE_INTENT",
+        company_live_attention::AttentionReason::Objection => "OBJECTION",
+        company_live_attention::AttentionReason::Gift => "GIFT",
+        company_live_attention::AttentionReason::PkMoment => "PK_MOMENT",
+        company_live_attention::AttentionReason::HighEngagement => "HIGH_ENGAGEMENT",
+        company_live_attention::AttentionReason::HighValueViewer => "HIGH_VALUE_VIEWER",
+        company_live_attention::AttentionReason::SafetyEscalation => "SAFETY_ESCALATION",
+        company_live_attention::AttentionReason::Cooldown => "COOLDOWN",
+        company_live_attention::AttentionReason::RateLimited => "RATE_LIMITED",
+        company_live_attention::AttentionReason::LowSignal => "LOW_SIGNAL",
+    }
+}
+
+fn attention_decision_from_row(
+    row: tokio_postgres::Row,
+) -> Result<company_live_attention::AttentionDecision, Box<dyn std::error::Error + Send + Sync>> {
+    let action = match row.get::<_, String>(4).as_str() {
+        "RESPOND" => company_live_attention::AttentionAction::Respond,
+        "DEFER" => company_live_attention::AttentionAction::Defer,
+        "IGNORE" => company_live_attention::AttentionAction::Ignore,
+        "ESCALATE" => company_live_attention::AttentionAction::Escalate,
+        other => return Err(format!("invalid stored attention action: {other}").into()),
+    };
+    let reason = match row.get::<_, String>(5).as_str() {
+        "PURCHASE_INTENT" => company_live_attention::AttentionReason::PurchaseIntent,
+        "OBJECTION" => company_live_attention::AttentionReason::Objection,
+        "GIFT" => company_live_attention::AttentionReason::Gift,
+        "PK_MOMENT" => company_live_attention::AttentionReason::PkMoment,
+        "HIGH_ENGAGEMENT" => company_live_attention::AttentionReason::HighEngagement,
+        "HIGH_VALUE_VIEWER" => company_live_attention::AttentionReason::HighValueViewer,
+        "SAFETY_ESCALATION" => company_live_attention::AttentionReason::SafetyEscalation,
+        "COOLDOWN" => company_live_attention::AttentionReason::Cooldown,
+        "RATE_LIMITED" => company_live_attention::AttentionReason::RateLimited,
+        "LOW_SIGNAL" => company_live_attention::AttentionReason::LowSignal,
+        other => return Err(format!("invalid stored attention reason: {other}").into()),
+    };
+    Ok(company_live_attention::AttentionDecision {
+        decision_id: row.get(0),
+        company_id: row.get(1),
+        session_id: row.get(2),
+        event_id: row.get(3),
+        action,
+        reason,
+        priority: row.get::<_, i16>(6).clamp(0, 100) as u8,
+        decided_at_epoch: row.get(7),
+        requires_human: row.get(8),
+    })
+}
+
+fn policy_snapshot_from_row(
+    row: tokio_postgres::Row,
+) -> Result<company_compliance::PolicySnapshot, Box<dyn std::error::Error + Send + Sync>> {
+    Ok(company_compliance::PolicySnapshot {
+        id: row.get(0),
+        company_id: row.get(1),
+        policy_key: row.get(2),
+        platform: row.get(3),
+        jurisdiction: row.get(4),
+        version: row.get(5),
+        source_reference: row.get(6),
+        evidence_hash: row.get(7),
+        observed_at_epoch: row.get(8),
+        effective_at_epoch: row.get(9),
+        active: row.get(10),
+        rules: serde_json::from_value(row.get(11))?,
+    })
+}
+
+fn compliance_surface_name(value: company_compliance::ComplianceSurface) -> &'static str {
+    match value {
+        company_compliance::ComplianceSurface::Content => "CONTENT",
+        company_compliance::ComplianceSurface::Affiliate => "AFFILIATE",
+        company_compliance::ComplianceSurface::Live => "LIVE",
+        company_compliance::ComplianceSurface::Advertising => "ADVERTISING",
+        company_compliance::ComplianceSurface::Copyright => "COPYRIGHT",
+        company_compliance::ComplianceSurface::ProductEligibility => "PRODUCT_ELIGIBILITY",
+        company_compliance::ComplianceSurface::Claims => "CLAIMS",
+    }
+}
+
+fn compliance_decision_name(value: company_compliance::ComplianceDecision) -> &'static str {
+    match value {
+        company_compliance::ComplianceDecision::Allowed => "ALLOWED",
+        company_compliance::ComplianceDecision::Review => "REVIEW",
+        company_compliance::ComplianceDecision::Blocked => "BLOCKED",
+        company_compliance::ComplianceDecision::Unknown => "UNKNOWN",
+    }
+}
+
+fn compliance_reason_name(value: company_compliance::ComplianceReason) -> &'static str {
+    match value {
+        company_compliance::ComplianceReason::PolicyUnavailable => "POLICY_UNAVAILABLE",
+        company_compliance::ComplianceReason::MissingPolicyEvidence => "MISSING_POLICY_EVIDENCE",
+        company_compliance::ComplianceReason::MissingDisclosure => "MISSING_DISCLOSURE",
+        company_compliance::ComplianceReason::ProhibitedProduct => "PROHIBITED_PRODUCT",
+        company_compliance::ComplianceReason::UnsupportedProduct => "UNSUPPORTED_PRODUCT",
+        company_compliance::ComplianceReason::UnverifiedClaim => "UNVERIFIED_CLAIM",
+        company_compliance::ComplianceReason::FakeEngagement => "FAKE_ENGAGEMENT",
+        company_compliance::ComplianceReason::Simulcast => "SIMULCAST",
+        company_compliance::ComplianceReason::MissingRightsEvidence => "MISSING_RIGHTS_EVIDENCE",
+        company_compliance::ComplianceReason::HumanReviewRequired => "HUMAN_REVIEW_REQUIRED",
+        company_compliance::ComplianceReason::AllowedByPolicy => "ALLOWED_BY_POLICY",
+    }
+}
+
+fn compliance_check_from_row(
+    row: tokio_postgres::Row,
+    input: &company_compliance::ComplianceInput,
+) -> Result<company_compliance::ComplianceCheck, Box<dyn std::error::Error + Send + Sync>> {
+    let decision = match row.get::<_, String>(3).as_str() {
+        "ALLOWED" => company_compliance::ComplianceDecision::Allowed,
+        "REVIEW" => company_compliance::ComplianceDecision::Review,
+        "BLOCKED" => company_compliance::ComplianceDecision::Blocked,
+        "UNKNOWN" => company_compliance::ComplianceDecision::Unknown,
+        other => return Err(format!("invalid stored compliance decision: {other}").into()),
+    };
+    let reason = match row.get::<_, String>(4).as_str() {
+        "POLICY_UNAVAILABLE" => company_compliance::ComplianceReason::PolicyUnavailable,
+        "MISSING_POLICY_EVIDENCE" => company_compliance::ComplianceReason::MissingPolicyEvidence,
+        "MISSING_DISCLOSURE" => company_compliance::ComplianceReason::MissingDisclosure,
+        "PROHIBITED_PRODUCT" => company_compliance::ComplianceReason::ProhibitedProduct,
+        "UNSUPPORTED_PRODUCT" => company_compliance::ComplianceReason::UnsupportedProduct,
+        "UNVERIFIED_CLAIM" => company_compliance::ComplianceReason::UnverifiedClaim,
+        "FAKE_ENGAGEMENT" => company_compliance::ComplianceReason::FakeEngagement,
+        "SIMULCAST" => company_compliance::ComplianceReason::Simulcast,
+        "MISSING_RIGHTS_EVIDENCE" => company_compliance::ComplianceReason::MissingRightsEvidence,
+        "HUMAN_REVIEW_REQUIRED" => company_compliance::ComplianceReason::HumanReviewRequired,
+        "ALLOWED_BY_POLICY" => company_compliance::ComplianceReason::AllowedByPolicy,
+        other => return Err(format!("invalid stored compliance reason: {other}").into()),
+    };
+    Ok(company_compliance::ComplianceCheck {
+        id: row.get(0),
+        company_id: row.get(1),
+        policy_snapshot_id: row.get(2),
+        input: input.clone(),
+        decision,
+        reason,
+        requires_human: row.get(5),
+        checked_at_epoch: row.get(6),
+    })
+}
+
+async fn existing_compliance_check(
+    client: &tokio_postgres::Client,
+    input: &company_compliance::ComplianceInput,
+    input_hash: &str,
+) -> Result<company_compliance::ComplianceCheck, Box<dyn std::error::Error + Send + Sync>> {
+    let row = client.query_one(
+        "SELECT id,company_id,policy_snapshot_id,decision,reason,requires_human,checked_at_epoch
+           FROM compliance_checks
+          WHERE company_id=$1 AND policy_key=$2 AND policy_snapshot_key=$3 AND input_hash=$4",
+        &[&input.company_id, &input.policy_key, &input.policy_snapshot_key, &input_hash],
+    ).await?;
+    compliance_check_from_row(row, input)
+}
+
+fn autonomy_simulation_from_row(
+    row: tokio_postgres::Row,
+    company_id: Uuid,
+    idempotency_key: String,
+) -> Result<AutonomySimulationRecord, Box<dyn std::error::Error + Send + Sync>> {
+    let proposal = serde_json::from_value(row.get(1))?;
+    let assessment: company_autonomy::AutonomyAssessment =
+        serde_json::from_value(row.get::<_, serde_json::Value>(6))?;
+    if row.get::<_, String>(2) != assessment.decision.as_str()
+        || row.get::<_, String>(3) != assessment.ceiling.as_str()
+        || row.get::<_, String>(4) != assessment.required_level.as_str()
+        || row.get::<_, String>(5) != assessment.reason
+    {
+        return Err("persisted autonomy assessment summary does not match its JSON payload".into());
+    }
+    Ok(AutonomySimulationRecord {
+        id: row.get(0),
+        company_id,
+        idempotency_key,
+        proposal,
+        assessment,
+        created_at: row.get(7),
+    })
+}
+
+fn agent_outcome_evidence_from_row(
+    row: tokio_postgres::Row,
+    company_id: Uuid,
+    decision_journal_id: i64,
+) -> Result<AgentOutcomeEvidenceRecord, Box<dyn std::error::Error + Send + Sync>> {
+    Ok(AgentOutcomeEvidenceRecord {
+        id: row.get(0),
+        company_id,
+        decision_journal_id,
+        agent_name: row.get(1),
+        action: row.get(2),
+        evidence_ref: row.get(3),
+        observed_revenue_delta_minor: parse_i128_numeric(&row.get::<_, String>(4))?,
+        observed_contribution_margin_delta_minor: parse_i128_numeric(
+            &row.get::<_, String>(5),
+        )?,
+        observed_at_epoch: row.get(6),
+        created_at: row.get(7),
+    })
+}
+
+fn agent_evaluation_from_row(
+    row: tokio_postgres::Row,
+) -> Result<company_agent_evaluation::AgentEvaluation, Box<dyn std::error::Error + Send + Sync>> {
+    let input = company_agent_evaluation::AgentEvaluationInput {
+        agent_name: row.get(0),
+        proposal_count: row.get(1),
+        approved_count: row.get(2),
+        rejected_count: row.get(3),
+        revision_count: row.get(4),
+        escalated_count: row.get(5),
+        executed_count: row.get(6),
+        deferred_count: row.get(7),
+        observed_spend_minor: parse_i128_numeric(&row.get::<_, String>(8))?,
+        projected_revenue_minor: parse_i128_numeric(&row.get::<_, String>(9))?,
+        outcome_evidence_count: row.get(10),
+        observed_revenue_delta_minor: parse_i128_numeric(&row.get::<_, String>(11))?,
+        observed_contribution_margin_delta_minor: parse_i128_numeric(
+            &row.get::<_, String>(12),
+        )?,
+    };
+    company_agent_evaluation::evaluate(&input)
+        .map_err(|error| error.into())
+}
+
+fn metric_bps(numerator: i64, denominator: i64) -> Result<u32, Box<dyn std::error::Error + Send + Sync>> {
+    if numerator < 0 || denominator < 0 {
+        return Err("command center rate inputs cannot be negative".into());
+    }
+    if denominator == 0 {
+        return Ok(0);
+    }
+    let value = (i128::from(numerator))
+        .checked_mul(10_000)
+        .and_then(|value| value.checked_div(i128::from(denominator)))
+        .ok_or("command center rate overflow")?;
+    Ok(value.clamp(0, 10_000) as u32)
+}
+
+fn scaled_minor(
+    numerator: i128,
+    denominator: i64,
+    scale: i128,
+) -> Result<i128, Box<dyn std::error::Error + Send + Sync>> {
+    if numerator < 0 || denominator < 0 || scale < 0 {
+        return Err("command center scaled metric inputs cannot be negative".into());
+    }
+    if denominator == 0 {
+        return Ok(0);
+    }
+    numerator
+        .checked_mul(scale)
+        .and_then(|value| value.checked_div(i128::from(denominator)))
+        .ok_or_else(|| "command center scaled metric overflow".into())
 }
 
 fn parse_reconciliation_status(
@@ -3384,6 +7494,16 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
     pub async fn create_service_proposal(&self, p: &commercial_sales::ServiceProposal) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if p.title.trim().is_empty() || p.idempotency_key.trim().is_empty() || p.total_minor < 0 || p.currency.len() != 3 { return Err("invalid service proposal".into()); }
         let mut c = self.client.lock().await;
+        let customer_owned = c
+            .query_opt(
+                "SELECT 1 FROM customers WHERE company_id=$1 AND id=$2",
+                &[&p.company_id, &p.customer_id],
+            )
+            .await?
+            .is_some();
+        if !customer_owned {
+            return Err("customer is not owned by service-proposal company".into());
+        }
         c.execute("INSERT INTO service_proposals (id,company_id,customer_id,title,currency,total_minor,status,valid_until_epoch,idempotency_key) VALUES ($1,$2,$3,$4,$5,$6::numeric,$7,$8,$9) ON CONFLICT (company_id,idempotency_key) DO NOTHING",
             &[&p.id,&p.company_id,&p.customer_id,&p.title,&p.currency,&p.total_minor.to_string(),&format!("{:?}",p.status).to_uppercase(),&p.valid_until_epoch,&p.idempotency_key]).await?; Ok(())
     }
@@ -3391,6 +7511,16 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
     pub async fn create_sponsorship(&self, s: &commercial_sales::Sponsorship) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if s.title.trim().is_empty() || s.committed_minor < 0 || s.delivered_minor < 0 || s.delivered_minor > s.committed_minor || s.currency.len() != 3 { return Err("invalid sponsorship".into()); }
         let mut c = self.client.lock().await;
+        let customer_owned = c
+            .query_opt(
+                "SELECT 1 FROM customers WHERE company_id=$1 AND id=$2",
+                &[&s.company_id, &s.customer_id],
+            )
+            .await?
+            .is_some();
+        if !customer_owned {
+            return Err("customer is not owned by sponsorship company".into());
+        }
         c.execute("INSERT INTO sponsorships (id,company_id,customer_id,title,currency,committed_minor,delivered_minor,status) VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8)",
             &[&s.id,&s.company_id,&s.customer_id,&s.title,&s.currency,&s.committed_minor.to_string(),&s.delivered_minor.to_string(),&s.status]).await?; Ok(())
     }
@@ -3401,6 +7531,16 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         if total <= 0 || total != invoice.subtotal_minor || invoice.paid_minor != 0 { return Err("invoice total or initial payment is invalid".into()); }
         let mut c = self.client.lock().await; let tx = c.transaction().await?;
         if tx.query_opt("SELECT id FROM invoices WHERE company_id=$1 AND idempotency_key=$2",&[&invoice.company_id,&invoice.idempotency_key]).await?.is_some() { tx.rollback().await?; return Ok(()); }
+        let customer_owned = tx
+            .query_opt(
+                "SELECT 1 FROM customers WHERE company_id=$1 AND id=$2",
+                &[&invoice.company_id, &invoice.customer_id],
+            )
+            .await?
+            .is_some();
+        if !customer_owned {
+            return Err("customer is not owned by invoice company".into());
+        }
         tx.execute("INSERT INTO invoices (id,company_id,customer_id,currency,subtotal_minor,paid_minor,status,due_epoch,idempotency_key) VALUES ($1,$2,$3,$4,$5::numeric,0,$6,$7,$8)",
             &[&invoice.id,&invoice.company_id,&invoice.customer_id,&invoice.currency,&total.to_string(),&format!("{:?}",invoice.status).to_uppercase(),&invoice.due_epoch,&invoice.idempotency_key]).await?;
         for line in lines {
@@ -3900,6 +8040,332 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         Ok(())
     }
 
+    pub async fn record_growth_trend(
+        &self,
+        signal: &company_growth::TrendSignal,
+    ) -> Result<(GrowthTrendRecord, Option<GrowthOpportunityRecord>), Box<dyn std::error::Error + Send + Sync>> {
+        company_growth::validate_trend(signal).map_err(|error| error.to_string())?;
+        let evaluation = company_growth::evaluate_trend(signal).map_err(|error| error.to_string())?;
+        let company = signal.company_id;
+        let trend_id = Uuid::new_v4();
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        let inserted_trend = tx.query_opt(
+            "INSERT INTO growth_trends
+             (id,company_id,trend_key,topic,source,evidence_ref,observed_at_epoch,
+              velocity_bps,audience_fit_bps,product_fit_bps,contentability_bps,competition_bps,
+              confidence_bps,product_ref,offer_ref,content_format,max_budget_minor,max_loss_minor,
+              max_duration_seconds,success_metric,success_threshold_bps,policy_evidence_ref,score_bps,decision)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+             ON CONFLICT(company_id,trend_key) DO NOTHING
+             RETURNING id",
+            &[
+                &trend_id, &company, &signal.trend_key, &signal.topic, &signal.source,
+                &signal.evidence_ref, &signal.observed_at_epoch, &(signal.velocity_bps as i32),
+                &(signal.audience_fit_bps as i32), &(signal.product_fit_bps as i32),
+                &(signal.contentability_bps as i32), &(signal.competition_bps as i32),
+                &(signal.confidence_bps as i32), &signal.product_ref, &signal.offer_ref,
+                &content_format_name(signal.content_format), &signal.max_budget_minor.to_string(),
+                &signal.max_loss_minor.to_string(), &(signal.max_duration_seconds as i64),
+                &success_metric_name(signal.success_metric), &(signal.success_threshold_bps as i32),
+                &signal.policy_evidence_ref, &(evaluation.score_bps as i32),
+                &growth_trend_decision_name(evaluation.decision),
+            ],
+        ).await?;
+
+        let trend = load_growth_trend(&tx, &company, &signal.trend_key)
+            .await?
+            .ok_or("persisted growth trend not found")?;
+
+        if inserted_trend.is_some() {
+            tx.execute(
+                "INSERT INTO outbox_events
+                 (company_id,event_type,aggregate_id,idempotency_key,payload)
+                 VALUES ($1,'TREND_DETECTED',$2,$3,$4)
+                 ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+                &[
+                    &company,
+                    &trend.id,
+                    &format!("outbox:growth-trend:{}", trend.id),
+                    &serde_json::json!({
+                        "trend_id": trend.id,
+                        "trend_key": trend.signal.trend_key,
+                        "score_bps": trend.score_bps,
+                        "decision": growth_trend_decision_name(trend.decision)
+                    }),
+                ],
+            ).await?;
+        }
+
+        let opportunity = if trend.decision == company_growth::TrendDecision::Pursue {
+            if let Some(existing) = load_growth_opportunity_by_trend(&tx, &company, trend.id).await? {
+                Some(existing)
+            } else {
+                let opportunity = company_growth::opportunity_from_trend(trend.id, &trend.signal)?
+                    .ok_or("pursue trend must create an opportunity")?;
+                let plan_json = serde_json::to_value(&opportunity.plan)?;
+                let inserted_opportunity = tx.query_opt(
+                    "INSERT INTO growth_opportunities
+                     (id,company_id,trend_id,opportunity_key,title,score_bps,confidence_bps,
+                      policy_evidence_ref,plan_json,status)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'READY')
+                     ON CONFLICT(company_id,opportunity_key) DO NOTHING
+                     RETURNING id",
+                    &[
+                        &opportunity.id, &company, &trend.id, &opportunity.opportunity_key,
+                        &opportunity.title, &(opportunity.score_bps as i32), &(opportunity.confidence_bps as i32),
+                        &opportunity.policy_evidence_ref, &plan_json,
+                    ],
+                ).await?;
+                if inserted_opportunity.is_some() {
+                    tx.execute(
+                        "INSERT INTO outbox_events
+                         (company_id,event_type,aggregate_id,idempotency_key,payload)
+                         VALUES ($1,'OPPORTUNITY_CREATED',$2,$3,$4)
+                         ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+                        &[
+                            &company,
+                            &opportunity.id,
+                            &format!("outbox:growth-opportunity:{}", opportunity.id),
+                            &serde_json::json!({
+                                "opportunity_id": opportunity.id,
+                                "trend_id": trend.id,
+                                "score_bps": opportunity.score_bps,
+                                "confidence_bps": opportunity.confidence_bps
+                            }),
+                        ],
+                    ).await?;
+                }
+                load_growth_opportunity_by_trend(&tx, &company, trend.id)
+                    .await?
+                    .ok_or("growth opportunity persistence failed")?
+            }
+        } else {
+            None
+        };
+
+        tx.commit().await?;
+        Ok((trend, opportunity))
+    }
+
+    pub async fn list_growth_trends(
+        &self,
+        company_id: &str,
+        limit: i64,
+    ) -> Result<Vec<GrowthTrendRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=200).contains(&limit) {
+            return Err("growth trend limit must be between 1 and 200".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client.query(
+            "SELECT id,company_id,trend_key,topic,source,evidence_ref,observed_at_epoch,
+                    velocity_bps,audience_fit_bps,product_fit_bps,contentability_bps,competition_bps,
+                    confidence_bps,product_ref,offer_ref,content_format,max_budget_minor,max_loss_minor,
+                    max_duration_seconds,success_metric,success_threshold_bps,policy_evidence_ref,
+                    score_bps,decision,created_at::text
+               FROM growth_trends
+              WHERE company_id=$1
+              ORDER BY observed_at_epoch DESC,created_at DESC
+              LIMIT $2",
+            &[&company, &limit],
+        ).await?;
+        rows.into_iter().map(growth_trend_from_row).collect()
+    }
+
+    pub async fn list_growth_opportunities(
+        &self,
+        company_id: &str,
+        limit: i64,
+    ) -> Result<Vec<GrowthOpportunityRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=200).contains(&limit) {
+            return Err("growth opportunity limit must be between 1 and 200".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client.query(
+            "SELECT o.id,o.company_id,o.trend_id,o.opportunity_key,o.title,o.score_bps,o.confidence_bps,
+                    o.policy_evidence_ref,o.plan_json,o.status,o.content_item_id,o.content_created_at_epoch,
+                    CASE WHEN o.content_created_at_epoch IS NULL THEN NULL
+                         WHEN o.content_created_at_epoch >= t.observed_at_epoch
+                           THEN o.content_created_at_epoch - t.observed_at_epoch
+                         ELSE NULL END AS ttfc_seconds,
+                    o.created_at::text
+               FROM growth_opportunities o
+               JOIN growth_trends t ON t.id=o.trend_id AND t.company_id=o.company_id
+              WHERE o.company_id=$1
+              ORDER BY o.score_bps DESC,o.created_at DESC
+              LIMIT $2",
+            &[&company, &limit],
+        ).await?;
+        rows.into_iter().map(growth_opportunity_from_row).collect()
+    }
+
+    pub async fn create_content_from_growth_opportunity(
+        &self,
+        company_id: &str,
+        opportunity_id: Uuid,
+    ) -> Result<ContentRecord, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let row = tx.query_one(
+            "SELECT o.id,o.company_id,o.trend_id,o.opportunity_key,o.title,o.score_bps,o.confidence_bps,
+                    o.policy_evidence_ref,o.plan_json,o.status,o.content_item_id,o.content_created_at_epoch,
+                    CASE WHEN o.content_created_at_epoch IS NULL THEN NULL
+                         WHEN o.content_created_at_epoch >= t.observed_at_epoch
+                           THEN o.content_created_at_epoch - t.observed_at_epoch
+                         ELSE NULL END AS ttfc_seconds,
+                    o.created_at::text
+               FROM growth_opportunities o
+              JOIN growth_trends t ON t.id=o.trend_id AND t.company_id=o.company_id
+              WHERE o.company_id=$1 AND o.id=$2
+              FOR UPDATE",
+            &[&company, &opportunity_id],
+        ).await?;
+
+        if let Some(content_id) = row.get::<_, Option<Uuid>>(10) {
+            let content_row = tx.query_one(
+                "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
+                        expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
+                        success_threshold_bps,variant_key,hook,first_frame,emotion,pacing,scene_count,
+                        text_density,voice_speed,product_placement,cta,comment_trigger,music_style,
+                        visual_style,status,decision,created_at::text
+                   FROM content_items
+                  WHERE company_id=$1 AND id=$2",
+                &[&company, &content_id],
+            ).await?;
+            tx.commit().await?;
+            return content_record_from_row(content_row);
+        }
+
+        let opportunity = growth_opportunity_from_row(row)?.opportunity;
+        let item = company_content::ContentItem {
+            id: Uuid::new_v4(),
+            company_id: company,
+            brief: opportunity.plan.brief,
+            variant: opportunity.plan.variant,
+            status: company_content::ContentStatus::Draft,
+            decision: None,
+        };
+        company_content::validate_item(&item).map_err(|error| error.to_string())?;
+        let brief = &item.brief;
+        let variant = &item.variant;
+        tx.execute(
+            "INSERT INTO content_items
+             (id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
+              expected_cost_minor,max_loss_minor,max_duration_seconds,success_metric,success_threshold_bps,
+              variant_key,hook,first_frame,emotion,pacing,scene_count,text_density,voice_speed,
+              product_placement,cta,comment_trigger,music_style,visual_style,status,decision)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)",
+            &[
+                &item.id, &company, &brief.hypothesis, &brief.audience,
+                &content_format_name(brief.format), &brief.product_ref, &brief.offer_ref,
+                &brief.disclosure_required, &brief.expected_cost_minor.to_string(),
+                &brief.max_loss_minor.to_string(), &(brief.max_duration_seconds as i64),
+                &success_metric_name(brief.success_metric), &(brief.success_threshold_bps as i32),
+                &variant.variant_key, &variant.hook, &variant.first_frame, &variant.emotion,
+                &variant.pacing, &(variant.scene_count as i32), &variant.text_density,
+                &variant.voice_speed, &variant.product_placement, &variant.cta,
+                &variant.comment_trigger, &variant.music_style, &variant.visual_style,
+                &"DRAFT", &Option::<String>::None,
+            ],
+        ).await?;
+        tx.execute(
+            "UPDATE growth_opportunities
+                SET status='CONTENT_CREATED', content_item_id=$3, content_created_at_epoch=EXTRACT(EPOCH FROM now())::bigint
+              WHERE company_id=$1 AND id=$2",
+            &[&company, &opportunity_id, &item.id],
+        ).await?;
+        let growth_observed_at_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company,
+                company_revenue_graph::RevenueNodeType::Trend,
+                &format!("growth-trend:{}", opportunity.trend_id),
+                "GENERATES_CONTENT",
+                company_revenue_graph::RevenueNodeType::Content,
+                &item.id.to_string(),
+                None,
+                None,
+                opportunity.confidence_bps,
+                &format!("growth-opportunity:{}", opportunity.id),
+                "growth-loop",
+                growth_observed_at_epoch,
+            ),
+        )
+        .await?;
+
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company,
+                company_revenue_graph::RevenueNodeType::Content,
+                &item.id.to_string(),
+                "USES_HOOK",
+                company_revenue_graph::RevenueNodeType::Hook,
+                &hashed_graph_ref("hook", &item.variant.hook),
+                None,
+                None,
+                10_000,
+                &format!("content:{}", item.id),
+                "content-factory",
+                growth_observed_at_epoch,
+            ),
+        )
+        .await?;
+
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company,
+                company_revenue_graph::RevenueNodeType::Content,
+                &item.id.to_string(),
+                "TARGETS_AUDIENCE",
+                company_revenue_graph::RevenueNodeType::Audience,
+                &hashed_graph_ref("audience", &item.brief.audience),
+                None,
+                None,
+                10_000,
+                &format!("content:{}", item.id),
+                "content-factory",
+                growth_observed_at_epoch,
+            ),
+        )
+        .await?;
+
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'CONTENT_CREATED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[
+                &company,
+                &item.id,
+                &format!("outbox:growth-content:{}", item.id),
+                &serde_json::json!({
+                    "content_id": item.id,
+                    "opportunity_id": opportunity_id,
+                    "trend_id": opportunity.trend_id
+                }),
+            ],
+        ).await?;
+        let content_row = tx.query_one(
+            "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
+                    expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
+                    success_threshold_bps,variant_key,hook,first_frame,emotion,pacing,scene_count,
+                    text_density,voice_speed,product_placement,cta,comment_trigger,music_style,
+                    visual_style,status,decision,created_at::text
+               FROM content_items
+              WHERE company_id=$1 AND id=$2",
+            &[&company, &item.id],
+        ).await?;
+        tx.commit().await?;
+        content_record_from_row(content_row)
+    }
+
     pub async fn create_customer_success_task(
         &self, company_id:&str, task_id:Uuid, customer_id:&str, task_type:&str,
         due_at_epoch:i64, owner:Option<&str>, notes:Option<&str>, idempotency_key:&str
@@ -3908,6 +8374,16 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         if !matches!(task_type,"ONBOARDING"|"HEALTH_REVIEW"|"RENEWAL"|"EXPANSION"|"RISK_REVIEW")
             || idempotency_key.trim().is_empty() { return Err("invalid customer success task".into()); }
         let client=self.client.lock().await;
+        let customer_owned = client
+            .query_opt(
+                "SELECT 1 FROM customers WHERE company_id=$1 AND id=$2",
+                &[&company, &customer],
+            )
+            .await?
+            .is_some();
+        if !customer_owned {
+            return Err("customer is not owned by customer-success company".into());
+        }
         let row=client.query_opt(
             "INSERT INTO customer_success_tasks
              (id,company_id,customer_id,task_type,due_at_epoch,owner,status,notes,idempotency_key)
@@ -3955,202 +8431,1271 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         Ok(())
     }
 
-    pub async fn create_budget(
-        &self, company_id:&str, budget_id:Uuid, name:&str, currency:&str, limit_minor:i128
+    pub async fn create_vendor(
+        &self,
+        company_id: &str,
+        vendor_id: Uuid,
+        legal_name: &str,
+        contact_email: Option<&str>,
+        currency: &str,
+        tax_ref: Option<&str>,
+        idempotency_key: &str,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let company=Uuid::parse_str(company_id)?;
-        let currency=currency.trim().to_uppercase();
-        if name.trim().is_empty() || currency.len()!=3 || limit_minor < 0 { return Err("invalid budget".into()); }
-        let client=self.client.lock().await;
-        let row=client.query_one(
-            "INSERT INTO budgets(id,company_id,name,currency,limit_minor)
-             VALUES($1,$2,$3,$4,$5::numeric) RETURNING id,name,currency,limit_minor::text,spent_minor::text,active",
-            &[&budget_id,&company,&name,&currency,&limit_minor.to_string()]
+        let company = Uuid::parse_str(company_id)?;
+        let currency = currency.trim().to_uppercase();
+        if legal_name.trim().is_empty() || legal_name.len() > 200
+            || !matches!(currency.len(), 3)
+            || idempotency_key.trim().is_empty() || idempotency_key.len() > 256 {
+            return Err("invalid vendor".into());
+        }
+        if let Some(email) = contact_email {
+            if email.len() > 320 || !email.contains('@') { return Err("invalid vendor email".into()); }
+        }
+        let client = self.client.lock().await;
+        let row = client.query_opt(
+            "INSERT INTO vendors
+             (id,company_id,legal_name,contact_email,currency,tax_ref,status,idempotency_key)
+             VALUES ($1,$2,$3,$4,$5,$6,'PROSPECT',$7)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING
+             RETURNING id,legal_name,contact_email,currency,tax_ref,status,created_at",
+            &[&vendor_id,&company,&legal_name,&contact_email,&currency,&tax_ref,&idempotency_key],
         ).await?;
+        let row = match row {
+            Some(row) => row,
+            None => client.query_one(
+                "SELECT id,legal_name,contact_email,currency,tax_ref,status,created_at
+                 FROM vendors WHERE company_id=$1 AND idempotency_key=$2",
+                &[&company,&idempotency_key],
+            ).await?,
+        };
         Ok(serde_json::json!({
-            "id":row.get::<_,Uuid>(0),"name":row.get::<_,String>(1),"currency":row.get::<_,String>(2),
-            "limit_minor":row.get::<_,String>(3),"spent_minor":row.get::<_,String>(4),"active":row.get::<_,bool>(5)
+            "id": row.get::<_,Uuid>(0),
+            "legal_name": row.get::<_,String>(1),
+            "contact_email": row.get::<_,Option<String>>(2),
+            "currency": row.get::<_,String>(3),
+            "tax_ref": row.get::<_,Option<String>>(4),
+            "status": row.get::<_,String>(5),
+            "created_at": row.get::<_,time::OffsetDateTime>(6).to_string()
         }))
     }
 
-    pub async fn list_budgets(
-        &self, company_id:&str
+    pub async fn list_vendors(
+        &self,
+        company_id: &str,
+        limit: i64,
     ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
-        let company=Uuid::parse_str(company_id)?;
-        let client=self.client.lock().await;
-        let rows=client.query(
-            "SELECT id,name,currency,limit_minor::text,spent_minor::text,active
-             FROM budgets WHERE company_id=$1 ORDER BY created_at DESC,id DESC",
-            &[&company]
+        if !(1..=200).contains(&limit) { return Err("vendor limit must be between 1 and 200".into()); }
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client.query(
+            "SELECT id,legal_name,contact_email,currency,tax_ref,status,created_at,updated_at
+             FROM vendors WHERE company_id=$1 ORDER BY created_at DESC,id DESC LIMIT $2",
+            &[&company,&limit],
         ).await?;
         Ok(rows.into_iter().map(|r| serde_json::json!({
-            "id":r.get::<_,Uuid>(0),"name":r.get::<_,String>(1),"currency":r.get::<_,String>(2),
-            "limit_minor":r.get::<_,String>(3),"spent_minor":r.get::<_,String>(4),"active":r.get::<_,bool>(5)
+            "id":r.get::<_,Uuid>(0),"legal_name":r.get::<_,String>(1),
+            "contact_email":r.get::<_,Option<String>>(2),"currency":r.get::<_,String>(3),
+            "tax_ref":r.get::<_,Option<String>>(4),"status":r.get::<_,String>(5),
+            "created_at":r.get::<_,time::OffsetDateTime>(6).to_string(),
+            "updated_at":r.get::<_,time::OffsetDateTime>(7).to_string()
         })).collect())
     }
 
-    pub async fn record_budget_spend(
-        &self, company_id:&str, budget_id:&str, amount_minor:i128, currency:&str, idempotency_key:&str
+    pub async fn create_purchase_request(
+        &self,
+        company_id: &str,
+        request_id: Uuid,
+        vendor_id: Uuid,
+        title: &str,
+        currency: &str,
+        amount_minor: i128,
+        requester: &str,
+        idempotency_key: &str,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let company=Uuid::parse_str(company_id)?;
-        let budget=Uuid::parse_str(budget_id)?;
-        let currency=currency.trim().to_uppercase();
-        if amount_minor<=0 || currency.len()!=3 || idempotency_key.trim().is_empty() { return Err("invalid budget spend".into()); }
-        let mut client=self.client.lock().await;
-        let tx=client.transaction().await?;
-        let row=tx.query_opt(
-            "SELECT currency,limit_minor::text,spent_minor::text,active FROM budgets
-             WHERE company_id=$1 AND id=$2 FOR UPDATE",
-            &[&company,&budget]
-        ).await?.ok_or("budget not found")?;
-        let budget_currency:String=row.get(0);
-        if budget_currency!=currency { return Err("budget currency mismatch".into()); }
-        if !row.get::<_,bool>(3) { return Err("budget is inactive".into()); }
-        let limit=parse_i128_numeric(&row.get::<_,String>(1))?;
-        let spent=parse_i128_numeric(&row.get::<_,String>(2))?;
-        let next=spent.checked_add(amount_minor).ok_or("budget spend overflow")?;
-        if next>limit { return Err("budget limit exceeded".into()); }
-        let event_id=tx.query_opt(
-            "SELECT response_json FROM idempotency_keys WHERE company_id=$1 AND key=$2 FOR UPDATE",
-            &[&company,&idempotency_key]
-        ).await?;
-        if let Some(r)=event_id {
-            let status:String=tx.query_one(
-                "SELECT status FROM idempotency_keys WHERE company_id=$1 AND key=$2",
-                &[&company,&idempotency_key]).await?.get(0);
-            if status=="SUCCEEDED" { return Ok(r.get::<_,Option<serde_json::Value>>(0).unwrap_or_default()); }
-            return Err("budget spend idempotency key already used".into());
+        let company = Uuid::parse_str(company_id)?;
+        let currency = currency.trim().to_uppercase();
+        if title.trim().is_empty() || requester.trim().is_empty() || amount_minor <= 0
+            || currency.len() != 3 || idempotency_key.trim().is_empty() {
+            return Err("invalid purchase request".into());
         }
-        let response=serde_json::json!({"budget_id":budget,"amount_minor":amount_minor,"currency":currency,"spent_minor":next,"remaining_minor":limit-next});
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let vendor = tx.query_opt(
+            "SELECT currency,status FROM vendors WHERE company_id=$1 AND id=$2 FOR UPDATE",
+            &[&company,&vendor_id],
+        ).await?.ok_or("vendor not found")?;
+        let vendor_currency: String = vendor.get(0);
+        let vendor_status: String = vendor.get(1);
+        if vendor_currency != currency { return Err("purchase currency does not match vendor".into()); }
+        if !matches!(vendor_status.as_str(),"PROSPECT"|"ACTIVE") { return Err("vendor is not purchasable".into()); }
+        let row = tx.query_opt(
+            "INSERT INTO purchase_requests
+             (id,company_id,vendor_id,title,currency,amount_minor,requester,status,idempotency_key)
+             VALUES ($1,$2,$3,$4,$5,$6::numeric,$7,'PENDING_APPROVAL',$8)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING
+             RETURNING id,status",
+            &[&request_id,&company,&vendor_id,&title,&currency,&amount_minor.to_string(),&requester,&idempotency_key],
+        ).await?;
+        let row = match row {
+            Some(row) => row,
+            None => tx.query_one(
+                "SELECT id,status FROM purchase_requests WHERE company_id=$1 AND idempotency_key=$2",
+                &[&company,&idempotency_key],
+            ).await?,
+        };
+        tx.commit().await?;
+        Ok(serde_json::json!({"id":row.get::<_,Uuid>(0),"status":row.get::<_,String>(1)}))
+    }
+
+    pub async fn approve_purchase_request(
+        &self,
+        company_id: &str,
+        request_id: &str,
+        approved_by: &str,
+        approval_reference: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let request = Uuid::parse_str(request_id)?;
+        if approved_by.trim().is_empty() || approval_reference.trim().is_empty() {
+            return Err("approval identity and reference are required".into());
+        }
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let row = tx.query_opt(
+            "SELECT status FROM purchase_requests WHERE company_id=$1 AND id=$2 FOR UPDATE",
+            &[&company,&request],
+        ).await?.ok_or("purchase request not found")?;
+        let status: String = row.get(0);
+        if status != "PENDING_APPROVAL" { return Err("purchase request is not pending approval".into()); }
         tx.execute(
-            "INSERT INTO idempotency_keys(company_id,key,command_type,status,response_json)
-             VALUES($1,$2,'budget_spend','SUCCEEDED',$3)",
-            &[&company,&idempotency_key,&response]
+            "UPDATE purchase_requests SET status='APPROVED',approved_by=$3,approval_reference=$4,updated_at=now()
+             WHERE company_id=$1 AND id=$2",
+            &[&company,&request,&approved_by,&approval_reference],
         ).await?;
         tx.execute(
-            "UPDATE budgets SET spent_minor=$3::numeric WHERE company_id=$1 AND id=$2",
-            &[&company,&budget,&next.to_string()]
-        ).await?;
-        tx.execute(
-            "INSERT INTO audit_log(company_id,actor_type,actor_id,action,resource_type,resource_id,decision,metadata)
-             VALUES($1,'CONTROL_PLANE','budget-spend','RECORD_SPEND','BUDGET',$2,'ALLOWED',$3)",
-            &[&company,&budget,&response]
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'PURCHASE_REQUEST_APPROVED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[&company,&request,&format!("outbox:purchase-approved:{}",request),
+              &serde_json::json!({"purchase_request_id":request,"approved_by":approved_by,"approval_reference":approval_reference})],
         ).await?;
         tx.commit().await?;
-        Ok(response)
+        Ok(())
     }
 
-    pub async fn create_financial_forecast(
-        &self, company_id:&str, forecast_id:Uuid, name:&str, currency:&str,
-        horizon_months:i32, methodology:&str, idempotency_key:&str
-    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let company=Uuid::parse_str(company_id)?;
-        let currency=currency.trim().to_uppercase();
-        if name.trim().is_empty() || currency.len()!=3 || !(1..=60).contains(&horizon_months)
-            || methodology.trim().is_empty() || idempotency_key.trim().is_empty() {
-            return Err("invalid financial forecast".into());
-        }
-        let client=self.client.lock().await;
-        let row=client.query_opt(
-            "INSERT INTO financial_forecasts(id,company_id,name,currency,horizon_months,methodology,status,idempotency_key)
-             VALUES($1,$2,$3,$4,$5,$6,'DRAFT',$7)
-             ON CONFLICT(company_id,idempotency_key) DO NOTHING
-             RETURNING id,name,currency,horizon_months,methodology,status",
-            &[&forecast_id,&company,&name,&currency,&horizon_months,&methodology,&idempotency_key]
+    pub async fn record_vendor_delivery(
+        &self,
+        company_id: &str,
+        delivery_id: Uuid,
+        purchase_request_id: &str,
+        external_ref: Option<&str>,
+        received_at_epoch: i64,
+        evidence_hash: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let request = Uuid::parse_str(purchase_request_id)?;
+        if received_at_epoch <= 0 || evidence_hash.trim().is_empty() { return Err("delivery evidence is incomplete".into()); }
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let row = tx.query_opt(
+            "SELECT status FROM purchase_requests WHERE company_id=$1 AND id=$2 FOR UPDATE",
+            &[&company,&request],
+        ).await?.ok_or("purchase request not found")?;
+        let status: String = row.get(0);
+        if !matches!(status.as_str(),"APPROVED"|"ORDERED") { return Err("purchase request is not receivable".into()); }
+        tx.execute(
+            "INSERT INTO vendor_deliveries
+             (id,company_id,purchase_request_id,external_ref,received_at_epoch,evidence_hash,status)
+             VALUES ($1,$2,$3,$4,$5,$6,'ACCEPTED')",
+            &[&delivery_id,&company,&request,&external_ref,&received_at_epoch,&evidence_hash],
         ).await?;
-        let row=match row {
-            Some(r)=>r,
-            None=>client.query_one(
-                "SELECT id,name,currency,horizon_months,methodology,status FROM financial_forecasts
-                 WHERE company_id=$1 AND idempotency_key=$2",&[&company,&idempotency_key]).await?
-        };
-        Ok(serde_json::json!({
-            "id":row.get::<_,Uuid>(0),"name":row.get::<_,String>(1),"currency":row.get::<_,String>(2),
-            "horizon_months":row.get::<_,i32>(3),"methodology":row.get::<_,String>(4),"status":row.get::<_,String>(5)
-        }))
-    }
-
-    pub async fn record_financial_forecast_period(
-        &self, company_id:&str, forecast_id:&str, period_start_epoch:i64,
-        revenue_minor:i128, operating_inflow_minor:i128, operating_outflow_minor:i128,
-        capex_minor:i128, financing_inflow_minor:i128, financing_outflow_minor:i128,
-        notes:Option<&str>
-    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let company=Uuid::parse_str(company_id)?; let forecast=Uuid::parse_str(forecast_id)?;
-        if period_start_epoch<=0 || [revenue_minor,operating_inflow_minor,operating_outflow_minor,capex_minor,financing_inflow_minor,financing_outflow_minor].iter().any(|v|*v<0) {
-            return Err("invalid forecast period".into());
-        }
-        let client=self.client.lock().await;
-        let row=client.query_one(
-            "INSERT INTO financial_forecast_periods
-             (id,forecast_id,period_start_epoch,revenue_minor,operating_inflow_minor,operating_outflow_minor,capex_minor,financing_inflow_minor,financing_outflow_minor,notes)
-             SELECT $1,$2,$3,$4::numeric,$5::numeric,$6::numeric,$7::numeric,$8::numeric,$9::numeric,$10
-             WHERE EXISTS (SELECT 1 FROM financial_forecasts WHERE id=$2 AND company_id=$11)
-             ON CONFLICT(forecast_id,period_start_epoch) DO UPDATE SET
-               revenue_minor=EXCLUDED.revenue_minor,operating_inflow_minor=EXCLUDED.operating_inflow_minor,
-               operating_outflow_minor=EXCLUDED.operating_outflow_minor,capex_minor=EXCLUDED.capex_minor,
-               financing_inflow_minor=EXCLUDED.financing_inflow_minor,financing_outflow_minor=EXCLUDED.financing_outflow_minor,
-               notes=EXCLUDED.notes
-             RETURNING id,period_start_epoch",
-            &[&Uuid::new_v4(),&forecast,&period_start_epoch,&revenue_minor.to_string(),&operating_inflow_minor.to_string(),
-              &operating_outflow_minor.to_string(),&capex_minor.to_string(),&financing_inflow_minor.to_string(),
-              &financing_outflow_minor.to_string(),&notes,&company]
-        ).await.map_err(|e| format!("forecast period rejected: {e}"))?;
-        Ok(serde_json::json!({"id":row.get::<_,Uuid>(0),"period_start_epoch":row.get::<_,i64>(1)}))
-    }
-
-    pub async fn forecast_cashflow_summary(
-        &self, company_id:&str, forecast_id:&str
-    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let company=Uuid::parse_str(company_id)?; let forecast=Uuid::parse_str(forecast_id)?;
-        let client=self.client.lock().await;
-        let row=client.query_opt(
-            "SELECT f.currency, COUNT(p.id),
-                    COALESCE(SUM(p.operating_inflow_minor+p.financing_inflow_minor),0)::text,
-                    COALESCE(SUM(p.operating_outflow_minor+p.capex_minor+p.financing_outflow_minor),0)::text
-             FROM financial_forecasts f
-             LEFT JOIN financial_forecast_periods p ON p.forecast_id=f.id
-             WHERE f.id=$1 AND f.company_id=$2 GROUP BY f.currency",
-            &[&forecast,&company]
-        ).await?.ok_or("forecast not found")?;
-        let inflow=parse_i128_numeric(&row.get::<_,String>(2))?;
-        let outflow=parse_i128_numeric(&row.get::<_,String>(3))?;
-        Ok(serde_json::json!({
-            "currency":row.get::<_,String>(0),"period_count":row.get::<_,i64>(1),
-            "total_inflow_minor":inflow,"total_outflow_minor":outflow,
-            "net_cashflow_minor":inflow-outflow
-        }))
-    }
-
-    pub async fn record_cashflow_observation(
-        &self, company_id:&str, observation_id:Uuid, period_start_epoch:i64,
-        currency:&str, inflow_minor:i128, outflow_minor:i128, closing_cash_minor:i128,
-        source:&str, evidence_hash:&str, idempotency_key:&str
-    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let company=Uuid::parse_str(company_id)?; let currency=currency.trim().to_uppercase();
-        if period_start_epoch<=0 || currency.len()!=3 || inflow_minor<0 || outflow_minor<0
-            || closing_cash_minor<0 || source.trim().is_empty() || evidence_hash.trim().is_empty()
-            || idempotency_key.trim().is_empty() { return Err("invalid cashflow observation".into()); }
-        let client=self.client.lock().await;
-        let row=client.query_opt(
-            "INSERT INTO cashflow_observations
-             (id,company_id,period_start_epoch,currency,inflow_minor,outflow_minor,closing_cash_minor,source,evidence_hash,idempotency_key)
-             VALUES($1,$2,$3,$4,$5::numeric,$6::numeric,$7::numeric,$8,$9,$10)
-             ON CONFLICT(company_id,idempotency_key) DO NOTHING
-             RETURNING id,period_start_epoch,closing_cash_minor::text",
-            &[&observation_id,&company,&period_start_epoch,&currency,&inflow_minor.to_string(),&outflow_minor.to_string(),
-              &closing_cash_minor.to_string(),&source,&evidence_hash,&idempotency_key]
+        tx.execute(
+            "UPDATE purchase_requests SET status='RECEIVED',updated_at=now()
+             WHERE company_id=$1 AND id=$2",
+            &[&company,&request],
         ).await?;
-        let row=match row {
-            Some(r)=>r,
-            None=>client.query_one(
-                "SELECT id,period_start_epoch,closing_cash_minor::text FROM cashflow_observations
-                 WHERE company_id=$1 AND idempotency_key=$2",&[&company,&idempotency_key]).await?
-        };
-        Ok(serde_json::json!({
-            "id":row.get::<_,Uuid>(0),"period_start_epoch":row.get::<_,i64>(1),
-            "closing_cash_minor":parse_i128_numeric(&row.get::<_,String>(2))?
-        }))
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'VENDOR_DELIVERY_RECORDED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[&company,&request,&format!("outbox:vendor-delivery:{}:{}",request,evidence_hash),
+              &serde_json::json!({"purchase_request_id":request,"delivery_id":delivery_id,"evidence_hash":evidence_hash})],
+        ).await?;
+        tx.commit().await?;
+        Ok(())
     }
 
+}
+
+async fn load_growth_trend(
+    tx: &tokio_postgres::Transaction<'_>,
+    company_id: &Uuid,
+    trend_key: &str,
+) -> Result<Option<GrowthTrendRecord>, Box<dyn std::error::Error + Send + Sync>> {
+    let row = tx.query_opt(
+        "SELECT id,company_id,trend_key,topic,source,evidence_ref,observed_at_epoch,
+                velocity_bps,audience_fit_bps,product_fit_bps,contentability_bps,competition_bps,
+                confidence_bps,product_ref,offer_ref,content_format,max_budget_minor::text,max_loss_minor::text,
+                max_duration_seconds,success_metric,success_threshold_bps,policy_evidence_ref,
+                score_bps,decision,created_at::text
+           FROM growth_trends
+          WHERE company_id=$1 AND trend_key=$2",
+        &[company_id, &trend_key],
+    ).await?;
+    row.map(growth_trend_from_row).transpose()
+}
+
+async fn load_growth_opportunity_by_trend(
+    tx: &tokio_postgres::Transaction<'_>,
+    company_id: &Uuid,
+    trend_id: Uuid,
+) -> Result<Option<GrowthOpportunityRecord>, Box<dyn std::error::Error + Send + Sync>> {
+    let row = tx.query_opt(
+        "SELECT o.id,o.company_id,o.trend_id,o.opportunity_key,o.title,o.score_bps,o.confidence_bps,
+                o.policy_evidence_ref,o.plan_json,o.status,o.content_item_id,o.content_created_at_epoch,
+                CASE WHEN o.content_created_at_epoch IS NULL THEN NULL
+                     ELSE GREATEST(o.content_created_at_epoch - t.observed_at_epoch, 0) END AS ttfc_seconds,
+                o.created_at::text
+           FROM growth_opportunities o
+          JOIN growth_trends t ON t.id=o.trend_id AND t.company_id=o.company_id
+          WHERE o.company_id=$1 AND o.trend_id=$2",
+        &[company_id, &trend_id],
+    ).await?;
+    row.map(growth_opportunity_from_row).transpose()
+}
+
+fn growth_trend_from_row(
+    row: tokio_postgres::Row,
+) -> Result<GrowthTrendRecord, Box<dyn std::error::Error + Send + Sync>> {
+    let decision = match row.get::<_, String>(23).as_str() {
+        "PURSUE" => company_growth::TrendDecision::Pursue,
+        "MONITOR" => company_growth::TrendDecision::Monitor,
+        "REJECT" => company_growth::TrendDecision::Reject,
+        other => return Err(format!("invalid growth trend decision: {other}").into()),
+    };
+    let signal = company_growth::TrendSignal {
+        company_id: row.get(1),
+        trend_key: row.get(2),
+        topic: row.get(3),
+        source: row.get(4),
+        evidence_ref: row.get(5),
+        observed_at_epoch: row.get(6),
+        velocity_bps: row.get::<_, i32>(7) as u32,
+        audience_fit_bps: row.get::<_, i32>(8) as u32,
+        product_fit_bps: row.get::<_, i32>(9) as u32,
+        contentability_bps: row.get::<_, i32>(10) as u32,
+        competition_bps: row.get::<_, i32>(11) as u32,
+        confidence_bps: row.get::<_, i32>(12) as u32,
+        product_ref: row.get(13),
+        offer_ref: row.get(14),
+        content_format: parse_content_format(row.get::<_, String>(15))?,
+        max_budget_minor: row.get::<_, String>(16).parse()?,
+        max_loss_minor: row.get::<_, String>(17).parse()?,
+        max_duration_seconds: row.get::<_, i64>(18) as u32,
+        success_metric: parse_success_metric(row.get::<_, String>(19))?,
+        success_threshold_bps: row.get::<_, i32>(20) as u32,
+        policy_evidence_ref: row.get(21),
+    };
+    company_growth::validate_trend(&signal).map_err(|error| error.to_string())?;
+    Ok(GrowthTrendRecord {
+        id: row.get(0),
+        signal,
+        score_bps: row.get::<_, i32>(22) as u32,
+        decision,
+        created_at: row.get(24),
+    })
+}
+
+async fn load_safety_controls_for_tx(
+    tx: &tokio_postgres::Transaction<'_>,
+    company: Uuid,
+) -> Result<company_safety_controls::SafetyControls, Box<dyn std::error::Error + Send + Sync>> {
+    let row = tx
+        .query_one(
+            "SELECT emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
+                    emergency_stop_changed_at_epoch, content_publish_daily::text,
+                    ads_spend_daily_minor::text, live_minutes_daily::text,
+                    outbound_messages_daily::text, autonomous_capital_daily_minor::text,
+                    updated_at_epoch, updated_at::text
+               FROM autonomy_control_state
+              WHERE company_id=$1
+              FOR SHARE",
+            &[&company],
+        )
+        .await?;
+    safety_controls_from_row(&row, company)
+}
+
+fn safety_controls_from_row(
+    row: &tokio_postgres::Row,
+    company: Uuid,
+) -> Result<company_safety_controls::SafetyControls, Box<dyn std::error::Error + Send + Sync>> {
+    let controls = company_safety_controls::SafetyControls {
+        company_id: company,
+        emergency_stop: company_safety_controls::EmergencyStop {
+            enabled: row.get(0),
+            reason: row.get(1),
+            actor: row.get(2),
+            changed_at_epoch: row.get(3),
+        },
+        budgets: company_safety_controls::AutonomyBudgets {
+            content_publish_daily: parse_i128_numeric(&row.get::<_, String>(4))?,
+            ads_spend_daily_minor: parse_i128_numeric(&row.get::<_, String>(5))?,
+            live_minutes_daily: parse_i128_numeric(&row.get::<_, String>(6))?,
+            outbound_messages_daily: parse_i128_numeric(&row.get::<_, String>(7))?,
+            autonomous_capital_daily_minor: parse_i128_numeric(&row.get::<_, String>(8))?,
+        },
+        updated_at_epoch: row.get(9),
+    };
+    controls
+        .validate()
+        .map_err(|error| error.to_string())?;
+    Ok(controls)
+}
+
+fn tiktok_connection_from_row(
+    company_id: Uuid,
+    row: &tokio_postgres::Row,
+) -> Result<TikTokConnectionRecord, Box<dyn std::error::Error + Send + Sync>> {
+    let access_expires = row
+        .get::<_, Option<i64>>(3)
+        .ok_or("TikTok access token expiry is unavailable")?;
+    let refresh_expires = row
+        .get::<_, Option<i64>>(4)
+        .ok_or("TikTok refresh token expiry is unavailable")?;
+    let status: String = row.get(5);
+    if !matches!(status.as_str(), "ACTIVE" | "REVOKED" | "REAUTH_REQUIRED") {
+        return Err("invalid stored TikTok OAuth status".into());
+    }
+    Ok(TikTokConnectionRecord {
+        company_id,
+        open_id: row.get(0),
+        scopes: row.get(1),
+        token_type: row.get(2),
+        access_token_expires_at_epoch: access_expires,
+        refresh_token_expires_at_epoch: refresh_expires,
+        status,
+        last_error: row.get(6),
+        updated_at: row.get(7),
+    })
+}
+
+fn growth_opportunity_from_row(
+    row: tokio_postgres::Row,
+) -> Result<GrowthOpportunityRecord, Box<dyn std::error::Error + Send + Sync>> {
+    let id: Uuid = row.get(0);
+    let company_id: Uuid = row.get(1);
+    let trend_id: Uuid = row.get(2);
+    let plan: company_growth::ContentPlan = serde_json::from_value(row.get(8))?;
+    let opportunity = company_growth::Opportunity {
+        id,
+        company_id,
+        trend_id,
+        opportunity_key: row.get(3),
+        title: row.get(4),
+        score_bps: row.get::<_, i32>(5) as u32,
+        confidence_bps: row.get::<_, i32>(6) as u32,
+        policy_evidence_ref: row.get(7),
+        plan,
+    };
+    let status = match row.get::<_, String>(9).as_str() {
+        "READY" => company_growth::OpportunityStatus::Ready,
+        "CONTENT_CREATED" => company_growth::OpportunityStatus::ContentCreated,
+        other => return Err(format!("invalid growth opportunity status: {other}").into()),
+    };
+    Ok(GrowthOpportunityRecord {
+        opportunity,
+        status,
+        content_item_id: row.get(10),
+        content_created_at_epoch: row.get(11),
+        ttfc_seconds: row.get(12),
+        created_at: row.get(13),
+    })
+}
+
+async fn content_observation_by_key(
+    client: &tokio_postgres::Client,
+    company_id: &Uuid,
+    observation_key: &str,
+) -> Result<ContentObservationRecord, Box<dyn std::error::Error + Send + Sync>> {
+    let row = client.query_one(
+        "SELECT id,content_id,source,evidence_hash,observed_at_epoch,sample_count,
+                spend_minor::text,metric_bps,views,clicks,conversions,commission_minor::text,
+                contribution_margin_minor::text,decision,created_at::text
+           FROM content_observations
+          WHERE company_id=$1 AND observation_key=$2",
+        &[company_id, &observation_key],
+    ).await?;
+    let decision = parse_content_decision(Some(row.get::<_, String>(13)))?
+        .ok_or("content observation decision is missing")?;
+    Ok(ContentObservationRecord {
+        id: row.get(0),
+        observation: company_content::ContentObservation {
+            observation_key: observation_key.to_string(),
+            content_id: row.get(1),
+            company_id: *company_id,
+            source: row.get(2),
+            evidence_hash: row.get(3),
+            observed_at_epoch: row.get(4),
+            sample_count: row.get::<_, i64>(5) as u64,
+            spend_minor: row.get::<_, String>(6).parse()?,
+            metric_bps: row.get::<_, i32>(7) as u32,
+            views: row.get::<_, i64>(8) as u64,
+            clicks: row.get::<_, i64>(9) as u64,
+            conversions: row.get::<_, i64>(10) as u64,
+            commission_minor: row.get::<_, String>(11).parse()?,
+            contribution_margin_minor: row.get::<_, String>(12).parse()?,
+        },
+        decision,
+        created_at: row.get(14),
+    })
+}
+
+fn live_attention_learning_entry(
+    event: &tiktok_live_engine::LiveEvent,
+    decision: &company_live_attention::AttentionDecision,
+) -> Option<company_learning::LearningEntry> {
+    let material = decision.action == company_live_attention::AttentionAction::Escalate
+        || (decision.action == company_live_attention::AttentionAction::Respond
+            && decision.priority >= 90);
+    if !material {
+        return None;
+    }
+
+    let (kind, severity, learning_decision, root_cause, corrective_action, reusable_rule) =
+        match decision.action {
+            company_live_attention::AttentionAction::Escalate => (
+                company_learning::LearningKind::NearMiss,
+                company_learning::FailureSeverity::High,
+                company_learning::LearningDecision::Escalate,
+                "The deterministic LIVE attention policy flagged a safety signal and required human handling.",
+                "Route the event to the governed human escalation path before any external response.",
+                "Safety-signaled LIVE events must remain human-gated; automated engagement is not validated handling.",
+            ),
+            company_live_attention::AttentionAction::Respond => (
+                company_learning::LearningKind::Learning,
+                company_learning::FailureSeverity::None,
+                company_learning::LearningDecision::Adjust,
+                "The deterministic LIVE attention policy classified the event as a high-priority engagement signal.",
+                "Use the governed response path and collect verified downstream outcome evidence before reuse.",
+                "High-priority LIVE classifications are candidates for later evaluation, not proof of response effectiveness.",
+            ),
+            _ => return None,
+        };
+
+    let event_kind = format!("{:?}", event.kind).to_ascii_uppercase();
+    let viewer_value = event
+        .viewer_value_bps
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "NONE".into());
+
+    Some(company_learning::LearningEntry {
+        entry_key: format!(
+            "live:{}:{}:learning",
+            decision.session_id, decision.event_id
+        ),
+        source_type: "LIVE_ATTENTION_DECISION".into(),
+        source_id: format!("{}:{}", decision.session_id, decision.event_id),
+        kind,
+        severity,
+        hypothesis: "LIVE attention policy identifies material engagement or safety signals.".into(),
+        context: format!(
+            "event_kind={} action={:?} reason={:?} priority={} requires_human={} viewer_value_bps={} room_id={}",
+            event_kind,
+            decision.action,
+            decision.reason,
+            decision.priority,
+            decision.requires_human,
+            viewer_value,
+            event.room_id
+        ),
+        expected_outcome: "Material LIVE attention signals are handled through the governed response or human escalation path.".into(),
+        actual_outcome: format!(
+            "action={:?}; reason={:?}; priority={}; requires_human={}; event_id={}; session_id={}; room_id={}; occurred_at_epoch={}; gift_value_minor={}; viewer_value_bps={}",
+            decision.action,
+            decision.reason,
+            decision.priority,
+            decision.requires_human,
+            event.event_id,
+            decision.session_id,
+            event.room_id,
+            event.occurred_at_epoch,
+            event.gift_value_minor,
+            viewer_value
+        ),
+        impact_minor: 0,
+        confidence_bps: (decision.priority as i64) * 100,
+        root_cause: root_cause.into(),
+        corrective_action: corrective_action.into(),
+        reusable_rule: reusable_rule.into(),
+        decision: learning_decision,
+    })
+}
+
+fn content_learning_entry(
+    item: &company_content::ContentItem,
+    observation: &company_content::ContentObservation,
+    decision: company_content::ContentDecision,
+) -> company_learning::LearningEntry {
+    let confidence_bps = (observation.sample_count.min(1_000) * 10) as i64;
+    let (kind, severity, learning_decision, root_cause, corrective_action, reusable_rule) =
+        match decision {
+            company_content::ContentDecision::Scale => (
+                company_learning::LearningKind::Success,
+                company_learning::FailureSeverity::None,
+                company_learning::LearningDecision::Reuse,
+                "Observed content metric met the configured success threshold.",
+                "Reuse only the recorded creative variant with fresh verified evidence.",
+                "A content observation that clears its declared threshold is eligible for follow-up validation.",
+            ),
+            company_content::ContentDecision::Kill => {
+                let cause = if observation.spend_minor > item.brief.max_loss_minor {
+                    "Recorded content spend exceeded the declared maximum loss."
+                } else if matches!(
+                    item.brief.success_metric,
+                    company_content::SuccessMetric::ContributionMargin
+                ) && observation.contribution_margin_minor < 0
+                {
+                    "Recorded contribution margin was negative for a contribution-margin target."
+                } else {
+                    "Recorded content metric did not satisfy the configured guardrails."
+                };
+                (
+                    company_learning::LearningKind::Failure,
+                    company_learning::FailureSeverity::Medium,
+                    company_learning::LearningDecision::Stop,
+                    cause,
+                    "Stop the current creative treatment and revise before another measured run.",
+                    "Do not reuse a killed creative treatment under unchanged evidence conditions.",
+                )
+            }
+            company_content::ContentDecision::Iterate => (
+                company_learning::LearningKind::Learning,
+                company_learning::FailureSeverity::None,
+                company_learning::LearningDecision::Adjust,
+                "Recorded content metric was below the configured success threshold without breaching the loss guardrail.",
+                "Revise the creative treatment and collect new verified observations.",
+                "A below-threshold content observation requires iteration before reuse.",
+            ),
+            company_content::ContentDecision::Pause => (
+                company_learning::LearningKind::Learning,
+                company_learning::FailureSeverity::None,
+                company_learning::LearningDecision::Retest,
+                "Content was explicitly paused and does not constitute validated success.",
+                "Retest after a revised hypothesis or evidence plan.",
+                "Paused content should not be treated as validated learning.",
+            ),
+        };
+
+    let metric_name = match item.brief.success_metric {
+        company_content::SuccessMetric::Views => "VIEWS",
+        company_content::SuccessMetric::ClickThroughRate => "CLICK_THROUGH_RATE",
+        company_content::SuccessMetric::ConversionRate => "CONVERSION_RATE",
+        company_content::SuccessMetric::Commission => "COMMISSION",
+        company_content::SuccessMetric::ContributionMargin => "CONTRIBUTION_MARGIN",
+    };
+
+    company_learning::LearningEntry {
+        entry_key: format!("content:{}:learning:{}", observation.content_id, observation.observation_key),
+        source_type: "CONTENT_OBSERVATION".into(),
+        source_id: observation.content_id.to_string(),
+        kind,
+        severity,
+        hypothesis: item.brief.hypothesis.clone(),
+        context: format!(
+            "audience={} variant={} success_metric={} success_threshold_bps={}",
+            item.brief.audience,
+            item.variant.variant_key,
+            metric_name,
+            item.brief.success_threshold_bps
+        ),
+        expected_outcome: format!(
+            "{} metric reaches at least {} bps.",
+            metric_name,
+            item.brief.success_threshold_bps
+        ),
+        actual_outcome: format!(
+            "decision={:?}; metric_bps={}; sample_count={}; views={}; clicks={}; conversions={}; commission_minor={}; contribution_margin_minor={}; spend_minor={}; source={}; evidence_hash={}; observed_at_epoch={}; observation_key={}",
+            decision,
+            observation.metric_bps,
+            observation.sample_count,
+            observation.views,
+            observation.clicks,
+            observation.conversions,
+            observation.commission_minor,
+            observation.contribution_margin_minor,
+            observation.spend_minor,
+            observation.source,
+            observation.evidence_hash,
+            observation.observed_at_epoch,
+            observation.observation_key
+        ),
+        impact_minor: observation.contribution_margin_minor,
+        confidence_bps,
+        root_cause: root_cause.into(),
+        corrective_action: corrective_action.into(),
+        reusable_rule: reusable_rule.into(),
+        decision: learning_decision,
+    }
+}
+
+fn experiment_learning_entry(
+    experiment_id: Uuid,
+    spec: &company_experiments::ExperimentSpec,
+    observation: &company_experiments::ExperimentObservation,
+    decision: company_experiments::ExperimentDecision,
+    observation_key: &str,
+) -> company_learning::LearningEntry {
+    let min_observations = observation
+        .control_observations
+        .min(observation.treatment_observations);
+    let required_observations = spec.min_observations.max(1);
+    let confidence_bps =
+        ((min_observations.min(required_observations) as u128 * 10_000)
+            / required_observations as u128) as i64;
+
+    let (kind, severity, learning_decision, root_cause, corrective_action, reusable_rule) =
+        match decision {
+            company_experiments::ExperimentDecision::Succeed => (
+                company_learning::LearningKind::Success,
+                company_learning::FailureSeverity::None,
+                company_learning::LearningDecision::Reuse,
+                "Recorded treatment lift met the configured success threshold.",
+                "Carry the treatment forward only with new verified outcome evidence.",
+                "A treatment that clears the configured success threshold is eligible for follow-up validation.",
+            ),
+            company_experiments::ExperimentDecision::Kill => {
+                let cause = if observation.spend_minor >= spec.max_budget_minor {
+                    "Recorded experiment spend reached the configured maximum budget."
+                } else {
+                    "Recorded treatment lift reached the configured kill boundary."
+                };
+                (
+                    company_learning::LearningKind::Failure,
+                    company_learning::FailureSeverity::Medium,
+                    company_learning::LearningDecision::Stop,
+                    cause,
+                    "Stop the treatment under the current hypothesis and revise before retesting.",
+                    "Do not reuse a killed treatment under the same evidence conditions.",
+                )
+            }
+            company_experiments::ExperimentDecision::Expire => (
+                company_learning::LearningKind::Learning,
+                company_learning::FailureSeverity::None,
+                company_learning::LearningDecision::Retest,
+                "Recorded elapsed time reached the configured duration before a terminal success or kill boundary.",
+                "Retest only with a new evidence plan or revised duration.",
+                "Do not treat an expired experiment as validated; retest with new evidence.",
+            ),
+            company_experiments::ExperimentDecision::Continue => (
+                company_learning::LearningKind::Learning,
+                company_learning::FailureSeverity::None,
+                company_learning::LearningDecision::Adjust,
+                "The recorded observation did not reach a terminal threshold.",
+                "Continue collecting evidence before changing the treatment.",
+                "Do not treat an in-flight experiment as validated learning.",
+            ),
+        };
+
+    company_learning::LearningEntry {
+        entry_key: format!("experiment:{}:learning:{}", experiment_id, observation_key),
+        source_type: "EXPERIMENT_DECISION".into(),
+        source_id: experiment_id.to_string(),
+        kind,
+        severity,
+        hypothesis: spec.hypothesis.clone(),
+        context: format!(
+            "control={} treatment={} success_threshold_bps={} kill_threshold_bps={}",
+            spec.control, spec.treatment, spec.success_metric_bps, spec.kill_metric_bps
+        ),
+        expected_outcome: format!(
+            "Treatment lift reaches at least {} bps above control.",
+            spec.success_metric_bps
+        ),
+        actual_outcome: format!(
+            "decision={:?}; control_observations={}; treatment_observations={}; control_metric_bps={}; treatment_metric_bps={}; spend_minor={}; elapsed_seconds={}; observation_key={}",
+            decision,
+            observation.control_observations,
+            observation.treatment_observations,
+            observation.control_metric_bps,
+            observation.treatment_metric_bps,
+            observation.spend_minor,
+            observation.elapsed_seconds,
+            observation_key
+        ),
+        impact_minor: -observation.spend_minor,
+        confidence_bps,
+        root_cause: root_cause.into(),
+        corrective_action: corrective_action.into(),
+        reusable_rule: reusable_rule.into(),
+        decision: learning_decision,
+    }
+}
+
+fn learning_kind_name(value: company_learning::LearningKind) -> &'static str {
+    match value {
+        company_learning::LearningKind::Learning => "LEARNING",
+        company_learning::LearningKind::Failure => "FAILURE",
+        company_learning::LearningKind::NearMiss => "NEAR_MISS",
+        company_learning::LearningKind::Success => "SUCCESS",
+    }
+}
+
+fn failure_severity_name(value: company_learning::FailureSeverity) -> &'static str {
+    match value {
+        company_learning::FailureSeverity::None => "NONE",
+        company_learning::FailureSeverity::Low => "LOW",
+        company_learning::FailureSeverity::Medium => "MEDIUM",
+        company_learning::FailureSeverity::High => "HIGH",
+        company_learning::FailureSeverity::Critical => "CRITICAL",
+    }
+}
+
+fn learning_decision_name(value: company_learning::LearningDecision) -> &'static str {
+    match value {
+        company_learning::LearningDecision::Reuse => "REUSE",
+        company_learning::LearningDecision::Adjust => "ADJUST",
+        company_learning::LearningDecision::Retest => "RETEST",
+        company_learning::LearningDecision::Stop => "STOP",
+        company_learning::LearningDecision::Escalate => "ESCALATE",
+    }
+}
+
+fn content_format_name(value: company_content::ContentFormat) -> &'static str {
+    match value {
+        company_content::ContentFormat::ShortVideo => "SHORT_VIDEO",
+        company_content::ContentFormat::LiveSegment => "LIVE_SEGMENT",
+        company_content::ContentFormat::Story => "STORY",
+        company_content::ContentFormat::Carousel => "CAROUSEL",
+    }
+}
+
+fn success_metric_name(value: company_content::SuccessMetric) -> &'static str {
+    match value {
+        company_content::SuccessMetric::Views => "VIEWS",
+        company_content::SuccessMetric::ClickThroughRate => "CLICK_THROUGH_RATE",
+        company_content::SuccessMetric::ConversionRate => "CONVERSION_RATE",
+        company_content::SuccessMetric::Commission => "COMMISSION",
+        company_content::SuccessMetric::ContributionMargin => "CONTRIBUTION_MARGIN",
+    }
+}
+
+fn content_status_name(value: company_content::ContentStatus) -> &'static str {
+    match value {
+        company_content::ContentStatus::Draft => "DRAFT",
+        company_content::ContentStatus::Approved => "APPROVED",
+        company_content::ContentStatus::Rendered => "RENDERED",
+        company_content::ContentStatus::Published => "PUBLISHED",
+        company_content::ContentStatus::Measured => "MEASURED",
+        company_content::ContentStatus::Paused => "PAUSED",
+        company_content::ContentStatus::Killed => "KILLED",
+    }
+}
+
+fn growth_trend_decision_name(value: company_growth::TrendDecision) -> &'static str {
+    match value {
+        company_growth::TrendDecision::Pursue => "PURSUE",
+        company_growth::TrendDecision::Monitor => "MONITOR",
+        company_growth::TrendDecision::Reject => "REJECT",
+    }
+}
+
+fn content_decision_name(value: company_content::ContentDecision) -> &'static str {
+    match value {
+        company_content::ContentDecision::Scale => "SCALE",
+        company_content::ContentDecision::Iterate => "ITERATE",
+        company_content::ContentDecision::Pause => "PAUSE",
+        company_content::ContentDecision::Kill => "KILL",
+    }
+}
+
+fn parse_content_format(value: &str) -> Result<company_content::ContentFormat, std::io::Error> {
+    match value {
+        "SHORT_VIDEO" => Ok(company_content::ContentFormat::ShortVideo),
+        "LIVE_SEGMENT" => Ok(company_content::ContentFormat::LiveSegment),
+        "STORY" => Ok(company_content::ContentFormat::Story),
+        "CAROUSEL" => Ok(company_content::ContentFormat::Carousel),
+        _ => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("invalid content format: {value}"))),
+    }
+}
+
+fn parse_success_metric(value: &str) -> Result<company_content::SuccessMetric, std::io::Error> {
+    match value {
+        "VIEWS" => Ok(company_content::SuccessMetric::Views),
+        "CLICK_THROUGH_RATE" => Ok(company_content::SuccessMetric::ClickThroughRate),
+        "CONVERSION_RATE" => Ok(company_content::SuccessMetric::ConversionRate),
+        "COMMISSION" => Ok(company_content::SuccessMetric::Commission),
+        "CONTRIBUTION_MARGIN" => Ok(company_content::SuccessMetric::ContributionMargin),
+        _ => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("invalid success metric: {value}"))),
+    }
+}
+
+fn parse_content_status(value: &str) -> Result<company_content::ContentStatus, std::io::Error> {
+    match value {
+        "DRAFT" => Ok(company_content::ContentStatus::Draft),
+        "APPROVED" => Ok(company_content::ContentStatus::Approved),
+        "RENDERED" => Ok(company_content::ContentStatus::Rendered),
+        "PUBLISHED" => Ok(company_content::ContentStatus::Published),
+        "MEASURED" => Ok(company_content::ContentStatus::Measured),
+        "PAUSED" => Ok(company_content::ContentStatus::Paused),
+        "KILLED" => Ok(company_content::ContentStatus::Killed),
+        _ => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("invalid content status: {value}"))),
+    }
+}
+
+fn parse_content_decision(value: Option<String>) -> Result<Option<company_content::ContentDecision>, std::io::Error> {
+    match value.as_deref() {
+        None => Ok(None),
+        Some("SCALE") => Ok(Some(company_content::ContentDecision::Scale)),
+        Some("ITERATE") => Ok(Some(company_content::ContentDecision::Iterate)),
+        Some("PAUSE") => Ok(Some(company_content::ContentDecision::Pause)),
+        Some("KILL") => Ok(Some(company_content::ContentDecision::Kill)),
+        Some(other) => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("invalid content decision: {other}"))),
+    }
+}
+
+fn parse_rfc3339_epoch(value: &str) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+    Ok(time::OffsetDateTime::parse(
+        value,
+        &time::format_description::well_known::Rfc3339,
+    )
+    .map_err(|error| format!("invalid RFC3339 timestamp: {error}"))?
+    .unix_timestamp())
+}
+
+fn hashed_graph_ref(prefix: &str, value: &str) -> String {
+    let digest = Sha256::digest(value.as_bytes());
+    format!(
+        "{}:sha256:{}",
+        prefix,
+        digest
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    )
+}
+
+fn graph_source(value: &str) -> Result<&str, Box<dyn std::error::Error + Send + Sync>> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok("affiliate");
+    }
+    if value.len() > 256 {
+        return Err("revenue graph source exceeds 256 bytes".into());
+    }
+    Ok(value)
+}
+
+fn new_graph_edge(
+    company_id: Uuid,
+    from_type: company_revenue_graph::RevenueNodeType,
+    from_ref: &str,
+    relation: &str,
+    to_type: company_revenue_graph::RevenueNodeType,
+    to_ref: &str,
+    value_minor: Option<i128>,
+    currency: Option<&str>,
+    confidence_bps: u32,
+    evidence_ref: &str,
+    source: &str,
+    observed_at_epoch: i64,
+) -> company_revenue_graph::RevenueGraphEdge {
+    let edge_key = company_revenue_graph::build_edge_key(
+        from_type,
+        from_ref,
+        relation,
+        to_type,
+        to_ref,
+    );
+    company_revenue_graph::RevenueGraphEdge {
+        id: company_revenue_graph::RevenueGraphEdge::deterministic_id(company_id, &edge_key),
+        company_id,
+        edge_key,
+        from_type,
+        from_ref: from_ref.trim().to_owned(),
+        relation: relation.trim().to_owned(),
+        to_type,
+        to_ref: to_ref.trim().to_owned(),
+        value_minor,
+        currency: currency.map(|value| value.trim().to_ascii_uppercase()),
+        confidence_bps,
+        evidence_ref: evidence_ref.trim().to_owned(),
+        source: source.trim().to_owned(),
+        observed_at_epoch,
+    }
+}
+
+async fn record_revenue_graph_edge_tx(
+    tx: &Transaction<'_>,
+    edge: &company_revenue_graph::RevenueGraphEdge,
+) -> Result<company_revenue_graph::RevenueGraphEdge, Box<dyn std::error::Error + Send + Sync>> {
+    company_revenue_graph::validate_edge(edge).map_err(|error| error.to_string())?;
+
+    if let Some(row) = tx
+        .query_opt(
+            "SELECT id,company_id,edge_key,from_type,from_ref,relation,to_type,to_ref,
+                    value_minor::text,currency,confidence_bps,evidence_ref,source,
+                    observed_at_epoch,created_at::text
+               FROM revenue_graph_edges
+              WHERE company_id=$1 AND edge_key=$2
+              FOR UPDATE",
+            &[&edge.company_id, &edge.edge_key],
+        )
+        .await?
+    {
+        let stored = revenue_graph_edge_from_row(row)?;
+        if stored != *edge {
+            return Err("revenue graph edge key already exists with different evidence".into());
+        }
+        return Ok(stored);
+    }
+
+    let id = company_revenue_graph::RevenueGraphEdge::deterministic_id(
+        edge.company_id,
+        &edge.edge_key,
+    );
+    if id != edge.id {
+        return Err("revenue graph edge id must be deterministic from company and edge key".into());
+    }
+
+    tx.execute(
+        "INSERT INTO revenue_graph_edges
+         (id,company_id,edge_key,from_type,from_ref,relation,to_type,to_ref,
+          value_minor,currency,confidence_bps,evidence_ref,source,observed_at_epoch)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::numeric,$10,$11,$12,$13,$14)",
+        &[
+            &edge.id,
+            &edge.company_id,
+            &edge.edge_key,
+            &edge.from_type.as_str(),
+            &edge.from_ref,
+            &edge.relation,
+            &edge.to_type.as_str(),
+            &edge.to_ref,
+            &edge.value_minor.map(|value| value.to_string()),
+            &edge.currency,
+            &(edge.confidence_bps as i32),
+            &edge.evidence_ref,
+            &edge.source,
+            &edge.observed_at_epoch,
+        ],
+    )
+    .await?;
+
+    tx.execute(
+        "INSERT INTO outbox_events
+         (company_id,event_type,aggregate_id,idempotency_key,payload)
+         VALUES ($1,'REVENUE_GRAPH_EDGE_RECORDED',$2,$3,$4)
+         ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+        &[
+            &edge.company_id,
+            &edge.id,
+            &format!("outbox:revenue-graph:{}", edge.edge_key),
+            &serde_json::to_value(edge)?,
+        ],
+    )
+    .await?;
+
+    Ok(edge.clone())
+}
+
+fn revenue_graph_edge_from_row(
+    row: tokio_postgres::Row,
+) -> Result<company_revenue_graph::RevenueGraphEdge, Box<dyn std::error::Error + Send + Sync>> {
+    let from_type = company_revenue_graph::RevenueNodeType::parse(row.get::<_, String>(3))
+        .ok_or("unknown revenue graph from_type")?;
+    let to_type = company_revenue_graph::RevenueNodeType::parse(row.get::<_, String>(6))
+        .ok_or("unknown revenue graph to_type")?;
+    let value_minor = row
+        .get::<_, Option<String>>(8)
+        .map(|value| parse_i128_numeric(&value))
+        .transpose()?;
+    Ok(company_revenue_graph::RevenueGraphEdge {
+        id: row.get(0),
+        company_id: row.get(1),
+        edge_key: row.get(2),
+        from_type,
+        from_ref: row.get(4),
+        relation: row.get(5),
+        to_type,
+        to_ref: row.get(7),
+        value_minor,
+        currency: row.get(9),
+        confidence_bps: row.get::<_, i32>(10) as u32,
+        evidence_ref: row.get(11),
+        source: row.get(12),
+        observed_at_epoch: row.get(13),
+    })
+}
+
+fn content_record_from_row(
+    row: tokio_postgres::Row,
+) -> Result<ContentRecord, Box<dyn std::error::Error + Send + Sync>> {
+    let item = company_content::ContentItem {
+        id: row.get(0),
+        company_id: row.get(1),
+        brief: company_content::ContentBrief {
+            hypothesis: row.get(2),
+            audience: row.get(3),
+            format: parse_content_format(row.get::<_, String>(4))?,
+            product_ref: row.get(5),
+            offer_ref: row.get(6),
+            disclosure_required: row.get(7),
+            expected_cost_minor: row.get::<_, String>(8).parse()?,
+            max_loss_minor: row.get::<_, String>(9).parse()?,
+            max_duration_seconds: row.get::<_, i64>(10) as u32,
+            success_metric: parse_success_metric(row.get::<_, String>(11))?,
+            success_threshold_bps: row.get::<_, i32>(12) as u32,
+        },
+        variant: company_content::CreativeVariant {
+            variant_key: row.get(13),
+            hook: row.get(14),
+            first_frame: row.get(15),
+            emotion: row.get(16),
+            pacing: row.get(17),
+            scene_count: row.get::<_, i32>(18) as u8,
+            text_density: row.get(19),
+            voice_speed: row.get(20),
+            product_placement: row.get(21),
+            cta: row.get(22),
+            comment_trigger: row.get(23),
+            music_style: row.get(24),
+            visual_style: row.get(25),
+        },
+        status: parse_content_status(row.get::<_, String>(26))?,
+        decision: parse_content_decision(row.get::<_, Option<String>>(27))?,
+    };
+    company_content::validate_item(&item).map_err(|error| error.to_string())?;
+    Ok(ContentRecord { item, created_at: row.get(28) })
+}
+#[cfg(test)]
+mod live_attention_learning_tests {
+    use super::*;
+
+    fn event() -> tiktok_live_engine::LiveEvent {
+        tiktok_live_engine::LiveEvent {
+            event_id: "event-1".into(),
+            room_id: "room-1".into(),
+            user_id: Some("viewer-1".into()),
+            display_name: Some("Alice".into()),
+            kind: tiktok_live_engine::LiveEventKind::Comment,
+            text: Some("Báo cáo vì vi phạm".into()),
+            gift_id: None,
+            gift_name: None,
+            gift_quantity: 0,
+            gift_value_minor: 0,
+            currency: "VND".into(),
+            pk_score: None,
+            viewer_value_bps: Some(9_000),
+            occurred_at_epoch: 1_750_000_000,
+        }
+    }
+
+    fn decision() -> company_live_attention::AttentionDecision {
+        company_live_attention::AttentionDecision {
+            decision_id: Uuid::from_u128(1),
+            company_id: Uuid::from_u128(2),
+            session_id: Uuid::from_u128(3),
+            event_id: "event-1".into(),
+            action: company_live_attention::AttentionAction::Escalate,
+            reason: company_live_attention::AttentionReason::SafetyEscalation,
+            priority: 100,
+            decided_at_epoch: 1_750_000_010,
+            requires_human: true,
+        }
+    }
+
+    #[test]
+    fn safety_escalation_becomes_high_severity_near_miss() {
+        let entry = live_attention_learning_entry(&event(), &decision()).unwrap();
+        assert_eq!(entry.entry_key, "live:00000000-0000-0000-0000-000000000003:event-1:learning");
+        assert_eq!(entry.kind, company_learning::LearningKind::NearMiss);
+        assert_eq!(entry.severity, company_learning::FailureSeverity::High);
+        assert_eq!(entry.decision, company_learning::LearningDecision::Escalate);
+        assert_eq!(entry.impact_minor, 0);
+        assert_eq!(entry.confidence_bps, 10_000);
+        assert!(company_learning::validate_evidence(&entry).is_ok());
+    }
+
+    #[test]
+    fn low_priority_live_decision_does_not_pollute_learning_ledger() {
+        let mut value = decision();
+        value.action = company_live_attention::AttentionAction::Respond;
+        value.reason = company_live_attention::AttentionReason::LowSignal;
+        value.priority = 50;
+        let entry = live_attention_learning_entry(&event(), &value);
+        assert!(entry.is_none());
+    }
+}
+
+#[cfg(test)]
+mod content_learning_tests {
+    use super::*;
+
+    fn item() -> company_content::ContentItem {
+        company_content::ContentItem {
+            id: Uuid::from_u128(2),
+            company_id: Uuid::from_u128(3),
+            brief: company_content::ContentBrief {
+                hypothesis: "Proof-first hook improves clicks".into(),
+                audience: "Mobile shoppers".into(),
+                format: company_content::ContentFormat::ShortVideo,
+                product_ref: Some("product-1".into()),
+                offer_ref: None,
+                disclosure_required: true,
+                expected_cost_minor: 100,
+                max_loss_minor: 500,
+                max_duration_seconds: 60,
+                success_metric: company_content::SuccessMetric::ClickThroughRate,
+                success_threshold_bps: 500,
+            },
+            variant: company_content::CreativeVariant {
+                variant_key: "proof-a".into(),
+                hook: "See the result first".into(),
+                first_frame: "Product + result".into(),
+                emotion: "curiosity".into(),
+                pacing: "fast".into(),
+                scene_count: 6,
+                text_density: "low".into(),
+                voice_speed: "1.0x".into(),
+                product_placement: "second-2".into(),
+                cta: "Open product card".into(),
+                comment_trigger: "Ask use case".into(),
+                music_style: "light".into(),
+                visual_style: "clean".into(),
+            },
+            status: company_content::ContentStatus::Measured,
+            decision: Some(company_content::ContentDecision::Scale),
+        }
+    }
+
+    fn observation() -> company_content::ContentObservation {
+        company_content::ContentObservation {
+            observation_key: "obs-1".into(),
+            content_id: Uuid::from_u128(2),
+            company_id: Uuid::from_u128(3),
+            source: "analytics".into(),
+            evidence_hash: "sha256:demo".into(),
+            observed_at_epoch: 1_700_000_000,
+            sample_count: 1000,
+            spend_minor: 250,
+            metric_bps: 700,
+            views: 1000,
+            clicks: 70,
+            conversions: 7,
+            commission_minor: 80,
+            contribution_margin_minor: 60,
+        }
+    }
+
+    #[test]
+    fn content_success_becomes_evidence_backed_learning() {
+        let entry = content_learning_entry(
+            &item(),
+            &observation(),
+            company_content::ContentDecision::Scale,
+        );
+        assert_eq!(entry.entry_key, "content:00000000-0000-0000-0000-000000000002:learning:obs-1");
+        assert_eq!(entry.kind, company_learning::LearningKind::Success);
+        assert_eq!(entry.decision, company_learning::LearningDecision::Reuse);
+        assert_eq!(entry.impact_minor, 60);
+        assert_eq!(entry.confidence_bps, 10_000);
+        assert!(company_learning::validate_evidence(&entry).is_ok());
+    }
+
+    #[test]
+    fn content_confidence_is_bounded_sample_coverage() {
+        let mut value = observation();
+        value.sample_count = 50;
+        let entry = content_learning_entry(
+            &item(),
+            &value,
+            company_content::ContentDecision::Iterate,
+        );
+        assert_eq!(entry.confidence_bps, 500);
+        assert_eq!(entry.decision, company_learning::LearningDecision::Adjust);
+    }
+}
+
+#[cfg(test)]
+mod experiment_learning_tests {
+    use super::*;
+
+    fn spec() -> company_experiments::ExperimentSpec {
+        company_experiments::ExperimentSpec {
+            hypothesis: "short hook improves conversion".into(),
+            control: "baseline".into(),
+            treatment: "short-hook".into(),
+            max_budget_minor: 1_000,
+            min_observations: 100,
+            duration_seconds: 86_400,
+            success_metric_bps: 500,
+            kill_metric_bps: 300,
+        }
+    }
+
+    fn observation() -> company_experiments::ExperimentObservation {
+        company_experiments::ExperimentObservation {
+            control_observations: 100,
+            treatment_observations: 120,
+            control_metric_bps: 500,
+            treatment_metric_bps: 1_000,
+            spend_minor: 250,
+            elapsed_seconds: 3_600,
+        }
+    }
+
+    #[test]
+    fn terminal_experiment_decision_becomes_evidence_backed_learning() {
+        let entry = experiment_learning_entry(
+            Uuid::from_u128(1),
+            &spec(),
+            &observation(),
+            company_experiments::ExperimentDecision::Succeed,
+            "obs-1",
+        );
+
+        assert_eq!(entry.entry_key, "experiment:00000000-0000-0000-0000-000000000001:learning:obs-1");
+        assert_eq!(entry.kind, company_learning::LearningKind::Success);
+        assert_eq!(entry.decision, company_learning::LearningDecision::Reuse);
+        assert_eq!(entry.impact_minor, -250);
+        assert_eq!(entry.confidence_bps, 10_000);
+        assert!(company_learning::validate_evidence(&entry).is_ok());
+    }
+
+    #[test]
+    fn learning_confidence_reflects_observation_coverage() {
+        let mut value = observation();
+        value.control_observations = 50;
+        value.treatment_observations = 100;
+
+        let entry = experiment_learning_entry(
+            Uuid::from_u128(1),
+            &spec(),
+            &value,
+            company_experiments::ExperimentDecision::Succeed,
+            "obs-2",
+        );
+
+        assert_eq!(entry.confidence_bps, 5_000);
+    }
+}
+
+#[cfg(test)]
+mod revenue_period_tests {
+    use super::CompanyStore;
+
+    #[test]
+    fn forecast_uses_only_mtd_and_calendar_coverage() {
+        assert_eq!(CompanyStore::revenue_period_projection(10_000, 99_000, 10, 30), (30_000, 99_000, 3333));
+        assert_eq!(CompanyStore::revenue_period_projection(10_000, 99_000, 30, 30), (10_000, 99_000, 10_000));
+    }
+
+    #[test]
+    fn invalid_period_inputs_fail_closed_to_observed_values() {
+        assert_eq!(CompanyStore::revenue_period_projection(10_000, 99_000, 0, 30), (10_000, 99_000, 0));
+        assert_eq!(CompanyStore::revenue_period_projection(10_000, 99_000, 31, 30), (10_000, 99_000, 10_000));
+    }
 }

@@ -64,7 +64,7 @@ impl AgentRuntime {
 
     fn default_timeout_ms() -> u64 {
         let provider = std::env::var("LLM_PROVIDER").unwrap_or_default();
-        default_timeout_ms_for_provider(&provider)
+        Self::default_timeout_ms_for_provider(&provider)
     }
 
     pub async fn run_all_with_state(
