@@ -30,7 +30,8 @@ members = [
   "crates/company-autonomy",
   "crates/company-capital",
   "crates/company-safety-controls",
-  "crates/company-tiktok-auth"
+  "crates/company-tiktok-auth",
+  "crates/company-revenue-graph"
 ]
 
 [profile.release]

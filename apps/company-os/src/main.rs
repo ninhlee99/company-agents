@@ -147,6 +147,21 @@ struct ComplianceCheckRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct RevenueGraphEdgeRequest {
+    edge: company_revenue_graph::RevenueGraphEdge,
+}
+
+#[derive(Debug, Deserialize)]
+struct RevenueGraphLineageQuery {
+    root_type: String,
+    root_ref: String,
+    #[serde(default)]
+    max_depth: Option<i32>,
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
 struct GrowthTrendRequest {
     signal: company_growth::TrendSignal,
 }
@@ -689,6 +704,19 @@ async fn index(
             r#"<div class="card"><h2>Safety controls</h2><p class="muted">Persistent safety controls are unavailable. Autonomous side effects remain fail-closed.</p></div>"#.into()
         }
     };
+    let revenue_graph_html = match state.store.revenue_graph_summary(&state.company_id).await {
+        Ok(summary) => format!(
+            r#"<div class="card"><h2>Revenue intelligence graph</h2><div class="metric">{}</div><p class="muted">Evidence-backed edges · {} carry economic values · latest observation: {}</p><a href="/api/revenue-graph/summary">View graph summary JSON</a></div>"#,
+            summary.edge_count,
+            summary.value_backed_edge_count,
+            summary.latest_observed_at_epoch.map(|value| value.to_string()).unwrap_or_else(|| "none".into())
+        ),
+        Err(error) => {
+            tracing::warn!(%error, "revenue intelligence graph unavailable");
+            r#"<div class="card"><h2>Revenue intelligence graph</h2><div class="metric">Evidence unavailable</div><p class="muted">Lineage data is unavailable, so the dashboard is not showing a fabricated zero.</p></div>"#.into()
+        }
+    };
+
     let tiktok_oauth_html = match state.store.tiktok_oauth_status(&state.company_id).await {
         Ok(Some(connection)) if connection.status == "ACTIVE" => {
             let access_expires = connection.access_token_expires_at_epoch;
@@ -872,6 +900,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <div class="card"><small>Contribution margin MTD</small><div class="metric">{}</div><small>{}</small></div>
 <div class="card"><small>Affiliate reconciliation MTD</small><div class="metric">{}</div><small>variance · reported · attributed · paid: {} · {} · {} · {}</small></div>
 <div class="card"><h2>Growth pipeline</h2><p class="muted">Evidence-backed trend signals become scored opportunities before any content plan is created.</p>{}</div>
+{}
 <div class="card"><h2>Capital allocation</h2><p class="muted">Expected contribution, downside, speed, reversibility and evidence are evaluated before any capital movement.</p>{}</div>
 {}
 {}
@@ -907,6 +936,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         format_minor(affiliate_reconciliation.attributed_commission_mtd_minor, &state.currency),
         format_minor(affiliate_reconciliation.recorded_payout_mtd_minor, &state.currency),
         growth_html,
+        revenue_graph_html,
         capital_plan_html,
         safety_controls_html,
         tiktok_oauth_html,
@@ -1803,6 +1833,61 @@ async fn compliance_status_api(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
+async fn revenue_graph_edge_api(
+    State(state): State<AppState>,
+    Json(request): Json<RevenueGraphEdgeRequest>,
+) -> Result<Json<company_revenue_graph::RevenueGraphEdge>, StatusCode> {
+    if request.edge.company_id.to_string() != state.company_id {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    state
+        .store
+        .record_revenue_graph_edge(&request.edge)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn revenue_graph_summary_api(
+    State(state): State<AppState>,
+) -> Result<Json<company_store::RevenueGraphSummary>, StatusCode> {
+    state
+        .store
+        .revenue_graph_summary(&state.company_id)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
+}
+
+async fn revenue_graph_lineage_api(
+    State(state): State<AppState>,
+    Query(query): Query<RevenueGraphLineageQuery>,
+) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    let root_type = company_revenue_graph::RevenueNodeType::parse(&query.root_type)
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let rows = state
+        .store
+        .revenue_graph_lineage(
+            &state.company_id,
+            root_type,
+            &query.root_ref,
+            query.max_depth.unwrap_or(6),
+            query.limit.unwrap_or(100),
+        )
+        .await
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|(depth, edge)| {
+                serde_json::json!({
+                    "depth": depth,
+                    "edge": edge
+                })
+            })
+            .collect(),
+    ))
+}
+
 async fn growth_trend_api(
     State(state): State<AppState>,
     Json(request): Json<GrowthTrendRequest>,
@@ -2618,6 +2703,9 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/content/observations", post(content_observation_api))
         .route("/api/content/status", post(content_status_transition_api))
         .route("/api/growth/trends", get(growth_trends_api).post(growth_trend_api))
+        .route("/api/revenue-graph/edges", post(revenue_graph_edge_api))
+        .route("/api/revenue-graph/summary", get(revenue_graph_summary_api))
+        .route("/api/revenue-graph/lineage", get(revenue_graph_lineage_api))
         .route("/api/growth/opportunities", get(growth_opportunities_api))
         .route("/api/growth/content", post(growth_content_api))
         .route("/api/capital/plan", get(latest_capital_plan_api).post(create_capital_plan_api))

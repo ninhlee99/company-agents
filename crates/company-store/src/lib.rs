@@ -101,6 +101,13 @@ pub struct AutonomyControlRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RevenueGraphSummary {
+    pub edge_count: i64,
+    pub value_backed_edge_count: i64,
+    pub latest_observed_at_epoch: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TikTokConnectionRecord {
     pub company_id: Uuid,
     pub open_id: String,
@@ -446,7 +453,203 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/040_tiktok_oauth.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/041_revenue_intelligence_graph.sql"
+            ))
             .await
+    }
+
+    pub async fn record_revenue_graph_edge(
+        &self,
+        edge: &company_revenue_graph::RevenueGraphEdge,
+    ) -> Result<company_revenue_graph::RevenueGraphEdge, Box<dyn std::error::Error + Send + Sync>> {
+        company_revenue_graph::validate_edge(edge).map_err(|error| error.to_string())?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let stored = record_revenue_graph_edge_tx(&tx, edge).await?;
+        tx.commit().await?;
+        Ok(stored)
+    }
+
+    pub async fn revenue_graph_lineage(
+        &self,
+        company_id: &str,
+        root_type: company_revenue_graph::RevenueNodeType,
+        root_ref: &str,
+        max_depth: i32,
+        limit: i64,
+    ) -> Result<Vec<(i32, company_revenue_graph::RevenueGraphEdge)>, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        if root_ref.trim().is_empty() || root_ref.len() > 512 {
+            return Err("revenue graph root_ref is invalid".into());
+        }
+        if !(0..=12).contains(&max_depth) || !(1..=500).contains(&limit) {
+            return Err("revenue graph depth/limit is outside safe bounds".into());
+        }
+        let client = self.client.lock().await;
+        let rows = client.query(
+            "WITH RECURSIVE walk AS (
+                SELECT e.id,e.company_id,e.edge_key,e.from_type,e.from_ref,e.relation,
+                       e.to_type,e.to_ref,e.value_minor::text,e.currency,e.confidence_bps,
+                       e.evidence_ref,e.source,e.observed_at_epoch,e.created_at::text,
+                       0::int AS depth,
+                       ARRAY[(e.from_type || ':' || e.from_ref),(e.to_type || ':' || e.to_ref)] AS visited
+                  FROM revenue_graph_edges e
+                 WHERE e.company_id=$1
+                   AND e.from_type=$2
+                   AND e.from_ref=$3
+                UNION ALL
+                SELECT e.id,e.company_id,e.edge_key,e.from_type,e.from_ref,e.relation,
+                       e.to_type,e.to_ref,e.value_minor::text,e.currency,e.confidence_bps,
+                       e.evidence_ref,e.source,e.observed_at_epoch,e.created_at::text,
+                       w.depth + 1,
+                       w.visited || (e.to_type || ':' || e.to_ref)
+                  FROM walk w
+                  JOIN revenue_graph_edges e
+                    ON e.company_id=w.company_id
+                   AND e.from_type=w.to_type
+                   AND e.from_ref=w.to_ref
+                 WHERE w.depth < $4
+                   AND NOT ((e.to_type || ':' || e.to_ref) = ANY(w.visited))
+            )
+            SELECT id,company_id,edge_key,from_type,from_ref,relation,to_type,to_ref,
+                   value_minor,currency,confidence_bps,evidence_ref,source,observed_at_epoch,
+                   created_at,depth
+              FROM walk
+             ORDER BY depth ASC,observed_at_epoch DESC,created_at DESC
+             LIMIT $5",
+            &[
+                &company,
+                &company_revenue_graph::RevenueNodeType::as_str(root_type),
+                &root_ref.trim(),
+                &max_depth,
+                &limit,
+            ],
+        ).await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok((
+                    row.get::<_, i32>(15),
+                    revenue_graph_edge_from_row(row)?,
+                ))
+            })
+            .collect()
+    }
+
+    pub async fn revenue_graph_summary(
+        &self,
+        company_id: &str,
+    ) -> Result<RevenueGraphSummary, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client.query_one(
+            "SELECT COUNT(*)::bigint,
+                    COUNT(*) FILTER (WHERE value_minor IS NOT NULL)::bigint,
+                    MAX(observed_at_epoch)
+               FROM revenue_graph_edges
+              WHERE company_id=$1",
+            &[&company],
+        ).await?;
+        Ok(RevenueGraphSummary {
+            edge_count: row.get(0),
+            value_backed_edge_count: row.get(1),
+            latest_observed_at_epoch: row.get(2),
+        })
+    }
+
+    pub async fn record_revenue_graph_edge(
+        &self,
+        edge: &company_revenue_graph::RevenueGraphEdge,
+    ) -> Result<company_revenue_graph::RevenueGraphEdge, Box<dyn std::error::Error + Send + Sync>> {
+        company_revenue_graph::validate_edge(edge).map_err(|error| error.to_string())?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let stored = record_revenue_graph_edge_tx(&tx, edge).await?;
+        tx.commit().await?;
+        Ok(stored)
+    }
+
+    pub async fn revenue_graph_lineage(
+        &self,
+        company_id: &str,
+        root_type: company_revenue_graph::RevenueNodeType,
+        root_ref: &str,
+        max_depth: i32,
+        limit: i64,
+    ) -> Result<Vec<(i32, company_revenue_graph::RevenueGraphEdge)>, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        if root_ref.trim().is_empty() || root_ref.len() > 512 {
+            return Err("revenue graph root_ref is invalid".into());
+        }
+        if !(0..=12).contains(&max_depth) || !(1..=500).contains(&limit) {
+            return Err("revenue graph depth/limit is outside safe bounds".into());
+        }
+        let root_type = root_type.as_str();
+        let client = self.client.lock().await;
+        let rows = client.query(
+            "WITH RECURSIVE walk AS (
+                SELECT e.id,e.company_id,e.edge_key,e.from_type,e.from_ref,e.relation,
+                       e.to_type,e.to_ref,e.value_minor::text,e.currency,e.confidence_bps,
+                       e.evidence_ref,e.source,e.observed_at_epoch,e.created_at::text,
+                       0::int AS depth,
+                       ARRAY[(e.from_type || ':' || e.from_ref),(e.to_type || ':' || e.to_ref)] AS visited
+                  FROM revenue_graph_edges e
+                 WHERE e.company_id=$1
+                   AND e.from_type=$2
+                   AND e.from_ref=$3
+                UNION ALL
+                SELECT e.id,e.company_id,e.edge_key,e.from_type,e.from_ref,e.relation,
+                       e.to_type,e.to_ref,e.value_minor::text,e.currency,e.confidence_bps,
+                       e.evidence_ref,e.source,e.observed_at_epoch,e.created_at::text,
+                       w.depth + 1,
+                       w.visited || (e.to_type || ':' || e.to_ref)
+                  FROM walk w
+                  JOIN revenue_graph_edges e
+                    ON e.company_id=w.company_id
+                   AND e.from_type=w.to_type
+                   AND e.from_ref=w.to_ref
+                 WHERE w.depth < $4
+                   AND NOT ((e.to_type || ':' || e.to_ref) = ANY(w.visited))
+            )
+            SELECT id,company_id,edge_key,from_type,from_ref,relation,to_type,to_ref,
+                   value_minor,currency,confidence_bps,evidence_ref,source,observed_at_epoch,
+                   created_at,depth
+              FROM walk
+             ORDER BY depth ASC,observed_at_epoch DESC,created_at DESC
+             LIMIT $5",
+            &[&company, &root_type, &root_ref.trim(), &max_depth, &limit],
+        ).await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok((
+                    row.get::<_, i32>(15),
+                    revenue_graph_edge_from_row(row)?,
+                ))
+            })
+            .collect()
+    }
+
+    pub async fn revenue_graph_summary(
+        &self,
+        company_id: &str,
+    ) -> Result<RevenueGraphSummary, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client.query_one(
+            "SELECT COUNT(*)::bigint,
+                    COUNT(*) FILTER (WHERE value_minor IS NOT NULL)::bigint,
+                    MAX(observed_at_epoch)
+               FROM revenue_graph_edges
+              WHERE company_id=$1",
+            &[&company],
+        ).await?;
+        Ok(RevenueGraphSummary {
+            edge_count: row.get(0),
+            value_backed_edge_count: row.get(1),
+            latest_observed_at_epoch: row.get(2),
+        })
     }
 
     pub async fn record_policy_snapshot(
@@ -1067,6 +1270,32 @@ impl CompanyStore {
               WHERE company_id=$1 AND id=$2",
             &[&company,&experiment_id,&status],
         ).await?;
+
+        let decision_ref = format!(
+            "experiment:{}:decision:{}:{}",
+            experiment_id,
+            format!("{:?}", decision).to_ascii_uppercase(),
+            observation_key
+        );
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company,
+                company_revenue_graph::RevenueNodeType::Experiment,
+                &experiment_id.to_string(),
+                "RESULTS_IN",
+                company_revenue_graph::RevenueNodeType::Decision,
+                &decision_ref,
+                None,
+                None,
+                10_000,
+                &format!("experiment:{}:{}", experiment_id, observation_key),
+                "experiment-engine",
+                time::OffsetDateTime::now_utc().unix_timestamp(),
+            ),
+        )
+        .await?;
+
         tx.commit().await?;
         Ok(decision)
     }
@@ -4585,25 +4814,70 @@ impl CompanyStore {
             return Err("affiliate click has incomplete identifiers".into());
         }
         let company_id = Uuid::parse_str(&event.company_id)?;
-        let client = self.client.lock().await;
-        client
-            .execute(
-                "INSERT INTO affiliate_clicks
-                 (company_id, click_id, product_id, advertiser_id, content_id,
-                  occurred_at, source)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7)
-                 ON CONFLICT (company_id, click_id) DO NOTHING",
-                &[
-                    &company_id,
-                    &event.click_id,
-                    &event.product_id,
-                    &event.advertiser_id,
-                    &event.content_id,
-                    &event.occurred_at,
-                    &event.source,
-                ],
+        let observed_at_epoch = parse_rfc3339_epoch(&event.occurred_at)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        tx.execute(
+            "INSERT INTO affiliate_clicks
+             (company_id, click_id, product_id, advertiser_id, content_id,
+              occurred_at, source)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)
+             ON CONFLICT (company_id, click_id) DO NOTHING",
+            &[
+                &company_id,
+                &event.click_id,
+                &event.product_id,
+                &event.advertiser_id,
+                &event.content_id,
+                &event.occurred_at,
+                &event.source,
+            ],
+        )
+        .await?;
+
+        let content_ref = event.content_id.trim();
+        let product_ref = event.product_id.trim();
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company_id,
+                company_revenue_graph::RevenueNodeType::Content,
+                content_ref,
+                "PROMOTES",
+                company_revenue_graph::RevenueNodeType::Product,
+                product_ref,
+                None,
+                None,
+                10_000,
+                &format!("affiliate:click:{}", event.click_id),
+                graph_source(&event.source)?,
+                observed_at_epoch,
+            ),
+        )
+        .await?;
+
+        if !event.source.trim().is_empty() {
+            record_revenue_graph_edge_tx(
+                &tx,
+                &new_graph_edge(
+                    company_id,
+                    company_revenue_graph::RevenueNodeType::Traffic,
+                    graph_source(&event.source)?,
+                    "DRIVES",
+                    company_revenue_graph::RevenueNodeType::Content,
+                    content_ref,
+                    None,
+                    None,
+                    10_000,
+                    &format!("affiliate:click:{}", event.click_id),
+                    event.source.trim(),
+                    observed_at_epoch,
+                ),
             )
             .await?;
+        }
+
+        tx.commit().await?;
         Ok(())
     }
 
@@ -4732,6 +5006,70 @@ impl CompanyStore {
                     &attributed_commission,
                     &(attribution.confidence_bps as i32),
                 ],
+            )
+            .await?;
+        }
+
+        let observed_at_epoch = parse_rfc3339_epoch(&event.occurred_at)?;
+        let net_order_value = event
+            .order_value_minor
+            .checked_sub(event.refunded_minor)
+            .ok_or("affiliate order value underflow")?;
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company_id,
+                company_revenue_graph::RevenueNodeType::Order,
+                &event.order_id,
+                "PURCHASES",
+                company_revenue_graph::RevenueNodeType::Product,
+                &event.product_id,
+                Some(net_order_value),
+                Some(&currency),
+                if event.cancelled { 2_000 } else { 10_000 },
+                &format!("affiliate:conversion:{}", event.conversion_id),
+                graph_source(&event.source)?,
+                observed_at_epoch,
+            ),
+        )
+        .await?;
+
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company_id,
+                company_revenue_graph::RevenueNodeType::Order,
+                &event.order_id,
+                "REPORTS_COMMISSION",
+                company_revenue_graph::RevenueNodeType::Commission,
+                &event.conversion_id,
+                Some(if event.cancelled { 0 } else { event.commission_minor }),
+                Some(&currency),
+                5_000,
+                &format!("affiliate:conversion:{}", event.conversion_id),
+                graph_source(&event.source)?,
+                observed_at_epoch,
+            ),
+        )
+        .await?;
+
+        for attribution in &reconciled.attributed {
+            record_revenue_graph_edge_tx(
+                &tx,
+                &new_graph_edge(
+                    company_id,
+                    company_revenue_graph::RevenueNodeType::Content,
+                    &attribution.content_id,
+                    "ATTRIBUTED_TO",
+                    company_revenue_graph::RevenueNodeType::Order,
+                    &event.order_id,
+                    Some(attribution.attributed_order_value_minor),
+                    Some(&currency),
+                    attribution.confidence_bps,
+                    &format!("affiliate:conversion:{}", event.conversion_id),
+                    graph_source(&event.source)?,
+                    observed_at_epoch,
+                ),
             )
             .await?;
         }
@@ -5013,6 +5351,39 @@ impl CompanyStore {
             .await?
             .get(0);
 
+        if verified_commission_minor > 0 && status.authorizes_revenue() {
+            let observed_at_epoch = verified_at
+                .map(parse_rfc3339_epoch)
+                .transpose()?
+                .unwrap_or_else(|| time::OffsetDateTime::now_utc().unix_timestamp());
+            let order_id: String = tx
+                .query_one(
+                    "SELECT order_id FROM affiliate_conversions
+                      WHERE company_id=$1 AND conversion_id=$2",
+                    &[&company_uuid, &conversion_id],
+                )
+                .await?
+                .get(0);
+            record_revenue_graph_edge_tx(
+                &tx,
+                &new_graph_edge(
+                    company_uuid,
+                    company_revenue_graph::RevenueNodeType::Order,
+                    &order_id,
+                    "VERIFIED_COMMISSION",
+                    company_revenue_graph::RevenueNodeType::Commission,
+                    &conversion_id,
+                    Some(verified_commission_minor),
+                    Some(&currency),
+                    10_000,
+                    &format!("affiliate:provider-verification:{}:{}", conversion_id, status.as_str()),
+                    graph_source(verification_source)?,
+                    observed_at_epoch,
+                ),
+            )
+            .await?;
+        }
+
         if delta != 0 {
             let (_cash_account, receivable_account, revenue_account) =
                 ensure_affiliate_accounts(&tx, company_uuid, &currency).await?;
@@ -5131,6 +5502,31 @@ impl CompanyStore {
             ],
         )
         .await?;
+
+        if target_recognized > 0 {
+            let observed_at_epoch = verified_at
+                .map(parse_rfc3339_epoch)
+                .transpose()?
+                .unwrap_or_else(|| time::OffsetDateTime::now_utc().unix_timestamp());
+            record_revenue_graph_edge_tx(
+                &tx,
+                &new_graph_edge(
+                    company_uuid,
+                    company_revenue_graph::RevenueNodeType::Commission,
+                    &conversion_id,
+                    "RECOGNIZED_INTO",
+                    company_revenue_graph::RevenueNodeType::Commission,
+                    &format!("affiliate:recognized:{}", company_uuid),
+                    Some(target_recognized),
+                    Some(&currency),
+                    10_000,
+                    &format!("affiliate:provider-verification:{}:{}", conversion_id, status.as_str()),
+                    graph_source(verification_source)?,
+                    observed_at_epoch,
+                ),
+            )
+            .await?;
+        }
 
         let provider_event_key = format!(
             "outbox:affiliate:provider-verified:{conversion_id}:{}:{}:{}",
@@ -5284,6 +5680,25 @@ impl CompanyStore {
              (company_id,payout_id,currency,amount_minor,occurred_at,ledger_transaction_id)
              VALUES ($1,$2,$3,$4::numeric,$5,$6)",
             &[&company_uuid,&payout_id,&currency,&amount,&occurred_text,&payout_uuid],
+        )
+        .await?;
+
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company_uuid,
+                company_revenue_graph::RevenueNodeType::Commission,
+                &format!("affiliate:recognized:{}", company_uuid),
+                "SETTLES_TO_CASH",
+                company_revenue_graph::RevenueNodeType::Cash,
+                &format!("company:{}:cash", company_uuid),
+                Some(amount_minor),
+                Some(&company_currency),
+                10_000,
+                &format!("affiliate:payout:{}", payout_id),
+                "affiliate-payout-ledger",
+                occurred.unix_timestamp(),
+            ),
         )
         .await?;
 
@@ -7434,6 +7849,64 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
               WHERE company_id=$1 AND id=$2",
             &[&company, &opportunity_id, &item.id],
         ).await?;
+        let growth_observed_at_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company,
+                company_revenue_graph::RevenueNodeType::Trend,
+                &format!("growth-trend:{}", opportunity.trend_id),
+                "GENERATES_CONTENT",
+                company_revenue_graph::RevenueNodeType::Content,
+                &item.id.to_string(),
+                None,
+                None,
+                opportunity.confidence_bps,
+                &format!("growth-opportunity:{}", opportunity.id),
+                "growth-loop",
+                growth_observed_at_epoch,
+            ),
+        )
+        .await?;
+
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company,
+                company_revenue_graph::RevenueNodeType::Content,
+                &item.id.to_string(),
+                "USES_HOOK",
+                company_revenue_graph::RevenueNodeType::Hook,
+                &hashed_graph_ref("hook", &item.variant.hook),
+                None,
+                None,
+                10_000,
+                &format!("content:{}", item.id),
+                "content-factory",
+                growth_observed_at_epoch,
+            ),
+        )
+        .await?;
+
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company,
+                company_revenue_graph::RevenueNodeType::Content,
+                &item.id.to_string(),
+                "TARGETS_AUDIENCE",
+                company_revenue_graph::RevenueNodeType::Audience,
+                &hashed_graph_ref("audience", &item.brief.audience),
+                None,
+                None,
+                10_000,
+                &format!("content:{}", item.id),
+                "content-factory",
+                growth_observed_at_epoch,
+            ),
+        )
+        .await?;
+
         tx.execute(
             "INSERT INTO outbox_events
              (company_id,event_type,aggregate_id,idempotency_key,payload)
@@ -8032,6 +8505,180 @@ fn parse_content_decision(value: Option<String>) -> Result<Option<company_conten
         Some("KILL") => Ok(Some(company_content::ContentDecision::Kill)),
         Some(other) => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("invalid content decision: {other}"))),
     }
+}
+
+fn parse_rfc3339_epoch(value: &str) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+    Ok(time::OffsetDateTime::parse(
+        value,
+        &time::format_description::well_known::Rfc3339,
+    )
+    .map_err(|error| format!("invalid RFC3339 timestamp: {error}"))?
+    .unix_timestamp())
+}
+
+fn hashed_graph_ref(prefix: &str, value: &str) -> String {
+    let digest = Sha256::digest(value.as_bytes());
+    format!(
+        "{}:sha256:{}",
+        prefix,
+        digest
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    )
+}
+
+fn graph_source(value: &str) -> Result<&str, Box<dyn std::error::Error + Send + Sync>> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok("affiliate");
+    }
+    if value.len() > 256 {
+        return Err("revenue graph source exceeds 256 bytes".into());
+    }
+    Ok(value)
+}
+
+fn new_graph_edge(
+    company_id: Uuid,
+    from_type: company_revenue_graph::RevenueNodeType,
+    from_ref: &str,
+    relation: &str,
+    to_type: company_revenue_graph::RevenueNodeType,
+    to_ref: &str,
+    value_minor: Option<i128>,
+    currency: Option<&str>,
+    confidence_bps: u32,
+    evidence_ref: &str,
+    source: &str,
+    observed_at_epoch: i64,
+) -> company_revenue_graph::RevenueGraphEdge {
+    let edge_key = company_revenue_graph::build_edge_key(
+        from_type,
+        from_ref,
+        relation,
+        to_type,
+        to_ref,
+    );
+    company_revenue_graph::RevenueGraphEdge {
+        id: company_revenue_graph::RevenueGraphEdge::deterministic_id(company_id, &edge_key),
+        company_id,
+        edge_key,
+        from_type,
+        from_ref: from_ref.trim().to_owned(),
+        relation: relation.trim().to_owned(),
+        to_type,
+        to_ref: to_ref.trim().to_owned(),
+        value_minor,
+        currency: currency.map(|value| value.trim().to_ascii_uppercase()),
+        confidence_bps,
+        evidence_ref: evidence_ref.trim().to_owned(),
+        source: source.trim().to_owned(),
+        observed_at_epoch,
+    }
+}
+
+async fn record_revenue_graph_edge_tx(
+    tx: &Transaction<'_>,
+    edge: &company_revenue_graph::RevenueGraphEdge,
+) -> Result<company_revenue_graph::RevenueGraphEdge, Box<dyn std::error::Error + Send + Sync>> {
+    company_revenue_graph::validate_edge(edge).map_err(|error| error.to_string())?;
+
+    if let Some(row) = tx
+        .query_opt(
+            "SELECT id,company_id,edge_key,from_type,from_ref,relation,to_type,to_ref,
+                    value_minor::text,currency,confidence_bps,evidence_ref,source,
+                    observed_at_epoch,created_at::text
+               FROM revenue_graph_edges
+              WHERE company_id=$1 AND edge_key=$2
+              FOR UPDATE",
+            &[&edge.company_id, &edge.edge_key],
+        )
+        .await?
+    {
+        let stored = revenue_graph_edge_from_row(row)?;
+        if stored != *edge {
+            return Err("revenue graph edge key already exists with different evidence".into());
+        }
+        return Ok(stored);
+    }
+
+    let id = company_revenue_graph::RevenueGraphEdge::deterministic_id(
+        edge.company_id,
+        &edge.edge_key,
+    );
+    if id != edge.id {
+        return Err("revenue graph edge id must be deterministic from company and edge key".into());
+    }
+
+    tx.execute(
+        "INSERT INTO revenue_graph_edges
+         (id,company_id,edge_key,from_type,from_ref,relation,to_type,to_ref,
+          value_minor,currency,confidence_bps,evidence_ref,source,observed_at_epoch)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::numeric,$10,$11,$12,$13,$14)",
+        &[
+            &edge.id,
+            &edge.company_id,
+            &edge.edge_key,
+            &edge.from_type.as_str(),
+            &edge.from_ref,
+            &edge.relation,
+            &edge.to_type.as_str(),
+            &edge.to_ref,
+            &edge.value_minor.map(|value| value.to_string()),
+            &edge.currency,
+            &(edge.confidence_bps as i32),
+            &edge.evidence_ref,
+            &edge.source,
+            &edge.observed_at_epoch,
+        ],
+    )
+    .await?;
+
+    tx.execute(
+        "INSERT INTO outbox_events
+         (company_id,event_type,aggregate_id,idempotency_key,payload)
+         VALUES ($1,'REVENUE_GRAPH_EDGE_RECORDED',$2,$3,$4)
+         ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+        &[
+            &edge.company_id,
+            &edge.id,
+            &format!("outbox:revenue-graph:{}", edge.edge_key),
+            &serde_json::to_value(edge)?,
+        ],
+    )
+    .await?;
+
+    Ok(edge.clone())
+}
+
+fn revenue_graph_edge_from_row(
+    row: tokio_postgres::Row,
+) -> Result<company_revenue_graph::RevenueGraphEdge, Box<dyn std::error::Error + Send + Sync>> {
+    let from_type = company_revenue_graph::RevenueNodeType::parse(row.get::<_, String>(3))
+        .ok_or("unknown revenue graph from_type")?;
+    let to_type = company_revenue_graph::RevenueNodeType::parse(row.get::<_, String>(6))
+        .ok_or("unknown revenue graph to_type")?;
+    let value_minor = row
+        .get::<_, Option<String>>(8)
+        .map(|value| parse_i128_numeric(&value))
+        .transpose()?;
+    Ok(company_revenue_graph::RevenueGraphEdge {
+        id: row.get(0),
+        company_id: row.get(1),
+        edge_key: row.get(2),
+        from_type,
+        from_ref: row.get(4),
+        relation: row.get(5),
+        to_type,
+        to_ref: row.get(7),
+        value_minor,
+        currency: row.get(9),
+        confidence_bps: row.get::<_, i32>(10) as u32,
+        evidence_ref: row.get(11),
+        source: row.get(12),
+        observed_at_epoch: row.get(13),
+    })
 }
 
 fn content_record_from_row(
