@@ -308,6 +308,11 @@ fn autonomy_controls_correlation_id(company: Uuid, idempotency_key: &str) -> Uui
     Uuid::from_bytes(digest[..16].try_into().expect("sha256 digest is at least 16 bytes"))
 }
 
+fn tiktok_oauth_correlation_id(company: Uuid, identity: &str) -> Uuid {
+    let digest = Sha256::digest(format!("tiktok-oauth:{company}:{identity}").as_bytes());
+    Uuid::from_bytes(digest[..16].try_into().expect("sha256 digest is at least 16 bytes"))
+}
+
 fn autonomy_budget_correlation_id(company: Uuid, idempotency_key: &str) -> Uuid {
     let digest = Sha256::digest(format!("autonomy-budget:{company}:{idempotency_key}").as_bytes());
     Uuid::from_bytes(digest[..16].try_into().expect("sha256 digest is at least 16 bytes"))
@@ -4930,24 +4935,24 @@ impl CompanyStore {
         )
         .await?;
 
-        tx.execute(
-            "INSERT INTO outbox_events
-             (company_id,event_type,aggregate_id,idempotency_key,payload)
-             VALUES ($1,'TIKTOK_OAUTH_CONNECTED',$2,$3,$4)
-             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
-            &[
-                &company,
-                &token.open_id,
-                &format!("outbox:tiktok-oauth:connected:{}:{}", company, access_expires_at_epoch),
-                &serde_json::json!({
-                    "open_id": token.open_id,
-                    "scopes": token.scope,
-                    "access_token_expires_at_epoch": access_expires_at_epoch,
-                    "refresh_token_expires_at_epoch": refresh_expires_at_epoch
-                }),
-            ],
-        )
-        .await?;
+        let connected_key = format!("outbox:tiktok-oauth:connected:{}:{}", company, access_expires_at_epoch);
+        let connected_event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::TikTokOAuthConnected,
+            "tiktok_oauth_connection",
+            Some(company),
+            now_epoch,
+            tiktok_oauth_correlation_id(company, &token.open_id),
+            None,
+            connected_key,
+            serde_json::json!({
+                "open_id": token.open_id,
+                "scopes": token.scope,
+                "access_token_expires_at_epoch": access_expires_at_epoch,
+                "refresh_token_expires_at_epoch": refresh_expires_at_epoch
+            }),
+        )?;
+        enqueue_company_event_tx(&tx, &connected_event).await?;
 
         tx.execute(
             "INSERT INTO audit_log
@@ -5093,17 +5098,34 @@ impl CompanyStore {
                     &[&company, &company.to_string()],
                 )
                 .await?;
+            let revoked_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
+            let revoked_key = format!("outbox:tiktok-oauth:revoked:{}:{}", company, revoked_epoch);
+            let revoked_event = company_domain::CompanyEventEnvelope::new(
+                company,
+                company_domain::CompanyEventType::TikTokOAuthRevoked,
+                "tiktok_oauth_connection",
+                Some(company),
+                revoked_epoch,
+                tiktok_oauth_correlation_id(company, &company.to_string()),
+                None,
+                revoked_key,
+                serde_json::json!({
+                    "company_id": company,
+                    "status": "REVOKED"
+                }),
+            )?;
             client
                 .execute(
                     "INSERT INTO outbox_events
                      (company_id,event_type,aggregate_id,idempotency_key,payload)
-                     VALUES ($1,'TIKTOK_OAUTH_REVOKED',$2,$3,$4)
+                     VALUES ($1,$2,$3,$4,$5)
                      ON CONFLICT(company_id,idempotency_key) DO NOTHING",
                     &[
                         &company,
-                        &company.to_string(),
-                        &format!("outbox:tiktok-oauth:revoked:{}:{}", company, time::OffsetDateTime::now_utc().unix_timestamp()),
-                        &serde_json::json!({"company_id": company}),
+                        &revoked_event.event_type_name(),
+                        &revoked_event.aggregate_id.map(|id| id.to_string()),
+                        &revoked_event.idempotency_key,
+                        &serde_json::to_value(&revoked_event)?,
                     ],
                 )
                 .await?;
@@ -10606,6 +10628,55 @@ fn parse_i128_numeric(
     trimmed
         .parse::<i128>()
         .map_err(|error| format!("invalid integer numeric value: {error}").into())
+}
+
+#[cfg(test)]
+mod tiktok_oauth_event_tests {
+    use super::*;
+
+    #[test]
+    fn tiktok_oauth_connected_event_preserves_token_lineage_without_tokens() {
+        let company = Uuid::from_u128(401);
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::TikTokOAuthConnected,
+            "tiktok_oauth_connection",
+            Some(company),
+            1_800_000_100,
+            tiktok_oauth_correlation_id(company, "open-123"),
+            None,
+            "outbox:tiktok-oauth:connected:401:1800000100",
+            serde_json::json!({
+                "open_id": "open-123",
+                "scopes": "user.info.basic",
+                "access_token_expires_at_epoch": 1_800_003_700,
+                "refresh_token_expires_at_epoch": 1_810_000_100
+            }),
+        ).unwrap();
+        assert_eq!(event.event_type_name(), "TIKTOK_OAUTH_CONNECTED");
+        assert_eq!(event.aggregate_id, Some(company));
+        assert!(!event.payload.to_string().contains("access_token"));
+        assert!(!event.payload.to_string().contains("refresh_token"));
+    }
+
+    #[test]
+    fn tiktok_oauth_revoked_event_is_company_scoped() {
+        let company = Uuid::from_u128(402);
+        let key = "outbox:tiktok-oauth:revoked:402:1800000101";
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::TikTokOAuthRevoked,
+            "tiktok_oauth_connection",
+            Some(company),
+            1_800_000_101,
+            tiktok_oauth_correlation_id(company, &company.to_string()),
+            None,
+            key,
+            serde_json::json!({"company_id": company, "status": "REVOKED"}),
+        ).unwrap();
+        assert_eq!(event.event_type_name(), "TIKTOK_OAUTH_REVOKED");
+        assert_eq!(event.payload["status"], "REVOKED");
+    }
 }
 
 #[cfg(test)]
