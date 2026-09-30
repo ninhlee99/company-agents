@@ -26,6 +26,7 @@ pub enum CompanyEventType {
     AffiliatePayoutSettled,
     AgentDecisionRecorded,
     AffiliateConversionReconciled,
+    PublishIntentCompleted,
 }
 
 impl CompanyEventType {
@@ -48,6 +49,7 @@ impl CompanyEventType {
             Self::AffiliatePayoutSettled => "AFFILIATE_PAYOUT_SETTLED",
             Self::AgentDecisionRecorded => "AGENT_DECISION_RECORDED",
             Self::AffiliateConversionReconciled => "AFFILIATE_CONVERSION_RECONCILED",
+            Self::PublishIntentCompleted => "PUBLISH_INTENT_COMPLETED",
         }
     }
 }
