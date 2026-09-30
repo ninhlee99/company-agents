@@ -240,6 +240,12 @@ fn experiment_completed_event(
     decision: company_experiments::ExperimentDecision,
     observation_key: &str,
 ) -> Result<company_domain::CompanyEventEnvelope, company_domain::DomainError> {
+    if decision == company_experiments::ExperimentDecision::Continue {
+        return Err(company_domain::DomainError::Invariant(
+            "experiment completion events require a terminal decision",
+        ));
+    }
+
     company_domain::CompanyEventEnvelope::new(
         company,
         company_domain::CompanyEventType::ExperimentCompleted,
@@ -9802,7 +9808,7 @@ fn experiment_completed_event_contains_terminal_evidence() {
 }
 
 #[test]
-fn experiment_continue_does_not_change_completion_event_contract() {
+fn experiment_continue_does_not_emit_completion_event() {
     let observation = company_experiments::ExperimentObservation {
         control_observations: 10,
         treatment_observations: 10,
@@ -9811,22 +9817,14 @@ fn experiment_continue_does_not_change_completion_event_contract() {
         spend_minor: 50,
         elapsed_seconds: 100,
     };
-    let event = experiment_completed_event(
+    let result = experiment_completed_event(
         Uuid::nil(),
         Uuid::from_u128(9),
         &observation,
         company_experiments::ExperimentDecision::Continue,
         "obs-continue",
-    )
-    .unwrap();
-    assert_eq!(
-        event.event_type,
-        company_domain::CompanyEventType::ExperimentCompleted
     );
-    assert_eq!(
-        event.payload.get("decision").and_then(|v| v.as_str()),
-        Some("CONTINUE")
-    );
+    assert!(result.is_err());
 }
 
 #[cfg(test)]
