@@ -20,6 +20,7 @@ company-autonomy = { path = "../../crates/company-autonomy" }
 company-capital = { path = "../../crates/company-capital" }
 company-safety-controls = { path = "../../crates/company-safety-controls" }
 company-tiktok-auth = { path = "../../crates/company-tiktok-auth" }
+company-revenue-graph = { path = "../../crates/company-revenue-graph" }
 commercial-sales = { path = "../../crates/commercial-sales" }
 social-publishing = { path = "../../crates/social-publishing" }
 tiktok-live-streaming = { path = "../../crates/tiktok-live-streaming" }
