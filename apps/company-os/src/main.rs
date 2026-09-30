@@ -552,6 +552,18 @@ async fn index(
         })
         .unwrap_or(0);
 
+    let command_center_html = match state
+        .store
+        .ceo_command_center(&state.company_id, target_minor)
+        .await
+    {
+        Ok(record) => render_ceo_command_center(&record, &state.currency),
+        Err(error) => {
+            tracing::warn!(%error, "CEO revenue command center unavailable");
+            r#"<section class="card"><div class="section-kicker">CEO Revenue Command Center</div><h2>Evidence unavailable</h2><p class="muted">The command center cannot safely assemble a complete view right now. Missing data is not being shown as zero.</p></section>"#.into()
+        }
+    };
+
     Html(format!(
         r#"<!doctype html>
 <html lang="en"><head>
