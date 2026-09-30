@@ -44,6 +44,7 @@ jobs:
           - company-command-center
           - company-agent-evaluation
           - company-autonomy
+          - company-capital
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
