@@ -33,6 +33,8 @@ pub enum CompanyEventType {
     AgentOutcomeEvidenceRecorded,
     LearningEntryRecorded,
     OpportunityCreated,
+    AutonomyControlsChanged,
+    AutonomyBudgetConsumed,
 }
 
 impl CompanyEventType {
@@ -61,6 +63,8 @@ impl CompanyEventType {
             Self::AutonomyAssessmentRecorded => "AUTONOMY_ASSESSMENT_RECORDED",
             Self::AgentOutcomeEvidenceRecorded => "AGENT_OUTCOME_EVIDENCE_RECORDED",
             Self::OpportunityCreated => "OPPORTUNITY_CREATED",
+            Self::AutonomyControlsChanged => "AUTONOMY_CONTROLS_CHANGED",
+            Self::AutonomyBudgetConsumed => "AUTONOMY_BUDGET_CONSUMED",
             Self::LearningEntryRecorded => "LEARNING_ENTRY_RECORDED",
         }
     }
@@ -565,6 +569,12 @@ mod tests {
             CompanyEventType::LearningEntryRecorded.as_str(),
             "LEARNING_ENTRY_RECORDED"
         );
+    }
+
+    #[test]
+    fn autonomy_event_names_are_canonical() {
+        assert_eq!(CompanyEventType::AutonomyControlsChanged.as_str(), "AUTONOMY_CONTROLS_CHANGED");
+        assert_eq!(CompanyEventType::AutonomyBudgetConsumed.as_str(), "AUTONOMY_BUDGET_CONSUMED");
     }
 
     #[test]
