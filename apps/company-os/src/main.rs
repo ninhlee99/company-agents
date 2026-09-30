@@ -645,7 +645,7 @@ async fn index(
     };
     let safety_controls_html = match persistent_controls {
         Ok(record) => {
-            let stop_label = match autonomy_stop {
+            let stop_label = match autonomy_stop.as_ref() {
                 Ok(true) => "EMERGENCY STOP ON",
                 Ok(false) => "normal",
                 Err(_) => "SAFETY STATE UNKNOWN",
