@@ -206,6 +206,27 @@ pub struct ContributionMarginMetrics {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CommercialDeliveryMetric {
+    pub currency: String,
+    pub proposal_count: i64,
+    pub proposal_sent_count: i64,
+    pub proposal_accepted_count: i64,
+    pub proposal_value_minor: i128,
+    pub accepted_proposal_value_minor: i128,
+    pub sponsorship_count: i64,
+    pub committed_sponsorship_minor: i128,
+    pub delivered_sponsorship_minor: i128,
+    pub completed_sponsorship_count: i64,
+    pub sponsorship_delivery_bps: i64,
+    pub invoice_count: i64,
+    pub issued_invoice_minor: i128,
+    pub paid_invoice_minor: i128,
+    pub outstanding_invoice_minor: i128,
+    pub overdue_invoice_count: i64,
+    pub overdue_invoice_minor: i128,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ControlPlaneAuditRecord {
     pub id: i64,
     pub company_id: Uuid,
@@ -8437,6 +8458,78 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             "created_at": row.get::<_, time::OffsetDateTime>(7).to_string(),
             "updated_at": row.get::<_, time::OffsetDateTime>(8).to_string()
         })).collect())
+    }
+
+    pub async fn commercial_delivery_report(
+        &self,
+        company_id: &str,
+    ) -> Result<Vec<CommercialDeliveryMetric>, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let now_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
+        let client = self.client.lock().await;
+
+        let rows = client
+            .query(
+                "WITH currencies AS (
+                     SELECT DISTINCT currency FROM service_proposals WHERE company_id=$1
+                     UNION
+                     SELECT DISTINCT currency FROM sponsorships WHERE company_id=$1
+                     UNION
+                     SELECT DISTINCT currency FROM invoices WHERE company_id=$1
+                 )
+                 SELECT
+                   c.currency,
+                   (SELECT COUNT(*) FROM service_proposals p WHERE p.company_id=$1 AND p.currency=c.currency) AS proposal_count,
+                   (SELECT COUNT(*) FROM service_proposals p WHERE p.company_id=$1 AND p.currency=c.currency AND p.status='SENT') AS proposal_sent_count,
+                   (SELECT COUNT(*) FROM service_proposals p WHERE p.company_id=$1 AND p.currency=c.currency AND p.status='ACCEPTED') AS proposal_accepted_count,
+                   COALESCE((SELECT SUM(p.total_minor)::text FROM service_proposals p WHERE p.company_id=$1 AND p.currency=c.currency), '0') AS proposal_value_minor,
+                   COALESCE((SELECT SUM(p.total_minor)::text FROM service_proposals p WHERE p.company_id=$1 AND p.currency=c.currency AND p.status='ACCEPTED'), '0') AS accepted_proposal_value_minor,
+                   (SELECT COUNT(*) FROM sponsorships s WHERE s.company_id=$1 AND s.currency=c.currency) AS sponsorship_count,
+                   COALESCE((SELECT SUM(s.committed_minor)::text FROM sponsorships s WHERE s.company_id=$1 AND s.currency=c.currency), '0') AS committed_sponsorship_minor,
+                   COALESCE((SELECT SUM(s.delivered_minor)::text FROM sponsorships s WHERE s.company_id=$1 AND s.currency=c.currency), '0') AS delivered_sponsorship_minor,
+                   (SELECT COUNT(*) FROM sponsorships s WHERE s.company_id=$1 AND s.currency=c.currency AND s.status='COMPLETED') AS completed_sponsorship_count,
+                   (SELECT COUNT(*) FROM invoices i WHERE i.company_id=$1 AND i.currency=c.currency) AS invoice_count,
+                   COALESCE((SELECT SUM(i.subtotal_minor)::text FROM invoices i WHERE i.company_id=$1 AND i.currency=c.currency AND i.status IN ('ISSUED','PARTIALLY_PAID','PAID')), '0') AS issued_invoice_minor,
+                   COALESCE((SELECT SUM(i.paid_minor)::text FROM invoices i WHERE i.company_id=$1 AND i.currency=c.currency), '0') AS paid_invoice_minor,
+                   COALESCE((SELECT SUM((i.subtotal_minor - i.paid_minor))::text FROM invoices i WHERE i.company_id=$1 AND i.currency=c.currency AND i.status IN ('ISSUED','PARTIALLY_PAID')), '0') AS outstanding_invoice_minor,
+                   (SELECT COUNT(*) FROM invoices i WHERE i.company_id=$1 AND i.currency=c.currency AND i.status IN ('ISSUED','PARTIALLY_PAID') AND i.due_epoch < $2) AS overdue_invoice_count,
+                   COALESCE((SELECT SUM((i.subtotal_minor - i.paid_minor))::text FROM invoices i WHERE i.company_id=$1 AND i.currency=c.currency AND i.status IN ('ISSUED','PARTIALLY_PAID') AND i.due_epoch < $2), '0') AS overdue_invoice_minor
+                 FROM currencies c
+                 ORDER BY c.currency",
+                &[&company, &now_epoch],
+            )
+            .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                let committed = parse_i128_numeric(&row.get::<_, String>(7))?;
+                let delivered = parse_i128_numeric(&row.get::<_, String>(8))?;
+                Ok::<_, Box<dyn std::error::Error + Send + Sync>>(CommercialDeliveryMetric {
+                    currency: row.get(0),
+                    proposal_count: row.get(1),
+                    proposal_sent_count: row.get(2),
+                    proposal_accepted_count: row.get(3),
+                    proposal_value_minor: parse_i128_numeric(&row.get::<_, String>(4))?,
+                    accepted_proposal_value_minor: parse_i128_numeric(&row.get::<_, String>(5))?,
+                    sponsorship_count: row.get(6),
+                    committed_sponsorship_minor: committed,
+                    delivered_sponsorship_minor: delivered,
+                    completed_sponsorship_count: row.get(9),
+                    sponsorship_delivery_bps: if committed > 0 {
+                        (delivered.saturating_mul(10_000) / committed) as i64
+                    } else {
+                        0
+                    },
+                    invoice_count: row.get(10),
+                    issued_invoice_minor: parse_i128_numeric(&row.get::<_, String>(11))?,
+                    paid_invoice_minor: parse_i128_numeric(&row.get::<_, String>(12))?,
+                    outstanding_invoice_minor: parse_i128_numeric(&row.get::<_, String>(13))?,
+                    overdue_invoice_count: row.get(14),
+                    overdue_invoice_minor: parse_i128_numeric(&row.get::<_, String>(15))?,
+                })
+            })
+            .collect()
     }
 
     pub async fn list_commercial_pipeline(
