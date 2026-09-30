@@ -308,6 +308,11 @@ fn autonomy_controls_correlation_id(company: Uuid, idempotency_key: &str) -> Uui
     Uuid::from_bytes(digest[..16].try_into().expect("sha256 digest is at least 16 bytes"))
 }
 
+fn revenue_graph_event_correlation_id(company: Uuid, edge_key: &str) -> Uuid {
+    let digest = Sha256::digest(format!("revenue-graph:{company}:{edge_key}").as_bytes());
+    Uuid::from_bytes(digest[..16].try_into().expect("sha256 digest is at least 16 bytes"))
+}
+
 fn procurement_event_correlation_id(company: Uuid, identity: &str) -> Uuid {
     let digest = Sha256::digest(format!("procurement:{company}:{identity}").as_bytes());
     Uuid::from_bytes(digest[..16].try_into().expect("sha256 digest is at least 16 bytes"))
@@ -10502,19 +10507,19 @@ async fn record_revenue_graph_edge_tx(
     )
     .await?;
 
-    tx.execute(
-        "INSERT INTO outbox_events
-         (company_id,event_type,aggregate_id,idempotency_key,payload)
-         VALUES ($1,'REVENUE_GRAPH_EDGE_RECORDED',$2,$3,$4)
-         ON CONFLICT(company_id,idempotency_key) DO NOTHING",
-        &[
-            &edge.company_id,
-            &edge.id,
-            &format!("outbox:revenue-graph:{}", edge.edge_key),
-            &serde_json::to_value(edge)?,
-        ],
-    )
-    .await?;
+    let graph_key = format!("outbox:revenue-graph:{}", edge.edge_key);
+    let graph_event = company_domain::CompanyEventEnvelope::new(
+        edge.company_id,
+        company_domain::CompanyEventType::RevenueGraphEdgeRecorded,
+        "revenue_graph_edge",
+        Some(edge.id),
+        edge.observed_at_epoch,
+        revenue_graph_event_correlation_id(edge.company_id, &edge.edge_key),
+        None,
+        graph_key,
+        serde_json::to_value(edge)?,
+    )?;
+    enqueue_company_event_tx(tx, &graph_event).await?;
 
     Ok(edge.clone())
 }
@@ -10651,6 +10656,41 @@ fn parse_i128_numeric(
     trimmed
         .parse::<i128>()
         .map_err(|error| format!("invalid integer numeric value: {error}").into())
+}
+
+#[cfg(test)]
+mod revenue_graph_event_tests {
+    use super::*;
+
+    #[test]
+    fn revenue_graph_event_preserves_edge_lineage() {
+        let company = Uuid::from_u128(601);
+        let edge_id = Uuid::from_u128(602);
+        let edge_key = "ORDER:o1:GENERATES:COMMISSION:c1";
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::RevenueGraphEdgeRecorded,
+            "revenue_graph_edge",
+            Some(edge_id),
+            1_800_000_300,
+            revenue_graph_event_correlation_id(company, edge_key),
+            None,
+            format!("outbox:revenue-graph:{edge_key}"),
+            serde_json::json!({
+                "id": edge_id,
+                "company_id": company,
+                "edge_key": edge_key,
+                "relation": "GENERATES",
+                "confidence_bps": 9000,
+                "evidence_ref": "ledger:123"
+            }),
+        ).unwrap();
+
+        assert_eq!(event.event_type_name(), "REVENUE_GRAPH_EDGE_RECORDED");
+        assert_eq!(event.aggregate_id, Some(edge_id));
+        assert_eq!(event.payload["edge_key"], edge_key);
+        assert_eq!(event.payload["evidence_ref"], "ledger:123");
+    }
 }
 
 #[cfg(test)]
