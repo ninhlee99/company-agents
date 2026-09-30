@@ -3156,6 +3156,142 @@ impl CompanyStore {
             .collect()
     }
 
+    pub async fn create_capital_allocation_plan(
+        &self,
+        company_id: &str,
+        plan_key: &str,
+        policy: &company_capital::CapitalPolicy,
+        candidates: &[company_capital::CapitalCandidate],
+    ) -> Result<CapitalAllocationRecord, Box<dyn std::error::Error + Send + Sync>> {
+        if plan_key.trim().is_empty() || plan_key.len() > 256 {
+            return Err("capital allocation plan key is invalid".into());
+        }
+        company_capital::validate_policy(policy).map_err(|error| error.to_string())?;
+        let company = Uuid::parse_str(company_id)?;
+        let mut seen_candidate_ids = std::collections::HashSet::new();
+        for candidate in candidates {
+            company_capital::validate_candidate(candidate).map_err(|error| error.to_string())?;
+            if !seen_candidate_ids.insert(candidate.candidate_id) {
+                return Err("duplicate capital candidate id".into());
+            }
+        }
+        let plan = company_capital::plan(policy, candidates).map_err(|error| error.to_string())?;
+        let policy_json = serde_json::to_value(policy)?;
+        let plan_json = serde_json::to_value(&plan)?;
+
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        if let Some(row) = tx
+            .query_opt(
+                "SELECT plan_json,policy_json,created_at::text
+                   FROM capital_allocation_plans
+                  WHERE company_id=$1 AND plan_key=$2",
+                &[&company, &plan_key],
+            )
+            .await?
+        {
+            let stored_plan: company_capital::CapitalAllocationPlan = serde_json::from_value(row.get(0))?;
+            let stored_policy: company_capital::CapitalPolicy = serde_json::from_value(row.get(1))?;
+            let created_at: String = row.get(2);
+            if stored_plan != plan || stored_policy != *policy {
+                return Err("capital allocation plan key already exists with different evidence".into());
+            }
+            tx.rollback().await?;
+            return Ok(CapitalAllocationRecord {
+                plan: stored_plan,
+                policy: stored_policy,
+                created_at,
+            });
+        }
+
+        tx.execute(
+            "INSERT INTO capital_allocation_plans
+             (id,company_id,plan_key,policy_json,total_capital_minor,planned_capital_minor,unallocated_minor)
+             VALUES ($1,$2,$3,$4,$5::numeric,$6::numeric,$7::numeric)",
+            &[
+                &plan.plan_id,
+                &company,
+                &plan_key,
+                &policy_json,
+                &plan.total_capital_minor.to_string(),
+                &plan.planned_capital_minor.to_string(),
+                &plan.unallocated_minor.to_string(),
+            ],
+        )
+        .await?;
+
+        for candidate in candidates {
+            tx.execute(
+                "INSERT INTO capital_allocation_candidates
+                 (id,company_id,plan_id,candidate_key,candidate_json)
+                 VALUES ($1,$2,$3,$4,$5)",
+                &[
+                    &candidate.candidate_id,
+                    &company,
+                    &plan.plan_id,
+                    &candidate.candidate_id.to_string(),
+                    &serde_json::to_value(candidate)?,
+                ],
+            )
+            .await?;
+        }
+
+        let candidate_map = candidates
+            .iter()
+            .map(|candidate| (candidate.candidate_id, candidate))
+            .collect::<std::collections::HashMap<_, _>>();
+
+        for decision in &plan.decisions {
+            let candidate = candidate_map
+                .get(&decision.candidate_id)
+                .ok_or("capital decision references unknown candidate")?;
+            tx.execute(
+                "INSERT INTO capital_allocation_decisions
+                 (id,company_id,plan_id,candidate_id,decision,score_bps,allocation_minor,reason)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7::numeric,$8)",
+                &[
+                    &Uuid::new_v4(),
+                    &company,
+                    &plan.plan_id,
+                    &candidate.candidate_id,
+                    &format!("{:?}", decision.status).to_uppercase(),
+                    &(decision.score_bps as i32),
+                    &decision.allocation_minor.to_string(),
+                    &decision.reason,
+                ],
+            )
+            .await?;
+        }
+
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'CAPITAL_ALLOCATION_PLAN_CREATED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[
+                &company,
+                &plan.plan_id,
+                &format!("outbox:capital-plan:{plan_key}"),
+                &serde_json::json!({
+                    "plan_id": plan.plan_id,
+                    "plan_key": plan_key,
+                    "total_capital_minor": plan.total_capital_minor,
+                    "planned_capital_minor": plan.planned_capital_minor,
+                    "unallocated_minor": plan.unallocated_minor
+                }),
+            ],
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(CapitalAllocationRecord {
+            plan,
+            policy: *policy,
+            created_at: tx_plan_created_at(&self.client, company, &plan_key).await?,
+        })
+    }
+
     pub async fn portfolio_metrics(
         &self,
         company_id: &str,
