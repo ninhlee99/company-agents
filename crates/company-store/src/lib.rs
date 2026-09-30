@@ -424,7 +424,13 @@ impl CompanyStore {
                 "UPDATE policy_snapshots
                     SET active=false
                   WHERE company_id=$1 AND policy_key=$2 AND platform=$4 AND jurisdiction=$5 AND id<>$3",
-                &[&snapshot.company_id, &snapshot.policy_key, &snapshot.id],
+                &[
+                    &snapshot.company_id,
+                    &snapshot.policy_key,
+                    &snapshot.id,
+                    &snapshot.platform,
+                    &snapshot.jurisdiction,
+                ],
             ).await?;
             if inserted.is_some() {
                 tx.execute(
