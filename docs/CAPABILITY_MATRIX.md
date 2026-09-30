@@ -145,19 +145,18 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 
 - **Ledger-backed executive view:** combines authoritative MTD/30d/lifetime revenue, contribution margin evidence, affiliate reconciliation, affiliate orders/net order value, content funnel, LIVE gift pulse, policy readiness, growth opportunities and cash/runway in one read model.
 - **Consistent windows:** content metrics are evaluated on the latest seven-day observation per content item; LIVE pulse uses the last 30 days; affiliate order economics and reconciliation use the current month; revenue trend uses a complete seven-day daily series.
-- **Exception-first triage:** deterministic `Needs attention`, `Opportunities`, and `Healthy` sections surface liquidity, margin evidence, reconciliation, policy and growth states without ranking business choices or inventing missing data.
+- **Exception-first triage:** deterministic `Needs attention`, `Opportunities`, and `Healthy` sections surface liquidity, margin evidence, reconciliation, policy and growth states without inventing missing data.
 - **Truth boundaries:** gift value is explicitly not recognized company revenue; content commission is labeled as observed commission; missing command-center data renders as unavailable rather than zero.
 - **API:** authenticated `GET /api/ceo/command-center` exposes the same deterministic decision view used by the dashboard.
 
+## Autonomy ladder / Digital Twin
 
-- **Evidence-gated trend ingestion:** trend signals require a source, evidence reference, timestamp, normalized scoring inputs, confidence and policy evidence before they can enter the growth loop.
-- **Deterministic opportunity scoring:** trend signals are scored from velocity, audience fit, product fit, contentability and inverse competition; low-confidence/high-score signals remain monitored instead of being auto-pursued.
-- **Durable opportunity ledger:** pursued trends create idempotent, company-scoped opportunities with the exact content economics and policy evidence used to generate them.
-- **Content-plan bridge:** a pursued opportunity can be materialized once into the Content Factory as a Draft; this does not publish externally or claim reach/revenue.
-- **TTFC evidence:** the growth ledger stores the first content creation timestamp and derives trend-to-content elapsed seconds so growth speed can be measured instead of inferred.
-- **LIVE attention controller:** each accepted LIVE event is scored for purchase intent, objections, gifts, PK moments, engagement, explicit high-value viewer evidence and safety escalation; per-session response caps/cooldowns are persisted, with human escalation for safety signals.
-- **Typed outbox events:** TREND_DETECTED, OPPORTUNITY_CREATED and CONTENT_CREATED provide durable downstream hand-off points without free-form agent chat.
-- **Current boundary:** trend discovery still requires an external/verified signal source, and content analytics/publishing evidence must come from separately authenticated platform boundaries.
+- **Six-level control ladder:** Observe → Recommend → Simulate → Human approve → Limited autonomy → Strategic autonomy.
+- **Deterministic gate:** emergency stop blocks autonomous side effects; distress/emergency/liquidation/bankruptcy caps autonomy at recommendation/simulation; low confidence or insufficient evidence stays recommendation-only; material/external/critical-risk actions require human approval.
+- **Digital Twin:** proposed actions are replayed through the pure execution model against the authoritative snapshot without mutating live state; simulated cash/runway/status/downside are returned as evidence.
+- **Limited autonomy conditions:** configured ceiling must permit it, action must be reversible, cost must stay under cap, confidence/evidence gates must pass, and the Digital Twin must show non-negative cash, no bankruptcy risk and sufficient runway.
+- **Durable simulations:** autonomy assessments are persisted idempotently in an append-only, company-scoped ledger and emit `AUTONOMY_ASSESSMENT_RECORDED`.
+- **Safe default:** `AUTONOMY_MAX_LEVEL=SIMULATE`; strategic autonomy is disabled unless explicitly configured. External/material side effects remain human-gated.
 
 ## Learning / Failure Ledger
 

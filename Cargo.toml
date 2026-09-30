@@ -26,7 +26,8 @@ members = [
   "crates/company-live-attention",
   "crates/company-compliance",
   "crates/company-command-center",
-  "crates/company-agent-evaluation"
+  "crates/company-agent-evaluation",
+  "crates/company-autonomy"
 ]
 
 [profile.release]

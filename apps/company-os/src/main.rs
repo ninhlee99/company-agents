@@ -154,6 +154,13 @@ struct ContentObservationRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct AutonomyAssessRequest {
+    proposal: agent_runtime::types::Proposal,
+    daily_burn_minor: i128,
+    reserve_cash_minor: i128,
+}
+
+#[derive(Debug, Deserialize)]
 struct AgentOutcomeEvidenceRequest {
     decision_journal_id: i64,
     evidence_ref: String,
@@ -536,6 +543,33 @@ async fn index(
             contribution_margin.variable_cost_transaction_count
         )
     };
+    let autonomy_policy = autonomy_policy_from_env();
+    let autonomy_stop = autonomy_emergency_stop_from_env();
+    let autonomy_html = match (autonomy_policy, autonomy_stop) {
+        (Ok(policy), Ok(emergency_stop)) => {
+            let ceiling = policy.max_level.as_str();
+            let stop_label = if emergency_stop { "EMERGENCY STOP ON" } else { "normal" };
+            let step_class = |level: company_autonomy::AutonomyLevel| {
+                if policy.max_level == level { "autonomy-step active" } else { "autonomy-step" }
+            };
+            format!(
+                r#"<section class="autonomy-shell"><div><div class="section-kicker">Autonomy ladder</div><h2>Observe → Recommend → Simulate → Human approve → Limited → Strategic</h2><p class="muted">Current ceiling: <strong>{}</strong> · {} · limited autonomy requires {} bps confidence, {} evidence items, reversible action, simulation and ≥ {} days runway.</p></div><div class="autonomy-steps"><span class="{}">01 Observe</span><span class="{}">02 Recommend</span><span class="{}">03 Simulate</span><span class="{}">04 Human approve</span><span class="{}">05 Limited</span><span class="{}">06 Strategic</span></div><small class="muted">External/material actions remain human-gated. The digital twin never mutates the live company state.</small></section>"#,
+                ceiling,
+                stop_label,
+                policy.min_confidence_bps,
+                policy.min_evidence_count,
+                policy.min_runway_days,
+                step_class(company_autonomy::AutonomyLevel::Observe),
+                step_class(company_autonomy::AutonomyLevel::Recommend),
+                step_class(company_autonomy::AutonomyLevel::Simulate),
+                step_class(company_autonomy::AutonomyLevel::HumanApprove),
+                step_class(company_autonomy::AutonomyLevel::LimitedAutonomy),
+                step_class(company_autonomy::AutonomyLevel::StrategicAutonomy)
+            )
+        }
+        _ => r#"<section class="autonomy-shell"><div class="section-kicker">Autonomy ladder</div><h2>Policy unavailable</h2><p class="muted">Autonomy policy cannot be loaded safely, so no autonomous execution ceiling is advertised.</p></section>"#.into(),
+    };
+
     let target_pct = if revenue_periods.month_to_date_minor > 0 {
         ((revenue_periods.month_to_date_minor as f64 / target_minor as f64) * 100.0).round().min(999.0) as u64
     } else {
@@ -649,12 +683,18 @@ small,.muted{{color:#94a3b8}} code{{background:#f3f3f3;padding:2px 4px}}
 .evaluation-status.partial{{color:#67e8f9}}
 .evaluation-status.evaluated{{color:#86efac}}
 nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;text-decoration:none;padding:8px 10px;border-radius:8px}} nav a:hover{{background:#171e30;color:#fff}}
+.autonomy-shell{{border:1px solid #33415f;border-radius:18px;padding:18px;margin:0 0 18px;background:#0c1320}}
+.autonomy-shell h2{{margin:5px 0 7px;font-size:20px}}
+.autonomy-steps{{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin:15px 0 10px}}
+.autonomy-step{{padding:9px 7px;border-radius:10px;border:1px solid #273550;text-align:center;font-size:11px;color:#94a3b8;background:#101827}}
+.autonomy-step.active{{color:#f8fafc;border-color:#7c3aed;background:#1a1232}}
 @media(max-width:1050px){{.cc-kpis{{grid-template-columns:repeat(3,minmax(0,1fr))}}.cc-body{{grid-template-columns:repeat(2,minmax(0,1fr))}}.cc-alerts{{grid-template-columns:1fr}}}}
 @media(max-width:800px){{.grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}.cc-head{{flex-direction:column}}.cc-trend{{align-items:flex-start}}}}
-@media(max-width:520px){{.grid{{grid-template-columns:1fr}}.cc-kpis{{grid-template-columns:1fr 1fr}}.cc-body{{grid-template-columns:1fr}}}}
+@media(max-width:520px){{.grid{{grid-template-columns:1fr}}.cc-kpis{{grid-template-columns:1fr 1fr}}.cc-body{{grid-template-columns:1fr}}.autonomy-steps{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
 </style></head><body>
 <header><h1>Veridara AI</h1><small>Autonomous Company OS · {}</small></header>
-<nav><a href="/">Overview</a><a href="/api/ceo/command-center">Revenue JSON</a><a href="/api/agents">Agents</a><a href="/api/agents/evaluation">Agent outcomes</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Audit</a></nav>
+<nav><a href="/">Overview</a><a href="/api/ceo/command-center">Revenue JSON</a><a href="/api/autonomy/policy">Autonomy policy</a><a href="/api/agents">Agents</a><a href="/api/agents/evaluation">Agent outcomes</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Audit</a></nav>
+{}
 {}
 {}
 <div class="grid">
@@ -683,6 +723,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         state.company_id.clone(),
         command_center_html,
         agent_evaluation_html,
+        autonomy_html,
         format_minor(company.cash_minor, &state.currency),
         format_minor(revenue_periods.month_to_date_minor, &state.currency),
         revenue_periods.revenue_transaction_count,
@@ -1002,6 +1043,55 @@ async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, S
         })
 }
 
+async fn autonomy_assess_api(
+    State(state): State<AppState>,
+    Json(request): Json<AutonomyAssessRequest>,
+) -> Result<Json<company_store::AutonomySimulationRecord>, StatusCode> {
+    if request.daily_burn_minor <= 0 || request.reserve_cash_minor < 0 {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let policy = autonomy_policy_from_env().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let emergency_stop = autonomy_emergency_stop_from_env()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let config = company_autonomy::DigitalTwinConfig {
+        daily_burn_minor: request.daily_burn_minor,
+        reserve_cash_minor: request.reserve_cash_minor,
+    };
+    state
+        .store
+        .assess_autonomy_for_company(
+            &state.company_id,
+            &request.proposal,
+            policy,
+            emergency_stop,
+            &config,
+        )
+        .await
+        .map(Json)
+        .map_err(|error| {
+            tracing::warn!(%error, "autonomy assessment unavailable");
+            StatusCode::BAD_REQUEST
+        })
+}
+
+async fn autonomy_policy_api(
+    State(_state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let policy = autonomy_policy_from_env().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let emergency_stop = autonomy_emergency_stop_from_env()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    Ok(Json(serde_json::json!({
+        "max_level": policy.max_level.as_str(),
+        "min_confidence_bps": policy.min_confidence_bps,
+        "min_evidence_count": policy.min_evidence_count,
+        "max_limited_cost_minor": policy.max_limited_cost_minor,
+        "min_runway_days": policy.min_runway_days,
+        "allow_strategic": policy.allow_strategic,
+        "emergency_stop": emergency_stop,
+        "material_and_external_actions_require_human_approval": true
+    })))
+}
+
 async fn agent_outcome_evidence_api(
     State(state): State<AppState>,
     Json(request): Json<AgentOutcomeEvidenceRequest>,
@@ -1047,6 +1137,68 @@ async fn ceo_command_center_api(
             tracing::warn!(%error, "CEO command center unavailable");
             StatusCode::SERVICE_UNAVAILABLE
         })
+}
+
+fn autonomy_policy_from_env() -> Result<company_autonomy::AutonomyPolicy, String> {
+    let max_level = parse_autonomy_level(
+        &std::env::var("AUTONOMY_MAX_LEVEL").unwrap_or_else(|_| "SIMULATE".into()),
+    )?;
+    let min_confidence_bps = std::env::var("AUTONOMY_MIN_CONFIDENCE_BPS")
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .unwrap_or(8_500);
+    let min_evidence_count = std::env::var("AUTONOMY_MIN_EVIDENCE_COUNT")
+        .ok()
+        .and_then(|value| value.parse::<u8>().ok())
+        .unwrap_or(2);
+    let max_limited_cost_minor = std::env::var("AUTONOMY_MAX_LIMITED_COST_MINOR")
+        .ok()
+        .and_then(|value| value.parse::<i128>().ok())
+        .unwrap_or(250);
+    let min_runway_days = std::env::var("AUTONOMY_MIN_RUNWAY_DAYS")
+        .ok()
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(30);
+    let allow_strategic = parse_bool_env("AUTONOMY_ALLOW_STRATEGIC", false);
+    company_autonomy::policy_with(
+        max_level,
+        min_confidence_bps,
+        min_evidence_count,
+        max_limited_cost_minor,
+        min_runway_days,
+        allow_strategic,
+    )
+}
+
+fn parse_autonomy_level(value: &str) -> Result<company_autonomy::AutonomyLevel, String> {
+    match value.trim().to_ascii_uppercase().as_str() {
+        "OBSERVE" => Ok(company_autonomy::AutonomyLevel::Observe),
+        "RECOMMEND" => Ok(company_autonomy::AutonomyLevel::Recommend),
+        "SIMULATE" => Ok(company_autonomy::AutonomyLevel::Simulate),
+        "HUMAN_APPROVE" | "HUMAN-APPROVE" => Ok(company_autonomy::AutonomyLevel::HumanApprove),
+        "LIMITED_AUTONOMY" | "LIMITED" => Ok(company_autonomy::AutonomyLevel::LimitedAutonomy),
+        "STRATEGIC_AUTONOMY" | "STRATEGIC" => Ok(company_autonomy::AutonomyLevel::StrategicAutonomy),
+        _ => Err("invalid AUTONOMY_MAX_LEVEL".into()),
+    }
+}
+
+fn parse_bool_env(name: &str, default: bool) -> bool {
+    std::env::var(name)
+        .ok()
+        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(default)
+}
+
+fn autonomy_emergency_stop_from_env() -> Result<bool, String> {
+    let raw = std::env::var("AUTONOMY_EMERGENCY_STOP").unwrap_or_else(|_| "false".into());
+    let normalized = raw.trim().to_ascii_lowercase();
+    if matches!(normalized.as_str(), "1" | "true" | "yes" | "on") {
+        Ok(true)
+    } else if matches!(normalized.as_str(), "0" | "false" | "no" | "off") {
+        Ok(false)
+    } else {
+        Err("AUTONOMY_EMERGENCY_STOP must be boolean".into())
+    }
 }
 
 fn configured_revenue_target_minor(currency: &str) -> Result<i128, StatusCode> {
@@ -1850,6 +2002,8 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/agents", get(agents_api))
         .route("/api/agents/outcome-evidence", post(agent_outcome_evidence_api))
         .route("/api/agents/evaluation", get(agent_outcome_evaluations_api))
+        .route("/api/autonomy/policy", get(autonomy_policy_api))
+        .route("/api/autonomy/assess", post(autonomy_assess_api))
         .route("/api/content/items", get(content_list_api).post(content_create_api))
         .route("/api/content/observations", post(content_observation_api))
         .route("/api/content/status", post(content_status_transition_api))

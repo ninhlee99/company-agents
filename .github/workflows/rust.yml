@@ -43,6 +43,7 @@ jobs:
           - company-compliance
           - company-command-center
           - company-agent-evaluation
+          - company-autonomy
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
