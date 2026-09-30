@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS capital_allocation_plans (
   planned_capital_minor numeric(39,0) NOT NULL CHECK (planned_capital_minor >= 0),
   unallocated_minor numeric(39,0) NOT NULL CHECK (unallocated_minor >= 0),
   created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE(company_id, plan_key)
+  UNIQUE(company_id, plan_key),
+  UNIQUE(company_id, id)
 );
 
 CREATE TABLE IF NOT EXISTS capital_allocation_candidates (
@@ -18,6 +19,7 @@ CREATE TABLE IF NOT EXISTS capital_allocation_candidates (
   candidate_json jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE(company_id, plan_id, candidate_key),
+  UNIQUE(company_id, id),
   FOREIGN KEY (company_id, plan_id)
     REFERENCES capital_allocation_plans(company_id, id)
 );
