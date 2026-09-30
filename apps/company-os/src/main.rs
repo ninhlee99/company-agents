@@ -35,6 +35,10 @@ struct RuntimeMetrics {
     cycles_failed_total: AtomicU64,
     affiliate_search_total: AtomicU64,
     affiliate_search_failed_total: AtomicU64,
+    control_plane_requests_total: AtomicU64,
+    control_plane_auth_denied_total: AtomicU64,
+    control_plane_browser_csrf_denied_total: AtomicU64,
+    control_plane_last_latency_ms: AtomicU64,
     last_cycle_latency_ms: AtomicU64,
 }
 
@@ -59,7 +63,19 @@ impl RuntimeMetrics {
                 "affiliate_search_failed_total {}\n",
                 "# HELP company_cycle_last_latency_ms Last successful cycle latency in milliseconds.\n",
                 "# TYPE company_cycle_last_latency_ms gauge\n",
-                "company_cycle_last_latency_ms {}\n"
+                "company_cycle_last_latency_ms {}\n",
+                "# HELP company_control_plane_requests_total Control-plane requests observed by the auth middleware.\n",
+                "# TYPE company_control_plane_requests_total counter\n",
+                "company_control_plane_requests_total {}\n",
+                "# HELP company_control_plane_auth_denied_total Control-plane requests denied by authentication or scope checks.\n",
+                "# TYPE company_control_plane_auth_denied_total counter\n",
+                "company_control_plane_auth_denied_total {}\n",
+                "# HELP company_control_plane_browser_csrf_denied_total Browser mutations denied by CSRF validation.\n",
+                "# TYPE company_control_plane_browser_csrf_denied_total counter\n",
+                "company_control_plane_browser_csrf_denied_total {}\n",
+                "# HELP company_control_plane_last_latency_ms Last observed protected control-plane request latency in milliseconds.\n",
+                "# TYPE company_control_plane_last_latency_ms gauge\n",
+                "company_control_plane_last_latency_ms {}\n"
             ),
             self.cycles_started_total.load(Ordering::Relaxed),
             self.cycles_succeeded_total.load(Ordering::Relaxed),
@@ -67,9 +83,41 @@ impl RuntimeMetrics {
             self.affiliate_search_total.load(Ordering::Relaxed),
             self.affiliate_search_failed_total.load(Ordering::Relaxed),
             self.last_cycle_latency_ms.load(Ordering::Relaxed),
+            self.control_plane_requests_total.load(Ordering::Relaxed),
+            self.control_plane_auth_denied_total.load(Ordering::Relaxed),
+            self.control_plane_browser_csrf_denied_total.load(Ordering::Relaxed),
+            self.control_plane_last_latency_ms.load(Ordering::Relaxed),
         )
     }
 }
+
+fn observe_control_plane_request(state: &AppState, request_id: &str, started: Instant) -> HeaderValue {
+    state
+        .metrics
+        .control_plane_requests_total
+        .fetch_add(1, Ordering::Relaxed);
+    let latency_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+    state
+        .metrics
+        .control_plane_last_latency_ms
+        .store(latency_ms, Ordering::Relaxed);
+    HeaderValue::from_str(request_id).unwrap_or_else(|_| HeaderValue::from_static("invalid"))
+}
+
+fn mark_control_plane_denied(state: &AppState, csrf: bool) {
+    state
+        .metrics
+        .control_plane_auth_denied_total
+        .fetch_add(1, Ordering::Relaxed);
+    if csrf {
+        state
+            .metrics
+            .control_plane_browser_csrf_denied_total
+            .fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+#[derive(Clone)]
 
 #[derive(Clone)]
 struct AppState {
@@ -2909,6 +2957,8 @@ async fn require_control_plane_auth(
     request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
+    let started = Instant::now();
+    let request_id = control_plane_request_id(&request);
     let path = request.uri().path().to_owned();
     if matches!(
         path.as_str(),
@@ -2920,11 +2970,14 @@ async fn require_control_plane_auth(
             | "/auth/login"
             | "/auth/session"
     ) {
-        return Ok(next.run(request).await);
+        let mut response = next.run(request).await;
+        if let Ok(value) = HeaderValue::from_str(&request_id) {
+            response.headers_mut().insert("x-request-id", value);
+        }
+        return Ok(response);
     }
 
     let method = request.method().as_str().to_owned();
-    let request_id = control_plane_request_id(&request);
     let provided = request
         .headers()
         .get(axum::http::header::AUTHORIZATION)
@@ -2935,6 +2988,7 @@ async fn require_control_plane_auth(
 
     if control_plane_auth_disabled() {
         let actor_id = control_plane_actor_id(provided);
+        let mut response = next.run(request).await;
         record_control_plane_audit(
             &state,
             &actor_id,
@@ -2946,7 +3000,9 @@ async fn require_control_plane_auth(
             &request_id,
         )
         .await;
-        return Ok(next.run(request).await);
+        let header_value = observe_control_plane_request(&state, &request_id, started);
+        response.headers_mut().insert("x-request-id", header_value);
+        return Ok(response);
     }
 
     if let Some(cookie) = cookie_value(&request, "company_os_session") {
@@ -2978,7 +3034,7 @@ async fn require_control_plane_auth(
 
                 let actor_id = control_plane_actor_id_for_cookie(&cookie);
                 if csrf_valid {
-                    let response = next.run(request).await;
+                    let mut response = next.run(request).await;
                     record_control_plane_audit(
                         &state,
                         &actor_id,
@@ -2990,9 +3046,12 @@ async fn require_control_plane_auth(
                         &request_id,
                     )
                     .await;
+                    let header_value = observe_control_plane_request(&state, &request_id, started);
+                    response.headers_mut().insert("x-request-id", header_value);
                     return Ok(response);
                 }
 
+                mark_control_plane_denied(&state, true);
                 record_control_plane_audit(
                     &state,
                     &actor_id,
@@ -3013,6 +3072,7 @@ async fn require_control_plane_auth(
     let operator_token = match std::env::var("CONTROL_PLANE_TOKEN") {
         Ok(value) if !value.is_empty() => value,
         _ => {
+            mark_control_plane_denied(&state, false);
             record_control_plane_audit(
                 &state,
                 &actor_id,
@@ -3039,6 +3099,7 @@ async fn require_control_plane_auth(
     ) {
         Some(role) => role,
         None => {
+            mark_control_plane_denied(&state, false);
             record_control_plane_audit(
                 &state,
                 &actor_id,
@@ -3054,7 +3115,7 @@ async fn require_control_plane_auth(
         }
     };
 
-    let response = next.run(request).await;
+    let mut response = next.run(request).await;
     record_control_plane_audit(
         &state,
         &actor_id,
@@ -3066,6 +3127,8 @@ async fn require_control_plane_auth(
         &request_id,
     )
     .await;
+    let header_value = observe_control_plane_request(&state, &request_id, started);
+    response.headers_mut().insert("x-request-id", header_value);
     Ok(response)
 }
 
@@ -3260,6 +3323,20 @@ async fn metrics(
 #[cfg(test)]
 mod control_plane_audit_tests {
     use super::*;
+
+    #[test]
+    fn control_plane_metrics_expose_request_and_denial_counters() {
+        let metrics = RuntimeMetrics::default();
+        metrics.control_plane_requests_total.store(3, Ordering::Relaxed);
+        metrics.control_plane_auth_denied_total.store(1, Ordering::Relaxed);
+        metrics.control_plane_browser_csrf_denied_total.store(1, Ordering::Relaxed);
+        metrics.control_plane_last_latency_ms.store(42, Ordering::Relaxed);
+        let rendered = metrics.render_prometheus();
+        assert!(rendered.contains("company_control_plane_requests_total 3"));
+        assert!(rendered.contains("company_control_plane_auth_denied_total 1"));
+        assert!(rendered.contains("company_control_plane_browser_csrf_denied_total 1"));
+        assert!(rendered.contains("company_control_plane_last_latency_ms 42"));
+    }
 
     #[test]
     fn browser_session_round_trip_and_expiry_are_verified() {
