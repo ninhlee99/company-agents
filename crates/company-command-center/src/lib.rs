@@ -419,6 +419,7 @@ mod tests {
     #[test]
     fn healthy_state_can_coexist_with_growth_opportunity() {
         let mut value = input();
+        value.affiliate_reported_commission_mtd_minor = 1_900;
         value.affiliate_variance_mtd_minor = 0;
         value.growth_opportunities.push(GrowthOpportunityDigest {
             title: "Test opportunity".into(),
@@ -479,6 +480,7 @@ mod tests {
         value.revenue_last_30d_minor = -5;
         value.revenue_lifetime_minor = -20;
         value.daily_revenue[0].revenue_minor = -30;
+        value.affiliate_reported_commission_mtd_minor = 1_900;
         value.affiliate_variance_mtd_minor = 0;
         let summary = summarize(&value).unwrap();
         assert!(summary
@@ -490,6 +492,7 @@ mod tests {
     #[test]
     fn no_exceptions_creates_healthy_state() {
         let mut value = input();
+        value.affiliate_reported_commission_mtd_minor = 1_900;
         value.affiliate_variance_mtd_minor = 0;
         value.revenue_mtd_minor = 0;
         value.daily_revenue.clear();

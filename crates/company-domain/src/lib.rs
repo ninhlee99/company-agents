@@ -522,6 +522,8 @@ impl fmt::Display for DomainError {
     }
 }
 
+impl std::error::Error for DomainError {}
+
 fn validate_text(value: &str, field: &'static str) -> Result<(), DomainError> {
     if value.trim().is_empty() {
         Err(DomainError::InvalidText(field))

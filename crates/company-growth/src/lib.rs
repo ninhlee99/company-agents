@@ -562,6 +562,7 @@ pub fn evaluate_content_whitespace(
     Ok(gaps)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TrendSignal {
     pub company_id: Uuid,
     pub trend_key: String,

@@ -223,6 +223,7 @@ pub struct CustomerIntelligenceMetric {
     pub ltv_estimation_status: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CommercialDeliveryMetric {
     pub currency: String,
     pub proposal_count: i64,
@@ -418,6 +419,7 @@ fn content_published_event(
     )
 }
 
+#[allow(dead_code)]
 fn experiment_completed_event(
     company: Uuid,
     experiment_id: Uuid,
@@ -537,7 +539,7 @@ impl CompanyStore {
                         delta
                             .checked_mul(10_000)?
                             .checked_div(forecast)
-                            .or_else(|| Some(if delta.is_negative() { i64::MIN } else { i64::MAX }))
+                            .or_else(|| Some(if delta.is_negative() { i128::MIN } else { i128::MAX }))
                             .and_then(|value| i64::try_from(value).ok())
                     }
                 });
@@ -1130,98 +1132,7 @@ impl CompanyStore {
         })
     }
 
-    pub async fn record_revenue_graph_edge(
-        &self,
-        edge: &company_revenue_graph::RevenueGraphEdge,
-    ) -> Result<company_revenue_graph::RevenueGraphEdge, Box<dyn std::error::Error + Send + Sync>> {
-        company_revenue_graph::validate_edge(edge).map_err(|error| error.to_string())?;
-        let mut client = self.client.lock().await;
-        let tx = client.transaction().await?;
-        let stored = record_revenue_graph_edge_tx(&tx, edge).await?;
-        tx.commit().await?;
-        Ok(stored)
-    }
 
-    pub async fn revenue_graph_lineage(
-        &self,
-        company_id: &str,
-        root_type: company_revenue_graph::RevenueNodeType,
-        root_ref: &str,
-        max_depth: i32,
-        limit: i64,
-    ) -> Result<Vec<(i32, company_revenue_graph::RevenueGraphEdge)>, Box<dyn std::error::Error + Send + Sync>> {
-        let company = Uuid::parse_str(company_id)?;
-        if root_ref.trim().is_empty() || root_ref.len() > 512 {
-            return Err("revenue graph root_ref is invalid".into());
-        }
-        if !(0..=12).contains(&max_depth) || !(1..=500).contains(&limit) {
-            return Err("revenue graph depth/limit is outside safe bounds".into());
-        }
-        let root_type = root_type.as_str();
-        let client = self.client.lock().await;
-        let rows = client.query(
-            "WITH RECURSIVE walk AS (
-                SELECT e.id,e.company_id,e.edge_key,e.from_type,e.from_ref,e.relation,
-                       e.to_type,e.to_ref,e.value_minor::text,e.currency,e.confidence_bps,
-                       e.evidence_ref,e.source,e.observed_at_epoch,e.created_at::text,
-                       0::int AS depth,
-                       ARRAY[(e.from_type || ':' || e.from_ref),(e.to_type || ':' || e.to_ref)] AS visited
-                  FROM revenue_graph_edges e
-                 WHERE e.company_id=$1
-                   AND e.from_type=$2
-                   AND e.from_ref=$3
-                UNION ALL
-                SELECT e.id,e.company_id,e.edge_key,e.from_type,e.from_ref,e.relation,
-                       e.to_type,e.to_ref,e.value_minor::text,e.currency,e.confidence_bps,
-                       e.evidence_ref,e.source,e.observed_at_epoch,e.created_at::text,
-                       w.depth + 1,
-                       w.visited || (e.to_type || ':' || e.to_ref)
-                  FROM walk w
-                  JOIN revenue_graph_edges e
-                    ON e.company_id=w.company_id
-                   AND e.from_type=w.to_type
-                   AND e.from_ref=w.to_ref
-                 WHERE w.depth < $4
-                   AND NOT ((e.to_type || ':' || e.to_ref) = ANY(w.visited))
-            )
-            SELECT id,company_id,edge_key,from_type,from_ref,relation,to_type,to_ref,
-                   value_minor,currency,confidence_bps,evidence_ref,source,observed_at_epoch,
-                   created_at,depth
-              FROM walk
-             ORDER BY depth ASC,observed_at_epoch DESC,created_at DESC
-             LIMIT $5",
-            &[&company, &root_type, &root_ref.trim(), &max_depth, &limit],
-        ).await?;
-        rows.into_iter()
-            .map(|row| {
-                Ok((
-                    row.get::<_, i32>(15),
-                    revenue_graph_edge_from_row(row)?,
-                ))
-            })
-            .collect()
-    }
-
-    pub async fn revenue_graph_summary(
-        &self,
-        company_id: &str,
-    ) -> Result<RevenueGraphSummary, Box<dyn std::error::Error + Send + Sync>> {
-        let company = Uuid::parse_str(company_id)?;
-        let client = self.client.lock().await;
-        let row = client.query_one(
-            "SELECT COUNT(*)::bigint,
-                    COUNT(*) FILTER (WHERE value_minor IS NOT NULL)::bigint,
-                    MAX(observed_at_epoch)
-               FROM revenue_graph_edges
-              WHERE company_id=$1",
-            &[&company],
-        ).await?;
-        Ok(RevenueGraphSummary {
-            edge_count: row.get(0),
-            value_backed_edge_count: row.get(1),
-            latest_observed_at_epoch: row.get(2),
-        })
-    }
 
     pub async fn record_policy_snapshot(
         &self,
@@ -1622,7 +1533,7 @@ impl CompanyStore {
         let days_in_month = now.date().month().length(now.year()) as i128;
         let elapsed_days = now.day() as i128;
         let (forecast_month_minor, run_rate_month_minor, forecast_confidence_bps) =
-            revenue_period_projection(month_to_date_minor, last_30_days_minor, elapsed_days, days_in_month);
+            Self::revenue_period_projection(month_to_date_minor, last_30_days_minor, elapsed_days, days_in_month);
 
         Ok(RevenuePeriodMetrics {
             month_to_date_minor,
@@ -1757,7 +1668,7 @@ impl CompanyStore {
               FOR UPDATE",
             &[&company, &content_id],
         ).await?.ok_or("content item not found")?;
-        let current = parse_content_status(row.get::<_, String>(26))?;
+        let current = parse_content_status(&row.get::<_, String>(26))?;
         company_content::validate_status_transition(current, next, evidence_ref)
             .map_err(|error| error.to_string())?;
 
@@ -1893,15 +1804,6 @@ impl CompanyStore {
                     &[&observation.company_id, &learning.entry_key],
                 ).await?.get(0),
             };
-
-            let completed_event = experiment_completed_event(
-                company,
-                experiment_id,
-                observation,
-                decision,
-                observation_key,
-            )?;
-            enqueue_company_event_tx(&tx, &completed_event).await?;
 
             let learning_event = company_domain::CompanyEventEnvelope::new(
                 observation.company_id,
@@ -2625,7 +2527,7 @@ impl CompanyStore {
             .await?;
         let live = company_command_center::LivePulse {
             sessions_30d: live_row.get(0),
-            gift_count_30d: parse_i128_numeric(&live_row.get::<_, String>(1))?,
+            gift_count_30d: parse_i128_numeric(&live_row.get::<_, String>(1))? as i64,
             gift_value_30d_minor: parse_i128_numeric(&live_row.get::<_, String>(2))?,
         };
 
@@ -3232,9 +3134,10 @@ impl CompanyStore {
                     value,
                     &time::format_description::well_known::Rfc3339,
                 )
-                .map(|parsed| parsed.format(&time::format_description::well_known::Rfc3339))
+                .map_err(|e| e.to_string())
+                .and_then(|parsed| parsed.format(&time::format_description::well_known::Rfc3339).map_err(|e| e.to_string()))
             })
-            .transpose()??;
+            .transpose()?;
 
         let client = self.client.lock().await;
         let existing = client
@@ -3535,8 +3438,8 @@ impl CompanyStore {
         if event_key.trim().is_empty() || event_key.len() > 512 {
             return Err("TikTok webhook event key is invalid".into());
         }
-        let client = self.client.lock().await;
-        let mut tx = client.transaction().await?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
         let inserted = tx
             .execute(
                 "INSERT INTO tiktok_webhook_receipts
@@ -3623,8 +3526,8 @@ impl CompanyStore {
         }
 
         let final_status = if success { "SUCCEEDED" } else { "FAILED" };
-        let client = self.client.lock().await;
-        let mut tx = client.transaction().await?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
         let changed = tx
             .execute(
                 "UPDATE publish_intents
@@ -5227,7 +5130,6 @@ impl CompanyStore {
         let plan = company_capital::plan_with_id(plan_id, policy, candidates)
             .map_err(|error| error.to_string())?;
         let policy_json = serde_json::to_value(policy)?;
-        let plan_json = serde_json::to_value(&plan)?;
 
         if let Some(row) = tx
             .query_opt(
@@ -6268,7 +6170,8 @@ impl CompanyStore {
                     &transaction_id,
                     &company_uuid,
                     &format!(
-                        "affiliate:provider-verify:{conversion_id}:{status}:{delta}"
+                        "affiliate:provider-verify:{conversion_id}:{}:{delta}",
+                        status.as_str()
                     ),
                 ],
             )
@@ -7884,7 +7787,7 @@ where
     F: FnOnce(&mut CompanySnapshot) -> Result<(), String>,
 {
     let mut snapshot = authoritative_snapshot(tx, company_id).await?;
-    update(&mut snapshot).map_err(|error| error.into())?;
+    update(&mut snapshot).map_err(Box::<dyn std::error::Error + Send + Sync>::from)?;
     let state = serde_json::to_value(&snapshot)?;
     tx.execute(
         "UPDATE company_state_snapshots
@@ -8035,9 +7938,12 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             ))
         }
     }
+}
+
+impl CompanyStore {
     pub async fn create_service_proposal(&self, p: &commercial_sales::ServiceProposal) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if p.title.trim().is_empty() || p.idempotency_key.trim().is_empty() || p.total_minor < 0 || p.currency.len() != 3 { return Err("invalid service proposal".into()); }
-        let mut c = self.client.lock().await;
+        let c = self.client.lock().await;
         let customer_owned = c
             .query_opt(
                 "SELECT 1 FROM customers WHERE company_id=$1 AND id=$2",
@@ -8054,7 +7960,7 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
 
     pub async fn create_sponsorship(&self, s: &commercial_sales::Sponsorship) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if s.title.trim().is_empty() || s.committed_minor < 0 || s.delivered_minor < 0 || s.delivered_minor > s.committed_minor || s.currency.len() != 3 { return Err("invalid sponsorship".into()); }
-        let mut c = self.client.lock().await;
+        let c = self.client.lock().await;
         let customer_owned = c
             .query_opt(
                 "SELECT 1 FROM customers WHERE company_id=$1 AND id=$2",
@@ -8694,7 +8600,7 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
                 return Err("invalid customer email".into());
             }
         }
-        let mut client = self.client.lock().await;
+        let client = self.client.lock().await;
         let row = client
             .query_opt(
                 "INSERT INTO customers
@@ -8995,7 +8901,6 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let company = Uuid::parse_str(company_id)?;
         let proposal = Uuid::parse_str(proposal_id)?;
-        let next_status = format!("{:?}", next).to_uppercase();
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
         let row = tx.query_opt(
@@ -9247,9 +9152,11 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
                     )?;
                     enqueue_company_event_tx(&tx, &opportunity_event).await?;
                 }
-                load_growth_opportunity_by_trend(&tx, &company, trend.id)
-                    .await?
-                    .ok_or("growth opportunity persistence failed")?
+                Some(
+                    load_growth_opportunity_by_trend(&tx, &company, trend.id)
+                        .await?
+                        .ok_or("growth opportunity persistence failed")?,
+                )
             }
         } else {
             None
@@ -9761,6 +9668,43 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         Ok(())
     }
 
+    pub async fn mark_outbound_email_processing(
+        &self,
+        company_id: &str,
+        message_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let message_uuid = Uuid::parse_str(message_id)?;
+        let client = self.client.lock().await;
+        client.execute(
+            "UPDATE outbound_messages
+                SET status='PROCESSING', attempts = attempts + 1, updated_at = now()
+              WHERE company_id=$1 AND id=$2",
+            &[&company_uuid, &message_uuid],
+        ).await?;
+        Ok(())
+    }
+
+    pub async fn record_outbound_email_result(
+        &self,
+        company_id: &str,
+        message_id: &str,
+        provider: Option<&str>,
+        provider_reference: Option<&str>,
+        error: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let message_uuid = Uuid::parse_str(message_id)?;
+        let status = if error.is_none() { "SENT" } else { "FAILED" };
+        let client = self.client.lock().await;
+        client.execute(
+            "UPDATE outbound_messages
+                SET status=$3, provider=$4, provider_reference=$5, last_error=$6, updated_at = now()
+              WHERE company_id=$1 AND id=$2",
+            &[&company_uuid, &message_uuid, &status, &provider, &provider_reference, &error],
+        ).await?;
+        Ok(())
+    }
 }
 
 async fn load_growth_trend(
@@ -9824,11 +9768,11 @@ fn growth_trend_from_row(
         confidence_bps: row.get::<_, i32>(12) as u32,
         product_ref: row.get(13),
         offer_ref: row.get(14),
-        content_format: parse_content_format(row.get::<_, String>(15))?,
+        content_format: parse_content_format(&row.get::<_, String>(15))?,
         max_budget_minor: row.get::<_, String>(16).parse()?,
         max_loss_minor: row.get::<_, String>(17).parse()?,
         max_duration_seconds: row.get::<_, i64>(18) as u32,
-        success_metric: parse_success_metric(row.get::<_, String>(19))?,
+        success_metric: parse_success_metric(&row.get::<_, String>(19))?,
         success_threshold_bps: row.get::<_, i32>(20) as u32,
         policy_evidence_ref: row.get(21),
     };
@@ -10561,9 +10505,9 @@ fn payment_execution_record_from_row(
 fn revenue_graph_edge_from_row(
     row: tokio_postgres::Row,
 ) -> Result<company_revenue_graph::RevenueGraphEdge, Box<dyn std::error::Error + Send + Sync>> {
-    let from_type = company_revenue_graph::RevenueNodeType::parse(row.get::<_, String>(3))
+    let from_type = company_revenue_graph::RevenueNodeType::parse(&row.get::<_, String>(3))
         .ok_or("unknown revenue graph from_type")?;
-    let to_type = company_revenue_graph::RevenueNodeType::parse(row.get::<_, String>(6))
+    let to_type = company_revenue_graph::RevenueNodeType::parse(&row.get::<_, String>(6))
         .ok_or("unknown revenue graph to_type")?;
     let value_minor = row
         .get::<_, Option<String>>(8)
@@ -10596,14 +10540,14 @@ fn content_record_from_row(
         brief: company_content::ContentBrief {
             hypothesis: row.get(2),
             audience: row.get(3),
-            format: parse_content_format(row.get::<_, String>(4))?,
+            format: parse_content_format(&row.get::<_, String>(4))?,
             product_ref: row.get(5),
             offer_ref: row.get(6),
             disclosure_required: row.get(7),
             expected_cost_minor: row.get::<_, String>(8).parse()?,
             max_loss_minor: row.get::<_, String>(9).parse()?,
             max_duration_seconds: row.get::<_, i64>(10) as u32,
-            success_metric: parse_success_metric(row.get::<_, String>(11))?,
+            success_metric: parse_success_metric(&row.get::<_, String>(11))?,
             success_threshold_bps: row.get::<_, i32>(12) as u32,
         },
         variant: company_content::CreativeVariant {
@@ -10621,7 +10565,7 @@ fn content_record_from_row(
             music_style: row.get(24),
             visual_style: row.get(25),
         },
-        status: parse_content_status(row.get::<_, String>(26))?,
+        status: parse_content_status(&row.get::<_, String>(26))?,
         decision: parse_content_decision(row.get::<_, Option<String>>(27))?,
     };
     company_content::validate_item(&item).map_err(|error| error.to_string())?;

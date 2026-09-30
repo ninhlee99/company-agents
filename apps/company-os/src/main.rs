@@ -6,7 +6,7 @@ use affiliate_intelligence::{
 };
 use agent_runtime::{model_from_env, AgentRunResult, AgentRuntime, CompanySnapshot};
 use axum::{
-    extract::{Form, Query, State, Request},
+    extract::{Form, Path, Query, State, Request},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     middleware::{self, Next},
     response::{Html, Redirect, Response},
@@ -398,7 +398,9 @@ struct PaymentExecutionRunRequest {
 #[derive(Debug, Deserialize)] struct SponsorshipTransitionRequest { sponsorship_id: uuid::Uuid, status: String }
 #[derive(Debug, Deserialize)] struct SponsorshipDeliveryRequest { sponsorship_id: uuid::Uuid, delivered_minor: i128 }
 #[derive(Debug, Deserialize)] struct CustomerRequest { name: String, email: Option<String>, external_ref: Option<String>, status: Option<String>, notes: Option<String>, idempotency_key: String }
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)] struct CustomerSuccessTaskRequest { customer_id: uuid::Uuid, task_type:String, due_at_epoch:i64, owner:Option<String>, notes:Option<String>, idempotency_key:String }
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)] struct CustomerSuccessCompleteRequest { task_id:uuid::Uuid, outcome:String }
 #[derive(Debug, Deserialize)] struct VendorRequest { legal_name:String, contact_email:Option<String>, currency:String, tax_ref:Option<String>, idempotency_key:String }
 #[derive(Debug, Deserialize)] struct PurchaseRequest { vendor_id:uuid::Uuid, title:String, currency:String, amount_minor:i128, requester:String, idempotency_key:String }
@@ -1069,7 +1071,7 @@ async fn index(
     };
     let cycle_state = if latest_cycle.is_some() { "active" } else { "waiting" };
 
-    let executed = latest_cycle
+    let _executed = latest_cycle
         .as_ref()
         .map(|c| {
             c.receipts
@@ -1115,7 +1117,7 @@ async fn index(
     let integration_readiness_html = render_integration_readiness(&build_integration_readiness(&state).await);
 
     Html(format!(
-        r#"<!doctype html>
+        r##"<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Company OS</title>
@@ -1227,7 +1229,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
     url.searchParams.set('csrf', csrf);
     form.setAttribute('action', url.pathname + url.search + url.hash);
   }}
-}})();</script></body></html>"#,
+}})();</script></body></html>"##,
         state.company_id.clone(),
         command_center_html,
         agent_evaluation_html,
@@ -1456,7 +1458,7 @@ fn render_agent_evaluations(
             .map(|value| format!("{:.2}%", value as f64 / 100.0))
             .unwrap_or_else(|| "n/a".into());
         rows.push_str(&format!(
-            r#"<tr><td><strong>{}</strong></td><td>{}</td><td>{}</td><td>{}</td><td>{:.0}%</td><td>{:.0}%</td><td>{:.0}%</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td class="evaluation-status {}">{}</td></tr>"#,
+            r#"<tr><td><strong>{}</strong></td><td>{}</td><td>{}</td><td>{}</td><td>{:.0}%</td><td>{:.0}%</td><td>{:.0}%</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td class="evaluation-status {}">{}</td></tr>"#,
             escape_html(&evaluation.agent_name),
             evaluation.proposal_count,
             evaluation.approved_count,
@@ -1498,6 +1500,13 @@ async fn live_create_html(
         room_id: std::env::var("TIKTOK_LIVE_ROOM_ID").ok().filter(|value| !value.trim().is_empty()),
         started_at_epoch: time::OffsetDateTime::now_utc().unix_timestamp(),
         approved_for_external_publish: false,
+        policy_snapshot_key: None,
+        policy_evidence_ref: None,
+        disclosure_present: false,
+        claim_evidence_present: false,
+        product_eligibility_verified: false,
+        rights_evidence_present: false,
+        simulcast: false,
     };
     match live::create_session(State(state), Json(request)).await {
         Ok(_) => Redirect::to("/?live_status=session_created"),
@@ -2816,6 +2825,23 @@ async fn affiliate_conversion_api(
         .map_err(|_| StatusCode::BAD_REQUEST)
 }
 
+#[derive(Debug, Deserialize)]
+struct AffiliateProviderVerificationRequest {
+    conversion_id: String,
+    status: affiliate_attribution::ProviderVerificationStatus,
+    verified_commission_minor: i128,
+    verified_at: Option<String>,
+    verification_source: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AffiliatePayoutRequest {
+    payout_id: String,
+    amount_minor: i128,
+    currency: String,
+    occurred_at: String,
+}
+
 async fn affiliate_verify_api(
     State(state): State<AppState>,
     Json(request): Json<AffiliateProviderVerificationRequest>,
@@ -2873,10 +2899,10 @@ async fn publish_intent_api(
 
 async fn publish_approve_api(
     State(state): State<AppState>,
-    request: Request,
+    headers: HeaderMap,
     Json(payload): Json<PublishApproveRequest>,
 ) -> Result<Json<publishing_contract::PublishApproval>, StatusCode> {
-    let actor = trusted_control_plane_actor(&state, &request)?;
+    let actor = trusted_control_plane_actor(&state, &headers, "POST")?;
     state
         .store
         .approve_publish_intent(
@@ -3228,12 +3254,20 @@ async fn payment_execution_intent_api(
         .map_err(|_| StatusCode::BAD_REQUEST)
 }
 
+fn cookie_value_from_headers(headers: &HeaderMap, name: &str) -> Option<String> {
+    let header = headers.get(header::COOKIE)?.to_str().ok()?;
+    header.split(';').find_map(|part| {
+        let (key, value) = part.trim().split_once('=')?;
+        (key == name).then(|| value.to_owned())
+    })
+}
+
 fn trusted_control_plane_actor(
     state: &AppState,
-    request: &Request,
+    headers: &HeaderMap,
+    method: &str,
 ) -> Result<String, StatusCode> {
-    let provided = request
-        .headers()
+    let provided = headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
@@ -3248,7 +3282,7 @@ fn trusted_control_plane_actor(
     if let Some(token) = provided {
         if let Ok(Some((principal_id, _role))) = control_plane_auth_principal(
             state.company_id.parse().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-            request.method().as_str(),
+            method,
             Some(token),
             &operator_token,
             read_token.as_deref(),
@@ -3257,7 +3291,7 @@ fn trusted_control_plane_actor(
         }
     }
 
-    if let Some(cookie) = cookie_value(request, "company_os_session") {
+    if let Some(cookie) = cookie_value_from_headers(headers, "company_os_session") {
         if browser_secret().ok().and_then(|secret| {
             verify_browser_session(&state.company_id, &cookie, &secret)
         }).is_some() {
@@ -3274,15 +3308,16 @@ fn trusted_control_plane_actor(
 
 async fn payment_execution_approve_api(
     State(state): State<AppState>,
-    request: Request,
+    headers: HeaderMap,
     Json(req): Json<PaymentExecutionApprovalRequest>,
 ) -> Result<Json<company_store::PaymentExecutionIntentRecord>, StatusCode> {
+    let actor = trusted_control_plane_actor(&state, &headers, "POST")?;
     state
         .store
         .approve_payment_execution_intent(
             &state.company_id,
             &req.intent_id.to_string(),
-            &trusted_control_plane_actor(&state, &request)?,
+            &actor,
             &req.approval_reference,
             req.approved_at_epoch,
         )
@@ -3380,6 +3415,7 @@ fn hmac_hex(secret: &[u8], message: &str) -> Result<String, StatusCode> {
 #[derive(Debug, Clone)]
 struct BrowserSession {
     csrf: String,
+    #[allow(dead_code)]
     expires_at_epoch: i64,
 }
 
@@ -3661,6 +3697,7 @@ fn control_plane_action_allowed(role: &str, method: &str, path: &str) -> bool {
     }
     true
 }
+#[allow(dead_code)]
 fn control_plane_auth_scope(
     method: &str,
     provided: Option<&str>,
@@ -3896,8 +3933,9 @@ async fn require_control_plane_auth(
         .ok()
         .filter(|value| !value.is_empty());
 
+    let company_uuid = uuid::Uuid::parse_str(&state.company_id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let (principal_id, role) = match control_plane_auth_principal(
-        state.company_id,
+        company_uuid,
         &method,
         provided,
         &operator_token,
@@ -4104,10 +4142,10 @@ async fn purchase_request_api(
 
 async fn purchase_approve_api(
     State(state): State<AppState>,
-    request: Request,
+    headers: HeaderMap,
     Json(req): Json<PurchaseApproveRequest>,
 ) -> Result<StatusCode, StatusCode> {
-    let actor = trusted_control_plane_actor(&state, &request)?;
+    let actor = trusted_control_plane_actor(&state, &headers, "POST")?;
     state.store.approve_purchase_request(
         &state.company_id, &req.request_id.to_string(), &actor, &req.approval_reference,
     ).await.map(|_| StatusCode::ACCEPTED).map_err(|_| StatusCode::BAD_REQUEST)

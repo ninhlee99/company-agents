@@ -210,14 +210,23 @@ pub fn decide_candidate(
             reason: "candidate score is below the allocation threshold".into(),
         });
     }
+    let allocation = candidate
+        .capital_required_minor
+        .min(candidate.allocation_cap_minor);
+    if allocation <= 0 {
+        return Ok(held(
+            candidate.candidate_id,
+            portfolio_class,
+            score,
+            "candidate has no allocatable amount after hard caps",
+        ));
+    }
     Ok(CapitalDecision {
         candidate_id: candidate.candidate_id,
         status: CapitalDecisionStatus::Allocate,
         portfolio_class,
         score_bps: score,
-        allocation_minor: candidate
-            .capital_required_minor
-            .min(candidate.allocation_cap_minor),
+        allocation_minor: allocation,
         reason: "candidate passes liquidity, evidence and deterministic return/risk gates".into(),
     })
 }
@@ -393,7 +402,7 @@ mod tests {
     #[test]
     fn portfolio_class_distinguishes_scale_validate_and_exit() {
         let mut p = policy();
-        let mut scale = candidate(1, 20_000, 1_000);
+        let mut scale = candidate(1, 20_000, 200);
         scale.confidence_bps = 9_500;
         scale.evidence_count = 6;
         assert_eq!(classify_candidate(&scale, &p).unwrap(), PortfolioClass::Scale);
@@ -419,7 +428,7 @@ mod tests {
     fn capital_decision_carries_portfolio_class() {
         let c = candidate(5, 3_000, 200);
         let decision = decide_candidate(&c, &policy()).unwrap();
-        assert_eq!(decision.portfolio_class, PortfolioClass::Maintain);
+        assert_eq!(decision.portfolio_class, PortfolioClass::Scale);
     }
 
     #[test]

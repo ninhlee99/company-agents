@@ -77,10 +77,14 @@ pub fn validate(entry: &LearningEntry) -> Result<(), String> {
     if !(0..=10_000).contains(&entry.confidence_bps) {
         return Err("learning confidence must be between 0 and 10000 bps".into());
     }
-    if entry.kind == LearningKind::Failure && entry.severity == FailureSeverity::None {
-        return Err("failure entries require a non-NONE severity".into());
+    if matches!(entry.kind, LearningKind::Failure | LearningKind::NearMiss)
+        && entry.severity == FailureSeverity::None
+    {
+        return Err("failure and near-miss entries require a non-NONE severity".into());
     }
-    if entry.kind != LearningKind::Failure && entry.severity != FailureSeverity::None {
+    if !matches!(entry.kind, LearningKind::Failure | LearningKind::NearMiss)
+        && entry.severity != FailureSeverity::None
+    {
         return Err("non-failure entries must use NONE severity".into());
     }
     Ok(())

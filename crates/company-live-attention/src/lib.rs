@@ -218,9 +218,9 @@ fn classify_event(
         LiveEventKind::Comment => {
             let text = event.text.as_deref().unwrap_or_default();
             if contains_objection(text) {
-                (94, Some(AttentionReason::Objection))
+                (88, Some(AttentionReason::Objection))
             } else if contains_purchase_intent(text) {
-                (92, Some(AttentionReason::PurchaseIntent))
+                (85, Some(AttentionReason::PurchaseIntent))
             } else if matches!(mode, LiveMode::Shopping) && is_question(text) {
                 (74, Some(AttentionReason::PurchaseIntent))
             } else {

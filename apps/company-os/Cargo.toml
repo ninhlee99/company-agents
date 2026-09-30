@@ -22,8 +22,12 @@ company-safety-controls = { path = "../../crates/company-safety-controls" }
 company-tiktok-auth = { path = "../../crates/company-tiktok-auth" }
 company-revenue-graph = { path = "../../crates/company-revenue-graph" }
 commercial-sales = { path = "../../crates/commercial-sales" }
+company-domain = { path = "../../crates/company-domain" }
+company-organization = { path = "../../crates/company-organization" }
 social-publishing = { path = "../../crates/social-publishing" }
+tiktok-live-engine = { path = "../../crates/tiktok-live-engine" }
 tiktok-live-streaming = { path = "../../crates/tiktok-live-streaming" }
+async-trait = "0.1"
 axum = "0.8"
 economic-core = { path = "../../crates/economic-core" }
 serde = { version = "1", features = ["derive"] }

@@ -461,7 +461,7 @@ pub fn analyze_policy_change(
         from_version: previous.version.clone(),
         to_version: current.version.clone(),
         changed_rules,
-        tightened_rules,
+        tightened_rules: tightened_rules.clone(),
         relaxed_rules,
         affected_workflows: affected_workflows.into_iter().collect(),
         requires_revalidation: !tightened_rules.is_empty(),

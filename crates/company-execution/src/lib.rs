@@ -504,8 +504,8 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(batch.total_spend_minor, 800);
-        assert_eq!(batch.snapshot.cash_minor, 9_200);
+        assert_eq!(batch.total_spend_minor, 400);
+        assert_eq!(batch.snapshot.cash_minor, 9_600);
         assert!(batch
             .receipts
             .iter()

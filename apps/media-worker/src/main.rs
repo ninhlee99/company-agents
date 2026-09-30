@@ -3,7 +3,7 @@ use media_pipeline::{FfmpegExecutor, MediaExecutor, MediaJob, MediaQaPolicy};
 use std::{sync::Arc, time::Duration};
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let database_url = std::env::var("DATABASE_URL")?;
     let company_id = std::env::var("COMPANY_ID")?;
     let poll_seconds = std::env::var("MEDIA_WORKER_POLL_SECONDS")
@@ -24,7 +24,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         let worker = executor.clone();
-        let result = tokio::task::spawn_blocking(move || worker.execute(&job)).await;
+        let job_for_worker = job.clone();
+        let result = tokio::task::spawn_blocking(move || worker.execute(&job_for_worker)).await;
         match result {
             Ok(Ok(())) => {
                 let probe = executor.probe(&job.output_path);

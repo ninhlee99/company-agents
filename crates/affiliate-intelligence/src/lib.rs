@@ -2808,6 +2808,45 @@ mod tests {
         }
     }
 
+    fn product_with_source(
+        id: &str,
+        name: &str,
+        refund_rate_bps: Option<u32>,
+        delivery_reliability_bps: Option<u32>,
+        commission_rate_bps: Option<u32>,
+        source_updated_at: Option<String>,
+    ) -> Product {
+        Product {
+            id: id.into(),
+            gtin: None,
+            advertiser_id: id.into(),
+            advertiser_name: None,
+            name: name.into(),
+            description: "creator electronics".into(),
+            category: "electronics".into(),
+            brand: None,
+            url: "https://example.com".into(),
+            image_url: None,
+            price_minor: 1_000,
+            old_price_minor: Some(1_200),
+            currency: "USD".into(),
+            rating_bps: None,
+            review_count: None,
+            stock_quantity: Some(100),
+            in_stock: true,
+            savings_bps: Some(1_000),
+            seller_reputation_bps: None,
+            refund_rate_bps,
+            delivery_reliability_bps,
+            commission_group: None,
+            commission_rate_bps,
+            commission_fixed_minor: None,
+            commission_currency: None,
+            source: "test".into(),
+            source_updated_at,
+        }
+    }
+
     #[test]
     fn strict_freshness_uses_end_of_selected_as_of_date() {
         let query = ProductSearchQuery {
@@ -2816,17 +2855,13 @@ mod tests {
             ..ProductSearchQuery::default()
         };
         let as_of = product_freshness_as_of_epoch(&query).unwrap();
-        let product = product(
+        let product = product_with_source(
             "same-day",
             "Same Day Product",
-            refund_rate_bps: Some(500),
-            delivery_reliability_bps: Some(9_000),
-            commission_group: None,
-            commission_rate_bps: Some(2_000),
-            commission_fixed_minor: None,
-            commission_currency: None,
-            source: "test",
-            source_updated_at: Some("2026-09-30T12:00:00Z".into()),
+            Some(500),
+            Some(9_000),
+            Some(2_000),
+            Some("2026-09-30T12:00:00Z".into()),
         );
         assert!(product_freshness_ok(&product, as_of, 86_400));
     }
@@ -2848,17 +2883,13 @@ mod tests {
 
     #[test]
     fn product_freshness_requires_valid_timestamp_when_strict() {
-        let mut value = product(
+        let mut value = product_with_source(
             "fresh",
             "Fresh Product",
-            refund_rate_bps: Some(500),
-            delivery_reliability_bps: Some(9_000),
-            commission_group: None,
-            commission_rate_bps: Some(2_000),
-            commission_fixed_minor: None,
-            commission_currency: None,
-            source: "test",
-            source_updated_at: Some("2026-09-30T00:00:00Z".into()),
+            Some(500),
+            Some(9_000),
+            Some(2_000),
+            Some("2026-09-30T00:00:00Z".into()),
         );
         assert!(product_freshness_ok(&value, 1_790_726_400, 86_400 * 7));
 
@@ -2872,29 +2903,21 @@ mod tests {
 
     #[test]
     fn strict_product_freshness_excludes_stale_candidates() {
-        let fresh = product(
+        let fresh = product_with_source(
             "fresh",
             "Fresh Product",
-            refund_rate_bps: Some(500),
-            delivery_reliability_bps: Some(9_000),
-            commission_group: None,
-            commission_rate_bps: Some(2_000),
-            commission_fixed_minor: None,
-            commission_currency: None,
-            source: "test",
-            source_updated_at: Some("2026-09-29T00:00:00Z".into()),
+            Some(500),
+            Some(9_000),
+            Some(2_000),
+            Some("2026-09-29T00:00:00Z".into()),
         );
-        let stale = product(
+        let stale = product_with_source(
             "stale",
             "Stale Product",
-            refund_rate_bps: Some(500),
-            delivery_reliability_bps: Some(9_000),
-            commission_group: None,
-            commission_rate_bps: Some(2_000),
-            commission_fixed_minor: None,
-            commission_currency: None,
-            source: "test",
-            source_updated_at: Some("2026-09-01T00:00:00Z".into()),
+            Some(500),
+            Some(9_000),
+            Some(2_000),
+            Some("2026-09-01T00:00:00Z".into()),
         );
         let mut query = ProductSearchQuery::default();
         query.max_product_age_seconds = Some(86_400 * 2);
