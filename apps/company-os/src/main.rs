@@ -1667,6 +1667,9 @@ async fn tiktok_refresh_with_config(
 async fn tiktok_oauth_refresh_api(
     State(state): State<AppState>,
 ) -> Result<Json<company_store::TikTokConnectionRecord>, StatusCode> {
+    if !parse_bool_env("TIKTOK_OAUTH_ENABLED", false) {
+        return Err(StatusCode::PRECONDITION_FAILED);
+    }
     let config = company_tiktok_auth::OAuthConfig::from_env().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let cipher = company_tiktok_auth::TokenCipher::from_env().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     tiktok_refresh_with_config(&state, &config, &cipher)
