@@ -3599,6 +3599,7 @@ async fn require_control_plane_auth(
     let request_id = control_plane_request_id(&request);
     let trace_id = normalized_trace_id(&request, &request_id);
     let path = request.uri().path().to_owned();
+    let method = request.method().as_str().to_owned();
     let span = tracing::info_span!(
         "control_plane.request",
         %request_id,
@@ -3623,7 +3624,6 @@ async fn require_control_plane_auth(
         return Ok(response);
     }
 
-    let method = request.method().as_str().to_owned();
     let provided = request
         .headers()
         .get(axum::http::header::AUTHORIZATION)
@@ -3634,7 +3634,7 @@ async fn require_control_plane_auth(
 
     if control_plane_auth_disabled() {
         let actor_id = control_plane_actor_id(provided);
-        let mut response = next.run(request).await;
+        let mut response = next.run(request).instrument(span.clone()).await;
         record_control_plane_audit(
             &state,
             &actor_id,
@@ -3697,6 +3697,9 @@ async fn require_control_plane_auth(
                     .await;
                     let header_value = observe_control_plane_request(&state, &request_id, started);
                     response.headers_mut().insert("x-request-id", header_value);
+                    if let Ok(value) = HeaderValue::from_str(&trace_id) {
+                        response.headers_mut().insert("x-trace-id", value);
+                    }
                     return Ok(response);
                 }
 
