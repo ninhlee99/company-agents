@@ -1688,6 +1688,9 @@ async fn tiktok_oauth_refresh_api(
 async fn tiktok_oauth_revoke_api(
     State(state): State<AppState>,
 ) -> Result<StatusCode, StatusCode> {
+    if !parse_bool_env("TIKTOK_OAUTH_ENABLED", false) {
+        return Err(StatusCode::PRECONDITION_FAILED);
+    }
     let config = company_tiktok_auth::OAuthConfig::from_env().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let cipher = company_tiktok_auth::TokenCipher::from_env().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     if let Some(material) = state
