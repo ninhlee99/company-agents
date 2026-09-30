@@ -1124,14 +1124,14 @@ impl CompanyStore {
         let payload_bytes = serde_json::to_vec(&key_payload)?;
         let digest = Sha256::digest(payload_bytes);
         let idempotency_key = format!("autonomy:{}", digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>());
-        let simulation_json = serde_json::to_value(&assessment)?;
+        let assessment_json = serde_json::to_value(&assessment)?;
 
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
 
         if let Some(row) = tx
             .query_opt(
-                "SELECT id,proposal,decision,ceiling,required_level,reason,simulation,created_at::text
+                "SELECT id,proposal,decision,ceiling,required_level,reason,assessment_json,created_at::text
                    FROM autonomy_simulations
                   WHERE company_id=$1 AND idempotency_key=$2",
                 &[&company, &idempotency_key],
@@ -5110,19 +5110,8 @@ fn autonomy_simulation_from_row(
     idempotency_key: String,
 ) -> Result<AutonomySimulationRecord, Box<dyn std::error::Error + Send + Sync>> {
     let proposal = serde_json::from_value(row.get(1))?;
-    let simulation: company_autonomy::DigitalTwinResult = serde_json::from_value(
-        row.get::<_, serde_json::Value>(6),
-    )?;
-    let decision = parse_autonomy_decision(&row.get::<_, String>(2))?;
-    let ceiling = parse_autonomy_level(&row.get::<_, String>(3))?;
-    let required_level = parse_autonomy_level(&row.get::<_, String>(4))?;
-    let assessment = company_autonomy::AutonomyAssessment {
-        decision,
-        ceiling,
-        required_level,
-        reason: row.get(5),
-        simulation: Some(simulation),
-    };
+    let assessment: company_autonomy::AutonomyAssessment =
+        serde_json::from_value(row.get::<_, serde_json::Value>(6))?;
     Ok(AutonomySimulationRecord {
         id: row.get(0),
         company_id,
