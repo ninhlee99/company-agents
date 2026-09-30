@@ -1547,7 +1547,7 @@ async fn build_integration_readiness(
     let llm_provider = std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "gemini".into());
     let llm_provider = llm_provider.trim().to_ascii_lowercase();
     let (llm_configured, llm_authenticated, llm_status, llm_reason) = match llm_provider.as_str() {
-        "mock" => (true, true, "READY", "Deterministic mock provider is configured."),
+        "mock" => (true, false, "READY", "Deterministic mock provider is configured; no external authentication is involved."),
         "gemini" if std::env::var("GEMINI_API_KEY").ok().is_some_and(|v| !v.trim().is_empty()) => {
             (true, false, "CONFIGURED", "Gemini credentials are configured; external reachability is not verified here.")
         }
