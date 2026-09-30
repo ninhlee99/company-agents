@@ -41,6 +41,7 @@ pub enum CompanyEventType {
     RevenueGraphEdgeRecorded,
     SponsorshipStatusChanged,
     SponsorshipDeliveryRecorded,
+    LiveAttentionDecided,
     VendorDeliveryRecorded,
 }
 
@@ -78,6 +79,7 @@ impl CompanyEventType {
             Self::RevenueGraphEdgeRecorded => "REVENUE_GRAPH_EDGE_RECORDED",
             Self::SponsorshipStatusChanged => "SPONSORSHIP_STATUS_CHANGED",
             Self::SponsorshipDeliveryRecorded => "SPONSORSHIP_DELIVERY_RECORDED",
+            Self::LiveAttentionDecided => "LIVE_ATTENTION_DECIDED",
             Self::VendorDeliveryRecorded => "VENDOR_DELIVERY_RECORDED",
             Self::LearningEntryRecorded => "LEARNING_ENTRY_RECORDED",
         }
@@ -612,6 +614,11 @@ mod tests {
     fn sponsorship_event_names_are_canonical() {
         assert_eq!(CompanyEventType::SponsorshipStatusChanged.as_str(), "SPONSORSHIP_STATUS_CHANGED");
         assert_eq!(CompanyEventType::SponsorshipDeliveryRecorded.as_str(), "SPONSORSHIP_DELIVERY_RECORDED");
+    }
+
+    #[test]
+    fn live_attention_event_name_is_canonical() {
+        assert_eq!(CompanyEventType::LiveAttentionDecided.as_str(), "LIVE_ATTENTION_DECIDED");
     }
 
     #[test]
