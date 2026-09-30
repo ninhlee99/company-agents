@@ -46,6 +46,7 @@ jobs:
           - company-autonomy
           - company-capital
           - company-safety-controls
+          - company-tiktok-auth
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

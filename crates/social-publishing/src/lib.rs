@@ -16,6 +16,11 @@ use tokio::{fs::File, io::AsyncReadExt, sync::Mutex, time::sleep};
 
 type HmacSha256 = Hmac<Sha256>;
 
+#[async_trait::async_trait]
+pub trait TikTokAccessTokenProvider: Send + Sync {
+    async fn access_token(&self) -> Result<String, PublishError>;
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApprovalReceipt {
     pub scope: String,
@@ -198,7 +203,8 @@ impl fmt::Display for PublishError {
 
 #[derive(Clone)]
 pub struct TikTokPublisher {
-    pub access_token: String,
+    pub access_token: Option<String>,
+    pub access_token_provider: Option<Arc<dyn TikTokAccessTokenProvider>>,
     pub api_base: String,
     pub client: reqwest::Client,
     pub approval: ApprovalAuthority,
@@ -221,13 +227,48 @@ impl TikTokPublisher {
             .build()
             .map_err(|e| PublishError::Configuration(format!("HTTP client setup failed: {e}")))?;
         Ok(Self {
-            access_token,
+            access_token: Some(access_token),
+            access_token_provider: None,
             api_base: std::env::var("TIKTOK_CONTENT_API_BASE")
                 .unwrap_or_else(|_| "https://open.tiktokapis.com".into()),
             client,
             approval,
             limiter: Arc::new(Mutex::new(None)),
         })
+    }
+
+    pub fn from_access_token_provider(
+        provider: Arc<dyn TikTokAccessTokenProvider>,
+        approval: ApprovalAuthority,
+        api_base: String,
+    ) -> Result<Self, PublishError> {
+        if api_base.trim().is_empty() {
+            return Err(PublishError::Configuration("TikTok content API base is required".into()));
+        }
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(60))
+            .build()
+            .map_err(|e| PublishError::Configuration(format!("HTTP client setup failed: {e}")))?;
+        Ok(Self {
+            access_token: None,
+            access_token_provider: Some(provider),
+            api_base,
+            client,
+            approval,
+            limiter: Arc::new(Mutex::new(None)),
+        })
+    }
+
+    async fn access_token(&self) -> Result<String, PublishError> {
+        if let Some(provider) = &self.access_token_provider {
+            return provider.access_token().await;
+        }
+        self.access_token
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| PublishError::Configuration("TikTok access token is unavailable".into()))
     }
 
     async fn wait_for_rate_limit(&self) {
@@ -247,10 +288,11 @@ impl TikTokPublisher {
         body: serde_json::Value,
     ) -> Result<serde_json::Value, PublishError> {
         self.wait_for_rate_limit().await;
+        let access_token = self.access_token().await?;
         let response = self
             .client
             .post(format!("{}{}", self.api_base.trim_end_matches('/'), path))
-            .bearer_auth(&self.access_token)
+            .bearer_auth(&access_token)
             .header(header::CONTENT_TYPE, "application/json; charset=UTF-8")
             .json(&body)
             .send()
@@ -604,7 +646,7 @@ mod tests {
     fn title_utf16_limit_is_enforced() {
         let approval = ApprovalAuthority::new(vec![1_u8; 32]).unwrap();
         let publisher = TikTokPublisher {
-            access_token: "test".into(),
+            access_token: Some("test".into()),
             api_base: "https://example.invalid".into(),
             client: reqwest::Client::new(),
             approval,
@@ -635,7 +677,7 @@ mod tests {
     fn remote_or_wrong_extension_artifacts_are_rejected() {
         let approval = ApprovalAuthority::new(vec![1_u8; 32]).unwrap();
         let publisher = TikTokPublisher {
-            access_token: "test".into(),
+            access_token: Some("test".into()),
             api_base: "https://example.invalid".into(),
             client: reqwest::Client::new(),
             approval,

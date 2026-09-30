@@ -29,7 +29,8 @@ members = [
   "crates/company-agent-evaluation",
   "crates/company-autonomy",
   "crates/company-capital",
-  "crates/company-safety-controls"
+  "crates/company-safety-controls",
+  "crates/company-tiktok-auth"
 ]
 
 [profile.release]

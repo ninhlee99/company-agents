@@ -116,6 +116,20 @@ struct PublishRevokeRequest {
     intent_id: String,
 }
 
+#[derive(Debug, Deserialize, Default)]
+struct TikTokOAuthCallbackQuery {
+    code: Option<String>,
+    state: Option<String>,
+    error: Option<String>,
+    error_description: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct TikTokOAuthStatusResponse {
+    connected: bool,
+    connection: Option<company_store::TikTokConnectionRecord>,
+}
+
 #[derive(Debug, Deserialize)]
 struct AffiliateConversionRequest {
     event: affiliate_attribution::ConversionEvent,
@@ -675,6 +689,28 @@ async fn index(
             r#"<div class="card"><h2>Safety controls</h2><p class="muted">Persistent safety controls are unavailable. Autonomous side effects remain fail-closed.</p></div>"#.into()
         }
     };
+    let tiktok_oauth_html = match state.store.tiktok_oauth_status(&state.company_id).await {
+        Ok(Some(connection)) if connection.status == "ACTIVE" => {
+            let access_expires = connection.access_token_expires_at_epoch;
+            format!(
+                r#"<div class="card"><h2>TikTok account</h2><div class="metric">Connected</div><p class="muted">open_id: {} · access token expiry: {} · refresh token expiry: {}</p><div style="display:flex;gap:8px;flex-wrap:wrap"><form method="post" action="/api/tiktok/oauth/refresh"><button type="submit">Refresh token</button></form><form method="post" action="/api/tiktok/oauth/revoke"><button type="submit">Revoke</button></form></div></div>"#,
+                escape_html(&connection.open_id),
+                access_expires,
+                connection.refresh_token_expires_at_epoch
+            )
+        }
+        Ok(Some(connection)) => format!(
+            r#"<div class="card"><h2>TikTok account</h2><div class="metric">{}</div><p class="muted">{}</p><a href="/api/tiktok/oauth/start">Reconnect TikTok</a></div>"#,
+            escape_html(&connection.status),
+            escape_html(connection.last_error.as_deref().unwrap_or("TikTok authorization needs operator action."))
+        ),
+        Ok(None) => r#"<div class="card"><h2>TikTok account</h2><div class="metric">Not connected</div><p class="muted">Connect a TikTok account through Login Kit before enabling database-backed publishing.</p><a href="/api/tiktok/oauth/start">Connect TikTok</a></div>"#.into(),
+        Err(error) => {
+            tracing::warn!(%error, "TikTok OAuth status unavailable");
+            r#"<div class="card"><h2>TikTok account</h2><div class="metric">Status unavailable</div><p class="muted">The account state could not be loaded, so publishing remains fail-closed.</p></div>"#.into()
+        }
+    };
+
     let autonomy_html = match (autonomy_policy, autonomy_stop) {
         (Ok(policy), Ok(emergency_stop)) => {
             let ceiling = policy.max_level.as_str();
@@ -838,6 +874,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <div class="card"><h2>Growth pipeline</h2><p class="muted">Evidence-backed trend signals become scored opportunities before any content plan is created.</p>{}</div>
 <div class="card"><h2>Capital allocation</h2><p class="muted">Expected contribution, downside, speed, reversibility and evidence are evaluated before any capital movement.</p>{}</div>
 {}
+{}
 <div class="card"><h2>Policy intelligence</h2><p class="muted">External content/LIVE side effects require a matching versioned policy snapshot and evidence.</p>{}</div>
 <div class="grid"><div class="card"><small>Status</small><div class="metric">{:?}</div></div><div class="card"><small>Agent cycle</small><div class="metric">{}</div></div><div class="card"><small>Backlog / capacity</small><div class="metric">{}%</div></div><div class="card"><small>Agent results</small><div class="metric">{}</div></div></div>
 <div class="grid"><div class="card"><small>Active workforce</small><div class="metric">{}</div></div><div class="card"><small>Payroll due</small><div class="metric">{}</div></div><div class="card"><small>Business units</small><div class="metric">{}</div></div><div class="card"><small>Operating loop</small><div class="metric">observe → act → learn</div></div></div>
@@ -872,6 +909,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         growth_html,
         capital_plan_html,
         safety_controls_html,
+        tiktok_oauth_html,
         compliance_html,
         company.runway_days,
         company.status,
@@ -1474,6 +1512,286 @@ async fn compliance_check_api(
         .map_err(|_| StatusCode::BAD_REQUEST)
 }
 
+async fn tiktok_oauth_start_api(
+    State(state): State<AppState>,
+) -> Result<Redirect, StatusCode> {
+    if !parse_bool_env("TIKTOK_OAUTH_ENABLED", false) {
+        return Err(StatusCode::PRECONDITION_FAILED);
+    }
+    let config = company_tiktok_auth::OAuthConfig::from_env()
+        .map_err(|error| {
+            tracing::warn!(%error, "TikTok OAuth is not configured");
+            StatusCode::SERVICE_UNAVAILABLE
+        })?;
+    let state_token = company_tiktok_auth::new_state();
+    let state_hash = company_tiktok_auth::hash_state(&state_token);
+    let now_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
+    let expires_at = now_epoch
+        .checked_add(company_tiktok_auth::OAuthConfig::default_state_ttl_seconds())
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    state
+        .store
+        .create_tiktok_oauth_state(
+            &state.company_id,
+            &state_hash,
+            &config.redirect_uri,
+            &config.scopes,
+            expires_at,
+        )
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, "could not persist TikTok OAuth state");
+            StatusCode::SERVICE_UNAVAILABLE
+        })?;
+
+    let url = config.authorize_url(&state_token).map_err(|error| {
+        tracing::warn!(%error, "could not build TikTok OAuth URL");
+        StatusCode::SERVICE_UNAVAILABLE
+    })?;
+    Ok(Redirect::temporary(&url))
+}
+
+async fn tiktok_oauth_callback_api(
+    State(state): State<AppState>,
+    Query(query): Query<TikTokOAuthCallbackQuery>,
+) -> Result<Html<String>, StatusCode> {
+    let returned_state = query
+        .state
+        .as_deref()
+        .filter(|value| !value.trim().is_empty() && value.len() <= 256)
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let config = company_tiktok_auth::OAuthConfig::from_env()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let now_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
+    let stored = state
+        .store
+        .consume_tiktok_oauth_state(
+            &state.company_id,
+            &company_tiktok_auth::hash_state(returned_state),
+            now_epoch,
+        )
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::BAD_REQUEST)?;
+
+    if stored.0 != config.redirect_uri || stored.1 != config.scopes {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    if let Some(error) = query.error.as_deref().filter(|value| !value.trim().is_empty()) {
+        let detail = query.error_description.as_deref().unwrap_or("authorization was not granted");
+        return Ok(Html(format!(
+            "<!doctype html><html><body><h2>TikTok connection was not completed</h2><p>{}</p><p>{}</p></body></html>",
+            escape_html(error),
+            escape_html(detail)
+        )));
+    }
+
+    let code = query.code.as_deref().filter(|value| !value.trim().is_empty()).ok_or(StatusCode::BAD_REQUEST)?;
+    let oauth = company_tiktok_auth::TikTokOAuthClient::new(config)
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let token = oauth.exchange_code(code).await.map_err(|error| {
+        tracing::warn!(%error, "TikTok OAuth code exchange failed");
+        StatusCode::BAD_GATEWAY
+    })?;
+    let cipher = company_tiktok_auth::TokenCipher::from_env()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    state
+        .store
+        .save_tiktok_token_set(&state.company_id, &token, &cipher)
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, "TikTok OAuth token persistence failed");
+            StatusCode::SERVICE_UNAVAILABLE
+        })?;
+
+    Ok(Html(
+        "<!doctype html><html><body><h2>TikTok connected</h2><p>You can close this window and return to Company OS.</p></body></html>"
+            .into(),
+    ))
+}
+
+async fn tiktok_oauth_status_api(
+    State(state): State<AppState>,
+) -> Result<Json<TikTokOAuthStatusResponse>, StatusCode> {
+    let connection = state
+        .store
+        .tiktok_oauth_status(&state.company_id)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    Ok(Json(TikTokOAuthStatusResponse {
+        connected: connection.as_ref().is_some_and(|value| value.status == "ACTIVE"),
+        connection,
+    }))
+}
+
+async fn tiktok_refresh_with_config(
+    state: &AppState,
+    config: &company_tiktok_auth::OAuthConfig,
+    cipher: &company_tiktok_auth::TokenCipher,
+) -> Result<company_store::TikTokConnectionRecord, company_tiktok_auth::AuthError> {
+    let material = state
+        .store
+        .tiktok_oauth_token_material(&state.company_id, cipher)
+        .await
+        .map_err(|error| company_tiktok_auth::AuthError::Provider(error.to_string()))?
+        .ok_or_else(|| company_tiktok_auth::AuthError::Unauthorized)?;
+
+    let now_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
+    if material.refresh_token_expires_at_epoch <= now_epoch {
+        let _ = state
+            .store
+            .mark_tiktok_reauth_required(&state.company_id, "TikTok refresh token has expired")
+            .await;
+        return Err(company_tiktok_auth::AuthError::Unauthorized);
+    }
+
+    let oauth = company_tiktok_auth::TikTokOAuthClient::new(config.clone())?;
+    match oauth.refresh(&material.refresh_token).await {
+        Ok(token) => state
+            .store
+            .save_tiktok_token_set(&state.company_id, &token, cipher)
+            .await
+            .map_err(|error| company_tiktok_auth::AuthError::Provider(error.to_string())),
+        Err(error) => {
+            let _ = state
+                .store
+                .mark_tiktok_reauth_required(&state.company_id, &error.to_string())
+                .await;
+            Err(error)
+        }
+    }
+}
+
+async fn tiktok_oauth_refresh_api(
+    State(state): State<AppState>,
+) -> Result<Json<company_store::TikTokConnectionRecord>, StatusCode> {
+    if !parse_bool_env("TIKTOK_OAUTH_ENABLED", false) {
+        return Err(StatusCode::PRECONDITION_FAILED);
+    }
+    let config = company_tiktok_auth::OAuthConfig::from_env().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let cipher = company_tiktok_auth::TokenCipher::from_env().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    tiktok_refresh_with_config(&state, &config, &cipher)
+        .await
+        .map(Json)
+        .map_err(|error| {
+            tracing::warn!(%error, "TikTok OAuth refresh failed");
+            match error {
+                company_tiktok_auth::AuthError::Unauthorized => StatusCode::PRECONDITION_FAILED,
+                company_tiktok_auth::AuthError::RateLimited => StatusCode::TOO_MANY_REQUESTS,
+                _ => StatusCode::BAD_GATEWAY,
+            }
+        })
+}
+
+async fn tiktok_oauth_revoke_api(
+    State(state): State<AppState>,
+) -> Result<StatusCode, StatusCode> {
+    if !parse_bool_env("TIKTOK_OAUTH_ENABLED", false) {
+        return Err(StatusCode::PRECONDITION_FAILED);
+    }
+    let config = company_tiktok_auth::OAuthConfig::from_env().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let cipher = company_tiktok_auth::TokenCipher::from_env().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if let Some(material) = state
+        .store
+        .tiktok_oauth_token_material(&state.company_id, &cipher)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+    {
+        let oauth = company_tiktok_auth::TikTokOAuthClient::new(config).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        oauth.revoke(&material.access_token).await.map_err(|error| {
+            tracing::warn!(%error, "TikTok OAuth revoke failed");
+            match error {
+                company_tiktok_auth::AuthError::Unauthorized => StatusCode::PRECONDITION_FAILED,
+                company_tiktok_auth::AuthError::RateLimited => StatusCode::TOO_MANY_REQUESTS,
+                _ => StatusCode::BAD_GATEWAY,
+            }
+        })?;
+    }
+    state
+        .store
+        .mark_tiktok_revoked(&state.company_id)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn spawn_tiktok_refresh_worker(state: AppState) {
+    let enabled = parse_bool_env("TIKTOK_OAUTH_ENABLED", false);
+    if !enabled {
+        return;
+    }
+    let config = match company_tiktok_auth::OAuthConfig::from_env() {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::warn!(%error, "TikTok OAuth refresh worker disabled: invalid configuration");
+            return;
+        }
+    };
+    let cipher = match company_tiktok_auth::TokenCipher::from_env() {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::warn!(%error, "TikTok OAuth refresh worker disabled: token encryption key unavailable");
+            return;
+        }
+    };
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(Duration::from_secs(300));
+        loop {
+            ticker.tick().await;
+            let Some(material) = match state
+                .store
+                .tiktok_oauth_token_material(&state.company_id, &cipher)
+                .await
+            {
+                Ok(value) => value,
+                Err(error) => {
+                    tracing::warn!(%error, "TikTok OAuth refresh worker could not read token state");
+                    continue;
+                }
+            } else {
+                continue;
+            };
+            let now_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
+            if material.refresh_token_expires_at_epoch <= now_epoch {
+                let _ = state
+                    .store
+                    .mark_tiktok_reauth_required(&state.company_id, "TikTok refresh token has expired")
+                    .await;
+                continue;
+            }
+            if material.access_token_expires_at_epoch > now_epoch + 1_800 {
+                continue;
+            }
+            let oauth = match company_tiktok_auth::TikTokOAuthClient::new(config.clone()) {
+                Ok(client) => client,
+                Err(error) => {
+                    tracing::warn!(%error, "TikTok OAuth refresh client unavailable");
+                    continue;
+                }
+            };
+            match oauth.refresh(&material.refresh_token).await {
+                Ok(token) => {
+                    if let Err(error) = state
+                        .store
+                        .save_tiktok_token_set(&state.company_id, &token, &cipher)
+                        .await
+                    {
+                        tracing::warn!(%error, "TikTok OAuth refresh token persistence failed");
+                    }
+                }
+                Err(error) => {
+                    let _ = state
+                        .store
+                        .mark_tiktok_reauth_required(&state.company_id, &error.to_string())
+                        .await;
+                }
+            }
+        }
+    });
+}
+
 async fn compliance_status_api(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
@@ -1971,7 +2289,14 @@ fn control_plane_auth_disabled() -> bool {
 
 async fn require_control_plane_auth(request: Request, next: Next) -> Result<Response, StatusCode> {
     let path = request.uri().path();
-    if matches!(path, "/healthz" | "/readyz" | "/metrics" | "/api/publishing/tiktok/webhook") {
+    if matches!(
+        path,
+        "/healthz"
+            | "/readyz"
+            | "/metrics"
+            | "/api/publishing/tiktok/webhook"
+            | "/api/tiktok/oauth/callback"
+    ) {
         return Ok(next.run(request).await);
     }
     if control_plane_auth_disabled() {
@@ -2213,6 +2538,8 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         live_stream,
     };
 
+    spawn_tiktok_refresh_worker(state.clone());
+
     let interval_secs = std::env::var("AGENT_CYCLE_SECONDS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
@@ -2311,6 +2638,11 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/publishing/tiktok/execute", post(publishing::execute_tiktok))
         .route("/api/publishing/tiktok/status", post(publishing::tiktok_status))
         .route("/api/publishing/tiktok/webhook", post(publishing::tiktok_webhook))
+        .route("/api/tiktok/oauth/start", get(tiktok_oauth_start_api))
+        .route("/api/tiktok/oauth/callback", get(tiktok_oauth_callback_api))
+        .route("/api/tiktok/oauth/status", get(tiktok_oauth_status_api))
+        .route("/api/tiktok/oauth/refresh", post(tiktok_oauth_refresh_api))
+        .route("/api/tiktok/oauth/revoke", post(tiktok_oauth_revoke_api))
         .route("/api/live/sessions", post(live::create_session))
         .route("/api/live/sessions/:session_id/events", post(live::record_event))
         .route("/api/live/sessions/:session_id/summary", get(live::summary))
