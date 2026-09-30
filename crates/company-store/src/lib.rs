@@ -2116,24 +2116,26 @@ impl CompanyStore {
             )
             .await?;
 
-        tx.execute(
-            "INSERT INTO outbox_events
-             (company_id,event_type,aggregate_id,idempotency_key,payload)
-             VALUES ($1,'AUTONOMY_ASSESSMENT_RECORDED',$2,$3,$4)
-             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
-            &[
-                &company,
-                &id,
-                &format!("outbox:{idempotency_key}"),
-                &serde_json::json!({
-                    "simulation_id": id,
-                    "decision": assessment.decision.as_str(),
-                    "ceiling": assessment.ceiling.as_str(),
-                    "required_level": assessment.required_level.as_str(),
-                }),
-            ],
-        )
-        .await?;
+        let autonomy_event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::AutonomyAssessmentRecorded,
+            "autonomy_simulation",
+            Some(id),
+            time::OffsetDateTime::now_utc().unix_timestamp(),
+            id,
+            None,
+            format!("outbox:{idempotency_key}"),
+            serde_json::json!({
+                "simulation_id": id,
+                "decision": assessment.decision.as_str(),
+                "ceiling": assessment.ceiling.as_str(),
+                "required_level": assessment.required_level.as_str(),
+                "reason": assessment.reason,
+                "emergency_stop": emergency_stop,
+                "assessment": assessment_json,
+            }),
+        )?;
+        enqueue_company_event_tx(&tx, &autonomy_event).await?;
 
         tx.commit().await?;
         Ok(AutonomySimulationRecord {
@@ -10492,6 +10494,46 @@ mod customer_intelligence_tests {
         assert_eq!(collection_rate_bps(0, 0), 0);
         assert_eq!(collection_rate_bps(100, 50), 5_000);
         assert_eq!(collection_rate_bps(100, 120), 10_000);
+    }
+}
+
+#[cfg(test)]
+mod autonomy_assessment_event_tests {
+    use super::*;
+
+    #[test]
+    fn autonomy_event_preserves_safety_boundary() {
+        let company = Uuid::from_u128(101);
+        let simulation = Uuid::from_u128(102);
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::AutonomyAssessmentRecorded,
+            "autonomy_simulation",
+            Some(simulation),
+            1_800_000_700,
+            simulation,
+            None,
+            "outbox:autonomy:simulation-102",
+            serde_json::json!({
+                "simulation_id": simulation,
+                "decision": "SIMULATE",
+                "ceiling": "SIMULATE",
+                "required_level": "SIMULATE",
+                "reason": "external side effect requires approval",
+                "emergency_stop": false,
+                "assessment": {
+                    "cash_ok": true,
+                    "runway_ok": true
+                }
+            }),
+        ).unwrap();
+
+        assert_eq!(event.event_type_name(), "AUTONOMY_ASSESSMENT_RECORDED");
+        assert_eq!(event.aggregate_type, "autonomy_simulation");
+        assert_eq!(event.aggregate_id, Some(simulation));
+        assert_eq!(event.correlation_id, simulation);
+        assert_eq!(event.payload["ceiling"], "SIMULATE");
+        assert_eq!(event.payload["emergency_stop"], false);
     }
 }
 
