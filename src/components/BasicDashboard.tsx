@@ -101,7 +101,7 @@ export const BasicDashboard: React.FC<BasicDashboardProps> = ({
     actualExpensesMinor: snapshot.expenses_minor,
     cashReserveMinor: snapshot.cash_minor,
     verdict: snapshot.revenue_minor >= 800000 ? 'ExceededTarget' : 'UnderTarget',
-    summary: `Kỳ kiểm toán #10: Doanh thu thực tế ($${(snapshot.revenue_minor / 100).toLocaleString()}/th) so với ngân sách kế hoạch ($8,000/th) đạt mức lệch ${
+    summary: `Kỳ kiểm toán mô phỏng #10: Doanh thu mô phỏng ($${(snapshot.revenue_minor / 100).toLocaleString()}/th) so với ngân sách kế hoạch ($8,000/th) đạt mức lệch ${
       snapshot.revenue_minor >= 800000 ? '+' : ''
     }${Math.round(((snapshot.revenue_minor - 800000) / 800000) * 1000) / 10}%.`,
     governorNote: 'Hiến pháp: Đạt chuẩn bảo toàn vốn và tăng trưởng tự trị. Được phép tiếp tục mở rộng.',
@@ -272,7 +272,7 @@ export const BasicDashboard: React.FC<BasicDashboardProps> = ({
               </span>
             </div>
             <p className="text-xs text-slate-300 mt-0.5">
-              Doanh thu thực tế: <strong className="text-white">${(snapshot.revenue_minor / 100).toLocaleString()}/th</strong> vs Kế hoạch ngân sách ban đầu (<strong className="text-slate-400">$8,000/th</strong>).
+              Doanh thu mô phỏng: <strong className="text-white">${(snapshot.revenue_minor / 100).toLocaleString()}/th</strong> vs Kế hoạch ngân sách ban đầu (<strong className="text-slate-400">$8,000/th</strong>).
               Độ lệch: <strong className={latestAudit.variancePercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
                 {latestAudit.variancePercent >= 0 ? `+${latestAudit.variancePercent}% (Vượt Kế Hoạch)` : `${latestAudit.variancePercent}% (Dưới Kế Hoạch)`}
               </strong>

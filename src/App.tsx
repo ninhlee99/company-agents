@@ -37,6 +37,7 @@ export default function App() {
 
   const [isRunningCycle, setIsRunningCycle] = useState(false);
   const [hasGeminiKey, setHasGeminiKey] = useState(false);
+  const [dataMode, setDataMode] = useState<'SIMULATION' | 'UNKNOWN'>('SIMULATION');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const [snapshot, setSnapshot] = useState<CompanySnapshot>({
@@ -106,6 +107,7 @@ export default function App() {
           setAuditReports(data.auditReports);
         }
         setHasGeminiKey(data.hasGeminiKey);
+        setDataMode(data.dataMode === 'SIMULATION' ? 'SIMULATION' : 'UNKNOWN');
       }
     } catch (err) {
       console.warn('Backend load note:', err);
@@ -352,13 +354,13 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setSnapshot(data.snapshot);
-        triggerToast(`Dây chuyền hoàn tất! Thu về +$${(data.revenueGainMinor / 100).toFixed(2)}.`);
+        triggerToast(`Simulation hoàn tất: synthetic outcome +${((data.simulatedRevenueGainMinor ?? 0) / 100).toFixed(2)} — không phải revenue thực tế.`);
         loadState();
-        return { success: true, steps: data.steps, revenueGainMinor: data.revenueGainMinor };
+        return { success: true, steps: data.steps, simulatedRevenueGainMinor: data.simulatedRevenueGainMinor };
       }
-      return { success: false, steps: [], revenueGainMinor: 0 };
+      return { success: false, steps: [], simulatedRevenueGainMinor: 0 };
     } catch (err) {
-      return { success: false, steps: [], revenueGainMinor: 0 };
+      return { success: false, steps: [], simulatedRevenueGainMinor: 0 };
     }
   };
 
@@ -382,6 +384,13 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+      {dataMode === 'SIMULATION' && (
+        <div className="bg-amber-950/90 border-b border-amber-500/40 px-4 py-2.5 text-center text-[11px] font-semibold text-amber-200">
+          CHẾ ĐỘ MÔ PHỎNG — cash, revenue, ROI, audit, workforce và pipeline outcome trên UI này là dữ liệu synthetic.
+          Đây không phải sổ cái thật và không chứng minh tiền đã kiếm được hay đã nhận từ nền tảng.
+        </div>
+      )}
+
       {/* Sticky Master Header: Keeps Header & Navigation Bar Fixed at Top */}
       <div className="sticky top-0 z-50 bg-slate-950/95 backdrop-blur-md border-b border-slate-800 shadow-md">
         <Header

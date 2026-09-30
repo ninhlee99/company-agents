@@ -15,7 +15,7 @@ import {
 
 interface AutonomousPipelineTabProps {
   snapshot: CompanySnapshot;
-  onRunPipeline: (topic: string) => Promise<{ success: boolean; steps: any[]; revenueGainMinor: number }>;
+  onRunPipeline: (topic: string) => Promise<{ success: boolean; steps: any[]; simulatedRevenueGainMinor: number }>;
 }
 
 export const AutonomousPipelineTab: React.FC<AutonomousPipelineTabProps> = ({
@@ -25,7 +25,7 @@ export const AutonomousPipelineTab: React.FC<AutonomousPipelineTabProps> = ({
   const [topic, setTopic] = useState('Đồ Công Nghệ Smart Home AI');
   const [isRunning, setIsRunning] = useState(false);
   const [activeStep, setActiveStep] = useState<number | null>(null);
-  const [result, setResult] = useState<{ revenueGainMinor: number; steps: any[] } | null>(null);
+  const [result, setResult] = useState<{ simulatedRevenueGainMinor: number; steps: any[] } | null>(null);
 
   const presets = [
     'Đồ Công Nghệ Smart Home AI',
@@ -52,7 +52,7 @@ export const AutonomousPipelineTab: React.FC<AutonomousPipelineTabProps> = ({
     setIsRunning(false);
     if (res.success) {
       setResult({
-        revenueGainMinor: res.revenueGainMinor,
+        simulatedRevenueGainMinor: res.simulatedRevenueGainMinor,
         steps: res.steps,
       });
     }
@@ -229,7 +229,7 @@ export const AutonomousPipelineTab: React.FC<AutonomousPipelineTabProps> = ({
               Dây chuyền hoàn tất thành công!
             </span>
             <span className="font-mono font-bold text-emerald-400 text-sm">
-              +{formatMoney(result.revenueGainMinor)}
+              +{formatMoney(result.simulatedRevenueGainMinor)}
             </span>
           </div>
 
