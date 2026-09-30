@@ -3168,6 +3168,16 @@ impl CompanyStore {
         }
         company_capital::validate_policy(policy).map_err(|error| error.to_string())?;
         let company = Uuid::parse_str(company_id)?;
+        let authoritative = self
+            .load_snapshot(company_id)
+            .await?
+            .ok_or("authoritative company snapshot is unavailable")?;
+        if policy.company_status != authoritative.status
+            || policy.cash_available_minor != authoritative.cash_minor.max(0)
+            || policy.runway_days != authoritative.runway_days.max(0)
+        {
+            return Err("capital policy does not match the authoritative company snapshot".into());
+        }
         let mut seen_candidate_ids = std::collections::HashSet::new();
         for candidate in candidates {
             company_capital::validate_candidate(candidate).map_err(|error| error.to_string())?;
