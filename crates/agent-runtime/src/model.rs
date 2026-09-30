@@ -11,7 +11,7 @@ use std::{
     fs,
     path::Path,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const MAX_RESPONSE_BYTES: usize = 1_048_576;
@@ -168,6 +168,118 @@ pub fn route_model_request(
         recommended_provider: recommended_provider(providers, task, hardware),
         applied: false,
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct ModelBenchmarkCase {
+    pub name: &'static str,
+    pub agent: AgentRole,
+    pub system: &'static str,
+    pub user: &'static str,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ModelBenchmarkObservation {
+    pub provider: String,
+    pub case_name: String,
+    pub agent: String,
+    pub task: String,
+    pub hardware: String,
+    pub recommended_provider: Option<String>,
+    pub latency_ms: u64,
+    pub success: bool,
+    pub output_object: bool,
+    pub error_kind: Option<String>,
+}
+
+pub fn model_benchmark_cases() -> Vec<ModelBenchmarkCase> {
+    vec![
+        ModelBenchmarkCase {
+            name: "fast_experiment",
+            agent: AgentRole::Experiment,
+            system: "You are the Experiment agent.",
+            user: "Return one JSON object summarizing a tiny experiment.",
+        },
+        ModelBenchmarkCase {
+            name: "standard_growth",
+            agent: AgentRole::Growth,
+            system: "You are the Growth agent.",
+            user: "Return one JSON object with a bounded content-growth observation.",
+        },
+        ModelBenchmarkCase {
+            name: "deep_ceo",
+            agent: AgentRole::CEO,
+            system: "You are the CEO agent.",
+            user: "Return one JSON object with a cautious executive decision summary.",
+        },
+    ]
+}
+
+pub fn model_error_kind(error: &ModelError) -> &'static str {
+    match error {
+        ModelError::MissingConfiguration => "missing_configuration",
+        ModelError::Transport(_) => "transport",
+        ModelError::InvalidResponse(_) => "invalid_response",
+    }
+}
+
+pub async fn run_model_benchmark(
+    provider_name: &str,
+    model: &dyn Model,
+) -> Vec<ModelBenchmarkObservation> {
+    let providers = vec![provider_name.to_string()];
+    let mut observations = Vec::new();
+
+    for case in model_benchmark_cases() {
+        let metadata = ModelRequestMetadata {
+            agent: case.agent,
+            system_bytes: case.system.len(),
+            user_bytes: case.user.len(),
+        };
+        let route = route_model_request(
+            &providers,
+            &metadata,
+            ModelRoutingMode::Shadow,
+        );
+        let started = Instant::now();
+        let result = model
+            .propose_json_with_metadata(case.system, case.user, metadata)
+            .await;
+        let latency_ms = started
+            .elapsed()
+            .as_millis()
+            .min(u64::MAX as u128) as u64;
+
+        let observation = match result {
+            Ok(value) => ModelBenchmarkObservation {
+                provider: provider_name.to_owned(),
+                case_name: case.name.to_owned(),
+                agent: format!("{:?}", case.agent),
+                task: format!("{:?}", route.task),
+                hardware: format!("{:?}", route.hardware),
+                recommended_provider: route.recommended_provider,
+                latency_ms,
+                success: true,
+                output_object: value.is_object(),
+                error_kind: None,
+            },
+            Err(error) => ModelBenchmarkObservation {
+                provider: provider_name.to_owned(),
+                case_name: case.name.to_owned(),
+                agent: format!("{:?}", case.agent),
+                task: format!("{:?}", route.task),
+                hardware: format!("{:?}", route.hardware),
+                recommended_provider: route.recommended_provider,
+                latency_ms,
+                success: false,
+                output_object: false,
+                error_kind: Some(model_error_kind(&error).into()),
+            },
+        };
+        observations.push(observation);
+    }
+
+    observations
 }
 
 #[async_trait]
@@ -1009,6 +1121,10 @@ impl Model for FallbackModel {
     }
 }
 
+pub fn provider_from_name(name: &str) -> Result<Arc<dyn Model>, ModelError> {
+    build_provider(name)
+}
+
 fn build_provider(name: &str) -> Result<Arc<dyn Model>, ModelError> {
     match name.trim().to_ascii_lowercase().as_str() {
         "mock" => Ok(Arc::new(MockModel)),
@@ -1155,6 +1271,33 @@ mod tests {
         assert_eq!(task, ModelTaskClass::Deep);
         let recommended = recommended_provider(&providers, task, HardwareTier::Small);
         assert_eq!(recommended.as_deref(), Some("gemini"));
+    }
+
+    #[test]
+    fn benchmark_cases_cover_fast_standard_and_deep() {
+        let cases = model_benchmark_cases();
+        assert_eq!(cases.len(), 3);
+        assert_eq!(
+            classify_model_task(cases[0].agent, cases[0].system.len(), cases[0].user.len()),
+            ModelTaskClass::Fast
+        );
+        assert_eq!(
+            classify_model_task(cases[1].agent, cases[1].system.len(), cases[1].user.len()),
+            ModelTaskClass::Standard
+        );
+        assert_eq!(
+            classify_model_task(cases[2].agent, cases[2].system.len(), cases[2].user.len()),
+            ModelTaskClass::Deep
+        );
+    }
+
+    #[tokio::test]
+    async fn mock_provider_benchmark_completes_without_external_services() {
+        let observations = run_model_benchmark("mock", &MockModel).await;
+        assert_eq!(observations.len(), 3);
+        assert!(observations.iter().all(|value| value.success));
+        assert!(observations.iter().all(|value| value.output_object));
+        assert!(observations.iter().all(|value| value.error_kind.is_none()));
     }
 
     #[tokio::test]

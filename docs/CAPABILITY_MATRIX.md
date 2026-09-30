@@ -40,7 +40,7 @@ This document intentionally separates implemented behavior from contracts, simul
 | Multi-tenant SaaS isolation | NOT achieved | The runtime is company-scoped by deployment configuration, not a full user/tenant authorization model. |
 | Observability | Implemented baseline | Health/readiness and Prometheus-style counters exist. Distributed tracing/load/chaos acceptance is still environment-dependent. |
 | Disaster recovery | Implemented baseline | Backup/restore drill automation exists; production-scale recovery evidence is still environment-dependent. |
-| Model evaluation / routing | Evidence capture + shadow routing implemented | Per-cycle evaluation evidence is persisted. Shadow routing classifies task complexity, detects hardware tier and records a deterministic provider recommendation without changing actual provider selection. Production benchmark matrix and active routing are still gated. |
+| Model evaluation / routing | Evidence capture + shadow routing + benchmark harness | Per-cycle evaluation evidence is persisted. Shadow routing classifies task complexity, detects hardware tier and records a deterministic provider recommendation without changing actual provider selection. A CLI benchmark matrix now measures per-provider latency, success and JSON-object validity across Fast/Standard/Deep cases; active routing remains gated pending target-environment quality/cost/failure evidence. |
 | Autonomous hiring/payroll execution | NOT achieved | Economic primitives and proposals exist; real external hiring/payroll actions remain gated. |
 | Autonomous company operation with no human | NOT achieved | The architecture is a controlled autonomy foundation. Real external credentials, platform adapters and production acceptance are still required. |
 
@@ -174,7 +174,8 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Hardware-aware recommendation:** local logical CPU count is mapped to Small/Medium/Large tiers.
 - **Provider recommendation:** Fast favors configured local/mock providers; Deep on Small hardware favors configured remote API providers.
 - **Safe rollout:** `MODEL_ROUTER_MODE=shadow` is advisory telemetry only. The existing provider/fallback order remains authoritative until benchmark and acceptance evidence justify active routing.
-- **Current boundary:** routing does not claim a quality, latency, or cost improvement; benchmark data is required before provider selection changes.
+- **Benchmark harness:** `cargo run -p agent-runtime --bin model-benchmark` runs the Fast/Standard/Deep matrix against providers named in `LLM_BENCHMARK_PROVIDERS` (default `mock`) and outputs machine-readable observations. Latency/format evidence is collected without changing routing.
+- **Current boundary:** the harness does not claim provider quality or cost superiority; active routing requires target-environment evidence for quality, cost, latency and failure behavior.
 
 ## Revenue Intelligence Graph
 

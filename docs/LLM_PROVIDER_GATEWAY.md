@@ -31,6 +31,15 @@ The gateway supports a deterministic routing recommendation layer in `MODEL_ROUT
 
 The recommendation is advisory only: the existing primary-provider/fallback order remains the provider actually used. Deep work on small machines prefers a configured remote API provider; fast work prefers a configured local/mock provider. Large prompts are promoted to the Deep class. Active provider switching is intentionally not enabled until benchmark and acceptance evidence exist.
 
+## Model benchmark harness
+
+The repository includes a machine-readable benchmark CLI for the routing decision boundary:
+
+    cargo run -p agent-runtime --bin model-benchmark
+
+The default is the deterministic `mock` provider. To benchmark configured real providers, set `LLM_BENCHMARK_PROVIDERS=gemini,openai,anthropic` (or another explicitly configured list) before running the command. The report records task class, detected hardware tier, recommended provider, latency, request success, and whether the provider returned a JSON object.
+
+This is transport/format evidence, not a quality or cost claim. The harness does not change provider selection and active routing remains gated until a production benchmark run collects enough evidence for latency, quality, cost and failure behavior in the target environment.
 ## Recommended production mode
 
 Use official APIs as primary providers and the consumer-web relay only when a browser bridge is intentionally deployed.
