@@ -3240,17 +3240,6 @@ impl CompanyStore {
             .await?
             .get(0);
 
-        let previous = tx
-            .query_opt(
-                "SELECT emergency_stop_enabled
-                   FROM autonomy_control_state
-                  WHERE company_id=$1
-                  FOR UPDATE",
-                &[&company],
-            )
-            .await?
-            .map(|row| row.get::<_, bool>(0));
-
         tx.execute(
             "INSERT INTO autonomy_control_state
              (company_id, emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
@@ -3289,8 +3278,6 @@ impl CompanyStore {
         )
         .await?;
 
-        if previous != Some(emergency_stop_enabled)
-            || previous.is_some()
         {
             tx.execute(
                 "INSERT INTO outbox_events
