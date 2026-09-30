@@ -3194,23 +3194,22 @@ impl CompanyStore {
         )
         .await?;
 
-        tx.execute(
-            "INSERT INTO outbox_events
-             (company_id,event_type,aggregate_id,idempotency_key,payload)
-             VALUES ($1,'PUBLISH_INTENT_APPROVED',$2,$3,$4)
-             ON CONFLICT (company_id,idempotency_key) DO NOTHING",
-            &[
-                &company_uuid,
-                &intent_id,
-                &format!("outbox:publish-approved:{intent_id}:{expires_at}"),
-                &serde_json::json!({
-                    "intent_id": intent_id,
-                    "approved_by": approved_by,
-                    "expires_at": expires_at,
-                }),
-            ],
-        )
-        .await?;
+        let approval_event = company_domain::CompanyEventEnvelope::new(
+            company_uuid,
+            company_domain::CompanyEventType::PublishIntentApproved,
+            "publish_intent",
+            Some(intent_uuid),
+            time::OffsetDateTime::now_utc().unix_timestamp(),
+            intent_uuid,
+            None,
+            format!("outbox:publish-approved:{intent_id}:{expires_at}"),
+            serde_json::json!({
+                "intent_id": intent_id,
+                "approved_by": approved_by,
+                "expires_at": expires_at,
+            }),
+        )?;
+        enqueue_company_event_tx(&tx, &approval_event).await?;
 
         tx.commit().await?;
 
