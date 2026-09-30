@@ -44,9 +44,9 @@ The name **Veridara** is an invented brand chosen to evoke verified intelligence
 
 ## Primary implementation
 
-The core Company OS is Rust.
+The production Company OS is Rust: server-rendered operator control plane, Agent Runtime, governance, economic core, scheduler and PostgreSQL source of truth.
 
-There is no React and no Vue. The operator dashboard is server-rendered HTML from Rust with no SPA/frontend build pipeline.
+The repository also contains an optional React/Vite + Express **simulation harness** under `src/` and `server.ts`. It uses synthetic in-memory state only. Its mutating API is disabled by default and is never allowed when `NODE_ENV=production`. It must not be treated as production financial state, external integration evidence, or proof of revenue.
 
 The architecture is workload-based:
 - Rust: Company OS, Agent Runtime, governance, economic core, scheduler and control plane.
@@ -143,6 +143,17 @@ See docs/CAPABILITY_MATRIX.md for the strict capability boundary.
 
 ## Verification
 Run `bash scripts/verify.sh` after cloning to execute formatting, workspace tests and Clippy gates.
+
+For the optional React/Vite simulation harness:
+```
+npm install
+npx playwright install --with-deps chromium
+npm run lint
+npm run build
+npm run test:browser
+```
+
+The browser smoke suite verifies the simulation UI loads, explicitly identifies synthetic data, and keeps mutating simulation actions fail-closed by default.
 
 
 ## Operating model
