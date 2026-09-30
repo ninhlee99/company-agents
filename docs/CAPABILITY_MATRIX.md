@@ -124,7 +124,7 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 
 ## Capital allocation planning
 
-- **Evidence-backed candidate contract:** capital candidates carry expected contribution, downside, capital required, time-to-feedback, reversibility, strategic value, confidence, evidence count and a hard allocation cap.
+- **Evidence-backed candidate contract:** capital candidates carry an explicit evidence reference plus expected contribution, downside, capital required, time-to-feedback, reversibility, strategic value, confidence, evidence count and a hard allocation cap.
 - **Deterministic portfolio plan:** the planner scores candidates using bounded return/risk/speed/quality inputs, respects company cash minus reserve and a discretionary budget, and allocates no more than hard caps.
 - **Liquidity and stop gates:** emergency stop, non-operational company states and insufficient runway/evidence hold capital at zero; positive expected contribution is required before allocation.
 - **Durable idempotency:** plan identity is deterministic per company + plan key and the complete input bundle is fingerprinted, so replay with different evidence fails closed instead of silently mutating a prior plan.
