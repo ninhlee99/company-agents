@@ -9,7 +9,12 @@ CREATE TABLE IF NOT EXISTS autonomy_control_state (
   live_minutes_daily numeric(39,0) NOT NULL DEFAULT 60 CHECK (live_minutes_daily >= 0),
   outbound_messages_daily numeric(39,0) NOT NULL DEFAULT 100 CHECK (outbound_messages_daily >= 0),
   autonomous_capital_daily_minor numeric(39,0) NOT NULL DEFAULT 0 CHECK (autonomous_capital_daily_minor >= 0),
-  updated_at_epoch bigint NOT NULL DEFAULT 1 CHECK (updated_at_epoch > 0)
+  updated_at_epoch bigint NOT NULL DEFAULT 1 CHECK (updated_at_epoch > 0),
+  CHECK (
+    NOT emergency_stop_enabled
+    OR (emergency_stop_reason IS NOT NULL AND btrim(emergency_stop_reason) <> '')
+  ),
+  CHECK (btrim(emergency_stop_actor) <> '')
 );
 
 CREATE TABLE IF NOT EXISTS autonomy_budget_usage (
