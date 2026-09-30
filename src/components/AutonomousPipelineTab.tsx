@@ -138,14 +138,14 @@ export const AutonomousPipelineTab: React.FC<AutonomousPipelineTabProps> = ({
         {/* Stage 1 */}
         <div className={`p-3.5 rounded-xl border transition-all ${
           activeStep === 1 || (result && activeStep === null)
-            ? 'bg-indigo-950/30 border-indigo-500/60 shadow-md'
-            : 'bg-slate-900 border-slate-800'
+            ? 'bg-slate-850 border-blue-500/60 shadow-sm'
+            : 'bg-slate-900/80 border-slate-800'
         }`}>
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono text-indigo-400 font-bold">Khâu 1: Nghiên Cứu</span>
-            <Search className="w-4 h-4 text-indigo-400" />
+            <span className="text-[10px] font-mono text-blue-400 font-semibold">Khâu 1: Nghiên Cứu</span>
+            <Search className="w-4 h-4 text-blue-400" />
           </div>
-          <h4 className="font-bold text-white text-xs mt-1">Growth &amp; Analyst</h4>
+          <h4 className="font-semibold text-white text-xs mt-1">Growth &amp; Analyst</h4>
           <p className="text-[11px] text-slate-400 mt-1">
             Quét sàn affiliate, chọn sản phẩm có tỷ lệ chuyển đổi cao &amp; hoa hồng tốt.
           </p>
@@ -159,14 +159,14 @@ export const AutonomousPipelineTab: React.FC<AutonomousPipelineTabProps> = ({
         {/* Stage 2 */}
         <div className={`p-3.5 rounded-xl border transition-all ${
           activeStep === 2 || (result && activeStep === null)
-            ? 'bg-pink-950/30 border-pink-500/60 shadow-md'
-            : 'bg-slate-900 border-slate-800'
+            ? 'bg-slate-850 border-blue-500/60 shadow-sm'
+            : 'bg-slate-900/80 border-slate-800'
         }`}>
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono text-pink-400 font-bold">Khâu 2: Sáng Tạo</span>
-            <Video className="w-4 h-4 text-pink-400" />
+            <span className="text-[10px] font-mono text-blue-400 font-semibold">Khâu 2: Sáng Tạo</span>
+            <Video className="w-4 h-4 text-blue-400" />
           </div>
-          <h4 className="font-bold text-white text-xs mt-1">Content Lead</h4>
+          <h4 className="font-semibold text-white text-xs mt-1">Content Lead</h4>
           <p className="text-[11px] text-slate-400 mt-1">
             Tạo hook 3 giây đầu giữ chân người xem và kịch bản 4 phân cảnh bán hàng.
           </p>
@@ -180,14 +180,14 @@ export const AutonomousPipelineTab: React.FC<AutonomousPipelineTabProps> = ({
         {/* Stage 3 */}
         <div className={`p-3.5 rounded-xl border transition-all ${
           activeStep === 3 || (result && activeStep === null)
-            ? 'bg-cyan-950/30 border-cyan-500/60 shadow-md'
-            : 'bg-slate-900 border-slate-800'
+            ? 'bg-slate-850 border-blue-500/60 shadow-sm'
+            : 'bg-slate-900/80 border-slate-800'
         }`}>
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono text-cyan-400 font-bold">Khâu 3: Dựng Video</span>
-            <TrendingUp className="w-4 h-4 text-cyan-400" />
+            <span className="text-[10px] font-mono text-blue-400 font-semibold">Khâu 3: Dựng Video</span>
+            <TrendingUp className="w-4 h-4 text-blue-400" />
           </div>
-          <h4 className="font-bold text-white text-xs mt-1">Media Worker &amp; COO</h4>
+          <h4 className="font-semibold text-white text-xs mt-1">Media Worker &amp; COO</h4>
           <p className="text-[11px] text-slate-400 mt-1">
             Tổng hợp hình ảnh, chạy lệnh render FFmpeg và tạo link theo dõi hoa hồng.
           </p>
@@ -201,14 +201,14 @@ export const AutonomousPipelineTab: React.FC<AutonomousPipelineTabProps> = ({
         {/* Stage 4 */}
         <div className={`p-3.5 rounded-xl border transition-all ${
           activeStep === 4 || (result && activeStep === null)
-            ? 'bg-emerald-950/30 border-emerald-500/60 shadow-md'
-            : 'bg-slate-900 border-slate-800'
+            ? 'bg-slate-850 border-emerald-500/60 shadow-sm'
+            : 'bg-slate-900/80 border-slate-800'
         }`}>
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono text-emerald-400 font-bold">Khâu 4: Kế Toán</span>
+            <span className="text-[10px] font-mono text-emerald-400 font-semibold">Khâu 4: Kế Toán</span>
             <Wallet className="w-4 h-4 text-emerald-400" />
           </div>
-          <h4 className="font-bold text-white text-xs mt-1">Governor &amp; CFO</h4>
+          <h4 className="font-semibold text-white text-xs mt-1">Governor &amp; CFO</h4>
           <p className="text-[11px] text-slate-400 mt-1">
             Ghi nhận doanh thu đối soát vào kho bạc và cập nhật sổ cái kép minh bạch.
           </p>
