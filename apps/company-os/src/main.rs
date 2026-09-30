@@ -637,6 +637,152 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
     ))
 }
 
+fn render_ceo_command_center(
+    record: &company_store::CeoCommandCenterRecord,
+    currency: &str,
+) -> String {
+    use company_command_center::AlertKind;
+
+    let input = &record.input;
+    let summary = &record.summary;
+    let trend = match summary.revenue_trend {
+        company_command_center::RevenueTrend::Up => "↑ Up",
+        company_command_center::RevenueTrend::Down => "↓ Down",
+        company_command_center::RevenueTrend::Flat => "→ Flat",
+    };
+    let trend_delta = format!("{:.2}%", summary.revenue_trend_delta_bps as f64 / 100.0);
+    let target_progress = format!("{}%", summary.target_progress_bps / 100);
+
+    let mut attention = String::new();
+    let mut opportunities = String::new();
+    let mut healthy = String::new();
+    for alert in &summary.alerts {
+        let class = match alert.kind {
+            AlertKind::NeedsAttention => "attention",
+            AlertKind::Opportunity => "opportunity",
+            AlertKind::Healthy => "healthy",
+        };
+        let html = format!(
+            r#"<div class="cc-alert {}"><strong>{}</strong><div class="muted">{}</div></div>"#,
+            class,
+            escape_html(&alert.title),
+            escape_html(&alert.detail)
+        );
+        match alert.kind {
+            AlertKind::NeedsAttention => attention.push_str(&html),
+            AlertKind::Opportunity => opportunities.push_str(&html),
+            AlertKind::Healthy => healthy.push_str(&html),
+        }
+    }
+    if attention.is_empty() {
+        attention = r#"<div class="muted">No active exception was raised from available evidence.</div>"#.into();
+    }
+    if opportunities.is_empty() {
+        opportunities = r#"<div class="muted">No scored growth opportunity is ready for attention.</div>"#.into();
+    }
+    if healthy.is_empty() {
+        healthy = r#"<div class="muted">Healthy state will appear when no exception is active.</div>"#.into();
+    }
+
+    let max_daily = input
+        .daily_revenue
+        .iter()
+        .map(|point| point.revenue_minor)
+        .max()
+        .unwrap_or(0);
+    let mut daily_html = String::new();
+    for point in &input.daily_revenue {
+        let width = if max_daily > 0 {
+            point
+                .revenue_minor
+                .saturating_mul(100)
+                .checked_div(max_daily)
+                .unwrap_or(0)
+                .clamp(0, 100)
+        } else {
+            0
+        };
+        daily_html.push_str(&format!(
+            r#"<div class="cc-day"><div class="cc-day-label">{}</div><div class="cc-bar"><span style="width:{}%"></span></div><div class="cc-day-value">{}</div></div>"#,
+            escape_html(&point.day),
+            width,
+            format_minor(point.revenue_minor, currency)
+        ));
+    }
+
+    let employee_productivity = summary
+        .revenue_mtd_per_active_employee_minor
+        .map(|value| format_minor(value, currency))
+        .unwrap_or_else(|| "n/a".into());
+    let content_productivity = summary
+        .commission_7d_per_content_minor
+        .map(|value| format_minor(value, currency))
+        .unwrap_or_else(|| "n/a".into());
+
+    format!(
+        r#"<section class="cc-shell">
+<div class="cc-head"><div><div class="section-kicker">CEO Revenue Command Center</div><h2>What is happening with the business?</h2><p class="muted">Ledger-backed revenue, commerce, content, LIVE and policy evidence in one operating view.</p></div><div class="cc-trend"><strong>{}</strong><span class="muted">7d pulse · {}</span></div></div>
+<div class="cc-kpis">
+<div class="cc-kpi"><span>Cash</span><strong>{}</strong></div>
+<div class="cc-kpi"><span>Revenue MTD</span><strong>{}</strong><em>{}% of target</em></div>
+<div class="cc-kpi"><span>Contribution margin MTD</span><strong>{}</strong><em>{}</em></div>
+<div class="cc-kpi"><span>Runway</span><strong>{}d</strong></div>
+<div class="cc-kpi"><span>Affiliate orders MTD</span><strong>{}</strong><em>{}</em></div>
+<div class="cc-kpi"><span>Affiliate variance</span><strong>{}</strong><em>reported − attributed</em></div>
+</div>
+<div class="cc-body">
+<div class="cc-panel"><h3>Revenue pulse</h3><div class="cc-progress"><span style="width:{}%"></span></div><div class="muted">MTD {} · last 30d {} · lifetime {}</div><div class="cc-chart">{}</div></div>
+<div class="cc-panel"><h3>Content funnel · last 7d</h3><div class="cc-mini-grid"><div><span>Views</span><strong>{}</strong></div><div><span>Clicks</span><strong>{}</strong></div><div><span>CTR</span><strong>{:.2}%</strong></div><div><span>CVR</span><strong>{:.2}%</strong></div><div><span>Conversions</span><strong>{}</strong></div><div><span>Commission</span><strong>{}</strong></div><div><span>Spend</span><strong>{}</strong></div><div><span>Margin</span><strong>{}</strong></div></div><div class="muted">Commission / content: {} · commission RPM: {}</div></div>
+<div class="cc-panel"><h3>LIVE pulse · last 30d</h3><div class="cc-bigline"><strong>{}</strong><span>sessions</span></div><div class="cc-mini-grid"><div><span>Gift count</span><strong>{}</strong></div><div><span>Recorded gift value</span><strong>{}</strong></div></div><div class="muted">Gift value is not recognized company revenue.</div></div>
+<div class="cc-panel"><h3>Policy & evidence</h3><div class="cc-bigline"><strong>{}</strong><span>{} / {} / {} / {} (24h)</span></div><div class="muted">Allowed / review / blocked / unknown. External side effects stay fail-closed when evidence is missing.</div></div>
+</div>
+<div class="cc-alerts"><div><h3>Needs attention</h3>{}</div><div><h3>Opportunities</h3>{}</div><div><h3>Healthy</h3>{}</div></div>
+<div class="cc-footer"><span>Revenue / active employee: {}</span><span>Affiliate net order value MTD: {}</span><span>7d spend: {}</span><span>Payroll due: {}</span></div>
+</section>"#,
+        trend,
+        trend_delta,
+        format_minor(input.cash_minor, currency),
+        format_minor(input.revenue_mtd_minor, currency),
+        target_progress,
+        format_minor(input.contribution_margin_mtd_minor.unwrap_or(0), currency),
+        if input.contribution_margin_mtd_minor.is_some() { "evidence complete" } else { "incomplete" },
+        input.runway_days,
+        input.affiliate_orders_mtd,
+        format_minor(input.affiliate_net_order_value_mtd_minor, currency),
+        format_minor(input.affiliate_variance_mtd_minor, currency),
+        summary.target_progress_bps / 100,
+        format_minor(input.revenue_mtd_minor, currency),
+        format_minor(input.revenue_last_30d_minor, currency),
+        format_minor(input.revenue_lifetime_minor, currency),
+        daily_html,
+        input.content.views_7d,
+        input.content.clicks_7d,
+        input.content.ctr_bps as f64 / 100.0,
+        input.content.cvr_bps as f64 / 100.0,
+        input.content.conversions_7d,
+        format_minor(input.content.commission_7d_minor, currency),
+        format_minor(input.content.spend_7d_minor, currency),
+        format_minor(input.content.contribution_margin_7d_minor, currency),
+        content_productivity,
+        format_minor(input.content.commission_rpm_minor, currency),
+        input.live.sessions_30d,
+        input.live.gift_count_30d,
+        format_minor(input.live.gift_value_30d_minor, currency),
+        if input.compliance.policy_ready { "Policy ready" } else { "Policy blocked" },
+        input.compliance.allowed_24h,
+        input.compliance.review_24h,
+        input.compliance.blocked_24h,
+        input.compliance.unknown_24h,
+        attention,
+        opportunities,
+        healthy,
+        employee_productivity,
+        format_minor(input.affiliate_net_order_value_mtd_minor, currency),
+        format_minor(input.content.spend_7d_minor, currency),
+        input.payroll_due_count,
+    )
+}
+
 #[derive(Debug, Deserialize)]
 struct LiveControlForm {
     mode: Option<String>,
