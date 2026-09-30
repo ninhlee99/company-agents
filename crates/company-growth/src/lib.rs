@@ -41,6 +41,182 @@ pub struct ContentWhitespaceGap {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AdsEvidenceCandidate {
+    pub company_id: Uuid,
+    pub campaign_id: String,
+    pub channel: String,
+    pub audience_segment: String,
+    pub control_conversion_bps: u32,
+    pub treatment_conversion_bps: u32,
+    pub incremental_revenue_minor: i128,
+    pub platform_fees_minor: i128,
+    pub refunds_cancellations_minor: i128,
+    pub production_ai_cost_minor: i128,
+    pub ad_spend_minor: i128,
+    pub observed_at_epoch: i64,
+    pub time_to_feedback_seconds: i64,
+    pub confidence_bps: u32,
+    pub evidence_ref: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AdsDecision {
+    pub campaign_id: String,
+    pub channel: String,
+    pub incremental_contribution_margin_minor: i128,
+    pub incremental_roas_bps: u32,
+    pub lift_bps: i32,
+    pub confidence_bps: u32,
+    pub score_bps: u32,
+    pub decision: String,
+    pub evidence_ref: String,
+    pub reason: String,
+}
+
+fn validate_non_negative_money(name: &str, value: i128) -> Result<(), String> {
+    if value < 0 {
+        return Err(format!("{name} must not be negative"));
+    }
+    Ok(())
+}
+
+pub fn evaluate_ads_campaigns(
+    candidates: &[AdsEvidenceCandidate],
+    as_of_epoch: i64,
+    max_age_seconds: i64,
+    max_results: usize,
+) -> Result<Vec<AdsDecision>, String> {
+    if as_of_epoch <= 0 {
+        return Err("ads as_of_epoch must be positive".into());
+    }
+    if !(60..=31_536_000).contains(&max_age_seconds) {
+        return Err("ads max_age_seconds is outside safe bounds".into());
+    }
+    if !(1..=500).contains(&max_results) {
+        return Err("ads max_results must be between 1 and 500".into());
+    }
+
+    for candidate in candidates {
+        if candidate.company_id == Uuid::nil()
+            || candidate.observed_at_epoch <= 0
+            || candidate.observed_at_epoch > as_of_epoch
+            || candidate.time_to_feedback_seconds <= 0
+        {
+            return Err("ads evidence has invalid company/time scope".into());
+        }
+        require_text("ads.campaign_id", &candidate.campaign_id, MAX_KEY)?;
+        require_text("ads.channel", &candidate.channel, MAX_TEXT)?;
+        require_text("ads.audience_segment", &candidate.audience_segment, MAX_TEXT)?;
+        require_text("ads.evidence_ref", &candidate.evidence_ref, 256)?;
+        for (name, value) in [
+            ("control_conversion_bps", candidate.control_conversion_bps),
+            ("treatment_conversion_bps", candidate.treatment_conversion_bps),
+            ("confidence_bps", candidate.confidence_bps),
+        ] {
+            bounded_signal(name, value)?;
+        }
+        for (name, value) in [
+            ("platform_fees_minor", candidate.platform_fees_minor),
+            ("refunds_cancellations_minor", candidate.refunds_cancellations_minor),
+            ("production_ai_cost_minor", candidate.production_ai_cost_minor),
+            ("ad_spend_minor", candidate.ad_spend_minor),
+            ("incremental_revenue_minor", candidate.incremental_revenue_minor),
+        ] {
+            validate_non_negative_money(name, value)?;
+        }
+        if candidate.ad_spend_minor <= 0 {
+            return Err("ads ad_spend_minor must be positive".into());
+        }
+    }
+
+    let mut decisions = Vec::new();
+    for candidate in candidates.iter().filter(|value| {
+        as_of_epoch.saturating_sub(value.observed_at_epoch) <= max_age_seconds
+    }) {
+        let lift = i64::from(candidate.treatment_conversion_bps)
+            - i64::from(candidate.control_conversion_bps);
+        let margin = candidate
+            .incremental_revenue_minor
+            .checked_sub(candidate.platform_fees_minor)
+            .and_then(|value| value.checked_sub(candidate.refunds_cancellations_minor))
+            .and_then(|value| value.checked_sub(candidate.production_ai_cost_minor))
+            .and_then(|value| value.checked_sub(candidate.ad_spend_minor))
+            .ok_or("ads contribution margin overflow")?;
+
+        let roas = ((candidate.incremental_revenue_minor as u128)
+            .saturating_mul(10_000)
+            / candidate.ad_spend_minor as u128)
+            .min(u128::from(u32::MAX)) as u32;
+
+        let speed_bps = ((86_400_i64.saturating_mul(10_000)
+            / candidate.time_to_feedback_seconds.max(1) as i64)
+            .min(10_000)) as u32;
+        let margin_efficiency_bps = if margin > 0 {
+            ((margin as u128)
+                .saturating_mul(10_000)
+                / candidate.ad_spend_minor as u128)
+                .min(u128::from(u32::MAX)) as u32
+        } else {
+            0
+        };
+
+        let margin_score = if margin <= 0 {
+            0
+        } else {
+            u32::try_from(
+                (margin_efficiency_bps as u64 / 2).saturating_add(u64::from(candidate.confidence_bps) / 2),
+            )
+            .unwrap_or(u32::MAX)
+            .min(10_000)
+        };
+        let lift_score = if lift <= 0 {
+            0
+        } else {
+            u32::try_from(lift.min(10_000) as u64).unwrap_or(10_000)
+        };
+        let score = ((u64::from(margin_score) * 50
+            + u64::from(lift_score) * 20
+            + u64::from(candidate.confidence_bps) * 20
+            + u64::from(speed_bps) * 10)
+            / 100) as u32;
+
+        let decision = if margin <= 0 {
+            "HOLD_OR_STOP"
+        } else if candidate.confidence_bps < 7_000 || lift <= 0 {
+            "CONTROLLED_TEST"
+        } else if score >= 7_500 {
+            "SCALE_WITH_CAP"
+        } else {
+            "CONTROLLED_TEST"
+        };
+
+        decisions.push(AdsDecision {
+            campaign_id: candidate.campaign_id.clone(),
+            channel: candidate.channel.clone(),
+            incremental_contribution_margin_minor: margin,
+            incremental_roas_bps: roas,
+            lift_bps: lift as i32,
+            confidence_bps: candidate.confidence_bps,
+            score_bps: score,
+            decision: decision.into(),
+            evidence_ref: candidate.evidence_ref.clone(),
+            reason: format!(
+                "Decision uses incremental contribution margin after fees/refunds/production/ad spend; ROAS is diagnostic only. Lift={} bps, margin efficiency={} bps, confidence={} bps, feedback={}s.",
+                lift, margin_efficiency_bps, candidate.confidence_bps, candidate.time_to_feedback_seconds
+            ),
+        });
+    }
+
+    decisions.sort_by(|a, b| {
+        b.score_bps
+            .cmp(&a.score_bps)
+            .then_with(|| a.campaign_id.cmp(&b.campaign_id))
+    });
+    decisions.truncate(max_results);
+    Ok(decisions)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CreatorIntelligence {
     pub company_id: Uuid,
     pub creator_id: Uuid,
@@ -567,6 +743,73 @@ mod tests {
             success_threshold_bps: 500,
             policy_evidence_ref: "policy-2026-09".into(),
         }
+    }
+
+    #[test]
+    fn ads_engine_prioritizes_incremental_margin_over_roas() {
+        let company_id = Uuid::new_v4();
+        let high_roas_low_margin = AdsEvidenceCandidate {
+            company_id,
+            campaign_id: "roas-high".into(),
+            channel: "search".into(),
+            audience_segment: "test".into(),
+            control_conversion_bps: 300,
+            treatment_conversion_bps: 320,
+            incremental_revenue_minor: 20_000,
+            platform_fees_minor: 1_000,
+            refunds_cancellations_minor: 1_000,
+            production_ai_cost_minor: 1_000,
+            ad_spend_minor: 2_000,
+            observed_at_epoch: 1_800_000_000,
+            time_to_feedback_seconds: 86_400,
+            confidence_bps: 8_500,
+            evidence_ref: "e-roas-high".into(),
+        };
+        let lower_roas_better_margin = AdsEvidenceCandidate {
+            campaign_id: "margin-better".into(),
+            incremental_revenue_minor: 30_000,
+            platform_fees_minor: 3_000,
+            refunds_cancellations_minor: 1_000,
+            production_ai_cost_minor: 1_000,
+            ad_spend_minor: 5_000,
+            treatment_conversion_bps: 600,
+            control_conversion_bps: 500,
+            ..high_roas_low_margin.clone()
+        };
+        let decisions = evaluate_ads_campaigns(
+            &[high_roas_low_margin, lower_roas_better_margin],
+            1_800_000_100,
+            86_400,
+            10,
+        ).unwrap();
+        assert_eq!(decisions.len(), 2);
+        assert_eq!(decisions[0].campaign_id, "margin-better");
+        assert!(decisions.iter().all(|value| value.incremental_contribution_margin_minor > 0));
+    }
+
+    #[test]
+    fn ads_engine_stops_when_incremental_margin_is_non_positive() {
+        let company_id = Uuid::new_v4();
+        let candidate = AdsEvidenceCandidate {
+            company_id,
+            campaign_id: "loss".into(),
+            channel: "social".into(),
+            audience_segment: "test".into(),
+            control_conversion_bps: 500,
+            treatment_conversion_bps: 400,
+            incremental_revenue_minor: 10_000,
+            platform_fees_minor: 2_000,
+            refunds_cancellations_minor: 1_000,
+            production_ai_cost_minor: 1_000,
+            ad_spend_minor: 6_000,
+            observed_at_epoch: 1_800_000_000,
+            time_to_feedback_seconds: 86_400,
+            confidence_bps: 9_000,
+            evidence_ref: "e-loss".into(),
+        };
+        let decisions = evaluate_ads_campaigns(&[candidate], 1_800_000_100, 86_400, 10).unwrap();
+        assert_eq!(decisions[0].decision, "HOLD_OR_STOP");
+        assert!(decisions[0].incremental_contribution_margin_minor <= 0);
     }
 
     #[test]
