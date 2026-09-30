@@ -543,6 +543,24 @@ async fn index(
             contribution_margin.variable_cost_transaction_count
         )
     };
+    let autonomy_policy = autonomy_policy_from_env();
+    let autonomy_stop = autonomy_emergency_stop_from_env();
+    let autonomy_html = match (autonomy_policy, autonomy_stop) {
+        (Ok(policy), Ok(emergency_stop)) => {
+            let ceiling = policy.max_level.as_str();
+            let stop_label = if emergency_stop { "EMERGENCY STOP ON" } else { "normal" };
+            format!(
+                r#"<section class="autonomy-shell"><div><div class="section-kicker">Autonomy ladder</div><h2>Observe → Recommend → Simulate → Human approve → Limited → Strategic</h2><p class="muted">Current ceiling: <strong>{}</strong> · {} · limited autonomy requires {} bps confidence, {} evidence items, reversible action, simulation and ≥ {} days runway.</p></div><div class="autonomy-steps"><span class="autonomy-step">01 Observe</span><span class="autonomy-step">02 Recommend</span><span class="autonomy-step active">03 Simulate</span><span class="autonomy-step">04 Human approve</span><span class="autonomy-step">05 Limited</span><span class="autonomy-step">06 Strategic</span></div><small class="muted">External/material actions remain human-gated. The digital twin never mutates the live company state.</small></section>"#,
+                ceiling,
+                stop_label,
+                policy.min_confidence_bps,
+                policy.min_evidence_count,
+                policy.min_runway_days
+            )
+        }
+        _ => r#"<section class="autonomy-shell"><div class="section-kicker">Autonomy ladder</div><h2>Policy unavailable</h2><p class="muted">Autonomy policy cannot be loaded safely, so no autonomous execution ceiling is advertised.</p></section>"#.into(),
+    };
+
     let target_pct = if revenue_periods.month_to_date_minor > 0 {
         ((revenue_periods.month_to_date_minor as f64 / target_minor as f64) * 100.0).round().min(999.0) as u64
     } else {
