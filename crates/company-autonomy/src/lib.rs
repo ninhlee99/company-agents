@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 use agent_runtime::types::{
-    ActionKind, AgentRole, CompanySnapshot, GovernedProposal, GovernorDecision, Proposal, RiskTier,
+    ActionKind, CompanySnapshot, GovernedProposal, GovernorDecision, Proposal, RiskTier,
 };
 use company_execution::ExecutionStatus;
 use economic_core::CompanyStatus;
@@ -428,6 +428,7 @@ pub fn policy_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agent_runtime::types::AgentRole;
 
     fn snapshot() -> CompanySnapshot {
         CompanySnapshot {
