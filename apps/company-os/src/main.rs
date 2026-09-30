@@ -3816,37 +3816,41 @@ mod control_plane_audit_tests {
             r#"[{{"id":"alice","role":"admin","token":"admin-secret","company_id":"{company_id}"}},{{"id":"bob","role":"operator","token":"operator-secret","company_id":"{company_id}"}},{{"id":"carol","role":"read-only","token":"reader-secret","company_id":"{company_id}"}}]"#
         );
         let principals = parse_control_plane_principals(&raw).unwrap();
-        assert_eq!(
-            control_plane_auth_principal_from(company_id, "POST", Some("admin-secret"), &principals)
-                .unwrap(),
-            Some(("alice".into(), "admin"))
-        );
-        assert!(control_plane_auth_principal_from(
-            other_company_id,
-            "POST",
-            Some("admin-secret"),
-            &principals
-        ).unwrap().is_none());
-        let principals = parse_control_plane_principals(raw).unwrap();
         assert_eq!(principals.len(), 3);
         assert_eq!(
-            control_plane_auth_principal_from(uuid::Uuid::nil(), "POST", Some("admin-secret"), &principals)
-                .unwrap(),
+            control_plane_auth_principal_from(
+                company_id,
+                "POST",
+                Some("admin-secret"),
+                &principals
+            ).unwrap(),
             Some(("alice".into(), "admin"))
         );
         assert_eq!(
-            control_plane_auth_principal_from(uuid::Uuid::nil(), "POST", Some("operator-secret"), &principals)
-                .unwrap(),
-            Some(("bob".into(), "operator"))
-        );
-        assert_eq!(
-            control_plane_auth_principal_from(uuid::Uuid::nil(), "GET", Some("reader-secret"), &principals)
-                .unwrap(),
+            control_plane_auth_principal_from(
+                company_id,
+                "GET",
+                Some("reader-secret"),
+                &principals
+            ).unwrap(),
             Some(("carol".into(), "read-only"))
         );
         assert_eq!(
-            control_plane_auth_principal_from(uuid::Uuid::nil(), "POST", Some("reader-secret"), &principals)
-                .unwrap(),
+            control_plane_auth_principal_from(
+                company_id,
+                "POST",
+                Some("reader-secret"),
+                &principals
+            ).unwrap(),
+            None
+        );
+        assert_eq!(
+            control_plane_auth_principal_from(
+                other_company_id,
+                "POST",
+                Some("admin-secret"),
+                &principals
+            ).unwrap(),
             None
         );
     }
@@ -3854,9 +3858,10 @@ mod control_plane_audit_tests {
     #[test]
     fn malformed_or_ambiguous_named_principal_config_fails_closed() {
         assert!(parse_control_plane_principals("{bad-json").is_err());
-        assert!(parse_control_plane_principals(r#"[{"id":"x","role":"root","token":"secret"}]"#).is_err());
-        assert!(parse_control_plane_principals(r#"[{"id":"x","role":"operator","token":"secret"},{"id":"x","role":"admin","token":"other"}]"#).is_err());
-        assert!(parse_control_plane_principals(r#"[{"id":"x","role":"operator","token":"secret"},{"id":"y","role":"admin","token":"secret"}]"#).is_err());
+        assert!(parse_control_plane_principals(r#"[{"id":"x","role":"root","token":"secret","company_id":"00000000-0000-0000-0000-000000000001"}]"#).is_err());
+        assert!(parse_control_plane_principals(r#"[{"id":"x","role":"operator","token":"secret","company_id":"00000000-0000-0000-0000-000000000001"},{"id":"x","role":"admin","token":"other","company_id":"00000000-0000-0000-0000-000000000001"}]"#).is_err());
+        assert!(parse_control_plane_principals(r#"[{"id":"x","role":"operator","token":"secret","company_id":"00000000-0000-0000-0000-000000000001"},{"id":"y","role":"admin","token":"secret","company_id":"00000000-0000-0000-0000-000000000001"}]"#).is_err());
+        assert!(parse_control_plane_principals(r#"[{"id":"x","role":"operator","token":"secret"}]"#).is_err());
     }
 
 
