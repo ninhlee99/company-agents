@@ -7,7 +7,7 @@ use affiliate_intelligence::{
 use agent_runtime::{model_from_env, AgentRunResult, AgentRuntime, CompanySnapshot};
 use axum::{
     extract::{Form, Query, State, Request},
-    http::StatusCode,
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     middleware::{self, Next},
     response::{Html, Redirect, Response},
     routing::{get, post},
@@ -23,6 +23,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::{Mutex, RwLock};
+use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use tiktok_live_streaming::LiveStreamController;
@@ -2447,6 +2448,135 @@ fn control_plane_auth_disabled() -> bool {
         .is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
 }
 
+fn cookie_value(request: &Request, name: &str) -> Option<String> {
+    let header = request.headers().get(header::COOKIE)?.to_str().ok()?;
+    header.split(';').find_map(|part| {
+        let (key, value) = part.trim().split_once('=')?;
+        (key == name).then(|| value.to_owned())
+    })
+}
+
+fn browser_cookie_secure() -> bool {
+    parse_bool_env("CONTROL_PLANE_COOKIE_SECURE", true)
+}
+
+fn browser_secret() -> Result<Vec<u8>, StatusCode> {
+    let secret = std::env::var("CONTROL_PLANE_BROWSER_SECRET")
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if secret.len() < 32 {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    }
+    Ok(secret.into_bytes())
+}
+
+fn hmac_hex(secret: &[u8], message: &str) -> Result<String, StatusCode> {
+    type BrowserHmac = Hmac<Sha256>;
+    let mut mac = BrowserHmac::new_from_slice(secret)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    mac.update(message.as_bytes());
+    let digest = mac.finalize().into_bytes();
+    Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+#[derive(Debug, Clone)]
+struct BrowserSession {
+    csrf: String,
+    expires_at_epoch: i64,
+}
+
+fn sign_browser_session(
+    company_id: &str,
+    expires_at_epoch: i64,
+    csrf: &str,
+    secret: &[u8],
+) -> Result<String, StatusCode> {
+    let payload = format!("{company_id}|{expires_at_epoch}|{csrf}");
+    let signature = hmac_hex(secret, &payload)?;
+    Ok(format!("v1.{expires_at_epoch}.{csrf}.{signature}"))
+}
+
+fn verify_browser_session(
+    company_id: &str,
+    cookie: &str,
+    secret: &[u8],
+) -> Option<BrowserSession> {
+    let mut parts = cookie.split('.');
+    let version = parts.next()?;
+    let expires = parts.next()?.parse::<i64>().ok()?;
+    let csrf = parts.next()?;
+    let signature = parts.next()?;
+    if version != "v1" || parts.next().is_some() || csrf.len() != 36 {
+        return None;
+    }
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    if expires <= now || expires > now + 86_400 {
+        return None;
+    }
+    let payload = format!("{company_id}|{expires}|{csrf}");
+    let expected = hmac_hex(secret, &payload).ok()?;
+    if !bool::from(expected.as_bytes().ct_eq(signature.as_bytes())) {
+        return None;
+    }
+    Some(BrowserSession {
+        csrf: csrf.to_owned(),
+        expires_at_epoch: expires,
+    })
+}
+
+fn control_plane_actor_id_for_cookie(cookie: &str) -> String {
+    let digest = Sha256::digest(cookie.as_bytes());
+    let fingerprint: String = digest
+        .iter()
+        .take(16)
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    format!("browser-session-sha256:{fingerprint}")
+}
+
+fn clear_cookie_headers(headers: &mut HeaderMap) {
+    let secure = if browser_cookie_secure() { "; Secure" } else { "" };
+    headers.append(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&format!(
+            "company_os_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0{secure}"
+        ))
+        .expect("static cookie header"),
+    );
+    headers.append(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&format!(
+            "company_os_csrf=; Path=/; SameSite=Strict; Max-Age=0{secure}"
+        ))
+        .expect("static cookie header"),
+    );
+}
+
+fn session_cookie_headers(
+    company_id: &str,
+    expires_at_epoch: i64,
+    csrf: &str,
+    secret: &[u8],
+) -> Result<HeaderMap, StatusCode> {
+    let session = sign_browser_session(company_id, expires_at_epoch, csrf, secret)?;
+    let secure = if browser_cookie_secure() { "; Secure" } else { "" };
+    let mut headers = HeaderMap::new();
+    headers.append(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&format!(
+            "company_os_session={session}; Path=/; HttpOnly; SameSite=Strict; Max-Age=28800{secure}"
+        ))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+    );
+    headers.append(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&format!(
+            "company_os_csrf={csrf}; Path=/; SameSite=Strict; Max-Age=28800{secure}"
+        ))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+    );
+    Ok(headers)
+}
+
 fn control_plane_request_id(request: &Request) -> String {
     request
         .headers()
@@ -2531,6 +2661,8 @@ async fn require_control_plane_auth(
             | "/metrics"
             | "/api/publishing/tiktok/webhook"
             | "/api/tiktok/oauth/callback"
+            | "/auth/login"
+            | "/auth/session"
     ) {
         return Ok(next.run(request).await);
     }
@@ -2544,9 +2676,9 @@ async fn require_control_plane_auth(
         .and_then(|value| value.strip_prefix("Bearer "))
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let actor_id = control_plane_actor_id(provided);
 
     if control_plane_auth_disabled() {
+        let actor_id = control_plane_actor_id(provided);
         record_control_plane_audit(
             &state,
             &actor_id,
@@ -2561,6 +2693,67 @@ async fn require_control_plane_auth(
         return Ok(next.run(request).await);
     }
 
+    if let Some(cookie) = cookie_value(&request, "company_os_session") {
+        if let Ok(secret) = browser_secret() {
+            if let Some(session) = verify_browser_session(&state.company_id, &cookie, &secret) {
+                let csrf_cookie = cookie_value(&request, "company_os_csrf");
+                let csrf_header = request
+                    .headers()
+                    .get("x-csrf-token")
+                    .and_then(|value| value.to_str().ok())
+                    .or_else(|| {
+                        request
+                            .uri()
+                            .query()
+                            .and_then(|query| query.split('&').find_map(|pair| {
+                                let (key, value) = pair.split_once('=')?;
+                                (key == "csrf").then_some(value)
+                            }))
+                    });
+                let csrf_valid = if matches!(method.as_str(), "GET" | "HEAD" | "OPTIONS") {
+                    true
+                } else {
+                    csrf_cookie
+                        .as_deref()
+                        .is_some_and(|value| bool::from(session.csrf.as_bytes().ct_eq(value.as_bytes())))
+                        && csrf_header
+                            .is_some_and(|value| bool::from(session.csrf.as_bytes().ct_eq(value.as_bytes())))
+                };
+
+                let actor_id = control_plane_actor_id_for_cookie(&cookie);
+                if csrf_valid {
+                    let response = next.run(request).await;
+                    record_control_plane_audit(
+                        &state,
+                        &actor_id,
+                        "operator-browser",
+                        &method,
+                        &path,
+                        "CONTROL_PLANE_BROWSER_REQUEST",
+                        "ALLOWED",
+                        &request_id,
+                    )
+                    .await;
+                    return Ok(response);
+                }
+
+                record_control_plane_audit(
+                    &state,
+                    &actor_id,
+                    "operator-browser",
+                    &method,
+                    &path,
+                    "CONTROL_PLANE_BROWSER_CSRF",
+                    "DENIED",
+                    &request_id,
+                )
+                .await;
+                return Err(StatusCode::FORBIDDEN);
+            }
+        }
+    }
+
+    let actor_id = control_plane_actor_id(provided);
     let operator_token = match std::env::var("CONTROL_PLANE_TOKEN") {
         Ok(value) if !value.is_empty() => value,
         _ => {
@@ -2620,6 +2813,92 @@ async fn require_control_plane_auth(
     Ok(response)
 }
 
+async fn browser_login_page() -> Html<String> {
+    Html(r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Company OS sign in</title></head><body style="font-family:system-ui;max-width:520px;margin:64px auto;padding:24px"><h1>Company OS</h1><p>Sign in to use the browser control plane. API clients should continue using Bearer authentication.</p><form method="post" action="/auth/session"><label>Control-plane token</label><input name="token" type="password" autocomplete="current-password" required minlength="32" style="display:block;width:100%;box-sizing:border-box;padding:10px;margin:8px 0 14px"><button type="submit">Sign in</button></form></body></html>"#.into())
+}
+
+#[derive(Debug, Deserialize)]
+struct BrowserLoginForm {
+    token: String,
+}
+
+async fn browser_login(
+    State(state): State<AppState>,
+    Form(form): Form<BrowserLoginForm>,
+) -> Result<Response, StatusCode> {
+    let operator_token = std::env::var("CONTROL_PLANE_TOKEN")
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let valid = bool::from(operator_token.as_bytes().ct_eq(form.token.as_bytes()));
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let actor_id = control_plane_actor_id(Some(&form.token));
+    if !valid {
+        record_control_plane_audit(
+            &state,
+            &actor_id,
+            "operator-browser",
+            "POST",
+            "/auth/session",
+            "CONTROL_PLANE_BROWSER_LOGIN",
+            "DENIED",
+            &request_id,
+        )
+        .await;
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    let secret = browser_secret()?;
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let expires = time::OffsetDateTime::now_utc().unix_timestamp() + 8 * 60 * 60;
+    let mut response = Response::builder()
+        .status(StatusCode::SEE_OTHER)
+        .header(header::LOCATION, "/");
+    let headers = session_cookie_headers(&state.company_id, expires, &csrf, &secret)?;
+    for value in headers.get_all(header::SET_COOKIE).iter() {
+        response = response.header(header::SET_COOKIE, value);
+    }
+    let response = response.body(axum::body::Body::empty())
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    record_control_plane_audit(
+        &state,
+        &actor_id,
+        "operator-browser",
+        "POST",
+        "/auth/session",
+        "CONTROL_PLANE_BROWSER_LOGIN",
+        "ALLOWED",
+        &request_id,
+    )
+    .await;
+    Ok(response)
+}
+
+async fn browser_logout(
+    State(state): State<AppState>,
+    request: Request,
+) -> Result<Response, StatusCode> {
+    let request_id = control_plane_request_id(&request);
+    let actor_id = cookie_value(&request, "company_os_session")
+        .map(|cookie| control_plane_actor_id_for_cookie(&cookie))
+        .unwrap_or_else(|| "anonymous".into());
+    let mut headers = HeaderMap::new();
+    clear_cookie_headers(&mut headers);
+    record_control_plane_audit(
+        &state,
+        &actor_id,
+        "operator-browser",
+        "POST",
+        "/auth/logout",
+        "CONTROL_PLANE_BROWSER_LOGOUT",
+        "ALLOWED",
+        &request_id,
+    )
+    .await;
+    let mut response = Response::builder().status(StatusCode::SEE_OTHER).header(header::LOCATION, "/auth/login");
+    for value in headers.get_all(header::SET_COOKIE).iter() {
+        response = response.header(header::SET_COOKIE, value);
+    }
+    response.body(axum::body::Body::empty()).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
 
 async fn vendor_api(
     State(state): State<AppState>,
@@ -2725,6 +3004,26 @@ async fn metrics(
 #[cfg(test)]
 mod control_plane_audit_tests {
     use super::*;
+
+    #[test]
+    fn browser_session_round_trip_and_expiry_are_verified() {
+        let secret = b"01234567890123456789012345678901";
+        let csrf = uuid::Uuid::new_v4().to_string();
+        let expires = time::OffsetDateTime::now_utc().unix_timestamp() + 3_600;
+        let cookie = sign_browser_session("company", expires, &csrf, secret).unwrap();
+        let session = verify_browser_session("company", &cookie, secret).unwrap();
+        assert_eq!(session.csrf, csrf);
+        assert_eq!(session.expires_at_epoch, expires);
+        assert!(verify_browser_session("other", &cookie, secret).is_none());
+    }
+
+    #[test]
+    fn browser_cookie_fingerprint_does_not_expose_cookie() {
+        let cookie = "v1.123456.test-signature";
+        let id = control_plane_actor_id_for_cookie(cookie);
+        assert!(id.starts_with("browser-session-sha256:"));
+        assert!(!id.contains(cookie));
+    }
 
     #[test]
     fn actor_id_is_a_non_secret_fingerprint() {
@@ -2965,6 +3264,9 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     let app = Router::new()
+        .route("/auth/login", get(browser_login_page))
+        .route("/auth/session", post(browser_login))
+        .route("/auth/logout", post(browser_logout))
         .route("/", get(index))
         .route("/run", post(run_html))
         .route("/live/session", post(live_create_html))
