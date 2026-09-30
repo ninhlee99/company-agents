@@ -206,6 +206,24 @@ pub struct ContributionMarginMetrics {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CustomerIntelligenceMetric {
+    pub customer_id: Uuid,
+    pub customer_name: String,
+    pub customer_status: String,
+    pub currency: String,
+    pub invoice_count: i64,
+    pub invoices_with_payment_count: i64,
+    pub observed_billed_minor: i128,
+    pub observed_paid_minor: i128,
+    pub outstanding_minor: i128,
+    pub collection_rate_bps: i64,
+    pub last_payment_epoch: Option<i64>,
+    pub payment_recency_days: Option<i64>,
+    pub open_support_case_count: i64,
+    pub ltv_estimation_status: String,
+}
+
 pub struct CommercialDeliveryMetric {
     pub currency: String,
     pub proposal_count: i64,
@@ -8426,6 +8444,85 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             "created_at": row.get::<_, time::OffsetDateTime>(7).to_string(),
             "updated_at": row.get::<_, time::OffsetDateTime>(8).to_string()
         }))
+    }
+
+    pub async fn customer_intelligence(
+        &self,
+        company_id: &str,
+        limit: i64,
+    ) -> Result<Vec<CustomerIntelligenceMetric>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=200).contains(&limit) {
+            return Err("customer intelligence limit must be between 1 and 200".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let now_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT c.id,
+                        c.name,
+                        c.status,
+                        i.currency,
+                        COUNT(i.id)::bigint,
+                        COUNT(i.id) FILTER (WHERE i.paid_minor > 0)::bigint,
+                        COALESCE(SUM(i.subtotal_minor),0)::text,
+                        COALESCE(SUM(i.paid_minor),0)::text,
+                        COALESCE(SUM(i.subtotal_minor-i.paid_minor)
+                            FILTER (WHERE i.status IN ('ISSUED','PARTIALLY_PAID')),0)::text,
+                        MAX(ip.occurred_at_epoch),
+                        COUNT(sc.id) FILTER (WHERE sc.status IN ('OPEN','ACKNOWLEDGED','IN_PROGRESS','WAITING_CUSTOMER'))::bigint
+                   FROM customers c
+                   JOIN invoices i
+                     ON i.company_id=c.company_id
+                    AND i.customer_id=c.id
+                   LEFT JOIN invoice_payments ip
+                     ON ip.invoice_id=i.id
+                    AND i.company_id=$1
+                   LEFT JOIN support_cases sc
+                     ON sc.company_id=c.company_id
+                    AND sc.customer_id=c.id
+                  WHERE c.company_id=$1
+                  GROUP BY c.id,c.name,c.status,i.currency
+                  ORDER BY COALESCE(SUM(i.paid_minor),0) DESC,c.id,i.currency
+                  LIMIT $2",
+                &[&company, &limit],
+            )
+            .await?;
+
+        rows.into_iter()
+            .map(|row| {
+                let billed = parse_i128_numeric(&row.get::<_, String>(6))?;
+                let paid = parse_i128_numeric(&row.get::<_, String>(7))?;
+                let collection_rate_bps = if billed > 0 {
+                    paid.saturating_mul(10_000)
+                        .checked_div(billed)
+                        .unwrap_or(0)
+                        .clamp(0, 10_000) as i64
+                } else {
+                    0
+                };
+                let last_payment_epoch: Option<i64> = row.get(9);
+                let payment_recency_days = last_payment_epoch.map(|epoch| {
+                    now_epoch.saturating_sub(epoch).max(0) / 86_400
+                });
+                Ok(CustomerIntelligenceMetric {
+                    customer_id: row.get(0),
+                    customer_name: row.get(1),
+                    customer_status: row.get(2),
+                    currency: row.get(3),
+                    invoice_count: row.get(4),
+                    invoices_with_payment_count: row.get(5),
+                    observed_billed_minor: billed,
+                    observed_paid_minor: paid,
+                    outstanding_minor: parse_i128_numeric(&row.get::<_, String>(8))?,
+                    collection_rate_bps,
+                    last_payment_epoch,
+                    payment_recency_days,
+                    open_support_case_count: row.get(10),
+                    ltv_estimation_status: "NOT_ESTIMABLE_WITH_CURRENT_COHORT_EVIDENCE".into(),
+                })
+            })
+            .collect()
     }
 
     pub async fn list_customers(
