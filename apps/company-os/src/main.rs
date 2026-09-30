@@ -118,8 +118,6 @@ fn mark_control_plane_denied(state: &AppState, csrf: bool) {
 }
 
 #[derive(Clone)]
-
-#[derive(Clone)]
 struct AppState {
     runtime: Arc<AgentRuntime>,
     company: Arc<RwLock<CompanySnapshot>>,
