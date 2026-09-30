@@ -467,7 +467,8 @@ impl TikTokShopProvider {
             let retry_after = response
                 .headers()
                 .get("retry-after")
-                .and_then(|value| value.to_str().ok());
+                .and_then(|value| value.to_str().ok())
+                .map(ToOwned::to_owned);
             let bytes = response
                 .bytes()
                 .await
@@ -480,7 +481,7 @@ impl TikTokShopProvider {
             if status.as_u16() == 429 || status.is_server_error() {
                 last_error = Some(format!("TikTok HTTP {status}"));
                 if attempt < 2 {
-                    tokio::time::sleep(response_retry_delay(retry_after, attempt)).await;
+                    tokio::time::sleep(response_retry_delay(retry_after.as_deref(), attempt)).await;
                     continue;
                 }
                 return Err(AffiliateError::Provider(format!(
