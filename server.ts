@@ -1055,6 +1055,7 @@ app.get('/api/state', (req, res) => {
   res.json({
     dataMode: SIMULATED_DATA_MODE,
     evidenceMode: 'synthetic_fixture',
+    simulatedMutationsEnabled: simulatedMutationsEnabled(),
     warning: 'All monetary, KPI, audit, workforce and pipeline values from this Node/Vite backend are synthetic simulation state, not company actuals.',
     snapshot: state.snapshot,
     ledger: state.ledger.slice(0, 50),
