@@ -97,6 +97,7 @@ It should not be described as an AI company that can independently operate every
 - **Named control-plane principals:** `CONTROL_PLANE_PRINCIPALS_JSON` replaces the shared-token role map when configured. Principal IDs are audited; raw credentials are never written to audit metadata. `read-only` is limited to GET/HEAD; `operator` and `admin` cover current mutating control-plane APIs.
 
 - **Unified event contract:** `CompanyEventType` provides stable names for the P1 event set; `CompanyEventEnvelope` carries company, schema, aggregate, correlation/causation, idempotency and payload metadata. Store persistence keeps the existing durable outbox path.
+- **Content producer migration:** `RENDERED → PUBLISHED` emits canonical `CONTENT_PUBLISHED` transactionally with the content status/evidence update; repeated publication is prevented by the content state machine.
 - **Experiment producer:** terminal experiment decisions now emit `EXPERIMENT_COMPLETED` transactionally with the experiment observation/status, revenue-graph lineage and learning record. The event payload contains only recorded experiment evidence and the deterministic terminal decision; `CONTINUE` emits no completion event.
 
 The commercial control plane now exposes a read-only pipeline view plus deterministic proposal and sponsorship transitions. Sponsorship delivery is bounded by the contracted value and emits durable outbox events. These APIs do not execute external contracts or payment settlement; those remain provider/reconciliation boundaries.
