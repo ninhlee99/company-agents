@@ -9553,6 +9553,38 @@ fn content_record_from_row(
     company_content::validate_item(&item).map_err(|error| error.to_string())?;
     Ok(ContentRecord { item, created_at: row.get(28) })
 }
+fn parse_i128_numeric(
+    value: &str,
+) -> Result<i128, Box<dyn std::error::Error + Send + Sync>> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err("numeric value is empty".into());
+    }
+    trimmed
+        .parse::<i128>()
+        .map_err(|error| format!("invalid integer numeric value: {error}").into())
+}
+
+#[cfg(test)]
+mod numeric_parser_tests {
+    use super::*;
+
+    #[test]
+    fn parses_postgres_integer_numeric_text() {
+        assert_eq!(parse_i128_numeric("0").unwrap(), 0);
+        assert_eq!(parse_i128_numeric("123456789").unwrap(), 123_456_789);
+        assert_eq!(parse_i128_numeric("-900").unwrap(), -900);
+    }
+
+    #[test]
+    fn rejects_empty_or_fractional_numeric_text() {
+        assert!(parse_i128_numeric("").is_err());
+        assert!(parse_i128_numeric("   ").is_err());
+        assert!(parse_i128_numeric("1.5").is_err());
+        assert!(parse_i128_numeric("abc").is_err());
+    }
+}
+
 #[cfg(test)]
 mod live_attention_learning_tests {
     use super::*;
