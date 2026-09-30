@@ -374,7 +374,8 @@ struct PaymentExecutionIntentRequest {
 #[derive(Debug, Deserialize)]
 struct PaymentExecutionApprovalRequest {
     intent_id: uuid::Uuid,
-    approved_by: String,
+    #[serde(default)]
+    approved_by: Option<String>,
     approval_reference: String,
     approved_at_epoch: i64,
 }
@@ -3142,8 +3143,53 @@ async fn payment_execution_intent_api(
         .map_err(|_| StatusCode::BAD_REQUEST)
 }
 
+fn trusted_control_plane_actor(
+    state: &AppState,
+    request: &Request,
+) -> Result<String, StatusCode> {
+    let provided = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let operator_token = std::env::var("CONTROL_PLANE_TOKEN").unwrap_or_default();
+    let read_token = std::env::var("CONTROL_PLANE_READ_TOKEN")
+        .ok()
+        .filter(|value| !value.is_empty());
+
+    if let Some(token) = provided {
+        if let Ok(Some((principal_id, _role))) = control_plane_auth_principal(
+            state.company_id.parse().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+            request.method().as_str(),
+            Some(token),
+            &operator_token,
+            read_token.as_deref(),
+        ) {
+            return Ok(format!("principal:{principal_id}"));
+        }
+    }
+
+    if let Some(cookie) = cookie_value(request, "company_os_session") {
+        if browser_secret().ok().and_then(|secret| {
+            verify_browser_session(&state.company_id, &cookie, &secret)
+        }).is_some() {
+            return Ok(control_plane_actor_id_for_cookie(&cookie));
+        }
+    }
+
+    if control_plane_auth_disabled() {
+        return Ok(control_plane_actor_id(provided));
+    }
+
+    Err(StatusCode::UNAUTHORIZED)
+}
+
 async fn payment_execution_approve_api(
     State(state): State<AppState>,
+    request: Request,
     Json(req): Json<PaymentExecutionApprovalRequest>,
 ) -> Result<Json<company_store::PaymentExecutionIntentRecord>, StatusCode> {
     state
@@ -3151,7 +3197,7 @@ async fn payment_execution_approve_api(
         .approve_payment_execution_intent(
             &state.company_id,
             &req.intent_id.to_string(),
-            &req.approved_by,
+            &trusted_control_plane_actor(&state, &request)?,
             &req.approval_reference,
             req.approved_at_epoch,
         )
