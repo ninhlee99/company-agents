@@ -288,10 +288,11 @@ impl TikTokPublisher {
         body: serde_json::Value,
     ) -> Result<serde_json::Value, PublishError> {
         self.wait_for_rate_limit().await;
+        let access_token = self.access_token().await?;
         let response = self
             .client
             .post(format!("{}{}", self.api_base.trim_end_matches('/'), path))
-            .bearer_auth(&self.access_token)
+            .bearer_auth(&access_token)
             .header(header::CONTENT_TYPE, "application/json; charset=UTF-8")
             .json(&body)
             .send()
