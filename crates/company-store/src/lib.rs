@@ -1271,6 +1271,32 @@ impl CompanyStore {
               WHERE company_id=$1 AND id=$2",
             &[&company,&experiment_id,&status],
         ).await?;
+
+        let decision_ref = format!(
+            "experiment:{}:decision:{}:{}",
+            experiment_id,
+            format!("{:?}", decision).to_ascii_uppercase(),
+            observation_key
+        );
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company,
+                company_revenue_graph::RevenueNodeType::Experiment,
+                &experiment_id.to_string(),
+                "RESULTS_IN",
+                company_revenue_graph::RevenueNodeType::Decision,
+                &decision_ref,
+                None,
+                None,
+                10_000,
+                &format!("experiment:{}:{}", experiment_id, observation_key),
+                "experiment-engine",
+                time::OffsetDateTime::now_utc().unix_timestamp(),
+            ),
+        )
+        .await?;
+
         tx.commit().await?;
         Ok(decision)
     }
