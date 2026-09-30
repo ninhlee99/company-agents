@@ -192,6 +192,7 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Content-plan bridge:** a pursued opportunity can be materialized once into the Content Factory as a Draft; this does not publish externally or claim reach/revenue.
 - **TTFC evidence:** the growth ledger stores the first content creation timestamp and derives trend-to-content elapsed seconds so growth speed can be measured instead of inferred.
 - **LIVE attention controller:** each accepted LIVE event is scored for purchase intent, objections, gifts, PK moments, engagement, explicit high-value viewer evidence and safety escalation; per-session response caps/cooldowns are persisted, with human escalation for safety signals.
+- **LIVE learning integration:** safety escalations and high-priority responses persist a bounded policy-learning record transactionally; the record carries event/session evidence identifiers and does not recognize gifts or engagement as revenue.
 - **Typed outbox events:** TREND_DETECTED, OPPORTUNITY_CREATED and CONTENT_CREATED provide durable downstream hand-off points without free-form agent chat.
 - **Current boundary:** trend discovery still requires an external/verified trend signal source, and content analytics/publishing evidence must come from separately authenticated platform boundaries.
 
@@ -226,7 +227,7 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Evidence gate:** failure records require severity and all entries require an observed actual outcome; the library rejects empty evidence and invalid confidence values rather than inventing outcomes.
 - **Idempotent identity:** the database enforces a company-scoped unique `entry_key`, preventing duplicate learning records for the same source event.
 - **Write-path baseline:** P0.5 introduces no update/delete workflow; the current contract is append-oriented, while database-level immutability enforcement remains a later hardening step.
-- **Outcome integrations:** terminal experiment decisions and content observations now persist evidence-backed learning entries plus transactional `LEARNING_ENTRY_RECORDED` outbox events in the same database transaction. LIVE automatic ingestion remains a later integration step.
+- **Outcome integrations:** terminal experiment decisions and content observations now persist evidence-backed learning entries plus transactional `LEARNING_ENTRY_RECORDED` outbox events in the same database transaction. Material LIVE attention decisions (safety escalation or priority ≥90) are also persisted as learning/near-miss evidence; low-signal LIVE events remain out of the learning ledger.
 
 ## Content Factory
 

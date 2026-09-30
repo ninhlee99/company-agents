@@ -6502,6 +6502,70 @@ impl CompanyStore {
             ],
         ).await?;
 
+        if let Some(learning) = live_attention_learning_entry(event, &decision) {
+            company_learning::validate_evidence(&learning)
+                .map_err(|error| error.to_string())?;
+
+            let learning_inserted = tx.query_opt(
+                "INSERT INTO learning_entries
+                 (id,company_id,entry_key,source_type,source_id,kind,severity,hypothesis,context,
+                  expected_outcome,actual_outcome,impact_minor,confidence_bps,root_cause,
+                  corrective_action,reusable_rule,decision)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+                 ON CONFLICT(company_id,entry_key) DO NOTHING
+                 RETURNING id",
+                &[
+                    &Uuid::new_v4(),
+                    &company_uuid,
+                    &learning.entry_key,
+                    &learning.source_type,
+                    &learning.source_id,
+                    &learning_kind_name(learning.kind),
+                    &failure_severity_name(learning.severity),
+                    &learning.hypothesis,
+                    &learning.context,
+                    &learning.expected_outcome,
+                    &learning.actual_outcome,
+                    &learning.impact_minor.to_string(),
+                    &learning.confidence_bps,
+                    &learning.root_cause,
+                    &learning.corrective_action,
+                    &learning.reusable_rule,
+                    &learning_decision_name(learning.decision),
+                ],
+            ).await?;
+
+            let learning_id = match learning_inserted {
+                Some(row) => row.get(0),
+                None => tx.query_one(
+                    "SELECT id FROM learning_entries WHERE company_id=$1 AND entry_key=$2",
+                    &[&company_uuid, &learning.entry_key],
+                ).await?.get(0),
+            };
+
+            let outbox_key = format!("outbox:learning:{}", learning.entry_key);
+            let payload = serde_json::json!({
+                "entry_key": &learning.entry_key,
+                "source_type": &learning.source_type,
+                "source_id": &learning.source_id,
+                "kind": learning.kind,
+                "decision": learning.decision,
+                "confidence_bps": learning.confidence_bps
+            });
+            tx.execute(
+                "INSERT INTO outbox_events
+                 (company_id,event_type,aggregate_id,idempotency_key,payload)
+                 VALUES ($1,'LEARNING_ENTRY_RECORDED',$2,$3,$4)
+                 ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+                &[
+                    &company_uuid,
+                    &learning_id,
+                    &outbox_key,
+                    &payload,
+                ],
+            ).await?;
+        }
+
         let persisted = tx.query_one(
             "SELECT id,company_id,session_id,event_id,action,reason,priority,decided_at_epoch,requires_human
                FROM live_attention_decisions
@@ -8630,6 +8694,87 @@ async fn content_observation_by_key(
     })
 }
 
+fn live_attention_learning_entry(
+    event: &tiktok_live_engine::LiveEvent,
+    decision: &company_live_attention::AttentionDecision,
+) -> Option<company_learning::LearningEntry> {
+    let material = decision.action == company_live_attention::AttentionAction::Escalate
+        || (decision.action == company_live_attention::AttentionAction::Respond
+            && decision.priority >= 90);
+    if !material {
+        return None;
+    }
+
+    let (kind, severity, learning_decision, root_cause, corrective_action, reusable_rule) =
+        match decision.action {
+            company_live_attention::AttentionAction::Escalate => (
+                company_learning::LearningKind::NearMiss,
+                company_learning::FailureSeverity::High,
+                company_learning::LearningDecision::Escalate,
+                "The deterministic LIVE attention policy flagged a safety signal and required human handling.",
+                "Route the event to the governed human escalation path before any external response.",
+                "Safety-signaled LIVE events must remain human-gated; automated engagement is not validated handling.",
+            ),
+            company_live_attention::AttentionAction::Respond => (
+                company_learning::LearningKind::Learning,
+                company_learning::FailureSeverity::None,
+                company_learning::LearningDecision::Adjust,
+                "The deterministic LIVE attention policy classified the event as a high-priority engagement signal.",
+                "Use the governed response path and collect verified downstream outcome evidence before reuse.",
+                "High-priority LIVE classifications are candidates for later evaluation, not proof of response effectiveness.",
+            ),
+            _ => return None,
+        };
+
+    let event_kind = format!("{:?}", event.kind).to_ascii_uppercase();
+    let viewer_value = event
+        .viewer_value_bps
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "NONE".into());
+
+    Some(company_learning::LearningEntry {
+        entry_key: format!(
+            "live:{}:{}:learning",
+            decision.session_id, decision.event_id
+        ),
+        source_type: "LIVE_ATTENTION_DECISION".into(),
+        source_id: format!("{}:{}", decision.session_id, decision.event_id),
+        kind,
+        severity,
+        hypothesis: "LIVE attention policy identifies material engagement or safety signals.".into(),
+        context: format!(
+            "event_kind={} action={:?} reason={:?} priority={} requires_human={} viewer_value_bps={} room_id={}",
+            event_kind,
+            decision.action,
+            decision.reason,
+            decision.priority,
+            decision.requires_human,
+            viewer_value,
+            event.room_id
+        ),
+        expected_outcome: "Material LIVE attention signals are handled through the governed response or human escalation path.".into(),
+        actual_outcome: format!(
+            "action={:?}; reason={:?}; priority={}; requires_human={}; event_id={}; session_id={}; room_id={}; occurred_at_epoch={}; gift_value_minor={}; viewer_value_bps={}",
+            decision.action,
+            decision.reason,
+            decision.priority,
+            decision.requires_human,
+            event.event_id,
+            decision.session_id,
+            event.room_id,
+            event.occurred_at_epoch,
+            event.gift_value_minor,
+            viewer_value
+        ),
+        impact_minor: 0,
+        confidence_bps: (decision.priority as i64) * 100,
+        root_cause: root_cause.into(),
+        corrective_action: corrective_action.into(),
+        reusable_rule: reusable_rule.into(),
+        decision: learning_decision,
+    })
+}
+
 fn content_learning_entry(
     item: &company_content::ContentItem,
     observation: &company_content::ContentObservation,
@@ -9166,6 +9311,66 @@ fn content_record_from_row(
     company_content::validate_item(&item).map_err(|error| error.to_string())?;
     Ok(ContentRecord { item, created_at: row.get(28) })
 }
+#[cfg(test)]
+mod live_attention_learning_tests {
+    use super::*;
+
+    fn event() -> tiktok_live_engine::LiveEvent {
+        tiktok_live_engine::LiveEvent {
+            event_id: "event-1".into(),
+            room_id: "room-1".into(),
+            user_id: Some("viewer-1".into()),
+            display_name: Some("Alice".into()),
+            kind: tiktok_live_engine::LiveEventKind::Comment,
+            text: Some("Báo cáo vì vi phạm".into()),
+            gift_id: None,
+            gift_name: None,
+            gift_quantity: 0,
+            gift_value_minor: 0,
+            currency: "VND".into(),
+            pk_score: None,
+            viewer_value_bps: Some(9_000),
+            occurred_at_epoch: 1_750_000_000,
+        }
+    }
+
+    fn decision() -> company_live_attention::AttentionDecision {
+        company_live_attention::AttentionDecision {
+            decision_id: Uuid::from_u128(1),
+            company_id: Uuid::from_u128(2),
+            session_id: Uuid::from_u128(3),
+            event_id: "event-1".into(),
+            action: company_live_attention::AttentionAction::Escalate,
+            reason: company_live_attention::AttentionReason::SafetyEscalation,
+            priority: 100,
+            decided_at_epoch: 1_750_000_010,
+            requires_human: true,
+        }
+    }
+
+    #[test]
+    fn safety_escalation_becomes_high_severity_near_miss() {
+        let entry = live_attention_learning_entry(&event(), &decision()).unwrap();
+        assert_eq!(entry.entry_key, "live:00000000-0000-0000-0000-000000000003:event-1:learning");
+        assert_eq!(entry.kind, company_learning::LearningKind::NearMiss);
+        assert_eq!(entry.severity, company_learning::FailureSeverity::High);
+        assert_eq!(entry.decision, company_learning::LearningDecision::Escalate);
+        assert_eq!(entry.impact_minor, 0);
+        assert_eq!(entry.confidence_bps, 10_000);
+        assert!(company_learning::validate_evidence(&entry).is_ok());
+    }
+
+    #[test]
+    fn low_priority_live_decision_does_not_pollute_learning_ledger() {
+        let mut value = decision();
+        value.action = company_live_attention::AttentionAction::Respond;
+        value.reason = company_live_attention::AttentionReason::LowSignal;
+        value.priority = 50;
+        let entry = live_attention_learning_entry(&event(), &value);
+        assert!(entry.is_none());
+    }
+}
+
 #[cfg(test)]
 mod content_learning_tests {
     use super::*;
