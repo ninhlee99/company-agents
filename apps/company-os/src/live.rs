@@ -121,16 +121,8 @@ pub async fn record_event(
                 .tiktok_live_summary(&state.company_id, &session_id)
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            let gift_count = summary
-                .get("gift_count")
-                .and_then(|value| value.as_str())
-                .and_then(|value| value.parse::<u64>().ok())
-                .unwrap_or(0);
-            let gift_value_minor = summary
-                .get("gift_value_minor")
-                .and_then(|value| value.as_str())
-                .and_then(|value| value.parse::<u128>().ok())
-                .unwrap_or(0);
+            let gift_count = summary_u64(&summary, "gift_count")?;
+            let gift_value_minor = summary_u128(&summary, "gift_value_minor")?;
             let ledger = LiveLedger {
                 gift_count,
                 gift_value_minor,
@@ -194,6 +186,28 @@ pub async fn reconcile_gifts(
         .await
         .map(Json)
         .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+fn summary_u64(summary: &serde_json::Value, key: &str) -> Result<u64, StatusCode> {
+    match summary.get(key) {
+        None => Ok(0),
+        Some(value) => value
+            .as_str()
+            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
+            .parse::<u64>()
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+fn summary_u128(summary: &serde_json::Value, key: &str) -> Result<u128, StatusCode> {
+    match summary.get(key) {
+        None => Ok(0),
+        Some(value) => value
+            .as_str()
+            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
+            .parse::<u128>()
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR),
+    }
 }
 
 fn parse_mode(value: &str) -> Option<LiveMode> {
@@ -321,3 +335,48 @@ pub async fn stream_status(
     };
     Ok(Json(serde_json::json!({"enabled": state.live_stream.is_some(), "running": running})))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn missing_live_summary_gift_metrics_default_to_zero() {
+        let summary = json!({});
+        assert_eq!(summary_u64(&summary, "gift_count").unwrap(), 0);
+        assert_eq!(summary_u128(&summary, "gift_value_minor").unwrap(), 0);
+    }
+
+    #[test]
+    fn malformed_live_summary_gift_metrics_fail_closed() {
+        let summary = json!({
+            "gift_count": "not-a-number",
+            "gift_value_minor": "100"
+        });
+        assert_eq!(
+            summary_u64(&summary, "gift_count").unwrap_err(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+
+        let summary = json!({
+            "gift_count": "1",
+            "gift_value_minor": {}
+        });
+        assert_eq!(
+            summary_u128(&summary, "gift_value_minor").unwrap_err(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
+
+    #[test]
+    fn valid_live_summary_gift_metrics_parse_without_coercion() {
+        let summary = json!({
+            "gift_count": "7",
+            "gift_value_minor": "123456"
+        });
+        assert_eq!(summary_u64(&summary, "gift_count").unwrap(), 7);
+        assert_eq!(summary_u128(&summary, "gift_value_minor").unwrap(), 123456);
+    }
+}
+
