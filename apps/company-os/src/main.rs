@@ -27,6 +27,7 @@ use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use tiktok_live_streaming::LiveStreamController;
+use tracing::Instrument;
 
 #[derive(Default)]
 struct RuntimeMetrics {
@@ -3377,6 +3378,44 @@ fn session_cookie_headers(
     Ok(headers)
 }
 
+fn normalized_trace_id(request: &Request, request_id: &str) -> String {
+    let candidate = request
+        .headers()
+        .get("traceparent")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| {
+            let mut parts = value.split('-');
+            let version = parts.next()?;
+            let trace_id = parts.next()?;
+            let span_id = parts.next()?;
+            let flags = parts.next()?;
+            if version.len() == 2
+                && trace_id.len() == 32
+                && span_id.len() == 16
+                && flags.len() == 2
+                && trace_id.chars().all(|value| value.is_ascii_hexdigit())
+                && span_id.chars().all(|value| value.is_ascii_hexdigit())
+                && trace_id.chars().any(|value| value != '0')
+                && span_id.chars().any(|value| value != '0')
+            {
+                Some(trace_id.to_ascii_lowercase())
+            } else {
+                None
+            }
+        });
+
+    if let Some(trace_id) = candidate {
+        return trace_id;
+    }
+
+    let digest = Sha256::digest(request_id.as_bytes());
+    digest
+        .iter()
+        .take(16)
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 fn control_plane_request_id(request: &Request) -> String {
     request
         .headers()
@@ -3566,7 +3605,16 @@ async fn require_control_plane_auth(
 ) -> Result<Response, StatusCode> {
     let started = Instant::now();
     let request_id = control_plane_request_id(&request);
+    let trace_id = normalized_trace_id(&request, &request_id);
     let path = request.uri().path().to_owned();
+    let method = request.method().as_str().to_owned();
+    let span = tracing::info_span!(
+        "control_plane.request",
+        %request_id,
+        %trace_id,
+        %method,
+        path = %path
+    );
     if matches!(
         path.as_str(),
         "/healthz"
@@ -3577,14 +3625,16 @@ async fn require_control_plane_auth(
             | "/auth/login"
             | "/auth/session"
     ) {
-        let mut response = next.run(request).await;
+        let mut response = next.run(request).instrument(span.clone()).await;
         if let Ok(value) = HeaderValue::from_str(&request_id) {
             response.headers_mut().insert("x-request-id", value);
+        }
+        if let Ok(value) = HeaderValue::from_str(&trace_id) {
+            response.headers_mut().insert("x-trace-id", value);
         }
         return Ok(response);
     }
 
-    let method = request.method().as_str().to_owned();
     let provided = request
         .headers()
         .get(axum::http::header::AUTHORIZATION)
@@ -3595,7 +3645,7 @@ async fn require_control_plane_auth(
 
     if control_plane_auth_disabled() {
         let actor_id = control_plane_actor_id(provided);
-        let mut response = next.run(request).await;
+        let mut response = next.run(request).instrument(span.clone()).await;
         record_control_plane_audit(
             &state,
             &actor_id,
@@ -3609,6 +3659,9 @@ async fn require_control_plane_auth(
         .await;
         let header_value = observe_control_plane_request(&state, &request_id, started);
         response.headers_mut().insert("x-request-id", header_value);
+        if let Ok(value) = HeaderValue::from_str(&trace_id) {
+            response.headers_mut().insert("x-trace-id", value);
+        }
         return Ok(response);
     }
 
@@ -3655,6 +3708,9 @@ async fn require_control_plane_auth(
                     .await;
                     let header_value = observe_control_plane_request(&state, &request_id, started);
                     response.headers_mut().insert("x-request-id", header_value);
+        if let Ok(value) = HeaderValue::from_str(&trace_id) {
+            response.headers_mut().insert("x-trace-id", value);
+        }
                     return Ok(response);
                 }
 
@@ -4086,6 +4142,34 @@ mod control_plane_audit_tests {
             ),
             Some("operator")
         );
+    }
+
+    #[test]
+    fn traceparent_is_normalized_or_falls_back_to_request_id_hash() {
+        let request = Request::builder()
+            .uri("/api/run")
+            .header(
+                "traceparent",
+                "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+            )
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(
+            normalized_trace_id(&request, "req-123"),
+            "4bf92f3577b34da6a3ce929d0e0e4736"
+        );
+
+        let request = Request::builder()
+            .uri("/api/run")
+            .header(
+                "traceparent",
+                "00-00000000000000000000000000000000-00f067aa0ba902b7-01",
+            )
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let fallback = normalized_trace_id(&request, "req-123");
+        assert_eq!(fallback.len(), 32);
+        assert!(fallback.chars().all(|value| value.is_ascii_hexdigit()));
     }
 
     #[test]
