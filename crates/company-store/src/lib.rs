@@ -88,6 +88,18 @@ pub struct CeoCommandCenterRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ForecastVarianceRecord {
+    pub forecast_id: Uuid,
+    pub period_start_epoch: i64,
+    pub currency: String,
+    pub forecast_net_cashflow_minor: i128,
+    pub actual_net_cashflow_minor: Option<i128>,
+    pub variance_minor: Option<i128>,
+    pub variance_bps: Option<i64>,
+    pub actual_closing_cash_minor: Option<i128>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PaymentExecutionIntentRecord {
     pub id: Uuid,
     pub company_id: Uuid,
@@ -290,6 +302,111 @@ fn experiment_completed_event(
 }
 
 impl CompanyStore {
+    pub async fn forecast_cashflow_variance(
+        &self,
+        company_id: &str,
+        limit: i64,
+    ) -> Result<Vec<ForecastVarianceRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=60).contains(&limit) {
+            return Err("forecast variance limit must be between 1 and 60".into());
+        }
+
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT f.id,
+                        fp.period_start_epoch,
+                        f.currency,
+                        (
+                          fp.operating_inflow_minor
+                          + fp.financing_inflow_minor
+                          - fp.operating_outflow_minor
+                          - fp.capex_minor
+                          - fp.financing_outflow_minor
+                        )::text AS forecast_net_cashflow_minor,
+                        latest.inflow_minor::text,
+                        latest.outflow_minor::text,
+                        latest.closing_cash_minor::text
+                   FROM financial_forecasts f
+                   JOIN financial_forecast_periods fp
+                     ON fp.forecast_id=f.id
+                   LEFT JOIN LATERAL (
+                       SELECT o.inflow_minor, o.outflow_minor, o.closing_cash_minor
+                         FROM cashflow_observations o
+                        WHERE o.company_id=f.company_id
+                          AND o.period_start_epoch=fp.period_start_epoch
+                          AND o.currency=f.currency
+                        ORDER BY o.created_at DESC, o.id DESC
+                        LIMIT 1
+                   ) latest ON TRUE
+                  WHERE f.company_id=$1
+                    AND f.status='ACTIVE'
+                    AND f.id = (
+                        SELECT id
+                          FROM financial_forecasts
+                         WHERE company_id=$1 AND status='ACTIVE'
+                         ORDER BY created_at DESC, id DESC
+                         LIMIT 1
+                    )
+                  ORDER BY fp.period_start_epoch DESC
+                  LIMIT $2",
+                &[&company, &limit],
+            )
+            .await?;
+
+        rows.into_iter()
+            .map(|row| {
+                let forecast = parse_i128_numeric(&row.get::<_, String>(3))?;
+                let actual_net = match (
+                    row.get::<_, Option<String>>(4),
+                    row.get::<_, Option<String>>(5),
+                ) {
+                    (Some(inflow), Some(outflow)) => Some(
+                        parse_i128_numeric(&inflow)?
+                            .checked_sub(parse_i128_numeric(&outflow)?)
+                            .ok_or("actual net cash-flow overflow")?,
+                    ),
+                    _ => None,
+                };
+                let variance = match actual_net {
+                    Some(actual) => Some(
+                        actual
+                            .checked_sub(forecast)
+                            .ok_or("forecast variance overflow")?,
+                    ),
+                    None => None,
+                };
+                let variance_bps = variance.and_then(|delta| {
+                    if forecast == 0 {
+                        None
+                    } else {
+                        delta
+                            .checked_mul(10_000)?
+                            .checked_div(forecast)
+                            .or_else(|| Some(if delta.is_negative() { i64::MIN } else { i64::MAX }))
+                            .and_then(|value| i64::try_from(value).ok())
+                    }
+                });
+                let actual_closing_cash_minor = row
+                    .get::<_, Option<String>>(6)
+                    .map(|value| parse_i128_numeric(&value))
+                    .transpose()?;
+
+                Ok(ForecastVarianceRecord {
+                    forecast_id: row.get(0),
+                    period_start_epoch: row.get(1),
+                    currency: row.get(2),
+                    forecast_net_cashflow_minor: forecast,
+                    actual_net_cashflow_minor: actual_net,
+                    variance_minor: variance,
+                    variance_bps,
+                    actual_closing_cash_minor,
+                })
+            })
+            .collect()
+    }
+
     pub async fn enqueue_company_event(
         &self,
         event: &company_domain::CompanyEventEnvelope,
