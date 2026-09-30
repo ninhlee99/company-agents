@@ -28,6 +28,7 @@ pub enum CompanyEventType {
     AffiliateConversionReconciled,
     PublishIntentCompleted,
     PublishIntentApproved,
+    LedgerTransactionCommitted,
 }
 
 impl CompanyEventType {
@@ -52,6 +53,7 @@ impl CompanyEventType {
             Self::AffiliateConversionReconciled => "AFFILIATE_CONVERSION_RECONCILED",
             Self::PublishIntentCompleted => "PUBLISH_INTENT_COMPLETED",
             Self::PublishIntentApproved => "PUBLISH_INTENT_APPROVED",
+            Self::LedgerTransactionCommitted => "LEDGER_TRANSACTION_COMMITTED",
         }
     }
 }

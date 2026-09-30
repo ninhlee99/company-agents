@@ -3639,22 +3639,22 @@ impl CompanyStore {
         )
         .await?;
 
-        tx.execute(
-            "INSERT INTO outbox_events
-             (company_id, event_type, aggregate_id, idempotency_key, payload)
-             VALUES ($1, 'LEDGER_TRANSACTION_COMMITTED', $2, $3, $4)
-             ON CONFLICT (company_id, idempotency_key) DO NOTHING",
-            &[
-                &company_uuid,
-                &transaction.id,
-                &format!("outbox:{idempotency_key}"),
-                &serde_json::json!({
-                    "transaction_id": transaction.id,
-                    "description": transaction.description,
-                }),
-            ],
-        )
-        .await?;
+        let ledger_event = company_domain::CompanyEventEnvelope::new(
+            company_uuid,
+            company_domain::CompanyEventType::LedgerTransactionCommitted,
+            "ledger_transaction",
+            Some(transaction_uuid),
+            time::OffsetDateTime::now_utc().unix_timestamp(),
+            transaction_uuid,
+            None,
+            format!("outbox:{idempotency_key}"),
+            serde_json::json!({
+                "transaction_id": transaction.id,
+                "description": transaction.description,
+                "entry_count": transaction.entries.len(),
+            }),
+        )?;
+        enqueue_company_event_tx(&tx, &ledger_event).await?;
 
         tx.execute(
             "UPDATE idempotency_keys
@@ -10492,6 +10492,38 @@ mod customer_intelligence_tests {
         assert_eq!(collection_rate_bps(0, 0), 0);
         assert_eq!(collection_rate_bps(100, 50), 5_000);
         assert_eq!(collection_rate_bps(100, 120), 10_000);
+    }
+}
+
+#[cfg(test)]
+mod ledger_transaction_committed_event_tests {
+    use super::*;
+
+    #[test]
+    fn ledger_event_preserves_transaction_identity_and_entry_count() {
+        let company = Uuid::from_u128(91);
+        let transaction = Uuid::from_u128(92);
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::LedgerTransactionCommitted,
+            "ledger_transaction",
+            Some(transaction),
+            1_800_000_600,
+            transaction,
+            None,
+            "outbox:ledger:92",
+            serde_json::json!({
+                "transaction_id": transaction,
+                "description": "affiliate payout settlement",
+                "entry_count": 2
+            }),
+        ).unwrap();
+
+        assert_eq!(event.event_type_name(), "LEDGER_TRANSACTION_COMMITTED");
+        assert_eq!(event.aggregate_id, Some(transaction));
+        assert_eq!(event.correlation_id, transaction);
+        assert_eq!(event.idempotency_key, "outbox:ledger:92");
+        assert_eq!(event.payload["entry_count"], 2);
     }
 }
 
