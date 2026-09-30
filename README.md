@@ -44,7 +44,7 @@ The name **Veridara** is an invented brand chosen to evoke verified intelligence
 
 ## Primary implementation
 
-The core Company OS is Rust.
+The core Company OS is Rust. Rust is also the default language for workers and critical domain crates; Go/Python/Node are not required at runtime unless a future workload proves a clear advantage.
 
 There is no React and no Vue. The operator dashboard is server-rendered HTML from Rust with no SPA/frontend build pipeline.
 
@@ -128,6 +128,12 @@ Quality:
 
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+Resource tuning:
+
+    TOKIO_WORKER_THREADS=4
+
+The Company OS defaults to a bounded Tokio worker count to reduce idle thread-stack memory on large hosts. Increase it only when concurrency measurements justify the extra CPU/RAM.
+
 ## Runtime API
 
 - GET / — operator dashboard
@@ -136,7 +142,7 @@ Quality:
 - POST /api/run — run one complete decision cycle
 - POST /run — run one cycle and return to dashboard
 
-The current runtime is a controlled Agent Company OS. Deterministic governance, economic execution, durable scheduling, memory, affiliate accounting, media processing, customer CRM and commercial receivables are implemented. Real platform publishing, external messaging, payment-rail execution, multi-user identity/RBAC and unsupervised portfolio control remain explicit integration/acceptance gates.
+The current runtime is a controlled Agent Company OS. Deterministic governance, economic execution, durable scheduling, memory, affiliate accounting, media processing, customer CRM, commercial receivables and a governed Resend email path are implemented. Real platform publishing, other external messaging providers, payment-rail execution, multi-user identity/RBAC and unsupervised portfolio control remain explicit integration/acceptance gates.
 
 See docs/CAPABILITY_MATRIX.md for the strict capability boundary.
 

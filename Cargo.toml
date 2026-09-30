@@ -18,5 +18,28 @@ members = [
   "apps/llm-web-relay",
   "apps/llm-web-worker",
   "apps/outbox-worker",
-  "crates/commercial-sales"
+  "crates/commercial-sales",
+  "crates/company-experiments",
+  "crates/company-learning",
+  "crates/company-content",
+  "crates/company-growth",
+  "crates/company-live-attention",
+  "crates/company-compliance",
+  "crates/company-command-center",
+  "crates/company-agent-evaluation",
+  "crates/company-autonomy",
+  "crates/company-capital",
+  "crates/company-safety-controls",
+  "crates/company-tiktok-auth",
+  "crates/company-revenue-graph"
 ]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.dev]
+debug = 1
