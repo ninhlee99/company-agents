@@ -41,7 +41,8 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-white text-sm tracking-tight">AI Enterprise Command Center</span>
+              <span className="font-bold text-white text-base tracking-tight">NEXUS CORP</span>
+              <span className="text-slate-500 font-mono text-xs hidden lg:inline">• AI Enterprise</span>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-950/60 text-blue-400 border border-blue-800/50">
                 👔 Chủ Tịch / Founder
               </span>
@@ -51,7 +52,7 @@ export const Header: React.FC<HeaderProps> = ({
               </span>
             </div>
             <p className="text-[11px] text-slate-400 hidden sm:block">
-              Hệ thống điều hành doanh nghiệp AI: Thống kê, nhân sự, quy trình & hợp đồng kinh doanh
+              Tập đoàn AI tự trị: Thống kê tài chính, đội ngũ nhân sự, quy trình & hợp đồng kinh doanh
             </p>
           </div>
         </div>
