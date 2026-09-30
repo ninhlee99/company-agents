@@ -10013,6 +10013,18 @@ fn parse_i128_numeric(
 }
 
 #[cfg(test)]
+mod payment_simulation_guard_tests {
+    use super::*;
+
+    #[test]
+    fn payment_simulation_is_never_allowed_in_production() {
+        assert!(payment_simulation_allowed(true, false));
+        assert!(!payment_simulation_allowed(false, false));
+        assert!(!payment_simulation_allowed(true, true));
+    }
+}
+
+#[cfg(test)]
 mod numeric_parser_tests {
     use super::*;
 
