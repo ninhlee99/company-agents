@@ -135,7 +135,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [metahumanModel, setMetahumanModel] = useState('Unreal Engine 5.4 Photorealistic Metahuman Pro (52 Blendshapes Lip-Sync)');
   const [brollSource, setBrollSource] = useState<'real_motion_footage' | 'pro_cinematic_camera'>('real_motion_footage');
   const [cameraMotionStyle, setCameraMotionStyle] = useState('Dynamic Cinematic (Whip Pan, Zoom Punch, Parallax Dolly)');
-  const [kineticTypography, setKineticTypography] = useState(true);
+  const [kineticTypography, setKineticTypography] = useState(false); // Clean Cinematic: Không phụ đề karaoke
   const [colorGradingLut, setColorGradingLut] = useState('Teal & Orange Cinematic Creator Grade');
   const [audioAutoDucking, setAudioAutoDucking] = useState(true);
 
@@ -711,7 +711,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                       onChange={(e) => setKineticTypography(e.target.checked)}
                       className="w-3.5 h-3.5 text-blue-600 rounded bg-slate-900 border-slate-700"
                     />
-                    <span className="text-slate-200">Phụ đề Karaoke nhảy chữ từng âm tiết (Kinetic Typography)</span>
+                    <span className="text-slate-200">Hiển thị phụ đề (Mặc định TẮT: Giữ khung hình Clean Cinematic chuẩn điện ảnh)</span>
                   </label>
 
                   <label className="flex items-center gap-2 cursor-pointer">
