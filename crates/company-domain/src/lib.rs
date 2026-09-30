@@ -37,6 +37,8 @@ pub enum CompanyEventType {
     AutonomyBudgetConsumed,
     TikTokOAuthConnected,
     TikTokOAuthRevoked,
+    PurchaseRequestApproved,
+    VendorDeliveryRecorded,
 }
 
 impl CompanyEventType {
@@ -69,6 +71,8 @@ impl CompanyEventType {
             Self::AutonomyBudgetConsumed => "AUTONOMY_BUDGET_CONSUMED",
             Self::TikTokOAuthConnected => "TIKTOK_OAUTH_CONNECTED",
             Self::TikTokOAuthRevoked => "TIKTOK_OAUTH_REVOKED",
+            Self::PurchaseRequestApproved => "PURCHASE_REQUEST_APPROVED",
+            Self::VendorDeliveryRecorded => "VENDOR_DELIVERY_RECORDED",
             Self::LearningEntryRecorded => "LEARNING_ENTRY_RECORDED",
         }
     }
@@ -585,6 +589,12 @@ mod tests {
     fn tiktok_oauth_event_names_are_canonical() {
         assert_eq!(CompanyEventType::TikTokOAuthConnected.as_str(), "TIKTOK_OAUTH_CONNECTED");
         assert_eq!(CompanyEventType::TikTokOAuthRevoked.as_str(), "TIKTOK_OAUTH_REVOKED");
+    }
+
+    #[test]
+    fn procurement_event_names_are_canonical() {
+        assert_eq!(CompanyEventType::PurchaseRequestApproved.as_str(), "PURCHASE_REQUEST_APPROVED");
+        assert_eq!(CompanyEventType::VendorDeliveryRecorded.as_str(), "VENDOR_DELIVERY_RECORDED");
     }
 
     #[test]
