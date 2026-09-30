@@ -356,7 +356,11 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setSnapshot(data.snapshot);
-        triggerToast(`Dây chuyền hoàn tất! Thu về +$${(data.revenueGainMinor / 100).toFixed(2)}.`);
+        triggerToast(
+          dataMode === 'SIMULATED'
+            ? `Mô phỏng hoàn tất: +${(data.revenueGainMinor / 100).toFixed(2)} (không phải doanh thu thực).`
+            : `Dây chuyền hoàn tất! Thu về +${(data.revenueGainMinor / 100).toFixed(2)}.`
+        );
         loadState();
         return { success: true, steps: data.steps, revenueGainMinor: data.revenueGainMinor };
       }
