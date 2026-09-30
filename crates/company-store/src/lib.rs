@@ -303,6 +303,15 @@ async fn enqueue_company_event_tx(
     Ok(inserted == 1)
 }
 
+fn payout_correlation_id(payout_id: &str) -> Uuid {
+    let digest = Sha256::digest(payout_id.as_bytes());
+    Uuid::from_bytes(
+        digest[..16]
+            .try_into()
+            .expect("sha256 digest always has at least 16 bytes"),
+    )
+}
+
 fn content_published_event(
     company: Uuid,
     content: &company_content::ContentItem,
@@ -6357,24 +6366,26 @@ impl CompanyStore {
         )
         .await?;
 
-        tx.execute(
-            "INSERT INTO outbox_events
-             (company_id,event_type,aggregate_id,idempotency_key,payload)
-             VALUES ($1,'AFFILIATE_PAYOUT_SETTLED',$2,$3,$4)
-             ON CONFLICT (company_id,idempotency_key) DO NOTHING",
-            &[
-                &company_uuid,
-                &payout_id,
-                &format!("outbox:affiliate:payout:{payout_id}"),
-                &serde_json::json!({
-                    "payout_id": payout_id,
-                    "amount_minor": amount_minor,
-                    "currency": currency,
-                    "occurred_at": occurred_text,
-                }),
-            ],
-        )
-        .await?;
+        let payout_event = company_domain::CompanyEventEnvelope::new(
+            company_uuid,
+            company_domain::CompanyEventType::AffiliatePayoutSettled,
+            "affiliate_payout",
+            None,
+            occurred.unix_timestamp(),
+            payout_correlation_id(payout_id),
+            None,
+            format!("affiliate:payout:{payout_id}"),
+            serde_json::json!({
+                "payout_id": payout_id,
+                "amount_minor": amount_minor,
+                "currency": currency,
+                "occurred_at": occurred_text,
+                "ledger_transaction_id": payout_uuid,
+                "recognized_receivable_before_minor": available,
+                "recognized_receivable_after_minor": available - amount_minor,
+            }),
+        )?;
+        enqueue_company_event_tx(&tx, &payout_event).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -10437,6 +10448,40 @@ mod customer_intelligence_tests {
         assert_eq!(collection_rate_bps(0, 0), 0);
         assert_eq!(collection_rate_bps(100, 50), 5_000);
         assert_eq!(collection_rate_bps(100, 120), 10_000);
+    }
+}
+
+#[cfg(test)]
+mod affiliate_payout_event_tests {
+    use super::*;
+
+    #[test]
+    fn payout_event_preserves_financial_lineage_and_correlation() {
+        let company = Uuid::from_u128(41);
+        let payout_id = "payout-42";
+        let occurred = 1_800_000_100;
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::AffiliatePayoutSettled,
+            "affiliate_payout",
+            None,
+            occurred,
+            payout_correlation_id(payout_id),
+            None,
+            format!("affiliate:payout:{payout_id}"),
+            serde_json::json!({
+                "payout_id": payout_id,
+                "amount_minor": 500,
+                "currency": "USD",
+                "occurred_at_epoch": occurred,
+                "ledger_transaction_id": Uuid::from_u128(43),
+            }),
+        ).unwrap();
+
+        assert_eq!(event.event_type_name(), "AFFILIATE_PAYOUT_SETTLED");
+        assert_eq!(event.correlation_id, payout_correlation_id(payout_id));
+        assert_eq!(event.idempotency_key, "affiliate:payout:payout-42");
+        assert_eq!(event.payload["currency"], "USD");
     }
 }
 
