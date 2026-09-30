@@ -44,9 +44,9 @@ The name **Veridara** is an invented brand chosen to evoke verified intelligence
 
 ## Primary implementation
 
-The core Company OS is Rust. Rust is also the default language for workers and critical domain crates; Go/Python/Node are not required at runtime unless a future workload proves a clear advantage.
+The production Company OS is Rust. Rust is also the default language for workers and critical domain crates; Go/Python/Node are not required by the production path unless a future workload proves a clear advantage.
 
-There is no React and no Vue. The operator dashboard is server-rendered HTML from Rust with no SPA/frontend build pipeline.
+The repository also contains an optional React/Vite + Express simulation UI under `src/` and `server.ts`. That surface is simulation-only and must not be treated as the durable company ledger or evidence of real cash, revenue, inventory, payouts or provider success.
 
 The architecture is workload-based:
 - Rust: Company OS, Agent Runtime, governance, economic core, scheduler and control plane.
@@ -98,6 +98,15 @@ Open:
 The control plane is authenticated by default. Set CONTROL_PLANE_TOKEN to a random secret of at least 32 bytes and send it as Authorization: Bearer <token>. For an intentionally isolated local-only development instance, CONTROL_PLANE_AUTH_DISABLED=true can be used.
 
 No paid API key is required.
+
+## React/Express simulation UI
+
+For UI prototyping only:
+
+    npm install
+    npm start
+
+The simulation server defaults to read-only behavior and is refused as a production company backend. Synthetic mutations require `ALLOW_SIMULATED_ACTIONS=true`; the UI marks synthetic state explicitly.
 
 ## Run with an already-installed Ollama
 
