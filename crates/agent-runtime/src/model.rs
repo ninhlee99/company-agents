@@ -158,7 +158,7 @@ fn recommended_provider(
 pub fn route_model_request(
     providers: &[String],
     metadata: &ModelRequestMetadata,
-    mode: ModelRoutingMode,
+    _mode: ModelRoutingMode,
 ) -> ModelRouteDecision {
     let task = classify_model_task(metadata.agent, metadata.system_bytes, metadata.user_bytes);
     let hardware = detected_hardware_tier();
