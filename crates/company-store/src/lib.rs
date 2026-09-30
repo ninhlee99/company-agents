@@ -95,6 +95,13 @@ pub struct GrowthOpportunityRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CapitalAllocationRecord {
+    pub plan: company_capital::CapitalAllocationPlan,
+    pub policy: company_capital::CapitalPolicy,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AffiliateReconciliationMetrics {
     pub reported_commission_mtd_minor: i128,
     pub attributed_commission_mtd_minor: i128,
