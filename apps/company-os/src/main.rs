@@ -1790,56 +1790,90 @@ fn spawn_tiktok_refresh_worker(state: AppState) {
         }
     };
     tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(Duration::from_secs(300));
+        if let Err(error) = state
+            .store
+            .ensure_recurring_job(&state.company_id, "tiktok_oauth_refresh", 300)
+            .await
+        {
+            tracing::warn!(%error, "TikTok OAuth refresh scheduler unavailable");
+            return;
+        }
+
         loop {
-            ticker.tick().await;
-            let Some(material) = match state
+            let claim = match state
                 .store
-                .tiktok_oauth_token_material(&state.company_id, &cipher)
+                .claim_due_job(&state.company_id, "tiktok_oauth_refresh")
                 .await
             {
                 Ok(value) => value,
                 Err(error) => {
-                    tracing::warn!(%error, "TikTok OAuth refresh worker could not read token state");
+                    tracing::warn!(%error, "TikTok OAuth refresh scheduler claim failed");
+                    tokio::time::sleep(Duration::from_secs(30)).await;
                     continue;
                 }
-            } else {
+            };
+
+            let Some((job_id, _run_token)) = claim else {
+                tokio::time::sleep(Duration::from_secs(15)).await;
                 continue;
             };
-            let now_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
-            if material.refresh_token_expires_at_epoch <= now_epoch {
-                let _ = state
+
+            let result = async {
+                let Some(material) = state
                     .store
-                    .mark_tiktok_reauth_required(&state.company_id, "TikTok refresh token has expired")
-                    .await;
-                continue;
-            }
-            if material.access_token_expires_at_epoch > now_epoch + 1_800 {
-                continue;
-            }
-            let oauth = match company_tiktok_auth::TikTokOAuthClient::new(config.clone()) {
-                Ok(client) => client,
-                Err(error) => {
-                    tracing::warn!(%error, "TikTok OAuth refresh client unavailable");
-                    continue;
-                }
-            };
-            match oauth.refresh(&material.refresh_token).await {
-                Ok(token) => {
-                    if let Err(error) = state
-                        .store
-                        .save_tiktok_token_set(&state.company_id, &token, &cipher)
-                        .await
-                    {
-                        tracing::warn!(%error, "TikTok OAuth refresh token persistence failed");
-                    }
-                }
-                Err(error) => {
+                    .tiktok_oauth_token_material(&state.company_id, &cipher)
+                    .await?
+                else {
+                    return Ok::<(), Box<dyn std::error::Error + Send + Sync>>(());
+                };
+
+                let now_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
+                if material.refresh_token_expires_at_epoch <= now_epoch {
                     let _ = state
                         .store
-                        .mark_tiktok_reauth_required(&state.company_id, &error.to_string())
+                        .mark_tiktok_reauth_required(
+                            &state.company_id,
+                            "TikTok refresh token has expired",
+                        )
                         .await;
+                    return Ok(());
                 }
+
+                if material.access_token_expires_at_epoch > now_epoch + 1_800 {
+                    return Ok(());
+                }
+
+                let oauth = company_tiktok_auth::TikTokOAuthClient::new(config.clone())?;
+                match oauth.refresh(&material.refresh_token).await {
+                    Ok(token) => {
+                        state
+                            .store
+                            .save_tiktok_token_set(&state.company_id, &token, &cipher)
+                            .await?;
+                    }
+                    Err(error) => {
+                        let _ = state
+                            .store
+                            .mark_tiktok_reauth_required(
+                                &state.company_id,
+                                &error.to_string(),
+                            )
+                            .await;
+                    }
+                }
+                Ok(())
+            }
+            .await;
+
+            if let Err(error) = result {
+                tracing::warn!(%error, "TikTok OAuth refresh cycle failed");
+                let _ = state.store.release_job_after_failure(job_id).await;
+            } else if let Err(error) = state
+                .store
+                .complete_job(job_id, uuid::Uuid::new_v4())
+                .await
+            {
+                tracing::warn!(%error, "TikTok OAuth refresh scheduler completion failed");
             }
         }
     });
