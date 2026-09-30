@@ -857,6 +857,64 @@ fn render_ceo_command_center(
     )
 }
 
+fn render_agent_evaluations(
+    evaluations: &[company_agent_evaluation::AgentEvaluation],
+    currency: &str,
+) -> String {
+    let mut rows = String::new();
+    for evaluation in evaluations {
+        let status = match evaluation.status {
+            company_agent_evaluation::EvaluationStatus::InsufficientEvidence => {
+                ("Insufficient evidence", "insufficient")
+            }
+            company_agent_evaluation::EvaluationStatus::PartialEvidence => {
+                ("Partial evidence", "partial")
+            }
+            company_agent_evaluation::EvaluationStatus::Evaluated => {
+                ("Evaluated", "evaluated")
+            }
+        };
+        let observed_revenue = evaluation
+            .observed_revenue_delta_minor
+            .map(|value| format_minor(value, currency))
+            .unwrap_or_else(|| "n/a".into());
+        let observed_margin = evaluation
+            .observed_contribution_margin_delta_minor
+            .map(|value| format_minor(value, currency))
+            .unwrap_or_else(|| "n/a".into());
+        let projected_return = evaluation
+            .projected_return_bps
+            .map(|value| format!("{:.2}%", value as f64 / 100.0))
+            .unwrap_or_else(|| "n/a".into());
+        let observed_return = evaluation
+            .observed_return_bps
+            .map(|value| format!("{:.2}%", value as f64 / 100.0))
+            .unwrap_or_else(|| "n/a".into());
+        rows.push_str(&format!(
+            r#"<tr><td><strong>{}</strong></td><td>{}</td><td>{}</td><td>{}</td><td>{:.0}%</td><td>{:.0}%</td><td>{:.0}%</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td class="evaluation-status {}">{}</td></tr>"#,
+            escape_html(&evaluation.agent_name),
+            evaluation.proposal_count,
+            evaluation.approved_count,
+            evaluation.executed_count,
+            evaluation.approval_rate_bps as f64 / 100.0,
+            evaluation.execution_realization_bps as f64 / 100.0,
+            evaluation.outcome_evidence_coverage_bps as f64 / 100.0,
+            format_minor(evaluation.observed_spend_minor, currency),
+            projected_return,
+            observed_revenue,
+            observed_return,
+            observed_margin,
+            status.1,
+            status.0
+        ));
+    }
+
+    format!(
+        r#"<div class="card"><div class="section-kicker">Agent outcome evaluation</div><h2>Business outcomes, not output volume</h2><p class="muted">Last 30 days · approval rate is descriptive; outcome evidence coverage shows how much executed work has a direct evidence trail.</p><div style="overflow:auto"><table class="evaluation-table"><tr><th>Agent</th><th>Proposals</th><th>Approved</th><th>Executed</th><th>Approval</th><th>Execution / approval</th><th>Outcome evidence</th><th>Spend</th><th>Projected return</th><th>Observed revenue Δ</th><th>Observed return</th><th>Observed CM Δ</th><th>Status</th></tr>{}</table></div><p class="muted">Projected return is proposal expectation. Observed revenue and contribution-margin deltas are shown only when explicitly evidenced against an executed decision; they are not inferred from timing alone.</p></div>"#,
+        rows
+    )
+}
+
 #[derive(Debug, Deserialize)]
 struct LiveControlForm {
     mode: Option<String>,
