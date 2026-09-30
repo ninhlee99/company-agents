@@ -206,33 +206,73 @@ pub struct PersistedCycle {
     pub receipts: Vec<ExecutionReceipt>,
 }
 
+async fn enqueue_company_event_tx(
+    tx: &Transaction<'_>,
+    event: &company_domain::CompanyEventEnvelope,
+) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    event.validate()?;
+    let payload = serde_json::to_value(event)?;
+    let company_id = event.company_id.to_string();
+    let aggregate_id = event.aggregate_id.map(|id| id.to_string());
+    let inserted = tx
+        .execute(
+            "INSERT INTO outbox_events
+             (company_id, event_type, aggregate_id, idempotency_key, payload, schema_version)
+             VALUES ($1,$2,$3,$4,$5,$6)
+             ON CONFLICT (company_id, idempotency_key) DO NOTHING",
+            &[
+                &company_id,
+                &event.event_type_name(),
+                &aggregate_id,
+                &event.idempotency_key,
+                &payload,
+                &event.schema_version,
+            ],
+        )
+        .await?;
+    Ok(inserted == 1)
+}
+
+fn experiment_completed_event(
+    company: Uuid,
+    experiment_id: Uuid,
+    observation: &company_experiments::ExperimentObservation,
+    decision: company_experiments::ExperimentDecision,
+    observation_key: &str,
+) -> Result<company_domain::CompanyEventEnvelope, company_domain::DomainError> {
+    company_domain::CompanyEventEnvelope::new(
+        company,
+        company_domain::CompanyEventType::ExperimentCompleted,
+        "experiment",
+        Some(experiment_id),
+        time::OffsetDateTime::now_utc().unix_timestamp(),
+        experiment_id,
+        None,
+        format!("experiment-completed:{}:{}", experiment_id, observation_key),
+        serde_json::json!({
+            "experiment_id": experiment_id,
+            "observation_key": observation_key,
+            "decision": decision,
+            "control_observations": observation.control_observations,
+            "treatment_observations": observation.treatment_observations,
+            "control_metric_bps": observation.control_metric_bps,
+            "treatment_metric_bps": observation.treatment_metric_bps,
+            "spend_minor": observation.spend_minor,
+            "elapsed_seconds": observation.elapsed_seconds
+        }),
+    )
+}
+
 impl CompanyStore {
     pub async fn enqueue_company_event(
         &self,
         event: &company_domain::CompanyEventEnvelope,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        event.validate()?;
-        let payload = serde_json::to_value(event)?;
-        let company_id = event.company_id.to_string();
-        let aggregate_id = event.aggregate_id.map(|id| id.to_string());
-        let client = self.client.lock().await;
-        let inserted = client
-            .execute(
-                "INSERT INTO outbox_events
-                 (company_id, event_type, aggregate_id, idempotency_key, payload, schema_version)
-                 VALUES ($1,$2,$3,$4,$5,$6)
-                 ON CONFLICT (company_id, idempotency_key) DO NOTHING",
-                &[
-                    &company_id,
-                    &event.event_type_name(),
-                    &aggregate_id,
-                    &event.idempotency_key,
-                    &payload,
-                    &event.schema_version,
-                ],
-            )
-            .await?;
-        Ok(inserted == 1)
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let inserted = enqueue_company_event_tx(&tx, event).await?;
+        tx.commit().await?;
+        Ok(inserted)
     }
 
     pub async fn connect(database_url: &str) -> Result<Self, tokio_postgres::Error> {
@@ -1429,6 +1469,15 @@ impl CompanyStore {
                     &[&observation.company_id, &learning.entry_key],
                 ).await?.get(0),
             };
+
+            let completed_event = experiment_completed_event(
+                company,
+                experiment_id,
+                observation,
+                decision,
+                observation_key,
+            )?;
+            enqueue_company_event_tx(&tx, &completed_event).await?;
 
             let outbox_key = format!("outbox:learning:{}", learning.entry_key);
             let payload = serde_json::json!({
@@ -9709,6 +9758,75 @@ mod experiment_learning_tests {
 
         assert_eq!(entry.confidence_bps, 5_000);
     }
+}
+
+#[test]
+fn experiment_completed_event_contains_terminal_evidence() {
+    let observation = company_experiments::ExperimentObservation {
+        control_observations: 100,
+        treatment_observations: 120,
+        control_metric_bps: 500,
+        treatment_metric_bps: 1_000,
+        spend_minor: 250,
+        elapsed_seconds: 3_600,
+    };
+    let experiment_id = Uuid::from_u128(42);
+    let event = experiment_completed_event(
+        Uuid::from_u128(7),
+        experiment_id,
+        &observation,
+        company_experiments::ExperimentDecision::Succeed,
+        "obs-1",
+    )
+    .unwrap();
+
+    assert_eq!(
+        event.event_type,
+        company_domain::CompanyEventType::ExperimentCompleted
+    );
+    assert_eq!(event.aggregate_type, "experiment");
+    assert_eq!(event.aggregate_id, Some(experiment_id));
+    assert_eq!(
+        event.idempotency_key,
+        format!("experiment-completed:{}:obs-1", experiment_id)
+    );
+    assert_eq!(
+        event.payload.get("decision").and_then(|v| v.as_str()),
+        Some("SUCCEED")
+    );
+    assert_eq!(
+        event.payload.get("spend_minor").and_then(|v| v.as_i64()),
+        Some(250)
+    );
+    assert!(event.validate().is_ok());
+}
+
+#[test]
+fn experiment_continue_does_not_change_completion_event_contract() {
+    let observation = company_experiments::ExperimentObservation {
+        control_observations: 10,
+        treatment_observations: 10,
+        control_metric_bps: 100,
+        treatment_metric_bps: 110,
+        spend_minor: 50,
+        elapsed_seconds: 100,
+    };
+    let event = experiment_completed_event(
+        Uuid::nil(),
+        Uuid::from_u128(9),
+        &observation,
+        company_experiments::ExperimentDecision::Continue,
+        "obs-continue",
+    )
+    .unwrap();
+    assert_eq!(
+        event.event_type,
+        company_domain::CompanyEventType::ExperimentCompleted
+    );
+    assert_eq!(
+        event.payload.get("decision").and_then(|v| v.as_str()),
+        Some("CONTINUE")
+    );
 }
 
 #[cfg(test)]
