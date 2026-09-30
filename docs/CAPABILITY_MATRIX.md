@@ -179,7 +179,6 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 
 - **Control-plane request telemetry:** protected requests are correlated with `x-request-id`; auth/scope/CSRF denials increment dedicated counters and protected request latency is exposed as a low-cardinality gauge. No path/actor labels are exported to avoid cardinality and secret leakage.
 
-
 - **Readiness API:** `GET /api/integrations/readiness` returns explicit `READY`, `CONFIGURED`, `NOT_CONFIGURED`, `ACTION_REQUIRED`, `GATED`, or `UNAVAILABLE` states.
 - **Evidence boundary:** configuration and stored authentication are reported separately from provider reachability or business-outcome acceptance; no external success is inferred from environment variables alone.
 
