@@ -5288,6 +5288,39 @@ impl CompanyStore {
         )
         .await?;
 
+        if target_graph_verification_edge(status, verified_commission_minor) {
+            let observed_at_epoch = verified_at
+                .map(parse_rfc3339_epoch)
+                .transpose()?
+                .unwrap_or_else(|| time::OffsetDateTime::now_utc().unix_timestamp());
+            let order_id: String = tx
+                .query_one(
+                    "SELECT order_id FROM affiliate_conversions
+                      WHERE company_id=$1 AND conversion_id=$2",
+                    &[&company_uuid, &conversion_id],
+                )
+                .await?
+                .get(0);
+            record_revenue_graph_edge_tx(
+                &tx,
+                &new_graph_edge(
+                    company_uuid,
+                    company_revenue_graph::RevenueNodeType::Order,
+                    &order_id,
+                    "VERIFIED_COMMISSION",
+                    company_revenue_graph::RevenueNodeType::Commission,
+                    &conversion_id,
+                    Some(verified_commission_minor),
+                    Some(&currency),
+                    10_000,
+                    &format!("affiliate:provider-verification:{}:{}", conversion_id, status.as_str()),
+                    verification_source,
+                    observed_at_epoch,
+                ),
+            )
+            .await?;
+        }
+
         let target_recognized = if attribution_is_verified && status.authorizes_revenue() {
             verified_commission_minor
         } else {
