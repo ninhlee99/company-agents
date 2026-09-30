@@ -38,6 +38,8 @@ export default function App() {
   const [isRunningCycle, setIsRunningCycle] = useState(false);
   const [hasGeminiKey, setHasGeminiKey] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [dataMode, setDataMode] = useState<'SIMULATED' | 'UNKNOWN'>('UNKNOWN');
+  const [simulatedMutationsEnabled, setSimulatedMutationsEnabled] = useState(false);
 
   const [snapshot, setSnapshot] = useState<CompanySnapshot>({
     status: 'Active',
@@ -106,6 +108,8 @@ export default function App() {
           setAuditReports(data.auditReports);
         }
         setHasGeminiKey(data.hasGeminiKey);
+        setDataMode(data.dataMode === 'SIMULATED' ? 'SIMULATED' : 'UNKNOWN');
+        setSimulatedMutationsEnabled(data.simulatedMutationsEnabled === true);
       }
     } catch (err) {
       console.warn('Backend load note:', err);
@@ -382,6 +386,13 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+      <div className="bg-amber-950/80 border-b border-amber-800/70 px-4 py-2 text-center text-xs font-semibold text-amber-100">
+        {dataMode === 'SIMULATED' ? (
+          <>SIMULATED DATA — số liệu và lịch sử trong lớp React/Express này là dữ liệu tổng hợp trong bộ nhớ, không phải doanh thu/cash/order thực. {simulatedMutationsEnabled ? 'Simulated mutations đang bật theo cấu hình non-production.' : 'Thay đổi mô phỏng đang bị khóa mặc định.'}</>
+        ) : (
+          <>DATA MODE UNKNOWN — chưa xác minh nguồn dữ liệu của dashboard; không coi số liệu là bằng chứng hoạt động thật.</>
+        )}
+      </div>
       {/* Sticky Master Header: Keeps Header & Navigation Bar Fixed at Top */}
       <div className="sticky top-0 z-50 bg-slate-950/95 backdrop-blur-md border-b border-slate-800 shadow-md">
         <Header
