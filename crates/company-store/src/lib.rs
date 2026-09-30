@@ -88,6 +88,20 @@ pub struct CeoCommandCenterRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CeoExamRecord {
+    pub id: Uuid,
+    pub company_id: Uuid,
+    pub exam_key: String,
+    pub period_start_epoch: i64,
+    pub period_end_epoch: i64,
+    pub overall_status: String,
+    pub overall_score_bps: Option<u32>,
+    pub report: company_command_center::CeoExamReport,
+    pub evidence_hash: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ForecastVarianceRecord {
     pub forecast_id: Uuid,
     pub period_start_epoch: i64,
@@ -806,6 +820,11 @@ impl CompanyStore {
         client
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/044_company_isolation_hardening.sql"
+            ))
+            .await;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/045_ceo_exams.sql"
             ))
             .await
     }
@@ -2590,6 +2609,87 @@ impl CompanyStore {
         let summary =
             company_command_center::summarize(&input).map_err(|error| error.to_string())?;
         Ok(CeoCommandCenterRecord { input, summary })
+    }
+
+    pub async fn persist_ceo_exam(
+        &self,
+        report: &company_command_center::CeoExamReport,
+    ) -> Result<CeoExamRecord, Box<dyn std::error::Error + Send + Sync>> {
+        if report.company_id == Uuid::nil() {
+            return Err("CEO exam company_id is required".into());
+        }
+        if report.exam_key.trim().is_empty() || report.exam_key.len() > 256 {
+            return Err("CEO exam key is invalid".into());
+        }
+
+        let report_value = serde_json::to_value(report)?;
+        let encoded = serde_json::to_vec(&report_value)?;
+        let mut hasher = Sha256::new();
+        hasher.update(&encoded);
+        let evidence_hash = format!("{:x}", hasher.finalize());
+        let overall_status = match report.overall_status {
+            company_command_center::CeoExamStatus::Pass => "PASS",
+            company_command_center::CeoExamStatus::Review => "REVIEW",
+            company_command_center::CeoExamStatus::Unknown => "UNKNOWN",
+        };
+        let score = report.overall_score_bps.map(|value| value as i32);
+
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let id = Uuid::new_v4();
+        let inserted = tx
+            .query_opt(
+                "INSERT INTO ceo_exams
+                 (id,company_id,exam_key,period_start_epoch,period_end_epoch,overall_status,overall_score_bps,report,evidence_hash)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                 ON CONFLICT(company_id,exam_key) DO NOTHING
+                 RETURNING id,company_id,exam_key,period_start_epoch,period_end_epoch,overall_status,overall_score_bps,report,evidence_hash,created_at::text",
+                &[
+                    &id,
+                    &report.company_id,
+                    &report.exam_key,
+                    &report.period_start_epoch,
+                    &report.period_end_epoch,
+                    &overall_status,
+                    &score,
+                    &report_value,
+                    &evidence_hash,
+                ],
+            )
+            .await?;
+
+        let row = if let Some(row) = inserted {
+            row
+        } else {
+            tx.query_one(
+                "SELECT id,company_id,exam_key,period_start_epoch,period_end_epoch,overall_status,overall_score_bps,report,evidence_hash,created_at::text
+                   FROM ceo_exams
+                  WHERE company_id=$1 AND exam_key=$2",
+                &[&report.company_id, &report.exam_key],
+            )
+            .await?
+        };
+        tx.commit().await?;
+        ceo_exam_record_from_row(&row)
+    }
+
+    pub async fn latest_ceo_exam(
+        &self,
+        company_id: &str,
+    ) -> Result<Option<CeoExamRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "SELECT id,company_id,exam_key,period_start_epoch,period_end_epoch,overall_status,overall_score_bps,report,evidence_hash,created_at::text
+                   FROM ceo_exams
+                  WHERE company_id=$1
+                  ORDER BY period_end_epoch DESC, created_at DESC, id DESC
+                  LIMIT 1",
+                &[&company],
+            )
+            .await?;
+        row.as_ref().map(ceo_exam_record_from_row).transpose()
     }
 
     pub async fn contribution_margin_metrics(
@@ -10446,6 +10546,25 @@ fn parse_bool_env(name: &str, default: bool) -> bool {
         },
         Err(_) => default,
     }
+}
+
+fn ceo_exam_record_from_row(
+    row: &tokio_postgres::Row,
+) -> Result<CeoExamRecord, Box<dyn std::error::Error + Send + Sync>> {
+    let report: company_command_center::CeoExamReport = row.get(7);
+    let score: Option<i32> = row.get(6);
+    Ok(CeoExamRecord {
+        id: row.get(0),
+        company_id: row.get(1),
+        exam_key: row.get(2),
+        period_start_epoch: row.get(3),
+        period_end_epoch: row.get(4),
+        overall_status: row.get(5),
+        overall_score_bps: score.map(|value| value.clamp(0, 10_000) as u32),
+        report,
+        evidence_hash: row.get(8),
+        created_at: row.get(9),
+    })
 }
 
 fn parse_i128_numeric(
