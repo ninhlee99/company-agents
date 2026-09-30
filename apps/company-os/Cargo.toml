@@ -36,3 +36,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"]
 subtle = "2"
 sha2 = "0.10"
 url = "2"
+hmac = "0.12"
