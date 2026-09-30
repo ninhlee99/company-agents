@@ -138,6 +138,15 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Durable idempotency:** plan identity is deterministic per company + plan key and the complete input bundle is fingerprinted, so replay with different evidence fails closed instead of silently mutating a prior plan.
 - **No cash movement:** this capability creates an auditable allocation plan and outbox event only. It does not move company cash or execute external investments/payments.
 
+## TikTok OAuth / token lifecycle
+
+- **Web OAuth flow:** Company OS can generate a TikTok Login Kit authorization URL, persist a one-time CSRF state hash, validate the callback state and registered redirect URI, and exchange the authorization code server-side.
+- **Encrypted token storage:** access and refresh tokens are encrypted at rest with AES-256-GCM and company-scoped associated data; API responses never return raw tokens.
+- **Refresh / rotation:** manual and background refresh are supported; the newly returned refresh token replaces the prior token so token rotation is preserved.
+- **Revocation / reauth:** revocation and invalid-refresh handling move the connection to explicit `REVOKED` / `REAUTH_REQUIRED` states and leave an audit trail.
+- **Publishing integration:** when `TIKTOK_OAUTH_ENABLED=true`, Content Posting API calls fetch the current token from the durable store and refresh it when near expiry; the legacy env-token path remains available when OAuth mode is disabled.
+- **External prerequisites:** the TikTok developer app still needs the requested scopes, consent and an exact registered HTTPS redirect URI; Content Posting API production/public posting remains subject to TikTok's app approval/audit rules.
+
 ## Trend → Opportunity → Content loop
 
 - **Evidence-gated trend ingestion:** trend signals require a source, evidence reference, timestamp, normalized scoring inputs, confidence and policy evidence before they can enter the growth loop.
