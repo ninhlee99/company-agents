@@ -55,6 +55,16 @@ pub struct GrowthTrendRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AutonomySimulationRecord {
+    pub id: Uuid,
+    pub company_id: Uuid,
+    pub idempotency_key: String,
+    pub proposal: agent_runtime::types::Proposal,
+    pub assessment: company_autonomy::AutonomyAssessment,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentOutcomeEvidenceRecord {
     pub id: Uuid,
     pub company_id: Uuid,
