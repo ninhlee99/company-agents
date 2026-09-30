@@ -3368,18 +3368,24 @@ impl CompanyStore {
                 )
                 .await?
                 .get::<_, String>(0);
-            let used_before = parse_i128_numeric(&used)?;
+            let used_after = parse_i128_numeric(&used)?;
             let requested = parse_i128_numeric(&row.get::<_, String>(1))?;
+            let period_start_epoch = row.get::<_, i64>(0);
             let controls = load_safety_controls_for_tx(&tx, company).await?;
-            let mut decision = company_safety_controls::decide_budget(
-                &controls,
+            let daily_limit = controls.budgets.limit(kind);
+            let used_before = used_after
+                .checked_sub(requested)
+                .ok_or("autonomy budget replay accounting underflow")?;
+            let decision = company_safety_controls::BudgetDecision {
                 kind,
-                now_epoch,
-                used_before.saturating_sub(requested),
+                period_start_epoch,
+                daily_limit,
+                used_before,
                 requested,
-            )
-            .map_err(|error| error.to_string())?;
-            decision.reason = format!("idempotent replay: {}", decision.reason);
+                remaining_after: daily_limit.saturating_sub(used_after).max(0),
+                allowed: true,
+                reason: "idempotent replay: consumption already recorded".into(),
+            };
             tx.commit().await?;
             return Ok(decision);
         }
