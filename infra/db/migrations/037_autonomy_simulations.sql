@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS autonomy_simulations (
   ceiling text NOT NULL,
   required_level text NOT NULL,
   reason text NOT NULL,
-  simulation jsonb NOT NULL,
+  assessment_json jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE(company_id, idempotency_key)
 );
