@@ -1204,11 +1204,17 @@ async fn autonomy_assess_api(
 }
 
 async fn autonomy_policy_api(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let policy = autonomy_policy_from_env().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let emergency_stop = autonomy_emergency_stop_from_env()
+    let env_stop = autonomy_emergency_stop_from_env()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let controls = state
+        .store
+        .autonomy_controls(&state.company_id)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let emergency_stop = env_stop || controls.controls.emergency_stop.enabled;
     Ok(Json(serde_json::json!({
         "max_level": policy.max_level.as_str(),
         "min_confidence_bps": policy.min_confidence_bps,
