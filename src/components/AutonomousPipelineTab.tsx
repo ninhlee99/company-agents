@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CompanySnapshot } from '../types/company';
+import { CompanySnapshot, FullCreativeProduction } from '../types/company';
 import { 
   Sparkles, 
   Play, 
@@ -9,7 +9,7 @@ import {
   Video, 
   Search, 
   ShieldCheck, 
-  Wallet,
+  Wallet, 
   RotateCw,
   Cpu,
   Layers,
@@ -18,7 +18,15 @@ import {
   Clock,
   ExternalLink,
   Flame,
-  BarChart3
+  BarChart3,
+  Building2,
+  FileCheck,
+  UserCheck,
+  Award,
+  Music,
+  Camera,
+  FileText,
+  BadgeAlert
 } from 'lucide-react';
 
 interface AutonomousPipelineTabProps {
@@ -26,118 +34,159 @@ interface AutonomousPipelineTabProps {
   onRunPipeline: (topic: string) => Promise<{ success: boolean; steps: any[]; simulatedRevenueGainMinor: number }>;
 }
 
-interface PipelineHistoryItem {
-  id: string;
-  topic: string;
-  niche: string;
-  agents: string[];
-  renderTime: string;
-  revenueGainMinor: number;
-  status: 'Completed' | 'Processing';
-  timestamp: string;
-}
-
-const DEFAULT_HISTORY: PipelineHistoryItem[] = [
-  {
-    id: 'pipe-hist-01',
-    topic: 'Bàn Phím Cơ Không Dây & Đèn Màn Hình Công Thái Học',
-    niche: 'Desk Setup AI',
-    agents: ['Growth Lead AI', 'Content Lead AI', 'Liam Rossi', 'Governor AI'],
-    renderTime: '1.4s (60 FPS)',
-    revenueGainMinor: 80885,
-    status: 'Completed',
-    timestamp: '15 phút trước',
-  },
-  {
-    id: 'pipe-hist-02',
-    topic: 'Mic Thu Âm AI Khử Nhiễu & Đèn Key Light Creator',
-    niche: 'Creator Studio',
-    agents: ['Growth Lead AI', 'Elena Vance', 'Media Worker', 'CFO AI'],
-    renderTime: '1.2s (60 FPS)',
-    revenueGainMinor: 65400,
-    status: 'Completed',
-    timestamp: '42 phút trước',
-  },
-  {
-    id: 'pipe-hist-03',
-    topic: 'Khóa Học & Công Cụ Tự Động Hóa Workflow Doanh Nghiệp',
-    niche: 'AI SaaS & Tech',
-    agents: ['Growth Lead AI', 'Content Lead AI', 'COO AI', 'Governor AI'],
-    renderTime: '1.6s (60 FPS)',
-    revenueGainMinor: 112000,
-    status: 'Completed',
-    timestamp: '2 giờ trước',
-  },
-];
-
 export const AutonomousPipelineTab: React.FC<AutonomousPipelineTabProps> = ({
   snapshot,
   onRunPipeline,
 }) => {
-  const [topic, setTopic] = useState('Đồ Công Nghệ Smart Home AI');
+  const [topic, setTopic] = useState('3 Món Đồ Công Nghệ AI Giúp Tôi Tiết Kiệm 14 Tiếng Mỗi Tuần');
   const [isRunning, setIsRunning] = useState(false);
-  const [activeStep, setActiveStep] = useState<number | null>(null);
+  const [activeStage, setActiveStage] = useState<number | null>(null);
+  const [deliverableTab, setDeliverableTab] = useState<'script' | 'audio' | 'visual' | 'accounting'>('script');
   const [logs, setLogs] = useState<string[]>([]);
-  const [history, setHistory] = useState<PipelineHistoryItem[]>(DEFAULT_HISTORY);
-  const [result, setResult] = useState<{ simulatedRevenueGainMinor: number; steps: any[]; topic: string } | null>(null);
+  const [isApprovedByBoard, setIsApprovedByBoard] = useState(true);
+
+  // Creative Production Details (Merged & Upgraded from Media Studio)
+  const [production, setProduction] = useState<FullCreativeProduction>({
+    id: 'prod-ent-01',
+    campaignTitle: '3 Món Đồ Công Nghệ AI Giúp Tôi Tiết Kiệm 14 Tiếng Mỗi Tuần',
+    niche: 'AI Smart Workspace & Desk Gadgets',
+    projectedRevenueMinor: 145000,
+    costMinor: 15000,
+    copywriting: {
+      headline: 'Bí Quyết Tăng 300% Năng Suất Làm Việc Với 3 Phụ Kiện AI Này',
+      hook3s: 'Đừng mua thêm bàn phím cơ nữa nếu bạn chưa biết 3 món đồ AI này vừa ra mắt trong tháng.',
+      retentionFormula: 'Mở đầu phản trực giác ➔ Khơi gợi nỗi đau mất thời gian ➔ Trình diễn giải pháp AI ➔ Tặng coupon giảm 25% độc quyền',
+      bodyPainPoints: [
+        'Ghi chép cuộc họp thủ công mất hàng giờ mỗi tuần',
+        'Dây nhợ lộn xộn làm giảm tập trung và thẩm mỹ góc làm việc',
+        'Không bảo mật dữ liệu cục bộ khi dùng các công cụ đám mây',
+      ],
+      ctaText: 'Bấm ngay vào link bio và nhập mã AGENTSOS để nhận voucher độc quyền 25% trước khi hết slot.',
+      targetAudience: 'Dân văn phòng, lập trình viên, content creator, người yêu công nghệ (22-38 tuổi)',
+      complianceChecked: true,
+    },
+    audioTrack: {
+      title: 'Cyberpunk Lo-Fi Productivity Beats (128 BPM)',
+      genre: 'Lo-Fi Chill',
+      bpm: 128,
+      mood: 'Tập trung cao độ, hiện đại, kích thích hành động',
+      voiceoverTone: 'Confident & Crisp',
+      voiceSpeed: '1.1x (Nhịp điệu nhanh giữ chân người nghe)',
+      loudnessLufs: -14.0,
+    },
+    visualShots: [
+      {
+        shotIndex: 1,
+        framing: 'Macro Detail Close-Up',
+        lighting: 'Studio Softbox Glow',
+        imagePrompt: 'Macro 8k photo of ultra-minimalist glowing AI desk hub with sleek aluminum texture, modern clean desk setup, cinematic depth of field',
+        durationSec: 3,
+        textOverlay: '🔥 3 MÓN ĐỒ AI ĐỔI ĐỜI GÓC SETUP',
+      },
+      {
+        shotIndex: 2,
+        framing: '45-Degree Desk Top-Down',
+        lighting: 'Cyberpunk Neon Accent',
+        imagePrompt: 'Top-down desk view showing AI smart Pebble mouse transcribing meeting notes automatically to tablet screen, tidy setup',
+        durationSec: 12,
+        textOverlay: '1. Chuột AI tự động tóm tắt cuộc họp',
+      },
+      {
+        shotIndex: 3,
+        framing: 'Side Split Comparison',
+        lighting: 'Studio Softbox Glow',
+        imagePrompt: 'Split screen comparing chaotic messy notebook vs crystal-clear AI dashboard summarizer on ultra-wide monitor',
+        durationSec: 15,
+        textOverlay: '2. Hub USB-C chạy Local LLM bảo mật 100%',
+      },
+      {
+        shotIndex: 4,
+        framing: 'POV Handheld Showcase',
+        lighting: 'Warm Natural Daylight',
+        imagePrompt: 'POV hand holding phone showing exclusive discount badge code AGENTSOS with glowing TikTok Shop button',
+        durationSec: 10,
+        textOverlay: '🎁 MÃ GIẢM 25%: AGENTSOS (LINK BIO)',
+      },
+    ],
+    renderSettings: {
+      resolution: '1080x1920 (Vertical 9:16)',
+      fps: 60,
+      codec: 'libx264 / yuv420p (+faststart web-optimized)',
+      aspectRatio: '9:16',
+    },
+    governorApproved: true,
+    publishedChannels: ['TikTok Shop', 'Shopee Video', 'YouTube Shorts'],
+    attributionEpc: '$1.45 / Click',
+  });
+
+  const [resultNotice, setResultNotice] = useState<{ revenueGainMinor: number; topic: string } | null>(null);
 
   const presets = [
-    { label: 'Đồ Công Nghệ Smart Home AI', tag: 'Smart Home' },
-    { label: 'Phụ Kiện Bàn Làm Việc Desk Setup', tag: 'Workspace' },
-    { label: 'Thiết Bị Quay Video Tự Động Cho Creator', tag: 'Creator Studio' },
-    { label: 'Khóa Học & Công Cụ Tự Động Hóa AI', tag: 'SaaS & Tech' },
-    { label: 'Tai Nghe Chống Ồn & Loa Hi-Res', tag: 'Audio Gear' },
+    '3 Món Đồ Công Nghệ AI Giúp Tôi Tiết Kiệm 14 Tiếng Mỗi Tuần',
+    'Bàn Phím Cơ Không Dây & Đèn Màn Hình Công Thái Học',
+    'Thiết Bị Thu Âm AI Khử Nhiễu Cho Creator Livestream',
+    'Khóa Học & Công Cụ Tự Động Hóa Workflow Doanh Nghiệp',
   ];
 
-  const handleRun = async () => {
+  const handleExecuteEnterpriseWorkflow = async () => {
     if (!topic.trim() || isRunning) return;
     setIsRunning(true);
-    setResult(null);
-    setLogs([`[00.00s] Khởi động Dây Chuyền Tự Trị 4 Khâu: "${topic}"`]);
+    setResultNotice(null);
+    setLogs([`[00.00s] 🏢 KHỞI ĐỘNG HỘI ĐỒNG PHÊ DUYỆT DOANH NGHIỆP: "${topic}"`]);
 
-    // Stage 1
-    setActiveStep(1);
-    setLogs((prev) => [...prev, `[00.40s] [Khâu 1 - Growth Lead]: Quét 500+ SKU trên TikTok Shop & Amazon... Tìm thấy 14 sản phẩm EPC $1.45+, hoa hồng 22-30%.`]);
-    await new Promise((r) => setTimeout(r, 650));
+    // Stage 1: Phòng Kinh Doanh & Trưởng Phòng Growth Duyệt
+    setActiveStage(1);
+    setLogs((prev) => [
+      ...prev,
+      `[00.45s] [CẤP 1 - PHÒNG KINH DOANH]: Trưởng phòng Elena Vance quét 500+ SKU Shopee/TikTok Shop. Xác nhận EPC $1.45, hoa hồng 25.0%. KÝ DUYỆT ĐỀ ÁN.`
+    ]);
+    await new Promise((r) => setTimeout(r, 700));
 
-    // Stage 2
-    setActiveStep(2);
-    setLogs((prev) => [...prev, `[01.10s] [Khâu 2 - Content Lead]: Soạn kịch bản Neuro-Copywriting 4 phân cảnh, hook 3s giữ chân 76% người xem.`]);
-    await new Promise((r) => setTimeout(r, 650));
+    // Stage 2: Phòng Sáng Tạo & Giám Đốc Vận Hành COO Duyệt
+    setActiveStage(2);
+    setLogs((prev) => [
+      ...prev,
+      `[01.15s] [CẤP 2 - PHÒNG SÁNG TẠO]: Content Lead AI soạn kịch bản 4 phân cảnh; Giám Đốc COO phê chuẩn chuẩn chất lượng QA (Hook 3s giữ chân 76%). KÝ DUYỆT SẢN PHẨM.`
+    ]);
+    await new Promise((r) => setTimeout(r, 700));
 
-    // Stage 3
-    setActiveStep(3);
-    setLogs((prev) => [...prev, `[01.75s] [Khâu 3 - Media Worker]: Tổng hợp visual 8K, voiceover EBU R128, render video FFmpeg 1080x1920 60fps.`]);
-    await new Promise((r) => setTimeout(r, 650));
+    // Stage 3: Hội Đồng Giám Đốc (Governor & CFO) Phê Chuẩn Ngân Sách
+    setActiveStage(3);
+    setLogs((prev) => [
+      ...prev,
+      `[01.85s] [CẤP 3 - BAN GIÁM ĐỐC & HIẾN PHÁP]: CFO AI duyệt ngân sách $150.00; Governor AI kiểm định Fiduciary & chuẩn thương mại FTC. ĐÓNG DẤU PHÊ CHUẨN HIẾN PHÁP.`
+    ]);
+    await new Promise((r) => setTimeout(r, 700));
 
-    // Stage 4
-    setActiveStep(4);
-    setLogs((prev) => [...prev, `[02.30s] [Khâu 4 - Governor & CFO]: Đối soát dòng tiền, cập nhật sổ cái kép và ghi nhận doanh thu vào kho bạc.`]);
-    await new Promise((r) => setTimeout(r, 650));
+    // Stage 4: Khối Kỹ Thuật & Dựng Phim Render FFmpeg
+    setActiveStage(4);
+    setLogs((prev) => [
+      ...prev,
+      `[02.50s] [CẤP 4 - KHỐI KỸ THUẬT]: Marcus Chen cân chỉnh âm thanh -14 LUFS; Liam Rossi render GPU FFmpeg 1080x1920 60FPS. TỰ ĐỘNG XUẤT BẢN ĐA KÊNH.`
+    ]);
+    await new Promise((r) => setTimeout(r, 700));
+
+    // Stage 5: Phòng Kế Toán Đối Soát & Nạp Kho Bạc
+    setActiveStage(5);
+    setLogs((prev) => [
+      ...prev,
+      `[03.10s] [CẤP 5 - PHÒNG KẾ TOÁN]: Analyst & CFO đối soát doanh thu, trích 20% quỹ cổ tức, hạch toán Sổ Cái Kép và nạp thặng dư vào Kho Bạc.`
+    ]);
+    await new Promise((r) => setTimeout(r, 600));
 
     const res = await onRunPipeline(topic);
     setIsRunning(false);
-    setActiveStep(null);
+    setActiveStage(null);
 
     if (res.success) {
-      setResult({
-        simulatedRevenueGainMinor: res.simulatedRevenueGainMinor,
-        steps: res.steps,
+      setResultNotice({
+        revenueGainMinor: res.simulatedRevenueGainMinor,
         topic: topic,
       });
-
-      const newHistoryItem: PipelineHistoryItem = {
-        id: `pipe-hist-${Date.now().toString(36)}`,
-        topic: topic,
-        niche: 'Affiliate Campaign',
-        agents: ['Growth Lead AI', 'Content Lead AI', 'Media Worker', 'Governor AI'],
-        renderTime: '1.5s (60 FPS)',
-        revenueGainMinor: res.simulatedRevenueGainMinor,
-        status: 'Completed',
-        timestamp: 'Vừa xong',
-      };
-      setHistory((prev) => [newHistoryItem, ...prev.slice(0, 4)]);
-      setLogs((prev) => [...prev, `[02.80s] ✅ Hoàn tất dây chuyền! Doanh thu +$${(res.simulatedRevenueGainMinor / 100).toFixed(2)} đã chuyển vào kho bạc.`]);
+      setLogs((prev) => [
+        ...prev,
+        `[03.60s] ✅ HOÀN TẤT TOÀN DIỆN! Doanh thu +$${(res.simulatedRevenueGainMinor / 100).toFixed(2)} đã quyết toán vào Kho Bạc an toàn.`
+      ]);
     }
   };
 
@@ -151,85 +200,83 @@ export const AutonomousPipelineTab: React.FC<AutonomousPipelineTabProps> = ({
 
   return (
     <div className="space-y-4 max-w-6xl mx-auto pb-12 text-slate-200">
-      {/* 1. Operational Overview & Pipeline KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5">
-          <div className="flex items-center justify-between text-slate-400 text-[11px] mb-1">
-            <span>Tốc Độ Xử Lý / Render</span>
-            <Cpu className="w-3.5 h-3.5 text-blue-400" />
+      {/* 1. Executive Pipeline & Governance Header */}
+      <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shadow-md">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
+            <Building2 className="w-5 h-5" />
           </div>
-          <div className="text-base font-bold text-white font-mono">
-            ~1.4s • 60 FPS
-          </div>
-          <div className="text-[10px] text-blue-400 font-mono mt-0.5">
-            FFmpeg GPU Accelerated
-          </div>
-        </div>
-
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5">
-          <div className="flex items-center justify-between text-slate-400 text-[11px] mb-1">
-            <span>Chỉ Số EPC Định Hướng</span>
-            <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-          </div>
-          <div className="text-base font-bold text-emerald-400 font-mono">
-            $1.45 / click
-          </div>
-          <div className="text-[10px] text-emerald-400 font-mono mt-0.5">
-            Hoa hồng trung bình: 24.5%
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-sm font-bold text-white tracking-tight">
+                Quy Trình Vận Hành &amp; Phê Duyệt Doanh Nghiệp (Multi-Tier Governance)
+              </h2>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-800/40">
+                <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                5 Cấp Phê Duyệt Thực Tế
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Trưởng Phòng Kinh Doanh ➔ Trưởng Phòng Sáng Tạo &amp; COO ➔ Ban Giám Đốc (Governor &amp; CFO) ➔ Khối Kỹ Thuật ➔ Kế Toán Kép
+            </p>
           </div>
         </div>
 
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5">
-          <div className="flex items-center justify-between text-slate-400 text-[11px] mb-1">
-            <span>Tỷ Lệ Giữ Chân (Retention)</span>
-            <Flame className="w-3.5 h-3.5 text-pink-400" />
-          </div>
-          <div className="text-base font-bold text-white font-mono">
-            76.4% qua 3s đầu
-          </div>
-          <div className="text-[10px] text-pink-400 font-mono mt-0.5">
-            Neuro-Copywriting Hook
-          </div>
-        </div>
-
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5">
-          <div className="flex items-center justify-between text-slate-400 text-[11px] mb-1">
-            <span>Kiểm Duyệt Fiduciary</span>
-            <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
-          </div>
-          <div className="text-base font-bold text-purple-300 font-mono">
-            100% Tuân Thủ
-          </div>
-          <div className="text-[10px] text-purple-400 font-mono mt-0.5">
-            Governor Double-Entry Check
-          </div>
+        <div className="flex items-center gap-2 text-xs font-mono">
+          <span className="bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-slate-300">
+            Ngân sách trần: <strong className="text-emerald-400">$500.00</strong>
+          </span>
         </div>
       </div>
 
-      {/* 2. Interactive Launcher Bar */}
-      <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 space-y-3 shadow-md">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-blue-400" />
-            <h3 className="text-xs font-bold text-white">Khởi Động Dây Chuyền Sản Xuất &amp; Phối Hợp Tự Động</h3>
-          </div>
-          <span className="text-[10px] text-emerald-400 font-mono bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">
-            ● Hệ thống sẵn sàng 100%
-          </span>
+      {/* 2. Operational SLAs */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3">
+          <span className="text-[10px] text-slate-400 block">1. Đề Xuất &amp; Thẩm Định</span>
+          <div className="text-xs font-bold text-white mt-1">Trưởng Phòng Growth AI</div>
+          <span className="text-[10px] text-blue-400 font-mono">EPC Radar &gt; $1.45/click</span>
         </div>
 
-        {/* Input & Action */}
+        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3">
+          <span className="text-[10px] text-slate-400 block">2. Kịch Bản &amp; QA Tiêu Chuẩn</span>
+          <div className="text-xs font-bold text-white mt-1">Content Lead &amp; COO AI</div>
+          <span className="text-[10px] text-purple-400 font-mono">Hook 3s Retention 76%</span>
+        </div>
+
+        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3">
+          <span className="text-[10px] text-slate-400 block">3. Phê Chuẩn Ngân Sách</span>
+          <div className="text-xs font-bold text-white mt-1">Hội Đồng Governor &amp; CFO</div>
+          <span className="text-[10px] text-emerald-400 font-mono">100% Fiduciary Passed</span>
+        </div>
+
+        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3">
+          <span className="text-[10px] text-slate-400 block">4. Render &amp; Quyết Toán</span>
+          <div className="text-xs font-bold text-white mt-1">Media Tech &amp; Accounting</div>
+          <span className="text-[10px] text-cyan-400 font-mono">FFmpeg 60FPS &bull; Sổ Cái Kép</span>
+        </div>
+      </div>
+
+      {/* 3. Campaign Proposal & Action Launcher */}
+      <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 space-y-3 shadow-md">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-bold text-white flex items-center gap-1.5">
+            <FileText className="w-3.5 h-3.5 text-blue-400" />
+            Đề Án Chiến Dịch Cần Trình Duyệt &amp; Sản Xuất:
+          </h3>
+          <span className="text-[10px] text-slate-400 font-mono">Sẵn sàng kích hoạt</span>
+        </div>
+
         <div className="flex flex-col sm:flex-row gap-2">
           <input
             type="text"
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
-            placeholder="Nhập ngách sản phẩm hoặc chiến dịch cần chạy..."
+            placeholder="Nhập tên đề án / ngách sản phẩm..."
             className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
           />
 
           <button
-            onClick={handleRun}
+            onClick={handleExecuteEnterpriseWorkflow}
             disabled={isRunning}
             className={`flex items-center justify-center gap-1.5 px-5 py-2 rounded-lg font-bold text-xs text-white shadow-sm transition-all shrink-0 ${
               isRunning
@@ -240,12 +287,12 @@ export const AutonomousPipelineTab: React.FC<AutonomousPipelineTabProps> = ({
             {isRunning ? (
               <>
                 <RotateCw className="w-3.5 h-3.5 animate-spin" />
-                <span>Đang phối hợp 4 khâu...</span>
+                <span>Hội đồng đang thẩm định...</span>
               </>
             ) : (
               <>
                 <Play className="w-3.5 h-3.5 fill-white" />
-                <span>Kích Hoạt Dây Chuyền</span>
+                <span>Trình Duyệt &amp; Khởi Động Dây Chuyền</span>
               </>
             )}
           </button>
@@ -253,218 +300,358 @@ export const AutonomousPipelineTab: React.FC<AutonomousPipelineTabProps> = ({
 
         {/* Presets */}
         <div className="flex flex-wrap items-center gap-1.5 pt-1">
-          <span className="text-[10px] text-slate-500 mr-1">Ngách tiềm năng:</span>
+          <span className="text-[10px] text-slate-500 mr-1">Đề án mẫu:</span>
           {presets.map((p, idx) => (
             <button
               key={idx}
-              onClick={() => setTopic(p.label)}
+              onClick={() => setTopic(p)}
               className={`text-[11px] px-2.5 py-1 rounded-md border transition-all ${
-                topic === p.label
+                topic === p
                   ? 'bg-slate-800 text-white border-slate-600 font-medium'
                   : 'bg-slate-950 hover:bg-slate-800/80 text-slate-400 hover:text-white border-slate-800/80'
               }`}
             >
-              {p.label}
+              {p}
             </button>
           ))}
         </div>
       </div>
 
-      {/* 3. 4-Stage Architectural Canvas */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        {/* Stage 1 */}
-        <div className={`p-3.5 rounded-xl border transition-all flex flex-col justify-between ${
-          activeStep === 1
-            ? 'bg-slate-900 border-blue-500/80 shadow-md ring-1 ring-blue-500/40'
-            : result || activeStep !== null
-            ? 'bg-slate-900/80 border-slate-700'
-            : 'bg-slate-900/60 border-slate-800'
-        }`}>
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-mono text-blue-400 font-bold">KHÂU 01: RADAR SĂN DEAL</span>
-              <Search className="w-3.5 h-3.5 text-blue-400" />
-            </div>
-
-            <div className="flex items-center gap-2.5 mb-2.5">
-              <img
-                src="https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=100&auto=format&fit=crop&q=80"
-                alt="Growth Lead"
-                className="w-8 h-8 rounded-full object-cover border border-slate-700 shrink-0"
-              />
-              <div className="min-w-0">
-                <h4 className="text-xs font-bold text-white truncate">Growth Lead AI</h4>
-                <p className="text-[10px] text-blue-400">EPC Radar &amp; Arbitrage</p>
-              </div>
-            </div>
-
-            <p className="text-[11px] text-slate-400 leading-relaxed mb-3">
-              Quét sàn Shopee/TikTok Shop, phân tích EPC &gt; $1.20, hoa hồng 20-30% và tỷ lệ chuyển đổi cao.
-            </p>
-          </div>
-
-          <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px]">
-            <span className="text-slate-500">Đầu ra: Deal Sheet &amp; Tags</span>
-            {activeStep === 1 ? (
-              <span className="text-blue-400 font-mono font-bold animate-pulse">● Đang quét...</span>
-            ) : result || (activeStep && activeStep > 1) ? (
-              <span className="text-emerald-400 font-mono font-bold flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" /> Đạt chuẩn
-              </span>
-            ) : (
-              <span className="text-slate-500 font-mono">Sẵn sàng</span>
-            )}
-          </div>
+      {/* 4. 5-Tier Corporate Workflow Canvas */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+            <FileCheck className="w-3.5 h-3.5 text-emerald-400" />
+            Tiến Trình Phê Duyệt Qua Các Phòng Ban &amp; Giám Đốc
+          </h3>
+          <span className="text-[10px] text-slate-400 font-mono">Chuẩn ISO Doanh Nghiệp</span>
         </div>
 
-        {/* Stage 2 */}
-        <div className={`p-3.5 rounded-xl border transition-all flex flex-col justify-between ${
-          activeStep === 2
-            ? 'bg-slate-900 border-blue-500/80 shadow-md ring-1 ring-blue-500/40'
-            : result || activeStep !== null
-            ? 'bg-slate-900/80 border-slate-700'
-            : 'bg-slate-900/60 border-slate-800'
-        }`}>
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-mono text-purple-400 font-bold">KHÂU 02: KỊCH BẢN VIRAL</span>
-              <Video className="w-3.5 h-3.5 text-purple-400" />
-            </div>
-
-            <div className="flex items-center gap-2.5 mb-2.5">
-              <img
-                src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80"
-                alt="Content Lead"
-                className="w-8 h-8 rounded-full object-cover border border-slate-700 shrink-0"
-              />
-              <div className="min-w-0">
-                <h4 className="text-xs font-bold text-white truncate">Content Lead AI</h4>
-                <p className="text-[10px] text-purple-400">Neuro-Copywriting</p>
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-2.5">
+          {/* Tier 1: Growth Dept */}
+          <div className={`p-3 rounded-xl border transition-all flex flex-col justify-between ${
+            activeStage === 1
+              ? 'bg-slate-900 border-blue-500 ring-1 ring-blue-500/50 shadow-md'
+              : 'bg-slate-900/70 border-slate-800'
+          }`}>
+            <div>
+              <div className="flex items-center justify-between text-[10px] font-mono text-blue-400 font-bold mb-1.5">
+                <span>01. KINH DOANH</span>
+                <Search className="w-3 h-3" />
               </div>
-            </div>
-
-            <p className="text-[11px] text-slate-400 leading-relaxed mb-3">
-              Soạn kịch bản short-form 4 phân cảnh, tối ưu hook 3s đầu giữ chân người xem và CTA kích thích mua hàng.
-            </p>
-          </div>
-
-          <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px]">
-            <span className="text-slate-500">Đầu ra: Script Outline 4K</span>
-            {activeStep === 2 ? (
-              <span className="text-purple-400 font-mono font-bold animate-pulse">● Đang viết...</span>
-            ) : result || (activeStep && activeStep > 2) ? (
-              <span className="text-emerald-400 font-mono font-bold flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" /> Đạt chuẩn
-              </span>
-            ) : (
-              <span className="text-slate-500 font-mono">Sẵn sàng</span>
-            )}
-          </div>
-        </div>
-
-        {/* Stage 3 */}
-        <div className={`p-3.5 rounded-xl border transition-all flex flex-col justify-between ${
-          activeStep === 3
-            ? 'bg-slate-900 border-blue-500/80 shadow-md ring-1 ring-blue-500/40'
-            : result || activeStep !== null
-            ? 'bg-slate-900/80 border-slate-700'
-            : 'bg-slate-900/60 border-slate-800'
-        }`}>
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-mono text-cyan-400 font-bold">KHÂU 03: RENDER FFMPEG</span>
-              <TrendingUp className="w-3.5 h-3.5 text-cyan-400" />
-            </div>
-
-            <div className="flex items-center gap-2.5 mb-2.5">
-              <img
-                src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&auto=format&fit=crop&q=80"
-                alt="Liam Rossi"
-                className="w-8 h-8 rounded-full object-cover border border-slate-700 shrink-0"
-              />
-              <div className="min-w-0">
-                <h4 className="text-xs font-bold text-white truncate">Liam Rossi &amp; COO</h4>
-                <p className="text-[10px] text-cyan-400">Media Production Engine</p>
+              <div className="flex items-center gap-2 mb-2">
+                <img
+                  src="https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=100&auto=format&fit=crop&q=80"
+                  alt="Elena Vance"
+                  className="w-7 h-7 rounded-full object-cover border border-slate-700"
+                />
+                <div className="min-w-0">
+                  <div className="text-[11px] font-bold text-white truncate">Elena Vance</div>
+                  <div className="text-[9px] text-blue-400">Trưởng Phòng Growth</div>
+                </div>
               </div>
+              <p className="text-[10px] text-slate-400 leading-relaxed mb-2">
+                Thẩm định EPC $1.45, hoa hồng 25%, quét 500+ deal sàn thương mại.
+              </p>
             </div>
-
-            <p className="text-[11px] text-slate-400 leading-relaxed mb-3">
-              Ghép visual 8K, âm thanh EBU R128 (-14 LUFS) và render xuất bản 1080x1920 60fps h264 tự động.
-            </p>
+            <div className="pt-2 border-t border-slate-800/80 text-[10px] font-mono flex items-center justify-between">
+              <span className="text-slate-500">Chữ ký:</span>
+              <span className="text-emerald-400 font-bold">✓ ĐÃ KÝ DUYỆT</span>
+            </div>
           </div>
 
-          <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px]">
-            <span className="text-slate-500">Đầu ra: Video MP4 60FPS</span>
-            {activeStep === 3 ? (
-              <span className="text-cyan-400 font-mono font-bold animate-pulse">● Đang render...</span>
-            ) : result || (activeStep && activeStep > 3) ? (
-              <span className="text-emerald-400 font-mono font-bold flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" /> Đạt chuẩn
-              </span>
-            ) : (
-              <span className="text-slate-500 font-mono">Sẵn sàng</span>
-            )}
-          </div>
-        </div>
-
-        {/* Stage 4 */}
-        <div className={`p-3.5 rounded-xl border transition-all flex flex-col justify-between ${
-          activeStep === 4
-            ? 'bg-slate-900 border-emerald-500/80 shadow-md ring-1 ring-emerald-500/40'
-            : result || activeStep !== null
-            ? 'bg-slate-900/80 border-slate-700'
-            : 'bg-slate-900/60 border-slate-800'
-        }`}>
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-mono text-emerald-400 font-bold">KHÂU 04: KẾ TOÁN KÉP</span>
-              <Wallet className="w-3.5 h-3.5 text-emerald-400" />
-            </div>
-
-            <div className="flex items-center gap-2.5 mb-2.5">
-              <img
-                src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=100&auto=format&fit=crop&q=80"
-                alt="Governor AI"
-                className="w-8 h-8 rounded-full object-cover border border-slate-700 shrink-0"
-              />
-              <div className="min-w-0">
-                <h4 className="text-xs font-bold text-white truncate">Governor &amp; CFO AI</h4>
-                <p className="text-[10px] text-emerald-400">Fiduciary Settlement</p>
+          {/* Tier 2: Creative & COO Dept */}
+          <div className={`p-3 rounded-xl border transition-all flex flex-col justify-between ${
+            activeStage === 2
+              ? 'bg-slate-900 border-purple-500 ring-1 ring-purple-500/50 shadow-md'
+              : 'bg-slate-900/70 border-slate-800'
+          }`}>
+            <div>
+              <div className="flex items-center justify-between text-[10px] font-mono text-purple-400 font-bold mb-1.5">
+                <span>02. SÁNG TẠO &amp; COO</span>
+                <Video className="w-3 h-3" />
               </div>
+              <div className="flex items-center gap-2 mb-2">
+                <img
+                  src="https://images.unsplash.com/photo-1580489944761-15a19d654956?w=100&auto=format&fit=crop&q=80"
+                  alt="COO AI"
+                  className="w-7 h-7 rounded-full object-cover border border-slate-700"
+                />
+                <div className="min-w-0">
+                  <div className="text-[11px] font-bold text-white truncate">COO &amp; Content AI</div>
+                  <div className="text-[9px] text-purple-400">Giám Đốc Vận Hành</div>
+                </div>
+              </div>
+              <p className="text-[10px] text-slate-400 leading-relaxed mb-2">
+                Kịch bản 4 phân cảnh, hook 3s phản trực giác, âm thanh EBU R128.
+              </p>
             </div>
-
-            <p className="text-[11px] text-slate-400 leading-relaxed mb-3">
-              Đối soát doanh thu, trích 20% cổ tức và nạp thặng dư vào quỹ kho bạc theo nguyên tắc Double-Entry.
-            </p>
+            <div className="pt-2 border-t border-slate-800/80 text-[10px] font-mono flex items-center justify-between">
+              <span className="text-slate-500">Chữ ký:</span>
+              <span className="text-emerald-400 font-bold">✓ ĐÃ KÝ DUYỆT</span>
+            </div>
           </div>
 
-          <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px]">
-            <span className="text-slate-500">Đầu ra: Double-Entry Ledger</span>
-            {activeStep === 4 ? (
-              <span className="text-emerald-400 font-mono font-bold animate-pulse">● Đang đối soát...</span>
-            ) : result ? (
-              <span className="text-emerald-400 font-mono font-bold flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" /> Đã nạp kho bạc
-              </span>
-            ) : (
-              <span className="text-slate-500 font-mono">Sẵn sàng</span>
-            )}
+          {/* Tier 3: Board & Governor */}
+          <div className={`p-3 rounded-xl border transition-all flex flex-col justify-between ${
+            activeStage === 3
+              ? 'bg-slate-900 border-emerald-500 ring-1 ring-emerald-500/50 shadow-md'
+              : 'bg-slate-900/70 border-slate-800'
+          }`}>
+            <div>
+              <div className="flex items-center justify-between text-[10px] font-mono text-emerald-400 font-bold mb-1.5">
+                <span>03. BAN GIÁM ĐỐC</span>
+                <ShieldCheck className="w-3 h-3" />
+              </div>
+              <div className="flex items-center gap-2 mb-2">
+                <img
+                  src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=100&auto=format&fit=crop&q=80"
+                  alt="Governor AI"
+                  className="w-7 h-7 rounded-full object-cover border border-slate-700"
+                />
+                <div className="min-w-0">
+                  <div className="text-[11px] font-bold text-white truncate">Governor &amp; CFO</div>
+                  <div className="text-[9px] text-emerald-400">Hội Đồng Fiduciary</div>
+                </div>
+              </div>
+              <p className="text-[10px] text-slate-400 leading-relaxed mb-2">
+                Phê chuẩn trần ngân sách $150.00, kiểm định điều lệ FTC an toàn.
+              </p>
+            </div>
+            <div className="pt-2 border-t border-slate-800/80 text-[10px] font-mono flex items-center justify-between">
+              <span className="text-slate-500">Dấu mộc:</span>
+              <span className="text-emerald-400 font-bold">★ PHÊ CHUẨN</span>
+            </div>
+          </div>
+
+          {/* Tier 4: Tech & Media Cluster */}
+          <div className={`p-3 rounded-xl border transition-all flex flex-col justify-between ${
+            activeStage === 4
+              ? 'bg-slate-900 border-cyan-500 ring-1 ring-cyan-500/50 shadow-md'
+              : 'bg-slate-900/70 border-slate-800'
+          }`}>
+            <div>
+              <div className="flex items-center justify-between text-[10px] font-mono text-cyan-400 font-bold mb-1.5">
+                <span>04. KHỐI KỸ THUẬT</span>
+                <Cpu className="w-3 h-3" />
+              </div>
+              <div className="flex items-center gap-2 mb-2">
+                <img
+                  src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&auto=format&fit=crop&q=80"
+                  alt="Liam Rossi"
+                  className="w-7 h-7 rounded-full object-cover border border-slate-700"
+                />
+                <div className="min-w-0">
+                  <div className="text-[11px] font-bold text-white truncate">Liam &amp; Marcus</div>
+                  <div className="text-[9px] text-cyan-400">Audio &amp; FFmpeg Lead</div>
+                </div>
+              </div>
+              <p className="text-[10px] text-slate-400 leading-relaxed mb-2">
+                Render GPU 1080x1920 60FPS, phát hành tự động kèm mã UTM tracking.
+              </p>
+            </div>
+            <div className="pt-2 border-t border-slate-800/80 text-[10px] font-mono flex items-center justify-between">
+              <span className="text-slate-500">Trạng thái:</span>
+              <span className="text-cyan-400 font-bold">● ĐÃ XUẤT BẢN</span>
+            </div>
+          </div>
+
+          {/* Tier 5: Accounting & Treasury */}
+          <div className={`p-3 rounded-xl border transition-all flex flex-col justify-between ${
+            activeStage === 5
+              ? 'bg-slate-900 border-emerald-500 ring-1 ring-emerald-500/50 shadow-md'
+              : 'bg-slate-900/70 border-slate-800'
+          }`}>
+            <div>
+              <div className="flex items-center justify-between text-[10px] font-mono text-emerald-400 font-bold mb-1.5">
+                <span>05. KẾ TOÁN KHO BẠC</span>
+                <Wallet className="w-3 h-3" />
+              </div>
+              <div className="flex items-center gap-2 mb-2">
+                <img
+                  src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80"
+                  alt="CFO AI"
+                  className="w-7 h-7 rounded-full object-cover border border-slate-700"
+                />
+                <div className="min-w-0">
+                  <div className="text-[11px] font-bold text-white truncate">CFO &amp; Analyst AI</div>
+                  <div className="text-[9px] text-emerald-400">Kiểm Toán Kế Toán Kép</div>
+                </div>
+              </div>
+              <p className="text-[10px] text-slate-400 leading-relaxed mb-2">
+                Đối soát hoa hồng, trích 20% cổ tức, quyết toán nạp kho bạc an toàn.
+              </p>
+            </div>
+            <div className="pt-2 border-t border-slate-800/80 text-[10px] font-mono flex items-center justify-between">
+              <span className="text-slate-500">Chứng từ:</span>
+              <span className="text-emerald-400 font-bold">#LEDGER-TX</span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* 4. Live Execution Terminal Log */}
+      {/* 5. Interactive Deliverables Inspector (Absorbing the entire 5-in-1 Media Suite) */}
+      <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 space-y-3.5 shadow-md">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-blue-400" />
+            <h3 className="text-xs font-bold text-white">Hồ Sơ Sản Phẩm &amp; Tài Liệu Bàn Giao Của Chiến Dịch</h3>
+          </div>
+
+          {/* Subtabs for Deliverables */}
+          <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+            <button
+              onClick={() => setDeliverableTab('script')}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                deliverableTab === 'script' ? 'bg-slate-800 text-white font-semibold shadow-sm' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Kịch Bản &amp; Hook 3s
+            </button>
+            <button
+              onClick={() => setDeliverableTab('audio')}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                deliverableTab === 'audio' ? 'bg-slate-800 text-white font-semibold shadow-sm' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Âm Thanh (-14 LUFS)
+            </button>
+            <button
+              onClick={() => setDeliverableTab('visual')}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                deliverableTab === 'visual' ? 'bg-slate-800 text-white font-semibold shadow-sm' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Phân Cảnh 8K ({production.visualShots.length})
+            </button>
+            <button
+              onClick={() => setDeliverableTab('accounting')}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                deliverableTab === 'accounting' ? 'bg-slate-800 text-white font-semibold shadow-sm' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Hạch Toán Kế Toán
+            </button>
+          </div>
+        </div>
+
+        {/* Tab 1: Kịch Bản & Hook 3s */}
+        {deliverableTab === 'script' && (
+          <div className="space-y-2.5 text-xs bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/80">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+              <span className="font-bold text-white text-xs">{production.copywriting.headline}</span>
+              <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">
+                ✓ FTC Compliance Checked
+              </span>
+            </div>
+
+            <div className="bg-slate-900/90 p-2.5 rounded-lg border border-purple-500/20">
+              <span className="text-[10px] text-purple-400 font-bold uppercase block mb-0.5">Hook 3 Giây Giữ Chân:</span>
+              <p className="italic text-slate-200 font-medium">"{production.copywriting.hook3s}"</p>
+            </div>
+
+            <div className="text-[11px] text-slate-400">
+              <span className="text-slate-300 font-semibold">Công thức tâm lý:</span> {production.copywriting.retentionFormula}
+            </div>
+
+            <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-800 text-[11px] text-slate-300">
+              <span className="text-emerald-400 font-semibold block mb-0.5">Lời kêu gọi hành động (Call To Action):</span>
+              {production.copywriting.ctaText}
+            </div>
+          </div>
+        )}
+
+        {/* Tab 2: Âm Thanh & Voiceover */}
+        {deliverableTab === 'audio' && (
+          <div className="space-y-2.5 text-xs bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/80">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+              <div className="flex items-center gap-2">
+                <Music className="w-4 h-4 text-pink-400" />
+                <span className="font-bold text-white">{production.audioTrack.title}</span>
+              </div>
+              <span className="text-[10px] font-mono text-pink-400 bg-pink-950/60 px-2 py-0.5 rounded border border-pink-800/40">
+                EBU R128: -14.0 LUFS
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <div className="bg-slate-900/70 p-2 rounded-lg border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Thể loại nhạc:</span>
+                <span className="text-slate-200 font-medium">{production.audioTrack.genre}</span>
+              </div>
+              <div className="bg-slate-900/70 p-2 rounded-lg border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Nhịp độ (BPM):</span>
+                <span className="text-slate-200 font-mono font-bold">{production.audioTrack.bpm} BPM</span>
+              </div>
+              <div className="bg-slate-900/70 p-2 rounded-lg border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Tông giọng đọc:</span>
+                <span className="text-slate-200 font-medium">{production.audioTrack.voiceoverTone}</span>
+              </div>
+              <div className="bg-slate-900/70 p-2 rounded-lg border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Tốc độ thoại:</span>
+                <span className="text-purple-400 font-medium">{production.audioTrack.voiceSpeed}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 3: Phân Cảnh 8K */}
+        {deliverableTab === 'visual' && (
+          <div className="space-y-2.5 text-xs bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/80">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {production.visualShots.map((shot) => (
+                <div key={shot.shotIndex} className="bg-slate-900/70 p-2.5 rounded-lg border border-slate-800 space-y-1">
+                  <div className="flex items-center justify-between text-[10px] text-slate-400">
+                    <span className="font-bold text-white">Phân cảnh #{shot.shotIndex} ({shot.durationSec}s)</span>
+                    <span className="text-blue-400 font-mono">{shot.framing}</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 italic line-clamp-2">"{shot.imagePrompt}"</p>
+                  <div className="text-[10px] text-emerald-400 font-medium pt-1 border-t border-slate-800/60">
+                    Overlay: {shot.textOverlay}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Tab 4: Hạch Toán Kế Toán */}
+        {deliverableTab === 'accounting' && (
+          <div className="space-y-2.5 text-xs bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/80">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+              <div className="bg-slate-900/70 p-2 rounded-lg border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Chi phí sản xuất (Debit):</span>
+                <span className="font-mono text-amber-400 font-bold">{formatMoney(production.costMinor)}</span>
+              </div>
+              <div className="bg-slate-900/70 p-2 rounded-lg border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Doanh thu dự phóng (Credit):</span>
+                <span className="font-mono text-emerald-400 font-bold">{formatMoney(production.projectedRevenueMinor)}</span>
+              </div>
+              <div className="bg-slate-900/70 p-2 rounded-lg border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Lợi nhuận ròng dự kiến:</span>
+                <span className="font-mono text-emerald-300 font-bold">+{formatMoney(production.projectedRevenueMinor - production.costMinor)}</span>
+              </div>
+              <div className="bg-slate-900/70 p-2 rounded-lg border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Quỹ cổ tức trích lập (20%):</span>
+                <span className="font-mono text-purple-400 font-bold">+{formatMoney(Math.round((production.projectedRevenueMinor - production.costMinor) * 0.2))}</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 6. Live Execution Terminal Log */}
       {logs.length > 0 && (
-        <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-[11px] space-y-1 shadow-inner">
+        <div className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 font-mono text-[11px] space-y-1 shadow-inner">
           <div className="flex items-center justify-between text-slate-400 border-b border-slate-800 pb-1.5 mb-1.5 text-[10px]">
             <div className="flex items-center gap-1.5">
-              <Terminal className="w-3 h-3 text-blue-400" />
-              <span>Nhật Ký Thực Thi Dây Chuyền Trực Tiếp</span>
+              <Terminal className="w-3.5 h-3.5 text-blue-400" />
+              <span>Biên Bản Họp Hội Đồng &amp; Nhật Ký Phê Duyệt Trực Tiếp</span>
             </div>
             <span>Thời gian thực</span>
           </div>
 
-          <div className="space-y-0.5 text-slate-300 max-h-32 overflow-y-auto">
+          <div className="space-y-0.5 text-slate-300 max-h-36 overflow-y-auto">
             {logs.map((log, idx) => (
               <div key={idx} className="flex items-start gap-1">
                 <span className="text-blue-400 select-none">&gt;</span>
@@ -475,74 +662,25 @@ export const AutonomousPipelineTab: React.FC<AutonomousPipelineTabProps> = ({
         </div>
       )}
 
-      {/* 5. Result Deliverable Card */}
-      {result && (
-        <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-xl p-4 space-y-2.5 animate-fadeIn">
-          <div className="flex items-center justify-between flex-wrap gap-2 border-b border-emerald-500/20 pb-2">
+      {/* 7. Result Deliverable Notice */}
+      {resultNotice && (
+        <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-xl p-4 space-y-2 animate-fadeIn">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-400" />
               <span className="font-bold text-white text-xs">
-                Chiến Dịch Sản Xuất Thành Công: "{result.topic}"
+                Chiến Dịch Đã Được Hội Đồng Phê Duyệt &amp; Nạp Tiền Vào Kho Bạc: "{resultNotice.topic}"
               </span>
             </div>
             <span className="font-mono font-bold text-emerald-400 text-sm">
-              +{formatMoney(result.simulatedRevenueGainMinor)} Doanh Thu
+              +{formatMoney(resultNotice.revenueGainMinor)}
             </span>
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-            <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800">
-              <span className="text-[10px] text-slate-500 block">Định Dạng Video:</span>
-              <span className="font-mono text-slate-200">1080x1920 60FPS • H.264</span>
-            </div>
-            <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800">
-              <span className="text-[10px] text-slate-500 block">Trạng Thái Xuất Bản:</span>
-              <span className="text-emerald-400 font-medium">TikTok Shop &amp; YouTube Shorts</span>
-            </div>
-            <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800">
-              <span className="text-[10px] text-slate-500 block">Chứng Từ Kho Bạc:</span>
-              <span className="font-mono text-purple-400">#LEDGER-AUTOPILOT-TX</span>
-            </div>
-          </div>
+          <p className="text-[11px] text-slate-300">
+            Hội đồng Ban Giám Đốc (Governor, CEO, CFO, COO) đã đóng dấu quyết toán thành công. Chứng từ đã được lưu vĩnh viễn vào Sổ Cái Kế Toán Kép.
+          </p>
         </div>
       )}
-
-      {/* 6. Recent Production History */}
-      <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5 space-y-3">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-          <div className="flex items-center gap-2">
-            <BarChart3 className="w-3.5 h-3.5 text-blue-400" />
-            <h4 className="text-xs font-bold text-white">Lịch Sử Các Đợt Sản Xuất Gần Đây ({history.length})</h4>
-          </div>
-          <span className="text-[10px] text-slate-400 font-mono">Tự động lưu trữ</span>
-        </div>
-
-        <div className="space-y-2">
-          {history.map((item) => (
-            <div key={item.id} className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs hover:border-slate-700 transition-colors">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-bold text-white text-xs">{item.topic}</span>
-                  <span className="px-1.5 py-0.2 rounded text-[9px] bg-blue-950/60 text-blue-400 border border-blue-800/40">
-                    {item.niche}
-                  </span>
-                </div>
-                <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-2">
-                  <span>Nhân sự: {item.agents.join(', ')}</span>
-                  <span>• Render: {item.renderTime}</span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3 shrink-0">
-                <span className="font-mono font-bold text-emerald-400 text-xs">
-                  +{formatMoney(item.revenueGainMinor)}
-                </span>
-                <span className="text-[10px] text-slate-500 font-mono">{item.timestamp}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 };

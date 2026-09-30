@@ -485,43 +485,12 @@ export default function App() {
           />
         )}
 
-        {/* Tab 4: Workflows & Pipelines */}
+        {/* Tab 4: Workflows & Multi-Tier Enterprise Governance */}
         {activeTab === 'pipeline' && (
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
-              <button
-                onClick={() => setPipelineSubTab('flow')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  pipelineSubTab === 'flow' ? 'bg-slate-800 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-                <span>Dây Chuyền Tự Động 4 Khâu</span>
-              </button>
-
-              <button
-                onClick={() => setPipelineSubTab('studio')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  pipelineSubTab === 'studio' ? 'bg-slate-800 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Video className="w-3.5 h-3.5 text-purple-400" />
-                <span>Xưởng Sáng Tạo Media (5-in-1)</span>
-              </button>
-            </div>
-
-            {pipelineSubTab === 'flow' ? (
-              <AutonomousPipelineTab
-                snapshot={snapshot}
-                onRunPipeline={handleRunPipeline}
-              />
-            ) : (
-              <MediaStudioTab
-                snapshot={snapshot}
-                onPublishToCycle={(title) => handleRunPipeline(title)}
-              />
-            )}
-          </div>
+          <AutonomousPipelineTab
+            snapshot={snapshot}
+            onRunPipeline={handleRunPipeline}
+          />
         )}
 
         {/* Tab 5: Sales & Client Contracts */}
