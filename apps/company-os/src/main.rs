@@ -1174,8 +1174,14 @@ async fn autonomy_assess_api(
         return Err(StatusCode::BAD_REQUEST);
     }
     let policy = autonomy_policy_from_env().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let emergency_stop = autonomy_emergency_stop_from_env()
+    let env_stop = autonomy_emergency_stop_from_env()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let controls = state
+        .store
+        .autonomy_controls(&state.company_id)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let emergency_stop = env_stop || controls.controls.emergency_stop.enabled;
     let config = company_autonomy::DigitalTwinConfig {
         daily_burn_minor: request.daily_burn_minor,
         reserve_cash_minor: request.reserve_cash_minor,
