@@ -28,6 +28,7 @@ members = [
   "crates/company-command-center",
   "crates/company-agent-evaluation",
   "crates/company-autonomy",
+  "crates/company-kill-engine",
   "crates/company-capital",
   "crates/company-safety-controls",
   "crates/company-tiktok-auth",
