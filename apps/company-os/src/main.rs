@@ -674,6 +674,11 @@ small,.muted{{color:#94a3b8}} code{{background:#f3f3f3;padding:2px 4px}}
 .evaluation-status.partial{{color:#67e8f9}}
 .evaluation-status.evaluated{{color:#86efac}}
 nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;text-decoration:none;padding:8px 10px;border-radius:8px}} nav a:hover{{background:#171e30;color:#fff}}
+.autonomy-shell{{border:1px solid #33415f;border-radius:18px;padding:18px;margin:0 0 18px;background:#0c1320}}
+.autonomy-shell h2{{margin:5px 0 7px;font-size:20px}}
+.autonomy-steps{{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin:15px 0 10px}}
+.autonomy-step{{padding:9px 7px;border-radius:10px;border:1px solid #273550;text-align:center;font-size:11px;color:#94a3b8;background:#101827}}
+.autonomy-step.active{{color:#f8fafc;border-color:#7c3aed;background:#1a1232}}
 @media(max-width:1050px){{.cc-kpis{{grid-template-columns:repeat(3,minmax(0,1fr))}}.cc-body{{grid-template-columns:repeat(2,minmax(0,1fr))}}.cc-alerts{{grid-template-columns:1fr}}}}
 @media(max-width:800px){{.grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}.cc-head{{flex-direction:column}}.cc-trend{{align-items:flex-start}}}}
 @media(max-width:520px){{.grid{{grid-template-columns:1fr}}.cc-kpis{{grid-template-columns:1fr 1fr}}.cc-body{{grid-template-columns:1fr}}}}
