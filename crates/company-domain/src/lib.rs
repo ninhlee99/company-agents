@@ -572,6 +572,12 @@ mod tests {
     }
 
     #[test]
+    fn autonomy_event_names_are_canonical() {
+        assert_eq!(CompanyEventType::AutonomyControlsChanged.as_str(), "AUTONOMY_CONTROLS_CHANGED");
+        assert_eq!(CompanyEventType::AutonomyBudgetConsumed.as_str(), "AUTONOMY_BUDGET_CONSUMED");
+    }
+
+    #[test]
     fn company_event_rejects_invalid_metadata() {
         let event = CompanyEventEnvelope {
             event_id: Uuid::new_v4(),
