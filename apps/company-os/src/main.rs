@@ -23,6 +23,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::{Mutex, RwLock};
+use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use tiktok_live_streaming::LiveStreamController;
 
@@ -2394,10 +2395,64 @@ fn control_plane_auth_disabled() -> bool {
         .is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
 }
 
-async fn require_control_plane_auth(request: Request, next: Next) -> Result<Response, StatusCode> {
-    let path = request.uri().path();
+fn control_plane_request_id(request: &Request) -> String {
+    request
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= 128)
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
+}
+
+fn control_plane_actor_id(token: Option<&str>) -> String {
+    match token.filter(|value| !value.is_empty()) {
+        Some(token) => {
+            let digest = Sha256::digest(token.as_bytes());
+            let fingerprint: String = digest.iter().take(16).map(|byte| format!("{byte:02x}")).collect();
+            format!("bearer-sha256:{fingerprint}")
+        }
+        None => "anonymous".into(),
+    }
+}
+
+async fn record_control_plane_audit(
+    state: &AppState,
+    actor_id: &str,
+    actor_role: &str,
+    method: &str,
+    path: &str,
+    action: &str,
+    outcome: &str,
+    request_id: &str,
+) {
+    if let Err(error) = state
+        .store
+        .record_control_plane_audit(
+            &state.company_id,
+            actor_id,
+            actor_role,
+            method,
+            path,
+            action,
+            outcome,
+            Some(request_id),
+        )
+        .await
+    {
+        tracing::warn!(%error, %path, %outcome, "control-plane audit write failed");
+    }
+}
+
+async fn require_control_plane_auth(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let path = request.uri().path().to_owned();
     if matches!(
-        path,
+        path.as_str(),
         "/healthz"
             | "/readyz"
             | "/metrics"
@@ -2406,27 +2461,83 @@ async fn require_control_plane_auth(request: Request, next: Next) -> Result<Resp
     ) {
         return Ok(next.run(request).await);
     }
-    if control_plane_auth_disabled() {
-        return Ok(next.run(request).await);
-    }
 
-    let expected = std::env::var("CONTROL_PLANE_TOKEN").map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let method = request.method().as_str().to_owned();
+    let request_id = control_plane_request_id(&request);
     let provided = request
         .headers()
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
         .filter(|value| !value.is_empty());
+    let actor_id = control_plane_actor_id(provided);
+
+    if control_plane_auth_disabled() {
+        record_control_plane_audit(
+            &state,
+            &actor_id,
+            "development-bypass",
+            &method,
+            &path,
+            "CONTROL_PLANE_REQUEST",
+            "ALLOWED",
+            &request_id,
+        )
+        .await;
+        return Ok(next.run(request).await);
+    }
+
+    let expected = match std::env::var("CONTROL_PLANE_TOKEN") {
+        Ok(value) if !value.is_empty() => value,
+        _ => {
+            record_control_plane_audit(
+                &state,
+                &actor_id,
+                "operator",
+                &method,
+                &path,
+                "CONTROL_PLANE_REQUEST",
+                "DENIED",
+                &request_id,
+            )
+            .await;
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+    };
 
     let valid = provided
         .map(|value| bool::from(expected.as_bytes().ct_eq(value.as_bytes())))
         .unwrap_or(false);
 
-    if valid {
-        Ok(next.run(request).await)
-    } else {
-        Err(StatusCode::UNAUTHORIZED)
+    if !valid {
+        record_control_plane_audit(
+            &state,
+            &actor_id,
+            "operator",
+            &method,
+            &path,
+            "CONTROL_PLANE_REQUEST",
+            "DENIED",
+            &request_id,
+        )
+        .await;
+        return Err(StatusCode::UNAUTHORIZED);
     }
+
+    let response = next.run(request).await;
+    record_control_plane_audit(
+        &state,
+        &actor_id,
+        "operator",
+        &method,
+        &path,
+        "CONTROL_PLANE_REQUEST",
+        "ALLOWED",
+        &request_id,
+    )
+    .await;
+    Ok(response)
 }
 
 
@@ -2529,6 +2640,38 @@ async fn metrics(
         )],
         state.metrics.render_prometheus(),
     )
+}
+
+#[cfg(test)]
+mod control_plane_audit_tests {
+    use super::*;
+
+    #[test]
+    fn actor_id_is_a_non_secret_fingerprint() {
+        let first = control_plane_actor_id(Some("token-value"));
+        let second = control_plane_actor_id(Some("token-value"));
+        assert_eq!(first, second);
+        assert!(first.starts_with("bearer-sha256:"));
+        assert!(!first.contains("token-value"));
+        assert_eq!(control_plane_actor_id(None), "anonymous");
+    }
+
+    #[test]
+    fn request_id_uses_safe_header_or_generates_one() {
+        let request = Request::builder()
+            .uri("/api/run")
+            .header("x-request-id", "req-123")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(control_plane_request_id(&request), "req-123");
+
+        let request = Request::builder()
+            .uri("/api/run")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let generated = control_plane_request_id(&request);
+        assert!(!generated.is_empty());
+    }
 }
 
 fn runtime_worker_threads() -> usize {
@@ -2784,8 +2927,8 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .route("/metrics", get(metrics))
-        .with_state(state)
-        .layer(middleware::from_fn(require_control_plane_auth));
+        .with_state(state.clone())
+        .layer(middleware::from_fn_with_state(state, require_control_plane_auth));
 
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", 8080)).await?;
 

@@ -476,7 +476,65 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/042_learning_entries_immutability.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/043_control_plane_audit_hardening.sql"
+            ))
             .await
+    }
+
+    pub async fn record_control_plane_audit(
+        &self,
+        company_id: &str,
+        actor_id: &str,
+        actor_role: &str,
+        method: &str,
+        path: &str,
+        action: &str,
+        outcome: &str,
+        request_id: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        if actor_id.trim().is_empty()
+            || actor_id.len() > 128
+            || actor_role.trim().is_empty()
+            || actor_role.len() > 64
+            || method.trim().is_empty()
+            || method.len() > 16
+            || path.trim().is_empty()
+            || path.len() > 2048
+            || action.trim().is_empty()
+            || action.len() > 256
+            || !matches!(outcome, "ALLOWED" | "DENIED")
+        {
+            return Err("control-plane audit metadata is invalid".into());
+        }
+
+        let request_id = request_id.map(str::trim).filter(|value| !value.is_empty());
+        if request_id.is_some_and(|value| value.len() > 128) {
+            return Err("control-plane request id is too long".into());
+        }
+
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "INSERT INTO control_plane_audit_log
+                 (company_id,actor_id,actor_role,method,path,action,outcome,request_id)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+                &[
+                    &company,
+                    &actor_id.trim(),
+                    &actor_role.trim(),
+                    &method.trim().to_ascii_uppercase(),
+                    &path.trim(),
+                    &action.trim(),
+                    &outcome,
+                    &request_id,
+                ],
+            )
+            .await?;
+        Ok(())
     }
 
     pub async fn record_revenue_graph_edge(
