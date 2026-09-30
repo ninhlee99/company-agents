@@ -230,7 +230,7 @@ impl TikTokOAuthClient {
             return Err(AuthError::RateLimited);
         }
         if !status.is_success() {
-            return Err(provider_error(status, &bytes));
+            return Err(provider_error(status, &bytes, &[self.config.client_secret.as_str()]));
         }
         let value: serde_json::Value = serde_json::from_slice(&bytes)
             .map_err(|error| AuthError::Provider(format!("invalid revoke response: {error}")))?;
@@ -291,9 +291,13 @@ async fn bounded_body_async(response: reqwest::Response) -> Result<Vec<u8>, Auth
     Ok(body.to_vec())
 }
 
-fn provider_error(status: StatusCode, body: &[u8]) -> AuthError {
-    let bounded = String::from_utf8_lossy(&body[..body.len().min(4_096)]);
-    AuthError::Provider(format!("http {status}: {bounded}"))
+fn provider_error(status: StatusCode, body: &[u8], secrets: &[&str]) -> AuthError {
+    let bounded = &body[..body.len().min(4_096)];
+    let mut text = String::from_utf8_lossy(bounded).to_string();
+    for secret in secrets.iter().filter(|value| !value.is_empty()) {
+        text = text.replace(secret, "[REDACTED]");
+    }
+    AuthError::Provider(format!("http {status}: {text}"))
 }
 
 fn log_or_body(log: String, body: &str) -> String {
