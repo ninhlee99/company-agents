@@ -11,7 +11,8 @@ interface TestResult {
 
 const PORT = 3188;
 process.env.PORT = String(PORT);
-process.env.NODE_ENV = 'production';
+process.env.NODE_ENV = 'test';
+process.env.ALLOW_SIMULATED_ACTIONS = 'true';
 
 // Helper to make HTTP requests
 function request(method: string, path: string, body?: any): Promise<{ status: number; body: any; headers: http.IncomingHttpHeaders }> {

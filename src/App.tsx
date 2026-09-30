@@ -528,87 +528,87 @@ export default function App() {
           onToggleAutoPilot={handleToggleAutoPilot}
         />
 
-        {/* Clean Navigation Bar (Sticky with Header) */}
-        <nav className="border-t border-slate-800/80 bg-slate-900/60 px-4 lg:px-8">
-          <div className="max-w-5xl mx-auto flex items-center justify-between gap-2 py-1.5">
+        {/* Clean Navigation Bar */}
+        <nav className="border-t border-slate-800/80 bg-slate-900/40 px-4 lg:px-8">
+          <div className="max-w-5xl mx-auto flex items-center justify-between gap-2 py-2">
             {uiMode === 'basic' ? (
-              <div className="flex items-center gap-1 overflow-x-auto scrollbar-none w-full">
+              <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none w-full">
                 <button
                   onClick={() => setBasicTab('dashboard')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                     basicTab === 'dashboard'
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
                   }`}
                 >
                   <LayoutDashboard className="w-3.5 h-3.5" />
-                  <span>1. Dashboard &amp; Live HQ</span>
+                  <span>Tổng Quan</span>
                 </button>
 
                 <button
                   onClick={() => setBasicTab('agents')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                     basicTab === 'agents'
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
                   }`}
                 >
                   <Users className="w-3.5 h-3.5" />
-                  <span>2. Nhân Sự &amp; Sàn Tuyển Dụng</span>
+                  <span>Nhân Sự</span>
                 </button>
 
                 <button
                   onClick={() => setBasicTab('studio')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                     basicTab === 'studio'
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
                   }`}
                 >
-                  <Video className="w-3.5 h-3.5 text-pink-400" />
-                  <span>3. Xưởng Media 5-in-1</span>
+                  <Video className="w-3.5 h-3.5" />
+                  <span>Xưởng Media</span>
                 </button>
 
                 <button
                   onClick={() => setBasicTab('pipeline')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                     basicTab === 'pipeline'
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
                   }`}
                 >
-                  <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                  <span>4. Dây Chuyền Tự Động</span>
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Dây Chuyền Tự Động</span>
                 </button>
 
                 <button
                   onClick={() => setBasicTab('finances')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                     basicTab === 'finances'
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
                   }`}
                 >
                   <Wallet className="w-3.5 h-3.5" />
-                  <span>5. Ví Tiền &amp; Thu Chi</span>
+                  <span>Tài Chính</span>
                 </button>
               </div>
             ) : (
-              <div className="flex items-center gap-1 overflow-x-auto scrollbar-none w-full">
+              <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none w-full">
                 <button
                   onClick={() => setProTab('audit')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                    proTab === 'audit' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                    proTab === 'audit' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
-                  <span>Review Khắc Khe</span>
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  <span>Review Khắt Khe</span>
                 </button>
 
                 <button
                   onClick={() => setProTab('cycles')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                    proTab === 'cycles' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                    proTab === 'cycles' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
                   <RotateCw className="w-3.5 h-3.5" />
@@ -617,8 +617,8 @@ export default function App() {
 
                 <button
                   onClick={() => setProTab('war-room')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                    proTab === 'war-room' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                    proTab === 'war-room' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
                   <Users className="w-3.5 h-3.5" />
@@ -627,8 +627,8 @@ export default function App() {
 
                 <button
                   onClick={() => setProTab('ledger')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                    proTab === 'ledger' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                    proTab === 'ledger' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
                   <Wallet className="w-3.5 h-3.5" />
@@ -637,11 +637,11 @@ export default function App() {
 
                 <button
                   onClick={() => setProTab('chaos')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                    proTab === 'chaos' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                    proTab === 'chaos' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  <AlertOctagon className="w-3.5 h-3.5 text-amber-400" />
+                  <AlertOctagon className="w-3.5 h-3.5" />
                   <span>Giả Lập Khủng Hoảng</span>
                 </button>
               </div>

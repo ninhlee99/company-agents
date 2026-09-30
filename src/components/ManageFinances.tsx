@@ -1,16 +1,13 @@
 import React, { useState } from 'react';
 import { CompanySnapshot, LedgerEntry, CustomAgent } from '../types/company';
-import { AgentProfitabilityLedger } from './AgentProfitabilityLedger';
-import { ResourceReallocationDashboard } from './ResourceReallocationDashboard';
 import { 
   Wallet, 
   ArrowDownLeft, 
   ArrowUpRight, 
   ShieldCheck, 
   Users,
-  ArrowRightLeft,
-  TrendingUp,
-  Receipt
+  Receipt,
+  DollarSign
 } from 'lucide-react';
 
 interface ManageFinancesProps {
@@ -27,13 +24,12 @@ export const ManageFinances: React.FC<ManageFinancesProps> = ({
   agents = [],
 }) => {
   const [filterType, setFilterType] = useState<'All' | 'Income' | 'Expense'>('All');
-  const [activeSubTab, setActiveSubTab] = useState<'all' | 'reallocation' | 'profitability' | 'ledger'>('all');
 
   const formatMoney = (minor: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: snapshot.currency || 'USD',
-      maximumFractionDigits: 2,
+      maximumFractionDigits: 0,
     }).format(minor / 100);
   };
 
@@ -48,201 +44,112 @@ export const ManageFinances: React.FC<ManageFinancesProps> = ({
   });
 
   return (
-    <div className="space-y-4 max-w-5xl mx-auto pb-10">
-      {/* Header */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
-        <div className="flex items-center gap-2">
-          <Wallet className="w-5 h-5 text-emerald-400" />
-          <div>
-            <h2 className="text-base font-bold text-white">Ví Tiền &amp; Quản Trị Tài Chính Doanh Nghiệp</h2>
-            <p className="text-xs text-slate-400">Minh bạch 100% theo nguyên tắc kế toán kép, tái phân bổ nguồn vốn &amp; ROI</p>
-          </div>
+    <div className="space-y-5 pb-12">
+      {/* Top Header */}
+      <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-white">Quản Trị Tài Chính &amp; Sổ Cái Kế Toán</h3>
+          <p className="text-xs text-slate-400">Minh bạch 100% dòng tiền theo nguyên tắc kế toán kép (Double-Entry Bookkeeping)</p>
         </div>
-
-        <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-mono bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20">
+        <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-mono bg-emerald-950/60 px-2.5 py-1 rounded-lg border border-emerald-800/40">
           <ShieldCheck className="w-3.5 h-3.5" />
           <span>Governor Đảm Bảo</span>
         </div>
       </div>
 
-      {/* 3 Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-xs text-slate-400 block font-medium">Số Dư Kho Bạc</span>
-          <div className="text-2xl font-black text-white font-mono mt-1">{formatMoney(snapshot.cash_minor)}</div>
-          <span className="text-[11px] text-cyan-400 mt-0.5 block">Sống được {snapshot.runway_days} ngày</span>
+      {/* 4 Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+        <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800">
+          <span className="text-xs text-slate-400 font-medium block">Số Dư Kho Bạc</span>
+          <div className="text-xl font-bold text-white font-mono mt-1">{formatMoney(snapshot.cash_minor)}</div>
+          <span className="text-[11px] text-emerald-400 mt-0.5 block">Runway: {snapshot.runway_days} ngày sống còn</span>
         </div>
 
-        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-xs text-slate-400 block font-medium">Tổng Thu Hàng Tháng</span>
-          <div className="text-2xl font-black text-cyan-400 font-mono mt-1">{formatMoney(snapshot.revenue_minor)}</div>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">Affiliate &amp; Content Ads</span>
+        <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800">
+          <span className="text-xs text-slate-400 font-medium block">Thu Nhập Hàng Tháng</span>
+          <div className="text-xl font-bold text-blue-400 font-mono mt-1">{formatMoney(snapshot.revenue_minor)}</div>
+          <span className="text-[11px] text-slate-400 mt-0.5 block">Affiliate &amp; Media Payouts</span>
         </div>
 
-        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-xs text-slate-400 block font-medium">Tổng Chi Hàng Tháng</span>
-          <div className="text-2xl font-black text-rose-400 font-mono mt-1">{formatMoney(snapshot.expenses_minor)}</div>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">Lương AI, GPU &amp; API</span>
+        <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800">
+          <span className="text-xs text-slate-400 font-medium block">Chi Phí Hàng Tháng</span>
+          <div className="text-xl font-bold text-amber-400 font-mono mt-1">{formatMoney(snapshot.expenses_minor)}</div>
+          <span className="text-[11px] text-slate-400 mt-0.5 block">Lương nhân sự ({agents.length}) &amp; API Cloud</span>
         </div>
       </div>
 
-      {/* Quick Navigation Filter Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 p-1.5 bg-slate-900 border border-slate-800 rounded-xl text-xs">
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setActiveSubTab('all')}
-            className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
-              activeSubTab === 'all'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
-            }`}
-          >
-            Tất Cả Công Cụ
-          </button>
-          <button
-            onClick={() => setActiveSubTab('reallocation')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all ${
-              activeSubTab === 'reallocation'
-                ? 'bg-cyan-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
-            }`}
-          >
-            <ArrowRightLeft className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Tái Phân Bổ Nguồn Vốn (Drag &amp; Drop)</span>
-          </button>
-          <button
-            onClick={() => setActiveSubTab('profitability')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all ${
-              activeSubTab === 'profitability'
-                ? 'bg-emerald-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
-            }`}
-          >
-            <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Sổ Cái Sinh Lời Nhân Sự (ROI)</span>
-          </button>
-          <button
-            onClick={() => setActiveSubTab('ledger')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all ${
-              activeSubTab === 'ledger'
-                ? 'bg-slate-800 text-white shadow-sm'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
-            }`}
-          >
-            <Receipt className="w-3.5 h-3.5 text-slate-400" />
-            <span>Sao Kê &amp; Bảng Lương</span>
-          </button>
-        </div>
-
-        <span className="text-[11px] text-slate-500 font-mono pr-2 hidden md:inline-block">
-          Double-Entry Accounting • Chu kỳ #{snapshot.cycle_count}
-        </span>
-      </div>
-
-      {/* 1. RESOURCE REALLOCATION DASHBOARD (DRAG AND DROP SURPLUS TO UNDERPERFORMING) */}
-      {(activeSubTab === 'all' || activeSubTab === 'reallocation') && (
-        <ResourceReallocationDashboard snapshot={snapshot} />
-      )}
-
-      {/* 2. AGENT PROFITABILITY LEDGER (GRANULAR EMPLOYEE ROI & PIPELINE CROSS-REFERENCE) */}
-      {(activeSubTab === 'all' || activeSubTab === 'profitability') && (
-        <AgentProfitabilityLedger snapshot={snapshot} agents={agents} />
-      )}
-
-      {/* 3. TRANSACTION HISTORY & PAYROLL */}
-      {(activeSubTab === 'all' || activeSubTab === 'ledger') && (
-        <>
-          {/* Transaction History (Banking Style) */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm p-4 space-y-3">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <span className="font-bold text-white text-xs">Biến Động Số Dư (Sao Kê Sổ Cái Kép)</span>
-
-              <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
-                {(['All', 'Income', 'Expense'] as const).map((filter) => (
-                  <button
-                    key={filter}
-                    onClick={() => setFilterType(filter)}
-                    className={`px-2.5 py-1 rounded text-xs font-semibold transition-all ${
-                      filterType === filter ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {filter === 'All' ? 'Tất cả' : filter === 'Income' ? 'Tiền vào (+)' : 'Tiền ra (-)'}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Transactions List */}
-            <div className="space-y-1.5 max-h-96 overflow-y-auto pr-1">
-              {filteredEntries.map((tx) => {
-                const isIncome = tx.creditAccount.toLowerCase().includes('revenue') || tx.creditAccount.toLowerCase().includes('equity');
-                return (
-                  <div
-                    key={tx.id}
-                    className="p-3 rounded-lg bg-slate-950 border border-slate-800/80 hover:border-slate-700 transition-all flex items-center justify-between gap-3 text-xs"
-                  >
-                    <div className="flex items-center gap-2.5 truncate">
-                      <div
-                        className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                          isIncome ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
-                        }`}
-                      >
-                        {isIncome ? <ArrowDownLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
-                      </div>
-                      <div className="truncate">
-                        <span className="font-semibold text-white block truncate">{tx.description}</span>
-                        <span className="text-[10px] text-slate-500 font-mono">
-                          Kỳ #{tx.cycle} • {new Date(tx.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="text-right shrink-0">
-                      <span
-                        className={`font-mono font-bold text-xs block ${
-                          isIncome ? 'text-emerald-400' : 'text-rose-400'
-                        }`}
-                      >
-                        {isIncome ? `+${formatMoney(tx.amount_minor)}` : `-${formatMoney(tx.amount_minor)}`}
-                      </span>
-                      <span className="text-[10px] text-slate-500 font-mono">Khớp 100%</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+      {/* Double-Entry General Ledger */}
+      <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-2">
+            <Receipt className="w-4 h-4 text-blue-400" />
+            <h4 className="text-sm font-semibold text-white">Sổ Cái Giao Dịch Doanh Nghiệp ({filteredEntries.length})</h4>
           </div>
 
-          {/* Payroll / Employees Card */}
-          {employees.length > 0 && (
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-white text-xs flex items-center gap-1.5">
-                  <Users className="w-4 h-4 text-indigo-400" /> Bảng Lương Nhân Sự AI ({employees.length} vị trí)
-                </span>
-                <span className="text-[11px] text-slate-400">Tự động chi trả hàng tháng</span>
-              </div>
+          <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+            {(['All', 'Income', 'Expense'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setFilterType(t)}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                  filterType === t ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {t === 'All' ? 'Tất cả' : t === 'Income' ? 'Thu nhập (+)' : 'Chi phí (-)'}
+              </button>
+            ))}
+          </div>
+        </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                {employees.map((emp) => (
-                  <div key={emp.id} className="p-2.5 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between">
-                    <div>
-                      <span className="font-bold text-white block">{emp.name}</span>
-                      <span className="text-[11px] text-slate-400">{emp.role}</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="font-mono font-bold text-rose-400 text-xs block">
-                        ${(emp.salary_minor / 100).toLocaleString()}/th
-                      </span>
-                      <span className="text-[10px] text-slate-500 font-mono">Kỳ #{emp.hiredAtCycle}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </>
-      )}
+        {/* Ledger Table */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-slate-800 text-slate-400 text-[11px]">
+                <th className="py-2 px-2.5">Thời Gian</th>
+                <th className="py-2 px-2.5">Mô Tả Nghiệp Vụ</th>
+                <th className="py-2 px-2.5">Tài Khoản Nợ (Debit)</th>
+                <th className="py-2 px-2.5">Tài Khoản Có (Credit)</th>
+                <th className="py-2 px-2.5 text-right">Số Tiền</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60 text-slate-300">
+              {filteredEntries.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-6 text-center text-slate-500">
+                    Chưa có giao dịch phát sinh trong sổ cái.
+                  </td>
+                </tr>
+              ) : (
+                filteredEntries.map((tx) => {
+                  const isRevenue = tx.creditAccount.toLowerCase().includes('revenue') || tx.creditAccount.toLowerCase().includes('equity');
+                  return (
+                    <tr key={tx.id} className="hover:bg-slate-800/30 transition-colors">
+                      <td className="py-2.5 px-2.5 font-mono text-[10px] text-slate-500 whitespace-nowrap">
+                        {new Date(tx.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • Kỳ #{tx.cycle}
+                      </td>
+                      <td className="py-2.5 px-2.5 font-medium text-slate-200">
+                        {tx.description}
+                      </td>
+                      <td className="py-2.5 px-2.5 text-[11px] text-slate-400">
+                        {tx.debitAccount}
+                      </td>
+                      <td className="py-2.5 px-2.5 text-[11px] text-slate-400">
+                        {tx.creditAccount}
+                      </td>
+                      <td className="py-2.5 px-2.5 text-right font-mono font-semibold whitespace-nowrap">
+                        <span className={isRevenue ? 'text-emerald-400' : 'text-slate-300'}>
+                          {isRevenue ? '+' : '-'}{formatMoney(tx.amount_minor)}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 };

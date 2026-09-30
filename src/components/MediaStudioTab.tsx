@@ -3,23 +3,16 @@ import { CompanySnapshot, FullCreativeProduction } from '../types/company';
 import { 
   Video, 
   Sparkles, 
-  ShoppingBag, 
   TrendingUp, 
   ShieldCheck, 
   RotateCw, 
   Play, 
-  Layers, 
   CheckCircle2, 
-  Clock,
+  Music, 
+  Camera, 
+  FileText, 
+  Sliders, 
   ArrowRight,
-  Music,
-  Camera,
-  FileText,
-  Sliders,
-  Share2,
-  Volume2,
-  Film,
-  Zap,
   DollarSign
 } from 'lucide-react';
 
@@ -32,16 +25,16 @@ export const MediaStudioTab: React.FC<MediaStudioTabProps> = ({
   snapshot,
   onPublishToCycle,
 }) => {
-  const [activeStudioSubTab, setActiveStudioSubTab] = useState<'all' | 'copy' | 'music' | 'visual' | 'render'>('all');
-  const [category, setCategory] = useState('AI Productivity & Desk Ergonomics');
+  const [activeTab, setActiveTab] = useState<'all' | 'copy' | 'audio' | 'visual' | 'video'>('all');
+  const [category, setCategory] = useState('AI Smart Workspace & Desk Gadgets');
   const [isGenerating, setIsGenerating] = useState(false);
   const [publishedNotice, setPublishedNotice] = useState(false);
 
   const [production, setProduction] = useState<FullCreativeProduction>({
     id: 'prod-init-1',
     campaignTitle: '3 Món Đồ Công Nghệ AI Giúp Tôi Tiết Kiệm 14 Tiếng Mỗi Tuần',
-    niche: 'AI Productivity & Desk Ergonomics',
-    projectedRevenueMinor: 155000,
+    niche: 'AI Smart Workspace & Desk Gadgets',
+    projectedRevenueMinor: 145000,
     costMinor: 15000,
     copywriting: {
       headline: 'Bí Quyết Tăng 300% Năng Suất Làm Việc Với 3 Phụ Kiện AI Này',
@@ -60,9 +53,9 @@ export const MediaStudioTab: React.FC<MediaStudioTabProps> = ({
       title: 'Cyberpunk Lo-Fi Productivity Beats (128 BPM)',
       genre: 'Lo-Fi Chill',
       bpm: 128,
-      mood: 'Tập trung cao độ, hiện đại, kích thích hành động mua sắm',
+      mood: 'Tập trung cao độ, hiện đại, kích thích hành động',
       voiceoverTone: 'Confident & Crisp',
-      voiceSpeed: '1.1x (Nhịp điệu nhanh tối ưu retention)',
+      voiceSpeed: '1.1x (Nhịp điệu nhanh giữ chân người nghe)',
       loudnessLufs: -14.0,
     },
     visualShots: [
@@ -106,44 +99,9 @@ export const MediaStudioTab: React.FC<MediaStudioTabProps> = ({
       aspectRatio: '9:16',
     },
     governorApproved: true,
-    publishedChannels: ['TikTok Shop', 'YouTube Shorts', 'Instagram Reels', 'Facebook Video'],
+    publishedChannels: ['TikTok Shop', 'YouTube Shorts', 'Instagram Reels'],
     attributionEpc: '$0.84 / Click',
   });
-
-  const presetNiches = [
-    'AI Productivity & Desk Ergonomics',
-    'Smart Home Automation & IoT Gadgets',
-    'Creator Audio & Podcast Microphone Gear',
-    'Minimalist EDC & MagSafe Tech Accessories',
-  ];
-
-  const handleGenerate = async (targetCategory?: string) => {
-    const selected = targetCategory || category;
-    setIsGenerating(true);
-    setPublishedNotice(false);
-
-    try {
-      const res = await fetch('/api/generate-creative-suite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productCategory: selected }),
-      });
-      const data = await res.json();
-      if (data.production && data.production.campaignTitle) {
-        setProduction(data.production);
-      }
-    } catch (e) {
-      console.error('Creative production error:', e);
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const handlePublish = () => {
-    onPublishToCycle(production.campaignTitle, production.costMinor || 15000);
-    setPublishedNotice(true);
-    setTimeout(() => setPublishedNotice(false), 5000);
-  };
 
   const formatMoney = (minor: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -153,311 +111,236 @@ export const MediaStudioTab: React.FC<MediaStudioTabProps> = ({
     }).format(minor / 100);
   };
 
+  const handleGenerateProduction = async () => {
+    setIsGenerating(true);
+    setPublishedNotice(false);
+    try {
+      const res = await fetch('/api/generate-creative-suite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ niche: category }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.production) {
+          setProduction(data.production);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handlePublish = () => {
+    onPublishToCycle(production.campaignTitle, production.costMinor);
+    setPublishedNotice(true);
+    setTimeout(() => setPublishedNotice(false), 4000);
+  };
+
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-16">
-      {/* Header */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-2 shadow-lg">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <Video className="w-5 h-5 text-indigo-400" />
-            Xưởng Sáng Tạo Nội Dung Đa Năng (5-in-1 Creative Suite)
-          </h2>
-          <span className="text-xs font-mono text-emerald-300 bg-emerald-500/20 px-2.5 py-1 rounded-full border border-emerald-500/30 flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            Copywriter • Music-er • Photographer • Editor • Producer
-          </span>
-        </div>
-        <p className="text-xs text-slate-400 leading-relaxed">
-          Quy trình sản xuất chuẩn Senior Expert: Tự động kết hợp kịch bản hook 3 giây, phối beat âm thanh đạt chuẩn EBU R128 (-14 LUFS), 
-          dựng ảnh bìa có độ tương phản cao và render video FFmpeg 1080x1920 60fps kèm link affiliate.
-        </p>
-      </div>
+    <div className="space-y-5 pb-12">
+      {/* Top Creation Control Bar */}
+      <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-white">Xưởng Sáng Tạo Media 5-trong-1</h3>
+            <p className="text-xs text-slate-400">Tự động sản xuất đồng bộ: Kịch Bản + Âm Nhạc + Hình Ảnh + Video Rendering</p>
+          </div>
 
-      {/* Preset Categories */}
-      <div className="space-y-2">
-        <span className="text-xs uppercase font-mono text-slate-400 block">Chọn ngách sản phẩm sinh lời cao:</span>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-          {presetNiches.map((niche, idx) => (
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <input
+              type="text"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              placeholder="Nhập ngách sản phẩm..."
+              className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 w-full sm:w-64"
+            />
             <button
-              key={idx}
-              onClick={() => {
-                setCategory(niche);
-                handleGenerate(niche);
-              }}
-              className="text-left p-3 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-800 text-xs text-slate-300 transition-all hover:border-indigo-500/40"
+              onClick={handleGenerateProduction}
+              disabled={isGenerating}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 text-white font-medium text-xs shadow-sm transition-colors whitespace-nowrap"
             >
-              {niche}
+              <Sparkles className={`w-3.5 h-3.5 ${isGenerating ? 'animate-spin' : ''}`} />
+              <span>{isGenerating ? 'Đang sản xuất...' : 'Sản Xuất Mới'}</span>
             </button>
-          ))}
+          </div>
         </div>
       </div>
 
-      {/* Generator Input */}
-      <div className="flex gap-2">
-        <input
-          type="text"
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          placeholder="Nhập ngành hàng hoặc từ khóa sản phẩm để AI sản xuất trọn gói..."
-          className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-        />
-        <button
-          onClick={() => handleGenerate()}
-          disabled={isGenerating}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-white text-sm transition-all shadow-md shrink-0 ${
-            isGenerating
-              ? 'bg-slate-800 text-slate-400 cursor-not-allowed'
-              : 'bg-indigo-600 hover:bg-indigo-500 active:scale-95'
-          }`}
-        >
-          <RotateCw className={`w-4 h-4 ${isGenerating ? 'animate-spin' : ''}`} />
-          {isGenerating ? 'Đang Sản Xuất...' : 'Sản Xuất Toàn Diện (1-Click)'}
-        </button>
-      </div>
+      {publishedNotice && (
+        <div className="p-3 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-300 text-xs flex items-center gap-2 animate-fadeIn">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>Chiến dịch đã được xuất bản tự động đa nền tảng và hạch toán doanh thu vào sổ cái kép!</span>
+        </div>
+      )}
 
-      {/* Studio Workstation Sub-Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-800 pb-2 overflow-x-auto">
-        <button
-          onClick={() => setActiveStudioSubTab('all')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-            activeStudioSubTab === 'all'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : 'bg-slate-900 text-slate-400 hover:text-white'
-          }`}
-        >
-          <Layers className="w-3.5 h-3.5" />
-          <span>Tổng Quan Đầy Đủ</span>
-        </button>
-        <button
-          onClick={() => setActiveStudioSubTab('copy')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-            activeStudioSubTab === 'copy'
-              ? 'bg-pink-600 text-white shadow-sm'
-              : 'bg-slate-900 text-slate-400 hover:text-white'
-          }`}
-        >
-          <FileText className="w-3.5 h-3.5" />
-          <span>✍️ Bàn Kịch Bản (Copywriter)</span>
-        </button>
-        <button
-          onClick={() => setActiveStudioSubTab('music')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-            activeStudioSubTab === 'music'
-              ? 'bg-purple-600 text-white shadow-sm'
-              : 'bg-slate-900 text-slate-400 hover:text-white'
-          }`}
-        >
-          <Music className="w-3.5 h-3.5" />
-          <span>🎵 Studio Âm Thanh (Music-er)</span>
-        </button>
-        <button
-          onClick={() => setActiveStudioSubTab('visual')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-            activeStudioSubTab === 'visual'
-              ? 'bg-cyan-600 text-white shadow-sm'
-              : 'bg-slate-900 text-slate-400 hover:text-white'
-          }`}
-        >
-          <Camera className="w-3.5 h-3.5" />
-          <span>📸 Nhiếp Ảnh &amp; Visual (Photographer)</span>
-        </button>
-        <button
-          onClick={() => setActiveStudioSubTab('render')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-            activeStudioSubTab === 'render'
-              ? 'bg-emerald-600 text-white shadow-sm'
-              : 'bg-slate-900 text-slate-400 hover:text-white'
-          }`}
-        >
-          <Film className="w-3.5 h-3.5" />
-          <span>🎬 Trạm Render FFmpeg (Editor)</span>
-        </button>
-      </div>
-
-      {/* Main Studio Viewport */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-6 shadow-xl">
-        {/* Title Header */}
-        <div className="space-y-2 border-b border-slate-800 pb-4">
-          <div className="flex items-center gap-2 flex-wrap justify-between">
-            <div className="flex items-center gap-2">
-              <span className="px-2.5 py-0.5 rounded text-[11px] font-mono bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                Chiến Dịch Video Chuyển Đổi Cao (High CTR)
-              </span>
-              <span className="text-xs text-slate-400 font-mono">Ngách: {production.niche}</span>
-            </div>
-            <div className="flex items-center gap-3 text-xs font-mono">
-              <span className="text-slate-400">Chi phí: <strong className="text-white">{formatMoney(production.costMinor)}</strong></span>
-              <span className="text-emerald-400">Dự phóng: <strong>{formatMoney(production.projectedRevenueMinor)}</strong></span>
-            </div>
+      {/* Campaign Summary Card */}
+      <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+          <div>
+            <span className="text-[11px] text-blue-400 font-medium block">Chiến Dịch Đang Tạo</span>
+            <h2 className="text-base font-bold text-white mt-0.5">{production.campaignTitle}</h2>
           </div>
-          <h3 className="text-lg md:text-xl font-extrabold text-white">{production.campaignTitle}</h3>
+
+          <div className="flex items-center gap-3 text-xs">
+            <div className="text-right">
+              <span className="text-[10px] text-slate-500 block">Dự phóng doanh thu:</span>
+              <span className="font-bold font-mono text-emerald-400 text-sm">
+                {formatMoney(production.projectedRevenueMinor)}
+              </span>
+            </div>
+            <button
+              onClick={handlePublish}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-sm transition-colors"
+            >
+              <Play className="w-3.5 h-3.5" /> Xuất Bản Ngay
+            </button>
+          </div>
         </div>
 
-        {/* Section 1: Copywriting Workstation */}
-        {(activeStudioSubTab === 'all' || activeStudioSubTab === 'copy') && (
-          <div className="space-y-3 bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold text-pink-400 uppercase tracking-wider flex items-center gap-1.5">
-                <FileText className="w-4 h-4" />
-                1. Kịch Bản &amp; Tâm Lý Chuyển Đổi (Copywriter Senior)
-              </h4>
-              <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1">
-                <ShieldCheck className="w-3 h-3" /> Đạt chuẩn minh bạch FTC
-              </span>
-            </div>
+        {/* Section Navigation Tabs */}
+        <div className="flex items-center gap-1 pt-3 border-b border-slate-800 pb-2.5 overflow-x-auto text-xs">
+          {[
+            { id: 'all', label: 'Tất Cả Khâu', icon: Sliders },
+            { id: 'copy', label: '1. Kịch Bản (Copywriter)', icon: FileText },
+            { id: 'audio', label: '2. Âm Nhạc (Sound Producer)', icon: Music },
+            { id: 'visual', label: '3. Hình Ảnh (Photographer)', icon: Camera },
+            { id: 'video', label: '4. Dựng Video (Video Editor)', icon: Video },
+          ].map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id as any)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors ${
+                  activeTab === item.id
+                    ? 'bg-slate-800 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </div>
 
-            <div className="p-3 bg-pink-950/20 border border-pink-500/30 rounded-lg text-xs md:text-sm text-pink-200">
-              <strong className="text-pink-400">Hook 3 Giây Đầu:</strong> "{production.copywriting.hook3s}"
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-              <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                <span className="text-slate-500 text-[10px] uppercase font-mono block">Công Thức Giữ Chân Người Xem (Retention Formula)</span>
-                <span className="text-slate-300 mt-1 block leading-relaxed">{production.copywriting.retentionFormula}</span>
-              </div>
-              <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                <span className="text-slate-500 text-[10px] uppercase font-mono block">Lời Kêu Gọi Hành Động (CTA)</span>
-                <span className="text-emerald-400 font-medium mt-1 block">{production.copywriting.ctaText}</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Section 2: Music & Audio Workstation */}
-        {(activeStudioSubTab === 'all' || activeStudioSubTab === 'music') && (
-          <div className="space-y-3 bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold text-purple-400 uppercase tracking-wider flex items-center gap-1.5">
-                <Music className="w-4 h-4" />
-                2. Thiết Kế Âm Thanh &amp; Nhạc Nền (AI Music Producer)
-              </h4>
-              <span className="text-[10px] font-mono text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded border border-purple-500/30">
-                Chuẩn EBU R128 ({production.audioTrack.loudnessLufs} LUFS)
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-              <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                <span className="text-slate-500 text-[10px] uppercase font-mono block">Beat Thể Loại &amp; Nhịp Điệu</span>
-                <span className="text-white font-bold mt-1 block">{production.audioTrack.genre} ({production.audioTrack.bpm} BPM)</span>
-                <span className="text-[11px] text-slate-400 mt-0.5 block">{production.audioTrack.mood}</span>
-              </div>
-
-              <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                <span className="text-slate-500 text-[10px] uppercase font-mono block">Tông Giọng Đọc AI (Voiceover)</span>
-                <span className="text-cyan-400 font-bold mt-1 block">{production.audioTrack.voiceoverTone}</span>
-                <span className="text-[11px] text-slate-400 mt-0.5 block">Tốc độ: {production.audioTrack.voiceSpeed}</span>
-              </div>
-
-              <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 flex flex-col justify-between">
-                <span className="text-slate-500 text-[10px] uppercase font-mono block">Bản Quyền Thương Mại</span>
-                <span className="text-emerald-400 font-mono font-bold flex items-center gap-1 mt-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Sạch bản quyền 100%
+        {/* Dynamic Studio Output Content */}
+        <div className="pt-4 space-y-4 text-xs">
+          {/* 1. Copywriting Section */}
+          {(activeTab === 'all' || activeTab === 'copy') && (
+            <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-white flex items-center gap-1.5">
+                  <FileText className="w-4 h-4 text-blue-400" /> Kịch Bản &amp; Hook 3 Giây (Senior Copywriter)
                 </span>
-                <span className="text-[10px] text-slate-500">Tự động chống gậy bản quyền mạng xã hội</span>
+                <span className="text-[10px] text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">
+                  ✓ FTC Verified
+                </span>
               </div>
-            </div>
-          </div>
-        )}
 
-        {/* Section 3: Visual & Photography Workstation */}
-        {(activeStudioSubTab === 'all' || activeStudioSubTab === 'visual') && (
-          <div className="space-y-3 bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
-                <Camera className="w-4 h-4" />
-                3. Bảng Phân Cảnh Hình Ảnh &amp; Góc Chụp (Prompt Photographer)
-              </h4>
-              <span className="text-[10px] font-mono text-cyan-300 bg-cyan-500/20 px-2 py-0.5 rounded border border-cyan-500/30">
-                4 Phân Cảnh 8K Studio
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {production.visualShots.map((shot, idx) => (
-                <div key={idx} className="p-3.5 rounded-lg bg-slate-900 border border-slate-800 text-xs space-y-2">
-                  <div className="flex items-center justify-between font-mono text-[11px]">
-                    <span className="text-cyan-400 font-bold flex items-center gap-1">
-                      <Clock className="w-3 h-3" /> Phân cảnh #{shot.shotIndex} ({shot.durationSec}s)
-                    </span>
-                    <span className="text-slate-500">{shot.framing}</span>
-                  </div>
-                  
-                  <div className="text-slate-300">
-                    <strong className="text-slate-400">Ánh sáng:</strong> <span className="text-purple-300">{shot.lighting}</span>
-                  </div>
-
-                  <div className="p-2 bg-slate-950 rounded border border-slate-800/60 font-mono text-[10px] text-slate-400">
-                    <strong className="text-slate-500 block">AI Image Prompt:</strong>
-                    {shot.imagePrompt}
-                  </div>
-
-                  <div className="text-emerald-300 font-bold text-[11px] flex items-center gap-1">
-                    <span>Chữ chèn video:</span> "{shot.textOverlay}"
-                  </div>
+              <div className="space-y-1.5">
+                <div className="text-slate-300 font-medium text-[13px]">
+                  <strong>Tiêu đề:</strong> {production.copywriting.headline}
                 </div>
-              ))}
+                <div className="text-blue-300 bg-blue-950/30 p-2.5 rounded-lg border border-blue-900/40">
+                  <strong>Hook 3s:</strong> "{production.copywriting.hook3s}"
+                </div>
+                <div className="text-slate-400">
+                  <strong>Công thức giữ chân:</strong> {production.copywriting.retentionFormula}
+                </div>
+                <div className="text-emerald-300 bg-emerald-950/30 p-2.5 rounded-lg border border-emerald-900/40 font-mono">
+                  <strong>Call To Action (CTA):</strong> {production.copywriting.ctaText}
+                </div>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Section 4: Video Editor & FFmpeg Render Station */}
-        {(activeStudioSubTab === 'all' || activeStudioSubTab === 'render') && (
-          <div className="space-y-3 bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
-                <Film className="w-4 h-4" />
-                4. Thông Số Render &amp; Kỹ Thuật Dựng (Video Editor)
-              </h4>
-              <span className="text-[10px] font-mono text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30">
-                FFmpeg 60fps Vertical Engine
+          {/* 2. Music & Sound Section */}
+          {(activeTab === 'all' || activeTab === 'audio') && (
+            <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-white flex items-center gap-1.5">
+                  <Music className="w-4 h-4 text-purple-400" /> Thiết Kế Âm Thanh &amp; Nhạc Nền (AI Music Producer)
+                </span>
+                <span className="text-[10px] text-purple-400 font-mono">
+                  {production.audioTrack.loudnessLufs} LUFS (EBU R128)
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                  <span className="text-slate-500 block">Thể loại:</span>
+                  <span className="font-semibold text-white">{production.audioTrack.genre}</span>
+                </div>
+                <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                  <span className="text-slate-500 block">Nhịp độ (BPM):</span>
+                  <span className="font-semibold text-white font-mono">{production.audioTrack.bpm} BPM</span>
+                </div>
+                <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                  <span className="text-slate-500 block">Tông giọng đọc:</span>
+                  <span className="font-semibold text-white">{production.audioTrack.voiceoverTone}</span>
+                </div>
+                <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                  <span className="text-slate-500 block">Tốc độ thoại:</span>
+                  <span className="font-semibold text-white">{production.audioTrack.voiceSpeed}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 3. Visual Photography Section */}
+          {(activeTab === 'all' || activeTab === 'visual') && (
+            <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-2.5">
+              <span className="font-semibold text-white flex items-center gap-1.5">
+                <Camera className="w-4 h-4 text-emerald-400" /> Phân Cảnh Hình Ảnh 8K (Prompt Photographer)
               </span>
-            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-mono">
-              <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                <span className="text-slate-500 text-[10px] block">Độ Phân Giải</span>
-                <span className="text-white font-bold mt-1 block">{production.renderSettings.resolution}</span>
-              </div>
-              <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                <span className="text-slate-500 text-[10px] block">Tốc Độ Khung Hình</span>
-                <span className="text-white font-bold mt-1 block">{production.renderSettings.fps} FPS Mượt Mà</span>
-              </div>
-              <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                <span className="text-slate-500 text-[10px] block">Mã Hóa / Tối Ưu Web</span>
-                <span className="text-cyan-400 font-bold mt-1 block">{production.renderSettings.codec}</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {production.visualShots.map((shot) => (
+                  <div key={shot.shotIndex} className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 space-y-1">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-bold text-blue-400">Phân cảnh #{shot.shotIndex} ({shot.durationSec}s)</span>
+                      <span className="text-slate-400 font-mono text-[10px]">{shot.framing}</span>
+                    </div>
+                    <div className="text-slate-300 text-[11px] font-mono bg-slate-950 p-1.5 rounded border border-slate-800/80 line-clamp-2">
+                      {shot.imagePrompt}
+                    </div>
+                    <div className="text-yellow-400 font-semibold text-[10px]">
+                      Text Overlay: {shot.textOverlay}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Section 5: Producer Commercial Overview & Publish Action */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4 border-t border-slate-800">
-          <div className="text-xs space-y-1">
-            <div className="flex items-center gap-2 text-slate-300">
-              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Dự báo doanh thu mỗi click (EPC): <strong className="text-emerald-400 font-mono">{production.attributionEpc}</strong></span>
-            </div>
-            <div className="text-[11px] text-slate-500">
-              Kênh phát hành tự động: {production.publishedChannels.join(' • ')}
-            </div>
-          </div>
+          {/* 4. Video Rendering Specs Section */}
+          {(activeTab === 'all' || activeTab === 'video') && (
+            <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-2">
+              <span className="font-semibold text-white flex items-center gap-1.5">
+                <Video className="w-4 h-4 text-pink-400" /> Thông Số Render Kỹ Thuật (Motion Video Director)
+              </span>
 
-          <button
-            onClick={handlePublish}
-            className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-xs uppercase tracking-wider transition-all shadow-md active:scale-95 shrink-0"
-          >
-            <Play className="w-4 h-4" />
-            Xuất Bản &amp; Hạch Toán Vào Kỳ ({formatMoney(production.costMinor)})
-          </button>
+              <div className="grid grid-cols-3 gap-2 text-center text-[11px]">
+                <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                  <span className="text-slate-500 block">Độ phân giải</span>
+                  <span className="font-mono font-semibold text-white">{production.renderSettings.resolution}</span>
+                </div>
+                <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                  <span className="text-slate-500 block">Khung hình</span>
+                  <span className="font-mono font-semibold text-white">{production.renderSettings.fps} FPS</span>
+                </div>
+                <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                  <span className="text-slate-500 block">Bộ nén (Codec)</span>
+                  <span className="font-mono font-semibold text-white">libx264 (FFmpeg)</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-
-        {publishedNotice && (
-          <div className="p-3 bg-emerald-950/40 border border-emerald-500/40 rounded-lg text-xs text-emerald-300 flex items-center gap-2 animate-fadeIn">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            Tác phẩm đã hoàn tất! Gói sản xuất đã được chuyển vào hàng đợi xuất bản tự động và ghi sổ cái kho bạc.
-          </div>
-        )}
       </div>
     </div>
   );
