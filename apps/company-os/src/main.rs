@@ -3683,7 +3683,7 @@ async fn require_control_plane_auth(
 
                 let actor_id = control_plane_actor_id_for_cookie(&cookie);
                 if csrf_valid {
-                    let mut response = next.run(request).await;
+                    let mut response = next.run(request).instrument(span.clone()).await;
                     record_control_plane_audit(
                         &state,
                         &actor_id,
@@ -3758,7 +3758,7 @@ async fn require_control_plane_auth(
 
     let actor_id = format!("principal:{principal_id}");
 
-    let mut response = next.run(request).await;
+    let mut response = next.run(request).instrument(span.clone()).await;
     record_control_plane_audit(
         &state,
         &actor_id,
