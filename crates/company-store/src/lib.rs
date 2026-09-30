@@ -3509,7 +3509,7 @@ impl CompanyStore {
             time::OffsetDateTime::now_utc().unix_timestamp(),
             publish_completion_correlation_id(intent_id),
             None,
-            completion_key,
+            format!("outbox:{completion_key}"),
             serde_json::json!({
                 "source": "publish_execution",
                 "intent_id": intent_id,
