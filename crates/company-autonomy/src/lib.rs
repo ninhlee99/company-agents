@@ -366,6 +366,19 @@ pub fn assess(
         });
     }
 
+    if !matches!(
+        simulation.execution_status,
+        ExecutionStatus::Executed | ExecutionStatus::Noop
+    ) {
+        return Ok(AutonomyAssessment {
+            decision: AutonomyDecision::NeedsApproval,
+            ceiling: input.policy.max_level,
+            required_level: AutonomyLevel::HumanApprove,
+            reason: "digital twin could not execute the proposed action under current deterministic controls".into(),
+            simulation: Some(simulation),
+        });
+    }
+
     if !simulation.policy_safe
         || simulation.simulated_runway_days < input.policy.min_runway_days
         || simulation.negative_cash
@@ -620,6 +633,29 @@ mod tests {
                 ..AutonomyPolicy::default()
             },
             simulation: Some(simulation()),
+        };
+        assert_eq!(assess(&input).unwrap().decision, AutonomyDecision::NeedsApproval);
+    }
+
+    #[test]
+    fn rejected_simulation_never_becomes_autonomous_execution() {
+        let mut twin = simulation();
+        twin.execution_status = ExecutionStatus::Rejected;
+        let input = AutonomyGateInput {
+            emergency_stop: false,
+            company_status: CompanyStatus::Growth,
+            action: ActionKind::AllocateExperimentBudget,
+            cost_minor: 50,
+            risk: RiskTier::Medium,
+            confidence_bps: 9_000,
+            evidence_count: 5,
+            reversible: true,
+            external_side_effect: false,
+            policy: AutonomyPolicy {
+                max_level: AutonomyLevel::LimitedAutonomy,
+                ..AutonomyPolicy::default()
+            },
+            simulation: Some(twin),
         };
         assert_eq!(assess(&input).unwrap().decision, AutonomyDecision::NeedsApproval);
     }
