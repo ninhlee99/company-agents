@@ -7489,6 +7489,16 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
     pub async fn create_service_proposal(&self, p: &commercial_sales::ServiceProposal) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if p.title.trim().is_empty() || p.idempotency_key.trim().is_empty() || p.total_minor < 0 || p.currency.len() != 3 { return Err("invalid service proposal".into()); }
         let mut c = self.client.lock().await;
+        let customer_owned = c
+            .query_opt(
+                "SELECT 1 FROM customers WHERE company_id=$1 AND id=$2",
+                &[&p.company_id, &p.customer_id],
+            )
+            .await?
+            .is_some();
+        if !customer_owned {
+            return Err("customer is not owned by service-proposal company".into());
+        }
         c.execute("INSERT INTO service_proposals (id,company_id,customer_id,title,currency,total_minor,status,valid_until_epoch,idempotency_key) VALUES ($1,$2,$3,$4,$5,$6::numeric,$7,$8,$9) ON CONFLICT (company_id,idempotency_key) DO NOTHING",
             &[&p.id,&p.company_id,&p.customer_id,&p.title,&p.currency,&p.total_minor.to_string(),&format!("{:?}",p.status).to_uppercase(),&p.valid_until_epoch,&p.idempotency_key]).await?; Ok(())
     }
@@ -7496,8 +7506,18 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
     pub async fn create_sponsorship(&self, s: &commercial_sales::Sponsorship) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if s.title.trim().is_empty() || s.committed_minor < 0 || s.delivered_minor < 0 || s.delivered_minor > s.committed_minor || s.currency.len() != 3 { return Err("invalid sponsorship".into()); }
         let mut c = self.client.lock().await;
+        let customer_owned = c
+            .query_opt(
+                "SELECT 1 FROM customers WHERE company_id=$1 AND id=$2",
+                &[&s.company_id, &s.customer_id],
+            )
+            .await?
+            .is_some();
+        if !customer_owned {
+            return Err("customer is not owned by sponsorship company".into());
+        }
         c.execute("INSERT INTO sponsorships (id,company_id,customer_id,title,currency,committed_minor,delivered_minor,status) VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8)",
-            &[&s.id,&s.company_id,&s.customer_id,&s.title,&s.currency,&s.committed_minor.to_string(),&s.delivered_minor.to_string(),&s.status]).await?; Ok(())
+            &[&s.id,&s.company_id,&s.customer_id,&s.title,&s.currency,&s.committed_minor.to_string(),&s.status]).await?; Ok(())
     }
 
     pub async fn create_invoice(&self, invoice: &commercial_sales::Invoice, lines: &[commercial_sales::InvoiceLine]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -7506,6 +7526,16 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         if total <= 0 || total != invoice.subtotal_minor || invoice.paid_minor != 0 { return Err("invoice total or initial payment is invalid".into()); }
         let mut c = self.client.lock().await; let tx = c.transaction().await?;
         if tx.query_opt("SELECT id FROM invoices WHERE company_id=$1 AND idempotency_key=$2",&[&invoice.company_id,&invoice.idempotency_key]).await?.is_some() { tx.rollback().await?; return Ok(()); }
+        let customer_owned = tx
+            .query_opt(
+                "SELECT 1 FROM customers WHERE company_id=$1 AND id=$2",
+                &[&invoice.company_id, &invoice.customer_id],
+            )
+            .await?
+            .is_some();
+        if !customer_owned {
+            return Err("customer is not owned by invoice company".into());
+        }
         tx.execute("INSERT INTO invoices (id,company_id,customer_id,currency,subtotal_minor,paid_minor,status,due_epoch,idempotency_key) VALUES ($1,$2,$3,$4,$5::numeric,0,$6,$7,$8)",
             &[&invoice.id,&invoice.company_id,&invoice.customer_id,&invoice.currency,&total.to_string(),&format!("{:?}",invoice.status).to_uppercase(),&invoice.due_epoch,&invoice.idempotency_key]).await?;
         for line in lines {
@@ -8339,6 +8369,16 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         if !matches!(task_type,"ONBOARDING"|"HEALTH_REVIEW"|"RENEWAL"|"EXPANSION"|"RISK_REVIEW")
             || idempotency_key.trim().is_empty() { return Err("invalid customer success task".into()); }
         let client=self.client.lock().await;
+        let customer_owned = client
+            .query_opt(
+                "SELECT 1 FROM customers WHERE company_id=$1 AND id=$2",
+                &[&company, &customer],
+            )
+            .await?
+            .is_some();
+        if !customer_owned {
+            return Err("customer is not owned by customer-success company".into());
+        }
         let row=client.query_opt(
             "INSERT INTO customer_success_tasks
              (id,company_id,customer_id,task_type,due_at_epoch,owner,status,notes,idempotency_key)
