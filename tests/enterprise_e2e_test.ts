@@ -95,7 +95,7 @@ async function runEnterpriseE2ESuite() {
   // SUITE 1: Core Company Financial & Operating State
   // --------------------------------------------------------------------------
   console.log('📌 SUITE 1: Company Financial State, Governance & Virtual Office');
-  await executeTest('FinancialState', 'Fetch full company state & financial health metrics', async () => {
+  await executeTest('FinancialState', 'Fetch full simulated company state & financial health metrics', async () => {
     const res = await request('GET', '/api/state');
     if (res.status !== 200) throw new Error(`Status ${res.status}`);
     const state = res.body;
@@ -149,7 +149,7 @@ async function runEnterpriseE2ESuite() {
     };
   });
 
-  await executeTest('AutonomousEngine', 'Execute Auto-Pilot Tick with automated revenue generation & double-entry ledger update', async () => {
+  await executeTest('AutonomousEngine', 'Execute Auto-Pilot Tick with synthetic revenue outcome and ledger simulation', async () => {
     const tickRes = await request('POST', '/api/auto-pilot/tick');
     if (tickRes.status !== 200) throw new Error(`Status ${tickRes.status}`);
     const body = tickRes.body;
@@ -368,7 +368,7 @@ async function runEnterpriseE2ESuite() {
     };
   });
 
-  await executeTest('AgentManagement', 'Trigger Formal Corporate 10-Cycle Fiduciary Audit Report', async () => {
+  await executeTest('AgentManagement', 'Trigger simulated 10-cycle fiduciary audit report', async () => {
     const res = await request('POST', '/api/trigger-audit');
     if (res.status !== 200) throw new Error(`Status ${res.status}`);
     return {
@@ -477,7 +477,7 @@ async function runEnterpriseE2ESuite() {
   });
 
   let createdContractId = '';
-  await executeTest('ClientContracts', 'Post new client job contract and verify instant autonomous fulfillment', async () => {
+  await executeTest('ClientContracts', 'Post simulated client job contract and verify simulated fulfillment', async () => {
     const res = await request('POST', '/api/contracts/order', {
       clientName: 'AlphaTech Ventures',
       clientEmail: 'procurement@alphatech.com',
@@ -499,7 +499,7 @@ async function runEnterpriseE2ESuite() {
     };
   });
 
-  await executeTest('ClientContracts', 'Client inspects & accepts delivered contract deliverables with 5-star rating', async () => {
+  await executeTest('ClientContracts', 'Client simulation accepts delivered contract deliverables with 5-star rating', async () => {
     if (!createdContractId) throw new Error('No contract to accept');
     const res = await request('POST', `/api/contracts/${createdContractId}/accept`, {
       rating: 5,
