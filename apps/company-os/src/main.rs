@@ -104,11 +104,20 @@ fn observe_control_plane_request(state: &AppState, request_id: &str, started: In
     HeaderValue::from_str(request_id).unwrap_or_else(|_| HeaderValue::from_static("invalid"))
 }
 
-fn mark_control_plane_denied(state: &AppState, csrf: bool) {
+fn mark_control_plane_denied(state: &AppState, csrf: bool, started: Instant) {
+    state
+        .metrics
+        .control_plane_requests_total
+        .fetch_add(1, Ordering::Relaxed);
     state
         .metrics
         .control_plane_auth_denied_total
         .fetch_add(1, Ordering::Relaxed);
+    let latency_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+    state
+        .metrics
+        .control_plane_last_latency_ms
+        .store(latency_ms, Ordering::Relaxed);
     if csrf {
         state
             .metrics
@@ -3049,7 +3058,7 @@ async fn require_control_plane_auth(
                     return Ok(response);
                 }
 
-                mark_control_plane_denied(&state, true);
+                mark_control_plane_denied(&state, true, started);
                 record_control_plane_audit(
                     &state,
                     &actor_id,
@@ -3070,7 +3079,7 @@ async fn require_control_plane_auth(
     let operator_token = match std::env::var("CONTROL_PLANE_TOKEN") {
         Ok(value) if !value.is_empty() => value,
         _ => {
-            mark_control_plane_denied(&state, false);
+            mark_control_plane_denied(&state, false, started);
             record_control_plane_audit(
                 &state,
                 &actor_id,
