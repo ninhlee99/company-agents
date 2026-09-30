@@ -7517,7 +7517,7 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             return Err("customer is not owned by sponsorship company".into());
         }
         c.execute("INSERT INTO sponsorships (id,company_id,customer_id,title,currency,committed_minor,delivered_minor,status) VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8)",
-            &[&s.id,&s.company_id,&s.customer_id,&s.title,&s.currency,&s.committed_minor.to_string(),&s.status]).await?; Ok(())
+            &[&s.id,&s.company_id,&s.customer_id,&s.title,&s.currency,&s.committed_minor.to_string(),&s.delivered_minor.to_string(),&s.status]).await?; Ok(())
     }
 
     pub async fn create_invoice(&self, invoice: &commercial_sales::Invoice, lines: &[commercial_sales::InvoiceLine]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
