@@ -3282,7 +3282,6 @@ mod control_plane_audit_tests {
     }
 
     #[test]
-    #[test]
     fn readiness_renderer_keeps_state_dimensions_explicit() {
         let html = render_integration_readiness(&[IntegrationReadiness {
             key: "demo".into(),
