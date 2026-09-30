@@ -8389,6 +8389,17 @@ fn parse_rfc3339_epoch(value: &str) -> Result<i64, Box<dyn std::error::Error + S
     .unix_timestamp())
 }
 
+fn graph_source(value: &str) -> Result<&str, Box<dyn std::error::Error + Send + Sync>> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok("affiliate");
+    }
+    if value.len() > 256 {
+        return Err("revenue graph source exceeds 256 bytes".into());
+    }
+    Ok(value)
+}
+
 fn new_graph_edge(
     company_id: Uuid,
     from_type: company_revenue_graph::RevenueNodeType,
