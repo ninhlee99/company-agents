@@ -1141,25 +1141,28 @@ impl CompanyStore {
                 ],
             ).await?;
             if inserted.is_some() {
-                tx.execute(
-                    "INSERT INTO outbox_events
-                     (company_id,event_type,aggregate_id,idempotency_key,payload)
-                     VALUES ($1,'POLICY_SNAPSHOT_ACTIVATED',$2,$3,$4)
-                     ON CONFLICT(company_id,idempotency_key) DO NOTHING",
-                    &[
-                        &snapshot.company_id,
-                        &snapshot.id.to_string(),
-                        &format!("outbox:policy-activated:{}:{}", snapshot.policy_key, snapshot.version),
-                        &serde_json::json!({
-                            "policy_key": snapshot.policy_key,
-                            "platform": snapshot.platform,
-                            "jurisdiction": snapshot.jurisdiction,
-                            "version": snapshot.version,
-                            "effective_at_epoch": snapshot.effective_at_epoch,
-                            "evidence_hash": snapshot.evidence_hash,
-                        }),
-                    ],
-                ).await?;
+                let event = company_domain::CompanyEventEnvelope::new(
+                    snapshot.company_id,
+                    company_domain::CompanyEventType::PolicyChanged,
+                    "policy_snapshot",
+                    Some(snapshot.id),
+                    snapshot.effective_at_epoch,
+                    snapshot.id,
+                    None,
+                    format!("outbox:policy-activated:{}:{}", snapshot.policy_key, snapshot.version),
+                    serde_json::json!({
+                        "policy_key": snapshot.policy_key,
+                        "platform": snapshot.platform,
+                        "jurisdiction": snapshot.jurisdiction,
+                        "version": snapshot.version,
+                        "effective_at_epoch": snapshot.effective_at_epoch,
+                        "observed_at_epoch": snapshot.observed_at_epoch,
+                        "source_reference": snapshot.source_reference,
+                        "evidence_hash": snapshot.evidence_hash,
+                        "active": snapshot.active,
+                    }),
+                )?;
+                enqueue_company_event_tx(&tx, &event).await?;
             }
         }
 
@@ -10428,6 +10431,40 @@ mod customer_intelligence_tests {
         assert_eq!(collection_rate_bps(0, 0), 0);
         assert_eq!(collection_rate_bps(100, 50), 5_000);
         assert_eq!(collection_rate_bps(100, 120), 10_000);
+    }
+}
+
+#[cfg(test)]
+mod policy_changed_event_tests {
+    use super::*;
+
+    #[test]
+    fn policy_changed_event_preserves_policy_identity_and_evidence() {
+        let company = Uuid::from_u128(21);
+        let policy = Uuid::from_u128(22);
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::PolicyChanged,
+            "policy_snapshot",
+            Some(policy),
+            1_800_000_000,
+            policy,
+            None,
+            "outbox:policy-activated:tiktok:v3",
+            serde_json::json!({
+                "policy_key": "tiktok",
+                "version": "v3",
+                "evidence_hash": "sha256:abc",
+                "active": true
+            }),
+        ).unwrap();
+
+        assert_eq!(event.event_type_name(), "POLICY_CHANGED");
+        assert_eq!(event.aggregate_id, Some(policy));
+        assert_eq!(event.correlation_id, policy);
+        assert_eq!(event.payload["policy_key"], "tiktok");
+        assert_eq!(event.payload["evidence_hash"], "sha256:abc");
+        assert_eq!(event.idempotency_key, "outbox:policy-activated:tiktok:v3");
     }
 }
 
