@@ -3175,18 +3175,17 @@ fn control_plane_principals(
     Ok(principals)
 }
 
-fn control_plane_auth_principal(
+fn control_plane_auth_principal_from(
     method: &str,
     provided: Option<&str>,
-    operator_token: &str,
-    read_token: Option<&str>,
+    principals: &[ControlPlanePrincipalConfig],
 ) -> Result<Option<(String, &'static str)>, String> {
     let provided = match provided.filter(|value| !value.is_empty()) {
         Some(value) => value,
         None => return Ok(None),
     };
 
-    for principal in control_plane_principals(operator_token, read_token)? {
+    for principal in principals {
         if bool::from(principal.token.as_bytes().ct_eq(provided.as_bytes())) {
             let role = match principal.role.as_str() {
                 "admin" => "admin",
@@ -3195,11 +3194,21 @@ fn control_plane_auth_principal(
                 "read-only" => return Ok(None),
                 _ => return Err("unsupported control-plane role".into()),
             };
-            return Ok(Some((principal.id, role)));
+            return Ok(Some((principal.id.clone(), role)));
         }
     }
 
     Ok(None)
+}
+
+fn control_plane_auth_principal(
+    method: &str,
+    provided: Option<&str>,
+    operator_token: &str,
+    read_token: Option<&str>,
+) -> Result<Option<(String, &'static str)>, String> {
+    let principals = control_plane_principals(operator_token, read_token)?;
+    control_plane_auth_principal_from(method, provided, &principals)
 }
 
 fn control_plane_auth_scope(
@@ -3676,56 +3685,38 @@ mod control_plane_audit_tests {
     }
 
     #[test]
-    fn named_principals_support_explicit_roles_without_exposing_tokens() {
+    fn named_principal_config_validates_and_scopes_roles() {
         let raw = r#"[{"id":"alice","role":"admin","token":"admin-secret"},{"id":"bob","role":"operator","token":"operator-secret"},{"id":"carol","role":"read-only","token":"reader-secret"}]"#;
         let principals = parse_control_plane_principals(raw).unwrap();
         assert_eq!(principals.len(), 3);
-        assert_eq!(principals[0].id, "alice");
-        assert_eq!(principals[1].role, "operator");
-        assert_eq!(principals[2].role, "read-only");
-
         assert_eq!(
-            control_plane_auth_principal("POST", Some("admin-secret"), "", None)
-                .err(),
-            Some("no control-plane principals are configured".into())
-        );
-    }
-
-    #[test]
-    fn malformed_named_principal_config_fails_closed() {
-        assert!(parse_control_plane_principals("{bad-json").is_err());
-        assert!(parse_control_plane_principals(r#"[{"id":"x","role":"root","token":"secret"}]"#).is_err());
-    }
-
-    #[test]
-    fn malformed_named_principal_config_fails_closed() {
-        std::env::set_var("CONTROL_PLANE_PRINCIPALS_JSON", "{bad-json");
-        assert!(control_plane_auth_principal("GET", Some("anything"), "unused", None).is_err());
-        std::env::remove_var("CONTROL_PLANE_PRINCIPALS_JSON");
-    }
-
-    #[test]
-    fn named_principal_roles_are_scoped_by_http_method() {
-        std::env::set_var(
-            "CONTROL_PLANE_PRINCIPALS_JSON",
-            r#"[{"id":"reader","role":"read-only","token":"reader-secret"},{"id":"writer","role":"operator","token":"writer-secret"}]"#,
-        );
-        assert_eq!(
-            control_plane_auth_principal("GET", Some("reader-secret"), "", None)
+            control_plane_auth_principal_from("POST", Some("admin-secret"), &principals)
                 .unwrap(),
-            Some(("reader".into(), "read-only"))
+            Some(("alice".into(), "admin"))
         );
         assert_eq!(
-            control_plane_auth_principal("POST", Some("reader-secret"), "", None)
+            control_plane_auth_principal_from("POST", Some("operator-secret"), &principals)
+                .unwrap(),
+            Some(("bob".into(), "operator"))
+        );
+        assert_eq!(
+            control_plane_auth_principal_from("GET", Some("reader-secret"), &principals)
+                .unwrap(),
+            Some(("carol".into(), "read-only"))
+        );
+        assert_eq!(
+            control_plane_auth_principal_from("POST", Some("reader-secret"), &principals)
                 .unwrap(),
             None
         );
-        assert_eq!(
-            control_plane_auth_principal("POST", Some("writer-secret"), "", None)
-                .unwrap(),
-            Some(("writer".into(), "operator"))
-        );
-        std::env::remove_var("CONTROL_PLANE_PRINCIPALS_JSON");
+    }
+
+    #[test]
+    fn malformed_or_ambiguous_named_principal_config_fails_closed() {
+        assert!(parse_control_plane_principals("{bad-json").is_err());
+        assert!(parse_control_plane_principals(r#"[{"id":"x","role":"root","token":"secret"}]"#).is_err());
+        assert!(parse_control_plane_principals(r#"[{"id":"x","role":"operator","token":"secret"},{"id":"x","role":"admin","token":"other"}]"#).is_err());
+        assert!(parse_control_plane_principals(r#"[{"id":"x","role":"operator","token":"secret"},{"id":"y","role":"admin","token":"secret"}]"#).is_err());
     }
 
     #[test]
