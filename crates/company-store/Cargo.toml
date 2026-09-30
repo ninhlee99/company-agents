@@ -7,6 +7,7 @@ edition = "2021"
 agent-runtime = { path = "../agent-runtime" }
 async-trait = "0.1"
 company-execution = { path = "../company-execution" }
+company-domain = { path = "../company-domain" }
 publishing-contract = { path = "../publishing-contract" }
 company-organization = { path = "../company-organization" }
 affiliate-attribution = { path = "../affiliate-attribution" }
