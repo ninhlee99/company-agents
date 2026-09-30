@@ -9212,22 +9212,28 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         )
         .await?;
 
-        tx.execute(
-            "INSERT INTO outbox_events
-             (company_id,event_type,aggregate_id,idempotency_key,payload)
-             VALUES ($1,'CONTENT_CREATED',$2,$3,$4)
-             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
-            &[
-                &company,
-                &item.id,
-                &format!("outbox:growth-content:{}", item.id),
-                &serde_json::json!({
-                    "content_id": item.id,
-                    "opportunity_id": opportunity_id,
-                    "trend_id": opportunity.trend_id
-                }),
-            ],
-        ).await?;
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::ContentCreated,
+            "content",
+            Some(item.id),
+            growth_observed_at_epoch,
+            item.id,
+            Some(opportunity.id),
+            format!("outbox:growth-content:{}", item.id),
+            serde_json::json!({
+                "content_id": item.id,
+                "opportunity_id": opportunity_id,
+                "trend_id": opportunity.trend_id,
+                "variant_key": item.variant.variant_key,
+                "product_ref": item.brief.product_ref,
+                "offer_ref": item.brief.offer_ref,
+                "hypothesis": item.brief.hypothesis,
+                "policy_evidence_ref": opportunity.policy_evidence_ref,
+                "status": "DRAFT",
+            }),
+        )?;
+        enqueue_company_event_tx(&tx, &event).await?;
         let content_row = tx.query_one(
             "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
                     expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
@@ -10431,6 +10437,41 @@ mod customer_intelligence_tests {
         assert_eq!(collection_rate_bps(0, 0), 0);
         assert_eq!(collection_rate_bps(100, 50), 5_000);
         assert_eq!(collection_rate_bps(100, 120), 10_000);
+    }
+}
+
+#[cfg(test)]
+mod content_created_event_tests {
+    use super::*;
+
+    #[test]
+    fn content_created_event_keeps_opportunity_causation() {
+        let company = Uuid::from_u128(31);
+        let content = Uuid::from_u128(32);
+        let opportunity = Uuid::from_u128(33);
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::ContentCreated,
+            "content",
+            Some(content),
+            1_800_000_000,
+            content,
+            Some(opportunity),
+            "outbox:growth-content:00000000-0000-0000-0000-000000000020",
+            serde_json::json!({
+                "content_id": content,
+                "opportunity_id": opportunity,
+                "trend_id": "trend-31",
+                "policy_evidence_ref": "policy-31",
+                "status": "DRAFT"
+            }),
+        ).unwrap();
+        assert_eq!(event.event_type_name(), "CONTENT_CREATED");
+        assert_eq!(event.aggregate_id, Some(content));
+        assert_eq!(event.correlation_id, content);
+        assert_eq!(event.causation_id, Some(opportunity));
+        assert_eq!(event.payload["policy_evidence_ref"], "policy-31");
+        assert_eq!(event.payload["status"], "DRAFT");
     }
 }
 

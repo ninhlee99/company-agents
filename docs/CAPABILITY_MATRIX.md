@@ -99,6 +99,7 @@ It should not be described as an AI company that can independently operate every
 
 - **Unified event contract:** `CompanyEventType` provides stable names for the P1 event set; `CompanyEventEnvelope` carries company, schema, aggregate, correlation/causation, idempotency and payload metadata. Store persistence keeps the existing durable outbox path.
 - **Content producer migration:** `RENDERED → PUBLISHED` emits canonical `CONTENT_PUBLISHED` transactionally with the content status/evidence update; repeated publication is prevented by the content state machine.
+- **Content creation producer migration:** growth-opportunity content creation now emits canonical `CONTENT_CREATED` through the typed envelope, preserving opportunity causation, policy evidence and the existing idempotency key.
 - **Growth producer migration:** persisted growth trend detection now emits canonical `TREND_DETECTED` through the typed envelope, preserving company/trend identity, observed evidence and decision metadata.
 - **Affiliate producer migration:** provider verification now emits canonical `COMMISSION_VERIFIED` through the typed envelope, preserving the existing verification idempotency key while keeping provider evidence separate from recognized revenue accounting.
 - **Governance producer migration:** activating a verified policy snapshot now emits canonical `POLICY_CHANGED` through the typed envelope, preserving policy version/evidence lineage and the existing idempotency key.
