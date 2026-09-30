@@ -374,8 +374,6 @@ struct PaymentExecutionIntentRequest {
 #[derive(Debug, Deserialize)]
 struct PaymentExecutionApprovalRequest {
     intent_id: uuid::Uuid,
-    #[serde(default)]
-    approved_by: Option<String>,
     approval_reference: String,
     approved_at_epoch: i64,
 }
