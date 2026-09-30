@@ -25,6 +25,12 @@ Gemini exposes an official API and an OpenAI-compatible endpoint. The gateway su
 
 Anthropic exposes the Claude Messages API and publishes a model lifecycle/deprecation schedule, so the gateway keeps the Claude model configurable.
 
+## Shadow model routing
+
+The gateway supports a deterministic routing recommendation layer in `MODEL_ROUTER_MODE=shadow` (the safe default). Each model call is classified as **Fast**, **Standard**, or **Deep**, local logical-CPU count is mapped to a **Small**, **Medium**, or **Large** hardware tier, and a configured provider is recommended for telemetry.
+
+The recommendation is advisory only: the existing primary-provider/fallback order remains the provider actually used. Deep work on small machines prefers a configured remote API provider; fast work prefers a configured local/mock provider. Large prompts are promoted to the Deep class. Active provider switching is intentionally not enabled until benchmark and acceptance evidence exist.
+
 ## Recommended production mode
 
 Use official APIs as primary providers and the consumer-web relay only when a browser bridge is intentionally deployed.
