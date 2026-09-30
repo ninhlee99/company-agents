@@ -1346,17 +1346,21 @@ async fn build_integration_readiness(
         };
 
     let tiktok = match state.store.tiktok_oauth_status(&state.company_id).await {
-        Ok(Some(connection)) if connection.status == "ACTIVE" => IntegrationReadiness {
+        Ok(Some(connection)) if connection.status == "ACTIVE" && connection.access_token_expires_at_epoch > now => IntegrationReadiness {
             key: "tiktok_oauth".into(),
             status: "READY".into(),
             configured: true,
             authenticated: true,
-            evidence_fresh: connection.access_token_expires_at_epoch > now,
-            reason: if connection.access_token_expires_at_epoch > now {
-                "Stored TikTok OAuth connection is active and its access token has not expired.".into()
-            } else {
-                "Stored TikTok OAuth connection is active but the access token has expired.".into()
-            },
+            evidence_fresh: true,
+            reason: "Stored TikTok OAuth connection is active and its access token has not expired.".into(),
+        },
+        Ok(Some(connection)) if connection.status == "ACTIVE" => IntegrationReadiness {
+            key: "tiktok_oauth".into(),
+            status: "ACTION_REQUIRED".into(),
+            configured: true,
+            authenticated: false,
+            evidence_fresh: false,
+            reason: "Stored TikTok OAuth connection is active but its access token has expired.".into(),
         },
         Ok(Some(connection)) => IntegrationReadiness {
             key: "tiktok_oauth".into(),
