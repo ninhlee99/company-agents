@@ -97,7 +97,7 @@ pub struct GrowthOpportunityRecord {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AutonomyControlRecord {
     pub controls: company_safety_controls::SafetyControls,
-    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -3205,7 +3205,7 @@ impl CompanyStore {
         tx.commit().await?;
         Ok(AutonomyControlRecord {
             controls,
-            created_at: row.get(11),
+            updated_at: row.get(11),
         })
     }
 
@@ -3314,7 +3314,40 @@ impl CompanyStore {
         let controls = safety_controls_from_row(&row, company)?;
         let created_at: String = row.get(11);
         tx.commit().await?;
-        Ok(AutonomyControlRecord { controls, created_at })
+        Ok(AutonomyControlRecord { controls, updated_at: created_at })
+    }
+
+    pub async fn autonomy_budget_remaining(
+        &self,
+        company_id: &str,
+        kind: company_safety_controls::BudgetKind,
+        now_epoch: i64,
+    ) -> Result<i128, Box<dyn std::error::Error + Send + Sync>> {
+        if now_epoch <= 0 {
+            return Err("autonomy budget time must be positive".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let period = company_safety_controls::period_start_epoch(now_epoch)
+            .map_err(|error| error.to_string())?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let controls = load_safety_controls_for_tx(&tx, company).await?;
+        let used = tx
+            .query_opt(
+                "SELECT used::text
+                   FROM autonomy_budget_usage
+                  WHERE company_id=$1 AND budget_kind=$2 AND period_start_epoch=$3",
+                &[&company, &kind.as_str(), &period],
+            )
+            .await?
+            .map(|row| parse_i128_numeric(&row.get::<_, String>(0)))
+            .transpose()?
+            .unwrap_or(0);
+        tx.rollback().await?;
+        if controls.emergency_stop.enabled {
+            return Ok(0);
+        }
+        Ok(controls.budgets.limit(kind).saturating_sub(used).max(0))
     }
 
     pub async fn consume_autonomy_budget(
