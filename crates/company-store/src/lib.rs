@@ -3349,6 +3349,68 @@ impl CompanyStore {
         Ok(AutonomyControlRecord { controls, updated_at: created_at })
     }
 
+    pub async fn autonomy_budget_statuses(
+        &self,
+        company_id: &str,
+        now_epoch: i64,
+    ) -> Result<Vec<company_safety_controls::BudgetStatus>, Box<dyn std::error::Error + Send + Sync>> {
+        if now_epoch <= 0 {
+            return Err("autonomy budget time must be positive".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let period = company_safety_controls::period_start_epoch(now_epoch)
+            .map_err(|error| error.to_string())?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        tx.execute(
+            "INSERT INTO autonomy_control_state
+             (company_id, emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
+              emergency_stop_changed_at_epoch, content_publish_daily, ads_spend_daily_minor,
+              live_minutes_daily, outbound_messages_daily, autonomous_capital_daily_minor,
+              updated_at_epoch)
+             VALUES ($1,false,NULL,'system-default',$2,10,0,60,100,0,$2)
+             ON CONFLICT(company_id) DO NOTHING",
+            &[&company, &now_epoch],
+        )
+        .await?;
+        let controls = load_safety_controls_for_tx(&tx, company).await?;
+        let rows = tx
+            .query(
+                "SELECT budget_kind, used::text
+                   FROM autonomy_budget_usage
+                  WHERE company_id=$1 AND period_start_epoch=$2",
+                &[&company, &period],
+            )
+            .await?;
+        let mut used_by_kind = std::collections::HashMap::new();
+        for row in rows {
+            let kind = company_safety_controls::BudgetKind::parse(
+                row.get::<_, String>(0).as_str(),
+            )
+            .ok_or("invalid stored autonomy budget kind")?;
+            used_by_kind.insert(kind, parse_i128_numeric(&row.get::<_, String>(1))?);
+        }
+        tx.rollback().await?;
+        Ok(company_safety_controls::BudgetKind::ALL
+            .into_iter()
+            .map(|kind| {
+                let daily_limit = controls.budgets.limit(kind);
+                let used = if controls.emergency_stop.enabled {
+                    0
+                } else {
+                    *used_by_kind.get(&kind).unwrap_or(&0)
+                };
+                company_safety_controls::BudgetStatus {
+                    kind,
+                    period_start_epoch: period,
+                    daily_limit,
+                    used,
+                    remaining: daily_limit.saturating_sub(used).max(0),
+                }
+            })
+            .collect())
+    }
+
     pub async fn autonomy_budget_remaining(
         &self,
         company_id: &str,
