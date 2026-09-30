@@ -7,6 +7,114 @@ use uuid::Uuid;
 pub type Minor = i128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CompanyEventType {
+    TrendDetected,
+    ProductFound,
+    ContentCreated,
+    ContentPublished,
+    ViewerSpike,
+    CtrChanged,
+    OrderCreated,
+    OrderCancelled,
+    CommissionVerified,
+    GiftReceived,
+    PolicyChanged,
+    OutOfStock,
+    RefundSpike,
+    ExperimentCompleted,
+}
+
+impl CompanyEventType {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::TrendDetected => "TREND_DETECTED",
+            Self::ProductFound => "PRODUCT_FOUND",
+            Self::ContentCreated => "CONTENT_CREATED",
+            Self::ContentPublished => "CONTENT_PUBLISHED",
+            Self::ViewerSpike => "VIEWER_SPIKE",
+            Self::CtrChanged => "CTR_CHANGED",
+            Self::OrderCreated => "ORDER_CREATED",
+            Self::OrderCancelled => "ORDER_CANCELLED",
+            Self::CommissionVerified => "COMMISSION_VERIFIED",
+            Self::GiftReceived => "GIFT_RECEIVED",
+            Self::PolicyChanged => "POLICY_CHANGED",
+            Self::OutOfStock => "OUT_OF_STOCK",
+            Self::RefundSpike => "REFUND_SPIKE",
+            Self::ExperimentCompleted => "EXPERIMENT_COMPLETED",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompanyEventEnvelope {
+    pub event_id: Uuid,
+    pub company_id: Uuid,
+    pub event_type: CompanyEventType,
+    pub schema_version: i32,
+    pub aggregate_type: String,
+    pub aggregate_id: Option<Uuid>,
+    pub occurred_at_epoch: i64,
+    pub correlation_id: Uuid,
+    pub causation_id: Option<Uuid>,
+    pub idempotency_key: String,
+    pub payload: serde_json::Value,
+}
+
+impl CompanyEventEnvelope {
+    pub fn new(
+        company_id: Uuid,
+        event_type: CompanyEventType,
+        aggregate_type: impl Into<String>,
+        aggregate_id: Option<Uuid>,
+        occurred_at_epoch: i64,
+        correlation_id: Uuid,
+        causation_id: Option<Uuid>,
+        idempotency_key: impl Into<String>,
+        payload: serde_json::Value,
+    ) -> Result<Self, DomainError> {
+        let event = Self {
+            event_id: Uuid::new_v4(),
+            company_id,
+            event_type,
+            schema_version: 1,
+            aggregate_type: aggregate_type.into(),
+            aggregate_id,
+            occurred_at_epoch,
+            correlation_id,
+            causation_id,
+            idempotency_key: idempotency_key.into(),
+            payload,
+        };
+        event.validate()?;
+        Ok(event)
+    }
+
+    pub fn validate(&self) -> Result<(), DomainError> {
+        if self.schema_version < 1 {
+            return Err(DomainError::Invariant("event schema version must be >= 1"));
+        }
+        validate_text(&self.aggregate_type, "event aggregate type")?;
+        validate_text(&self.idempotency_key, "event idempotency key")?;
+        if self.idempotency_key.len() > 512 {
+            return Err(DomainError::Invariant("event idempotency key must be <= 512 bytes"));
+        }
+        if self.occurred_at_epoch < 0 {
+            return Err(DomainError::Invariant("event occurred_at must be >= 0"));
+        }
+        if self.payload.is_null() {
+            return Err(DomainError::Invariant("event payload cannot be null"));
+        }
+        Ok(())
+    }
+
+    pub fn event_type_name(&self) -> &'static str {
+        self.event_type.as_str()
+    }
+}
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CreatorStatus {
     Testing,
     Growing,
@@ -403,6 +511,47 @@ fn validate_currency(currency: &str) -> Result<(), DomainError> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn company_event_contract_has_stable_names_and_validation() {
+        assert_eq!(CompanyEventType::CtrChanged.as_str(), "CTR_CHANGED");
+        assert_eq!(CompanyEventType::OrderCancelled.as_str(), "ORDER_CANCELLED");
+        let company_id = Uuid::new_v4();
+        let event = CompanyEventEnvelope::new(
+            company_id,
+            CompanyEventType::OrderCreated,
+            "order",
+            Some(Uuid::new_v4()),
+            1_800_000_000,
+            Uuid::new_v4(),
+            None,
+            "order-created-1",
+            serde_json::json!({"order_minor": 2500}),
+        )
+        .unwrap();
+        assert_eq!(event.company_id, company_id);
+        assert_eq!(event.schema_version, 1);
+        assert_eq!(event.event_type_name(), "ORDER_CREATED");
+        assert!(event.validate().is_ok());
+    }
+
+    #[test]
+    fn company_event_rejects_invalid_metadata() {
+        let event = CompanyEventEnvelope {
+            event_id: Uuid::new_v4(),
+            company_id: Uuid::new_v4(),
+            event_type: CompanyEventType::GiftReceived,
+            schema_version: 0,
+            aggregate_type: "".into(),
+            aggregate_id: None,
+            occurred_at_epoch: -1,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            idempotency_key: "".into(),
+            payload: serde_json::Value::Null,
+        };
+        assert!(event.validate().is_err());
+    }
+
     use super::*;
 
     #[test]
