@@ -303,6 +303,15 @@ async fn enqueue_company_event_tx(
     Ok(inserted == 1)
 }
 
+fn learning_entry_correlation_id(entry_key: &str) -> Uuid {
+    let digest = Sha256::digest(format!("learning:{entry_key}").as_bytes());
+    Uuid::from_bytes(
+        digest[..16]
+            .try_into()
+            .expect("sha256 digest always has at least 16 bytes"),
+    )
+}
+
 fn outcome_evidence_correlation_id(decision_journal_id: i64) -> Uuid {
     let digest = Sha256::digest(format!("agent-outcome:{decision_journal_id}").as_bytes());
     Uuid::from_bytes(
@@ -1757,27 +1766,25 @@ impl CompanyStore {
             )?;
             enqueue_company_event_tx(&tx, &completed_event).await?;
 
-            let outbox_key = format!("outbox:learning:{}", learning.entry_key);
-            let payload = serde_json::json!({
-                "entry_key": &learning.entry_key,
-                "source_type": &learning.source_type,
-                "source_id": &learning.source_id,
-                "kind": learning.kind,
-                "decision": learning.decision,
-                "confidence_bps": learning.confidence_bps
-            });
-            tx.execute(
-                "INSERT INTO outbox_events
-                 (company_id,event_type,aggregate_id,idempotency_key,payload)
-                 VALUES ($1,'LEARNING_ENTRY_RECORDED',$2,$3,$4)
-                 ON CONFLICT(company_id,idempotency_key) DO NOTHING",
-                &[
-                    &observation.company_id,
-                    &learning_id,
-                    &outbox_key,
-                    &payload,
-                ],
-            ).await?;
+            let learning_event = company_domain::CompanyEventEnvelope::new(
+                observation.company_id.parse()?,
+                company_domain::CompanyEventType::LearningEntryRecorded,
+                "learning_entry",
+                Some(learning_id),
+                time::OffsetDateTime::now_utc().unix_timestamp(),
+                learning_entry_correlation_id(&learning.entry_key),
+                None,
+                format!("outbox:learning:{}", learning.entry_key),
+                serde_json::json!({
+                    "entry_key": &learning.entry_key,
+                    "source_type": &learning.source_type,
+                    "source_id": &learning.source_id,
+                    "kind": learning.kind,
+                    "decision": learning.decision,
+                    "confidence_bps": learning.confidence_bps
+                }),
+            )?;
+            enqueue_company_event_tx(&tx, &learning_event).await?;
 
             tx.commit().await?;
             return Ok(ContentObservationRecord {
@@ -1935,28 +1942,25 @@ impl CompanyStore {
                     .get(0),
             };
 
-            let outbox_key = format!("outbox:learning:{}", learning.entry_key);
-            let payload = serde_json::json!({
-                "entry_key": &learning.entry_key,
-                "source_type": &learning.source_type,
-                "source_id": &learning.source_id,
-                "kind": learning.kind,
-                "decision": learning.decision,
-                "confidence_bps": learning.confidence_bps
-            });
-            tx.execute(
-                "INSERT INTO outbox_events
-                 (company_id,event_type,aggregate_id,idempotency_key,payload)
-                 VALUES ($1,'LEARNING_ENTRY_RECORDED',$2,$3,$4)
-                 ON CONFLICT(company_id,idempotency_key) DO NOTHING",
-                &[
-                    &company,
-                    &learning_id,
-                    &outbox_key,
-                    &payload,
-                ],
-            )
-            .await?;
+            let learning_event = company_domain::CompanyEventEnvelope::new(
+                company,
+                company_domain::CompanyEventType::LearningEntryRecorded,
+                "learning_entry",
+                Some(learning_id),
+                time::OffsetDateTime::now_utc().unix_timestamp(),
+                learning_entry_correlation_id(&learning.entry_key),
+                None,
+                format!("outbox:learning:{}", learning.entry_key),
+                serde_json::json!({
+                    "entry_key": &learning.entry_key,
+                    "source_type": &learning.source_type,
+                    "source_id": &learning.source_id,
+                    "kind": learning.kind,
+                    "decision": learning.decision,
+                    "confidence_bps": learning.confidence_bps
+                }),
+            )?;
+            enqueue_company_event_tx(&tx, &learning_event).await?;
         }
 
         tx.commit().await?;
@@ -7050,27 +7054,25 @@ impl CompanyStore {
                 ).await?.get(0),
             };
 
-            let outbox_key = format!("outbox:learning:{}", learning.entry_key);
-            let payload = serde_json::json!({
-                "entry_key": &learning.entry_key,
-                "source_type": &learning.source_type,
-                "source_id": &learning.source_id,
-                "kind": learning.kind,
-                "decision": learning.decision,
-                "confidence_bps": learning.confidence_bps
-            });
-            tx.execute(
-                "INSERT INTO outbox_events
-                 (company_id,event_type,aggregate_id,idempotency_key,payload)
-                 VALUES ($1,'LEARNING_ENTRY_RECORDED',$2,$3,$4)
-                 ON CONFLICT(company_id,idempotency_key) DO NOTHING",
-                &[
-                    &company_uuid,
-                    &learning_id,
-                    &outbox_key,
-                    &payload,
-                ],
-            ).await?;
+            let learning_event = company_domain::CompanyEventEnvelope::new(
+                company_uuid,
+                company_domain::CompanyEventType::LearningEntryRecorded,
+                "learning_entry",
+                Some(learning_id),
+                time::OffsetDateTime::now_utc().unix_timestamp(),
+                learning_entry_correlation_id(&learning.entry_key),
+                None,
+                format!("outbox:learning:{}", learning.entry_key),
+                serde_json::json!({
+                    "entry_key": &learning.entry_key,
+                    "source_type": &learning.source_type,
+                    "source_id": &learning.source_id,
+                    "kind": learning.kind,
+                    "decision": learning.decision,
+                    "confidence_bps": learning.confidence_bps
+                }),
+            )?;
+            enqueue_company_event_tx(&tx, &learning_event).await?;
         }
 
         let persisted = tx.query_one(
