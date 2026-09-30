@@ -1173,7 +1173,7 @@ mod tests {
             entity_type: "content".into(), entity_id: "max-loss".into(), evidence_ref: "e4".into(),
             spent_minor: 100, max_budget_minor: 1_000, elapsed_seconds: 10, max_duration_seconds: 100,
             observed_metric_bps: 900, kill_metric_bps: 100, evidence_count: 3, min_evidence_count: 3,
-            contribution_margin_minor: -1, max_loss_minor: i128::MAX,
+            contribution_margin_minor: i128::MIN, max_loss_minor: i128::MAX,
         };
         assert_eq!(evaluate_kill_gate(&input).unwrap().decision, "KILL");
     }

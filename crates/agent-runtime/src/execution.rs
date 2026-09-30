@@ -259,7 +259,7 @@ fn arithmetic_failure(proposal: &crate::types::Proposal, reason: &str) -> Execut
 mod tests {
     use super::*;
     use crate::types::{
-        ActionKind, AgentRole, CompanySnapshot, GovernorDecision, Permission, Proposal, RiskTier,
+        ActionKind, AgentRole, CompanySnapshot, GovernorDecision, Permission, Proposal,
     };
 
     fn snapshot() -> CompanySnapshot {

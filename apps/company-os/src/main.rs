@@ -2612,7 +2612,7 @@ async fn kill_gate_api(
     State(state): State<AppState>,
     Json(request): Json<KillGateRequest>,
 ) -> Result<Json<company_growth::KillGateDecision>, StatusCode> {
-    if request.company_id != state.company_id.parse().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
+    if request.company_id.to_string() != state.company_id {
         return Err(StatusCode::BAD_REQUEST);
     }
     company_growth::evaluate_kill_gate(&request.input)
@@ -3281,7 +3281,7 @@ fn trusted_control_plane_actor(
 
     if let Some(token) = provided {
         if let Ok(Some((principal_id, _role))) = control_plane_auth_principal(
-            state.company_id.parse().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+            state.company_id.parse::<uuid::Uuid>().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
             method,
             Some(token),
             &operator_token,
