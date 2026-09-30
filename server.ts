@@ -9,6 +9,28 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
+const SIMULATED_DATA_MODE = 'SIMULATED' as const;
+
+function simulatedMutationsEnabled(): boolean {
+  return process.env.ALLOW_SIMULATED_ACTIONS === 'true' && process.env.NODE_ENV !== 'production';
+}
+
+function rejectSimulatedMutation(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || simulatedMutationsEnabled()) {
+    return next();
+  }
+
+  res.setHeader('X-Company-Data-Mode', SIMULATED_DATA_MODE);
+  return res.status(503).json({
+    success: false,
+    error: 'simulated_actions_disabled',
+    dataMode: SIMULATED_DATA_MODE,
+    message: 'This React/Express server is a simulated UI harness. Mutating demo actions are disabled by default and never allowed in production.',
+  });
+}
+
+app.use('/api', rejectSimulatedMutation);
+
 // Initialize Google GenAI if key is present
 const apiKey = process.env.GEMINI_API_KEY;
 let ai: GoogleGenAI | null = null;
