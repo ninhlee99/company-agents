@@ -5106,7 +5106,7 @@ impl CompanyStore {
                 "tiktok_oauth_connection",
                 Some(company),
                 revoked_epoch,
-                tiktok_oauth_correlation_id(company, &company.to_string()),
+                tiktok_oauth_correlation_id(company, &revoked_key),
                 None,
                 revoked_key,
                 serde_json::json!({
