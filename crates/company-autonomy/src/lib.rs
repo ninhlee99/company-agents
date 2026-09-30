@@ -506,6 +506,27 @@ mod tests {
     }
 
     #[test]
+    fn observe_ceiling_never_upgrades_to_recommendation_execution() {
+        let input = AutonomyGateInput {
+            emergency_stop: false,
+            company_status: CompanyStatus::Growth,
+            action: ActionKind::CreateExperiment,
+            cost_minor: 0,
+            risk: RiskTier::Medium,
+            confidence_bps: 9_000,
+            evidence_count: 5,
+            reversible: true,
+            external_side_effect: false,
+            policy: AutonomyPolicy {
+                max_level: AutonomyLevel::Observe,
+                ..AutonomyPolicy::default()
+            },
+            simulation: None,
+        };
+        assert_eq!(assess(&input).unwrap().decision, AutonomyDecision::Observe);
+    }
+
+    #[test]
     fn external_side_effects_require_human_approval() {
         let input = AutonomyGateInput {
             emergency_stop: false,
