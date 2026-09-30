@@ -227,13 +227,48 @@ impl TikTokPublisher {
             .build()
             .map_err(|e| PublishError::Configuration(format!("HTTP client setup failed: {e}")))?;
         Ok(Self {
-            access_token,
+            access_token: Some(access_token),
+            access_token_provider: None,
             api_base: std::env::var("TIKTOK_CONTENT_API_BASE")
                 .unwrap_or_else(|_| "https://open.tiktokapis.com".into()),
             client,
             approval,
             limiter: Arc::new(Mutex::new(None)),
         })
+    }
+
+    pub fn from_access_token_provider(
+        provider: Arc<dyn TikTokAccessTokenProvider>,
+        approval: ApprovalAuthority,
+        api_base: String,
+    ) -> Result<Self, PublishError> {
+        if api_base.trim().is_empty() {
+            return Err(PublishError::Configuration("TikTok content API base is required".into()));
+        }
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(60))
+            .build()
+            .map_err(|e| PublishError::Configuration(format!("HTTP client setup failed: {e}")))?;
+        Ok(Self {
+            access_token: None,
+            access_token_provider: Some(provider),
+            api_base,
+            client,
+            approval,
+            limiter: Arc::new(Mutex::new(None)),
+        })
+    }
+
+    async fn access_token(&self) -> Result<String, PublishError> {
+        if let Some(provider) = &self.access_token_provider {
+            return provider.access_token().await;
+        }
+        self.access_token
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| PublishError::Configuration("TikTok access token is unavailable".into()))
     }
 
     async fn wait_for_rate_limit(&self) {
