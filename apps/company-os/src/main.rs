@@ -1515,6 +1515,9 @@ async fn compliance_check_api(
 async fn tiktok_oauth_start_api(
     State(state): State<AppState>,
 ) -> Result<Redirect, StatusCode> {
+    if !parse_bool_env("TIKTOK_OAUTH_ENABLED", false) {
+        return Err(StatusCode::PRECONDITION_FAILED);
+    }
     let config = company_tiktok_auth::OAuthConfig::from_env()
         .map_err(|error| {
             tracing::warn!(%error, "TikTok OAuth is not configured");
