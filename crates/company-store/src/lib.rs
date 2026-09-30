@@ -35,6 +35,34 @@ pub struct PersistedCycle {
 }
 
 impl CompanyStore {
+    pub async fn enqueue_company_event(
+        &self,
+        event: &company_domain::CompanyEventEnvelope,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        event.validate()?;
+        let payload = serde_json::to_value(event)?;
+        let company_id = event.company_id.to_string();
+        let aggregate_id = event.aggregate_id.map(|id| id.to_string());
+        let client = self.client.lock().await;
+        let inserted = client
+            .execute(
+                "INSERT INTO outbox_events
+                 (company_id, event_type, aggregate_id, idempotency_key, payload, schema_version)
+                 VALUES ($1,$2,$3,$4,$5,$6)
+                 ON CONFLICT (company_id, idempotency_key) DO NOTHING",
+                &[
+                    &company_id,
+                    &event.event_type_name(),
+                    &aggregate_id,
+                    &event.idempotency_key,
+                    &payload,
+                    &event.schema_version,
+                ],
+            )
+            .await?;
+        Ok(inserted == 1)
+    }
+
     pub async fn connect(database_url: &str) -> Result<Self, tokio_postgres::Error> {
         let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
         tokio::spawn(async move {
