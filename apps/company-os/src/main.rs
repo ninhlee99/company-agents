@@ -154,10 +154,24 @@ struct ContentObservationRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct AgentOutcomeEvidenceRequest {
+    decision_journal_id: i64,
+    evidence_ref: String,
+    observed_revenue_delta_minor: i128,
+    observed_contribution_margin_delta_minor: i128,
+    observed_at_epoch: i64,
+}
+
+#[derive(Debug, Deserialize)]
 struct ContentStatusTransitionRequest {
     content_id: uuid::Uuid,
     next: company_content::ContentStatus,
     evidence_ref: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct AgentEvaluationQuery {
+    days: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -904,6 +918,38 @@ async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, S
             });
             StatusCode::INTERNAL_SERVER_ERROR
         })
+}
+
+async fn agent_outcome_evidence_api(
+    State(state): State<AppState>,
+    Json(request): Json<AgentOutcomeEvidenceRequest>,
+) -> Result<Json<company_store::AgentOutcomeEvidenceRecord>, StatusCode> {
+    state
+        .store
+        .record_agent_outcome_evidence(
+            &state.company_id,
+            request.decision_journal_id,
+            &request.evidence_ref,
+            request.observed_revenue_delta_minor,
+            request.observed_contribution_margin_delta_minor,
+            request.observed_at_epoch,
+        )
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn agent_outcome_evaluations_api(
+    State(state): State<AppState>,
+    Query(query): Query<AgentEvaluationQuery>,
+) -> Result<Json<Vec<company_agent_evaluation::AgentEvaluation>>, StatusCode> {
+    let days = query.days.unwrap_or(30);
+    state
+        .store
+        .agent_outcome_evaluations(&state.company_id, days)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 async fn ceo_command_center_api(
