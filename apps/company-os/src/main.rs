@@ -578,6 +578,21 @@ async fn index(
         }
     };
 
+    let agent_evaluation_html = match state
+        .store
+        .agent_outcome_evaluations(&state.company_id, 30)
+        .await
+    {
+        Ok(evaluations) if evaluations.is_empty() => {
+            r#"<div class="card"><div class="section-kicker">Agent outcome evaluation</div><h2>Waiting for outcome evidence</h2><p class="muted">The company has not yet recorded enough executed decisions with explicit business-outcome evidence to evaluate agents.</p></div>"#.into()
+        }
+        Ok(evaluations) => render_agent_evaluations(&evaluations, &state.currency),
+        Err(error) => {
+            tracing::warn!(%error, "agent outcome evaluation unavailable");
+            r#"<div class="card"><div class="section-kicker">Agent outcome evaluation</div><h2>Evidence unavailable</h2><p class="muted">Agent scorecards are unavailable right now. Missing evaluation data is not being treated as failure.</p></div>"#.into()
+        }
+    };
+
     Html(format!(
         r#"<!doctype html>
 <html lang="en"><head>
@@ -632,7 +647,8 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 @media(max-width:520px){{.grid{{grid-template-columns:1fr}}.cc-kpis{{grid-template-columns:1fr 1fr}}.cc-body{{grid-template-columns:1fr}}}}
 </style></head><body>
 <header><h1>Veridara AI</h1><small>Autonomous Company OS · {}</small></header>
-<nav><a href="/">Overview</a><a href="/api/ceo/command-center">Revenue JSON</a><a href="/api/agents">Agents</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Audit</a></nav>
+<nav><a href="/">Overview</a><a href="/api/ceo/command-center">Revenue JSON</a><a href="/api/agents">Agents</a><a href="/api/agents/evaluation">Agent outcomes</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Audit</a></nav>
+{}
 {}
 <div class="grid">
 <div class="card"><small>Cash</small><div class="metric">{}</div></div>
@@ -659,6 +675,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 </body></html>"#,
         state.company_id.clone(),
         command_center_html,
+        agent_evaluation_html,
         format_minor(company.cash_minor, &state.currency),
         format_minor(revenue_periods.month_to_date_minor, &state.currency),
         revenue_periods.revenue_transaction_count,
