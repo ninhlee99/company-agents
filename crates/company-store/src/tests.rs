@@ -1286,4 +1286,42 @@ async fn database_rejects_cross_company_invoice_customer_reference() {
     assert!(result.is_err());
 }
 
+#[tokio::test]
+async fn typed_company_event_is_idempotent_in_outbox() {
+    let Some(store) = connect_store().await else { return; };
+
+    let company_id = uuid::Uuid::new_v4();
+    store
+        .ensure_company(&company_id.to_string(), "Event Contract", "USD")
+        .await
+        .unwrap();
+
+    let event = company_domain::CompanyEventEnvelope::new(
+        company_id,
+        company_domain::CompanyEventType::OrderCreated,
+        "order",
+        Some(uuid::Uuid::new_v4()),
+        1_800_000_000,
+        uuid::Uuid::new_v4(),
+        None,
+        "order-created-event-1",
+        serde_json::json!({"order_minor": 2500}),
+    )
+    .unwrap();
+
+    assert!(store.enqueue_company_event(&event).await.unwrap());
+    assert!(!store.enqueue_company_event(&event).await.unwrap());
+
+    let client = store.client.lock().await;
+    let row = client
+        .query_one(
+            "SELECT event_type, schema_version FROM outbox_events WHERE company_id=$1 AND idempotency_key=$2",
+            &[&company_id.to_string(), &event.idempotency_key],
+        )
+        .await
+        .unwrap();
+    assert_eq!(row.get::<_, String>(0), "ORDER_CREATED");
+    assert_eq!(row.get::<_, i32>(1), 1);
+}
+
 }
