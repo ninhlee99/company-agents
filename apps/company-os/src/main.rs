@@ -1158,7 +1158,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 @media(max-width:520px){{.grid{{grid-template-columns:1fr}}.cc-kpis{{grid-template-columns:1fr 1fr}}.cc-body{{grid-template-columns:1fr}}.autonomy-steps{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
 </style></head><body>
 <header><h1>Veridara AI</h1><small>Autonomous Company OS · {}</small></header>
-<nav><a href="/auth/login">Browser sign-in</a><a href="#integrations">Integrations</a><form method="post" action="/auth/logout" style="display:inline"><button type="submit">Sign out</button></form><a href="/">Overview</a><a href="#revenue-command-center">Revenue command center</a><a href="#capital">Capital planning</a><a href="#safety">Safety controls</a><a href="#autonomy">Autonomy policy</a><a href="#agent-outcomes">Agent outcomes</a><a href="#revenue-graph">Revenue graph</a><a href="#growth">Growth pipeline</a><a href="#tiktok">TikTok LIVE</a><a href="#compliance">Policy intelligence</a></nav>
+<nav><a href="/fpa/variance">FPA variance</a><a href="/auth/login">Browser sign-in</a><a href="#integrations">Integrations</a><form method="post" action="/auth/logout" style="display:inline"><button type="submit">Sign out</button></form><a href="/">Overview</a><a href="#revenue-command-center">Revenue command center</a><a href="#capital">Capital planning</a><a href="#safety">Safety controls</a><a href="#autonomy">Autonomy policy</a><a href="#agent-outcomes">Agent outcomes</a><a href="#revenue-graph">Revenue graph</a><a href="#growth">Growth pipeline</a><a href="#tiktok">TikTok LIVE</a><a href="#compliance">Policy intelligence</a></nav>
 <div id="revenue-command-center">{}</div>
 <div id="agent-outcomes">{}</div>
 <div id="autonomy">{}</div>
@@ -1987,6 +1987,62 @@ async fn forecast_variance_api(
         .await
         .map(Json)
         .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+fn render_fpa_variance_html(
+    rows: &[company_store::ForecastVarianceRecord],
+) -> String {
+    let mut table = String::from(
+        r#"<div class="card"><h2>Forecast vs actual cash flow</h2><p class="muted">Variance = actual net cash flow − forecast net cash flow. Missing actual evidence is shown as unavailable, not zero.</p><table><thead><tr><th>Period</th><th>Forecast net</th><th>Actual net</th><th>Variance</th><th>Variance %</th><th>Closing cash</th></tr></thead><tbody>"#,
+    );
+    for row in rows {
+        let period = time::OffsetDateTime::from_unix_timestamp(row.period_start_epoch)
+            .map(|value| value.date().to_string())
+            .unwrap_or_else(|_| row.period_start_epoch.to_string());
+        let actual = row
+            .actual_net_cashflow_minor
+            .map(|value| format_minor(value, &row.currency))
+            .unwrap_or_else(|| "Unavailable".into());
+        let variance = row
+            .variance_minor
+            .map(|value| format_minor(value, &row.currency))
+            .unwrap_or_else(|| "Unavailable".into());
+        let variance_pct = row
+            .variance_bps
+            .map(|value| format!("{:.2}%", value as f64 / 100.0))
+            .unwrap_or_else(|| "Unavailable".into());
+        let closing_cash = row
+            .actual_closing_cash_minor
+            .map(|value| format_minor(value, &row.currency))
+            .unwrap_or_else(|| "Unavailable".into());
+        table.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            escape_html(&period),
+            escape_html(&format_minor(row.forecast_net_cashflow_minor, &row.currency)),
+            escape_html(&actual),
+            escape_html(&variance),
+            escape_html(&variance_pct),
+            escape_html(&closing_cash),
+        ));
+    }
+    if rows.is_empty() {
+        table.push_str(r#"<tr><td colspan="6">No active forecast periods available.</td></tr>"#);
+    }
+    table.push_str(r#"</tbody></table><p><a href="/api/fpa/forecast-variance">View JSON</a></p></div>"#);
+    table
+}
+
+async fn fpa_variance_page(State(state): State<AppState>) -> Html<String> {
+    match state.store.forecast_cashflow_variance(&state.company_id, 12).await {
+        Ok(rows) => Html(format!(
+            r#"<!doctype html><html><head><meta charset="utf-8"><title>FPA variance</title><style>body{{font-family:system-ui;max-width:1100px;margin:40px auto;padding:0 18px;background:#0b1020;color:#eef}}table{{width:100%;border-collapse:collapse}}th,td{{padding:10px;border-bottom:1px solid #26304a;text-align:left}}a{{color:#93c5fd}}.muted{{color:#94a3b8}}</style></head><body><h1>FPA variance</h1>{}</body></html>"#,
+            render_fpa_variance_html(&rows)
+        )),
+        Err(error) => Html(format!(
+            r#"<!doctype html><html><head><meta charset="utf-8"><title>FPA variance</title></head><body><h1>FPA variance unavailable</h1><p>{}</p></body></html>"#,
+            escape_html(&error.to_string())
+        )),
+    }
 }
 
 async fn ceo_command_center_api(
@@ -4119,6 +4175,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/auth/session", post(browser_login))
         .route("/auth/logout", post(browser_logout))
         .route("/", get(index))
+        .route("/fpa/variance", get(fpa_variance_page))
         .route("/run", post(run_html))
         .route("/live/session", post(live_create_html))
         .route("/live/start", post(live_start_html))
