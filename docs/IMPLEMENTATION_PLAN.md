@@ -14,7 +14,7 @@
 - Agent Runtime + Governor and bankruptcy/cash-shock scenarios.
 - Business-unit, portfolio and payroll economics are represented.
 
-**Next acceptance work:** calibrate distributions from real observations and add multi-run statistical evaluation with confidence intervals.
+**Next acceptance work:** calibrate simulator distributions from real observed outcomes and validate sensitivity across target deployment scenarios. Multi-run statistical evaluation with deterministic seed sets and descriptive 95% intervals is implemented.
 
 ## Phase 3 — Agent Harness
 **Status: implemented safety baseline**
@@ -38,7 +38,7 @@ Durable media jobs, sandboxed FFmpeg, FFprobe QA and publishing approval contrac
 **Status: affiliate + commercial sales lifecycle implemented**
 - Product discovery/ranking, coupon validation, Awin/TikTok Shop adapters.
 - Click/conversion attribution, provider verification, receivable recognition and payout accounting.
-- Customer CRM identity/lifecycle, service proposals, sponsorships and invoices.
+- Customer CRM identity/lifecycle, service proposals, sponsorships, invoices and a governed outbound email path using durable outbox delivery.
 - Invoice issuance/payment now posts deterministic Accounts Receivable/Cash/Revenue ledger entries.
 
 **Next product work:** proposal/sponsorship status workflows, richer delivery/reporting and broader verified revenue ingestion.

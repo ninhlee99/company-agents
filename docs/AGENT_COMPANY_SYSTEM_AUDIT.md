@@ -40,6 +40,7 @@ The repository has a Rust-based Agent Runtime with deterministic economic and go
 34. Customer CRM identity, lifecycle and idempotent persistence.
 35. Control-plane bearer authentication with constant-time token comparison.
 36. Explicit production acceptance and secret-rotation standard.
+37. Company-aware composite foreign-key isolation for cross-domain relationships.
 
 ## Remaining acceptance items
 

@@ -11,7 +11,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: bash scripts/lint_infra.sh
       - run: bash scripts/secret_hygiene.sh
-      - run: bash scripts/verify.sh
+      - name: Verify workspace
+        env:
+          FORMAT_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: bash scripts/verify.sh
 
   package-tests:
     runs-on: ubuntu-latest
@@ -35,10 +38,37 @@ jobs:
           - llm-web-worker
           - outbox-worker
           - commercial-sales
+          - company-growth
+          - company-live-attention
+          - company-compliance
+          - company-command-center
+          - company-agent-evaluation
+          - company-autonomy
+          - company-capital
+          - company-safety-controls
+          - company-tiktok-auth
+          - company-revenue-graph
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test -p ${{ matrix.package }} -- --nocapture
+
+  model-benchmark-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run deterministic model benchmark smoke
+        env:
+          LLM_BENCHMARK_PROVIDERS: mock
+        run: |
+          cargo run -p agent-runtime --bin model-benchmark > model-benchmark.json
+          cat model-benchmark.json
+      - name: Upload benchmark smoke report
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-benchmark-smoke
+          path: model-benchmark.json
 
   postgres-integration:
     runs-on: ubuntu-latest

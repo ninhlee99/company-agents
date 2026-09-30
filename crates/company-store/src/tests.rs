@@ -1213,4 +1213,77 @@ async fn scheduler_lease_can_be_recovered_by_another_store() {
     assert!(recovered.is_some());
 }
 
+#[tokio::test]
+async fn commercial_customer_links_are_company_scoped() {
+    let Some(store) = connect_store().await else { return; };
+
+    let company_a = uuid::Uuid::new_v4().to_string();
+    let company_b = uuid::Uuid::new_v4().to_string();
+    store.ensure_company(&company_a, "Isolation A", "USD").await.unwrap();
+    store.ensure_company(&company_b, "Isolation B", "USD").await.unwrap();
+
+    let customer_id = uuid::Uuid::new_v4();
+    store.create_customer(
+        &company_a, customer_id, "Customer A", Some("customer-a@example.test"),
+        None, "LEAD", None, "isolation-customer-a",
+    ).await.unwrap();
+
+    let company_b_uuid = uuid::Uuid::parse_str(&company_b).unwrap();
+    let proposal = commercial_sales::ServiceProposal {
+        id: uuid::Uuid::new_v4(), company_id: company_b_uuid, customer_id,
+        title: "Cross-company proposal".into(), currency: "USD".into(), total_minor: 10_000,
+        status: commercial_sales::ProposalStatus::Draft, valid_until_epoch: 1_800_000_000,
+        idempotency_key: "isolation-proposal".into(),
+    };
+    assert!(store.create_service_proposal(&proposal).await.is_err());
+
+    let sponsorship = commercial_sales::Sponsorship {
+        id: uuid::Uuid::new_v4(), company_id: company_b_uuid, customer_id,
+        title: "Cross-company sponsorship".into(), currency: "USD".into(),
+        committed_minor: 10_000, delivered_minor: 0, status: "PROSPECT".into(),
+    };
+    assert!(store.create_sponsorship(&sponsorship).await.is_err());
+
+    let invoice = commercial_sales::Invoice {
+        id: uuid::Uuid::new_v4(), company_id: company_b_uuid, customer_id,
+        currency: "USD".into(), subtotal_minor: 10_000, paid_minor: 0,
+        status: commercial_sales::InvoiceStatus::Draft, due_epoch: 1_800_000_000,
+        idempotency_key: "isolation-invoice".into(),
+    };
+    let lines = vec![commercial_sales::InvoiceLine {
+        description: "Cross-company line".into(), quantity: 1, unit_price_minor: 10_000,
+    }];
+    assert!(store.create_invoice(&invoice, &lines).await.is_err());
+
+    assert!(store.create_customer_success_task(
+        &company_b, uuid::Uuid::new_v4(), &customer_id.to_string(), "ONBOARDING",
+        1_800_000_000, None, Some("cross-company customer"), "isolation-customer-task",
+    ).await.is_err());
+}
+
+#[tokio::test]
+async fn database_rejects_cross_company_invoice_customer_reference() {
+    let Some(store) = connect_store().await else { return; };
+
+    let company_a = uuid::Uuid::new_v4();
+    let company_b = uuid::Uuid::new_v4();
+    store.ensure_company(&company_a.to_string(), "FK Isolation A", "USD").await.unwrap();
+    store.ensure_company(&company_b.to_string(), "FK Isolation B", "USD").await.unwrap();
+
+    let customer_id = uuid::Uuid::new_v4();
+    store.create_customer(
+        &company_a.to_string(), customer_id, "Customer A", None, None, "LEAD", None,
+        "fk-isolation-customer",
+    ).await.unwrap();
+
+    let client = store.client.lock().await;
+    let result = client.execute(
+        "INSERT INTO invoices
+         (id,company_id,customer_id,currency,subtotal_minor,paid_minor,status,due_epoch,idempotency_key)
+         VALUES ($1,$2,$3,'USD',100,0,'DRAFT',$4,$5)",
+        &[&uuid::Uuid::new_v4(), &company_b, &customer_id, &1_800_000_000_i64, &"fk-cross-company-invoice"],
+    ).await;
+    assert!(result.is_err());
+}
+
 }

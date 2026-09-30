@@ -23,25 +23,34 @@ This document intentionally separates implemented behavior from contracts, simul
 | Media production | Implemented | Media jobs run through isolated FFmpeg/FFprobe QA in the media worker. |
 | Publishing approval contract | Implemented | Publish intent, approval, lease, completion and revocation are durable and guarded. |
 | TikTok publishing adapter | Implemented + webhook reconciliation, environment-gated | Approved TikTok intents can be executed through the Content Posting API adapter; publish IDs are persisted, signed TikTok webhooks are verified with replay protection, terminal outcomes reconcile idempotently, and status polling remains available as fallback. Real use requires valid TikTok authorization, app approval/audit and operator configuration. |
-| External email/message sending | NOT achieved | SendExternalMessage is a declared capability, but there is no production message provider executor. |
-| External payment execution | NOT achieved | The system can model invoices and record externally evidenced payments, but does not initiate bank/card/Stripe settlement. |
-| Commercial proposals | Implemented baseline | Durable proposal creation exists with idempotency. Status workflow endpoints are still limited. |
-| Sponsorship management | Implemented baseline | Contracted/delivered value is bounded, but CRM delivery/reporting workflow is incomplete. |
+| TikTok LIVE engine | Implemented + durable event persistence + governed stream publisher | Session/event contracts, durable idempotent gift/comment/follow/share/like ingestion, gift-statement reconciliation, AI engagement modes and an optional FFmpeg RTMP(S) publisher with hot-reload overlay are implemented. Actual TikTok account transport, gift events and platform PK control remain provider/account gated. |
+| External email/message sending | Implemented + environment-gated | Governed outbound email has durable approval/consent evidence, outbox execution, Resend provider idempotency, provider references and failure tracking; real sending still requires verified provider configuration. |
+| External payment execution | Governed + environment-gated | Payment intents, explicit approval evidence, idempotent execution intents, provider adapter boundary, execution evidence and reconciliation linkage exist; only the deterministic simulated provider is enabled by default. Real bank/card/processor settlement remains a separately gated adapter. |
+| Commercial proposals | Implemented | Durable proposal creation plus deterministic proposal lifecycle transitions and pipeline reads are implemented. External contract execution remains human-governed. |
+| Sponsorship management | Implemented baseline | Deterministic sponsorship lifecycle transitions, bounded delivery evidence and durable outbox events are implemented; external contracting/settlement remain governed boundaries. |
 | Invoicing | Implemented | Invoice creation, issuance and payment lifecycle are durable and idempotent. |
 | Invoice accounting | Implemented | Issuance posts AR → revenue; payment posts cash → AR inside the same transaction. |
 | Customer CRM | Implemented baseline | Idempotent customer creation and listing with lifecycle/status metadata are available. |
 | HR / payroll economics | Implemented baseline | Employees, payroll obligations and accounting primitives exist; external payroll execution is not integrated. |
 | Business-unit economics | Implemented baseline | Units and portfolio metrics exist; automatic capital allocation is still gated. |
-| Portfolio autonomy | NOT achieved | The repository does not yet provide evidence-backed autonomous reinvest/close decisions across real business units. |
+| Portfolio autonomy | Policy implemented; execution gated | A deterministic evidence-backed reinvest/hold/reduce/close policy now exists with liquidity protection and hard allocation caps. It produces decisions only; persisted execution and real capital movement remain separately gated. |
 | Human approval / material side effects | Implemented | Material publishing and other sensitive actions are designed to remain explicitly gated. |
-| Control-plane authentication | Implemented baseline | Bearer token authentication is required by default for non-health endpoints, with constant-time comparison. |
+| Control-plane authentication | Implemented baseline + audit + coarse scopes + browser session | Bearer token authentication is required by default for non-health endpoints, with constant-time comparison. Auth ALLOW/DENY decisions are persisted to a company-scoped append-only audit log. An optional read-only bearer token is limited to GET/HEAD; mutations still require the operator token. HTML control-plane sessions can use a signed HttpOnly cookie with SameSite=Strict and CSRF double-submit protection. |
+| Company-owned relational isolation | Implemented hardening | Commercial, CRM, procurement, payment, LIVE, creator and task relationships now use company-aware composite foreign keys; store-layer ownership checks fail early with explicit errors. Migration validation rejects pre-existing cross-company references rather than silently repairing them. |
 | Multi-user identity / RBAC / SSO | NOT achieved | Authentication is a shared control-plane token, not an operator identity system. |
 | Multi-tenant SaaS isolation | NOT achieved | The runtime is company-scoped by deployment configuration, not a full user/tenant authorization model. |
-| Observability | Implemented baseline | Health/readiness and Prometheus-style counters exist. Distributed tracing/load/chaos acceptance is still environment-dependent. |
+| Observability | Implemented baseline + request correlation | Health/readiness and Prometheus-style counters exist. Protected control-plane requests now emit a bounded `x-request-id`, and Prometheus includes request count, auth-denial count, CSRF-denial count and last latency. Distributed tracing/load/chaos acceptance is still environment-dependent. |
+| Integration readiness | Implemented baseline | Authenticated control-plane clients can inspect deterministic readiness for LLM, affiliate, TikTok OAuth, LIVE, outbound email, browser session and compliance. Configured/authenticated/evidence-fresh remain separate signals; external reachability is not inferred. |
 | Disaster recovery | Implemented baseline | Backup/restore drill automation exists; production-scale recovery evidence is still environment-dependent. |
-| Model evaluation / routing | NOT achieved | There is no production benchmark matrix, complexity router or hardware-aware model selection loop yet. |
+| Simulator multi-run statistical evaluation | Implemented baseline | Deterministic seeded runs now produce descriptive mean/stddev/95% intervals and p05/median/p95 for key economic outcomes plus simulated survival/bankruptcy rates. These intervals describe model-run variability, not real-world forecast confidence. |
+| Model evaluation / routing | Evidence capture + shadow routing + benchmark harness | Per-cycle evaluation evidence is persisted. Shadow routing classifies task complexity, detects hardware tier and records a deterministic provider recommendation without changing actual provider selection. A CLI benchmark matrix now measures per-provider latency, success and JSON-object validity across Fast/Standard/Deep cases; active routing remains gated pending target-environment quality/cost/failure evidence. |
 | Autonomous hiring/payroll execution | NOT achieved | Economic primitives and proposals exist; real external hiring/payroll actions remain gated. |
 | Autonomous company operation with no human | NOT achieved | The architecture is a controlled autonomy foundation. Real external credentials, platform adapters and production acceptance are still required. |
+
+
+## TikTok OAuth refresh durability
+
+- **Durable refresh lease:** enabled refresh workers use the existing `scheduled_jobs` lease, so concurrent Company OS instances claim at most one refresh job at a time. Refresh failures release the job for bounded retry; successful/no-op cycles advance the next run.
 
 ## Hard conclusion
 
@@ -51,12 +60,13 @@ It should not be described as an AI company that can independently operate every
 
 ## Next implementation priority
 
-1. Extend the TikTok adapter from authenticated execution to OAuth/token lifecycle management and durable background polling workers; webhook reconciliation is now implemented.
-2. Build an authenticated outbound messaging adapter behind approval + outbox.
-3. Add proposal/sponsorship lifecycle transitions and delivery evidence.
-4. Add real payment-provider reconciliation before any payment initiation capability.
-5. Add operator identity/RBAC and tenant isolation before exposing the control plane as SaaS.
-6. Add benchmark/evaluation and shadow-mode evidence before increasing autonomy.
+1. Complete TikTok OAuth/token lifecycle management and durable background polling/renewal workers.
+2. Complete operator identity/RBAC and tenant isolation; treat the current role/audit work as a control-plane foundation rather than SaaS-grade identity.
+3. Add a production model benchmark matrix, complexity router and hardware-aware routing in shadow mode before increasing autonomy.
+4. Add evidence-backed portfolio reinvest/close decisions across real business units, with hard capital limits and human approval for material allocation.
+5. Promote payment execution from simulated provider to separately reviewed real-provider adapters only after reconciliation, idempotency and recovery acceptance tests pass.
+6. Add production acceptance evidence: backups/restores, load/chaos, provider failure drills, security review and revenue reconciliation.
+7. Treat verified revenue and cash outcomes—not task volume or simulated activity—as the release gate for higher autonomy.
 
 
 ### Recent operating-control improvements
@@ -72,21 +82,187 @@ It should not be described as an AI company that can independently operate every
 The commercial control plane now exposes a read-only pipeline view plus deterministic proposal and sponsorship transitions. Sponsorship delivery is bounded by the contracted value and emits durable outbox events. These APIs do not execute external contracts or payment settlement; those remain provider/reconciliation boundaries.
 
 
-## FP&A / Budget Controls
+## Procurement / Vendor Lifecycle
 
-- Durable company budgets: implemented
-- Atomic spend tracking with idempotency: implemented
-- Currency and limit enforcement: implemented
-- Append-only audit evidence for budget spend: implemented
-- Forecast vs actual: not yet implemented
-- Cash-flow forecasting / runway planning: not yet implemented
+- Vendor records: implemented
+- Purchase request creation: implemented
+- Explicit approval evidence: implemented
+- Delivery evidence ledger: implemented
+- Automatic vendor payment/settlement: not implemented; approval and delivery do not settle funds
+- Autonomous supplier contracting: not implemented; external contracts remain human-governed
 
 
-## Forecast / Cash Flow
+## Revenue period truth
 
-- Versioned financial forecast plans: implemented
-- Monthly/period cash-flow assumptions: implemented
-- Forecast net cash-flow summary: implemented
-- Idempotent cash-flow observations with evidence: implemented
-- Forecast-vs-actual variance analysis: next
-- Automated cash runway / liquidity alerts: next
+- **Ledger-backed revenue periods:** Company OS now derives MTD, trailing-30-day, and lifetime revenue from immutable revenue ledger entries rather than using the cumulative company snapshot as a monthly progress proxy.
+- **Evidence count:** The dashboard exposes the number of revenue transactions supporting the MTD figure.
+- **Fail-closed display:** If the ledger query is unavailable, MTD displays as zero rather than silently presenting cumulative revenue as monthly revenue.
+
+
+## Contribution-margin truth
+
+- **Expense classification:** ledger expense accounts carry VARIABLE, FIXED, or UNCLASSIFIED cost class.
+- **Fail-closed economics:** MTD contribution margin is only reported when all MTD expense entries are classified; otherwise the dashboard reports Incomplete and shows the unclassified expense amount.
+- **No proxy margin:** cumulative snapshot revenue is not reused as a contribution-margin input.
+
+
+## Affiliate reconciliation cockpit
+
+- MTD affiliate commission is shown from persisted conversion records.
+- MTD attributed commission is aggregated from persisted attribution records.
+- MTD recorded payouts are shown separately; they are not represented as bank receipt unless backed by the payout/evidence flow.
+- The dashboard exposes the reconciliation variance so attribution gaps cannot be hidden inside a single revenue number.
+
+
+## Experiment engine
+
+- **Deterministic experiment policy:** hypotheses must declare control/treatment, budget, minimum observations, duration, success threshold and kill threshold.
+- **Fail-closed decisioning:** invalid specifications, negative spend, budget exhaustion, insufficient observations, success, underperformance and expiry resolve deterministically.
+- **Persistent evidence:** experiment definitions and observations are company-scoped and persisted before terminal decisions are returned.
+- **No fabricated outcomes:** the engine evaluates supplied observations; it does not invent traffic, orders, conversion, revenue or platform metrics.
+
+## Compliance / Policy Intelligence
+
+- **Versioned policy evidence:** company-scoped policy snapshots persist platform, jurisdiction, version, source reference, evidence hash, observed/effective timestamps and explicit rule flags.
+- **Fail-closed decisioning:** missing, inactive, future, or mismatched policy snapshots resolve to UNKNOWN/human review; missing disclosure, unverified claims, prohibited products, fake engagement and simulcast are blocked when the declared policy requires it.
+- **Side-effect gate:** TikTok publishing and LIVE publisher start/externally approved LIVE session creation require an exact policy snapshot key plus evidence flags and proceed only when the deterministic compliance decision is ALLOWED.
+- **Auditability:** every compliance check is idempotently persisted and exposes 24-hour ALLOWED/REVIEW/BLOCKED/UNKNOWN counts on the command center.
+- **Policy activation event:** activating a new version deactivates the prior active snapshot, rejects rollback to an older effective policy, and emits `POLICY_SNAPSHOT_ACTIVATED` for downstream watchers.
+- **Current boundary:** no automatic policy scraping is claimed. Operators or a verified policy watcher must supply the policy snapshot and evidence; changing platform rules do not silently become trusted.
+
+## Emergency stop + autonomy budgets
+
+- **Persistent emergency stop:** a company-scoped stop survives process restarts and blocks autonomous cycle side effects, TikTok publishing, LIVE starts and outbound email delivery while leaving audit/evidence/accounting paths available.
+- **Daily hard budgets:** content publishes, ad spend, LIVE minutes, outbound messages and autonomous capital each have explicit daily ceilings. Zero is a valid hard block.
+- **Atomic idempotent consumption:** budget consumption is checked and recorded inside a transaction with an immutable consumption ledger and durable outbox event.
+- **Operational visibility:** Company OS exposes the stop state and configured daily caps; blocked actions return an explicit precondition failure rather than appearing successful.
+- **Current boundary:** ad execution and fully automatic autonomous-capital execution are not yet present in the repository, so their budgets are control-plane reservations for the next execution adapters.
+
+## Capital allocation planning
+
+- **Evidence-backed candidate contract:** capital candidates carry an explicit evidence reference plus expected contribution, downside, capital required, time-to-feedback, reversibility, strategic value, confidence, evidence count and a hard allocation cap.
+- **Deterministic portfolio plan:** the planner scores candidates using bounded return/risk/speed/quality inputs, respects company cash minus reserve and a discretionary budget, and allocates no more than hard caps.
+- **Liquidity and stop gates:** emergency stop, non-operational company states and insufficient runway/evidence hold capital at zero; positive expected contribution is required before allocation.
+- **Durable idempotency:** plan identity is deterministic per company + plan key and the complete input bundle is fingerprinted, so replay with different evidence fails closed instead of silently mutating a prior plan.
+- **No cash movement:** this capability creates an auditable allocation plan and outbox event only. It does not move company cash or execute external investments/payments.
+
+## TikTok OAuth / token lifecycle
+
+- **Web OAuth flow:** Company OS can generate a TikTok Login Kit authorization URL, persist a one-time CSRF state hash, validate the callback state and registered redirect URI, and exchange the authorization code server-side.
+- **Encrypted token storage:** access and refresh tokens are encrypted at rest with AES-256-GCM and company-scoped associated data; API responses never return raw tokens.
+- **Refresh / rotation:** manual and background refresh are supported; the newly returned refresh token replaces the prior token so token rotation is preserved.
+- **Revocation / reauth:** revocation and invalid-refresh handling move the connection to explicit `REVOKED` / `REAUTH_REQUIRED` states and leave an audit trail.
+- **Publishing integration:** when `TIKTOK_OAUTH_ENABLED=true`, Content Posting API calls fetch the current token from the durable store and refresh it when near expiry; the legacy env-token path remains available when OAuth mode is disabled.
+- **External prerequisites:** the TikTok developer app still needs the requested scopes, consent and an exact registered HTTPS redirect URI; Content Posting API production/public posting remains subject to TikTok's app approval/audit rules.
+
+## Affiliate Attribution & Reconciliation
+
+- **Three ledgers stay separate:** provider-reported commission, company-attributed commission, and recorded affiliate payout/cash receipt are exposed independently.
+- **Variance directions:** reported-attributed, attributed-paid, and reported-paid variances are all explicit; no single variance is used as a proxy for the others.
+- **Company scope:** reconciliation queries remain tenant/company scoped and month-to-date by ledger/provider timestamps.
+- **Lineage:** affiliate graph edges preserve click/order/commission/payout evidence without silently inventing missing campaign/content provenance.
+
+## Contribution Margin Accounting
+
+- **Authoritative CM:** contribution margin remains `revenue - variable_cost`; category fields are explanatory and are not summed into CM again.
+- **Separate categories:** platform fees, affiliate commissions, refunds/cancellations, production/AI, ad spend, fixed operating costs, and cash are exposed separately from revenue.
+- **Classification boundary:** category values use explicit ledger account codes first and conservative account-name matching second; unmatched expenses remain in the unclassified bucket.
+- **Cash boundary:** cash is read from the company-scoped `CASH` asset account and is never treated as revenue or contribution margin.
+
+## Revenue Period Truth
+
+- **Period semantics:** `RevenuePeriodMetrics` keeps month-to-date revenue, trailing-30-day revenue, lifetime revenue, a calendar-day monthly forecast, and a trailing-30-day monthly run-rate as separate values.
+- **Target separation:** the configured monthly target is planning input and is never substituted for observed revenue.
+- **Forecast boundary:** the monthly forecast is a deterministic calendar-day run-rate projection; its confidence field is time-coverage (elapsed-month) coverage, not a statistical guarantee.
+- **No lifetime-vs-monthly comparison:** dashboard target progress uses only month-to-date observed revenue.
+
+## Integration readiness
+
+- **Control-plane request telemetry:** protected requests are correlated with `x-request-id`; auth/scope/CSRF denials increment dedicated counters and protected request latency is exposed as a low-cardinality gauge. No path/actor labels are exported to avoid cardinality and secret leakage.
+
+- **Readiness API:** `GET /api/integrations/readiness` returns explicit `READY`, `CONFIGURED`, `NOT_CONFIGURED`, `ACTION_REQUIRED`, `GATED`, or `UNAVAILABLE` states.
+- **Evidence boundary:** configuration and stored authentication are reported separately from provider reachability or business-outcome acceptance; no external success is inferred from environment variables alone.
+
+## Control-plane audit
+
+- **Control-plane audit:** authenticated/denied requests are durably recorded with company, coarse operator role, method/path, outcome, request ID, and non-secret bearer-token fingerprint. The system still does not provide multi-user identity, RBAC, or SSO.
+- **Read-only audit feed:** `GET /api/control-plane/audit?limit=N` exposes recent company-scoped audit metadata to authenticated control-plane clients; the bearer token itself is never returned.
+- **Coarse auth scope:** `CONTROL_PLANE_READ_TOKEN` may authorize only `GET/HEAD` requests; `CONTROL_PLANE_TOKEN` remains the operator credential for mutating control-plane actions. This narrows blast radius but is not multi-user RBAC.
+- **Browser session:** `GET /auth/login` + `POST /auth/session` establish an 8-hour signed browser session when `CONTROL_PLANE_BROWSER_SECRET` is configured. Mutating HTML forms require a matching CSRF cookie/query token; `POST /auth/logout` clears both cookies. Browser sessions do not create per-user identity and remain shared operator sessions.
+
+## Model routing (shadow)
+
+- **Deterministic task classification:** model calls are classified as Fast, Standard, or Deep from agent role and bounded prompt size.
+- **Hardware-aware recommendation:** local logical CPU count is mapped to Small/Medium/Large tiers.
+- **Provider recommendation:** Fast favors configured local/mock providers; Deep on Small hardware favors configured remote API providers.
+- **Safe rollout:** `MODEL_ROUTER_MODE=shadow` is advisory telemetry only. The existing provider/fallback order remains authoritative until benchmark and acceptance evidence justify active routing.
+- **Benchmark harness:** `cargo run -p agent-runtime --bin model-benchmark` runs the Fast/Standard/Deep matrix against providers named in `LLM_BENCHMARK_PROVIDERS` (default `mock`) and outputs machine-readable observations. Latency/format evidence is collected without changing routing.
+- **CI smoke gate:** the Rust workflow runs the benchmark against `mock` on every push/PR and uploads the JSON report, proving the benchmark target remains buildable without external credentials.
+- **Current boundary:** the harness does not claim provider quality or cost superiority; active routing requires target-environment evidence for quality, cost, latency and failure behavior.
+
+## Revenue Intelligence Graph
+
+- **Evidence-backed lineage:** immutable, company-scoped edges can connect content, hooks, audience, traffic, orders, products, commissions, experiments, decisions, trends and cash settlement with evidence references and confidence.
+- **Operational reads:** Company OS exposes graph summary and bounded forward lineage queries; graph data is visible as unavailable rather than silently treated as zero.
+- **Automatic write points:** affiliate click/conversion/verification/payout, growth-created content, and experiment decisions can create graph edges transactionally with idempotent identity.
+- **Integrity controls:** deterministic edge IDs, company-scoped uniqueness, evidence requirements, bounded numeric values and append-only triggers prevent silent mutation.
+- **Current boundary:** the graph does not invent missing campaign/creator data and does not retroactively backfill historical records; existing events must be replayed through authenticated/imported source boundaries to populate lineage.
+
+## Trend → Opportunity → Content loop
+
+- **Evidence-gated trend ingestion:** trend signals require a source, evidence reference, timestamp, normalized scoring inputs, confidence and policy evidence before they can enter the growth loop.
+- **Deterministic opportunity scoring:** trend signals are scored from velocity, audience fit, product fit, contentability and inverse competition; low-confidence/high-score signals remain monitored instead of being auto-pursued.
+- **Durable opportunity ledger:** pursued trends create idempotent, company-scoped opportunities with the exact content economics and policy evidence used to generate them.
+- **Content-plan bridge:** a pursued opportunity can be materialized once into the Content Factory as a Draft; this does not publish externally or claim reach/revenue.
+- **TTFC evidence:** the growth ledger stores the first content creation timestamp and derives trend-to-content elapsed seconds so growth speed can be measured instead of inferred.
+- **LIVE attention controller:** each accepted LIVE event is scored for purchase intent, objections, gifts, PK moments, engagement, explicit high-value viewer evidence and safety escalation; per-session response caps/cooldowns are persisted, with human escalation for safety signals.
+- **LIVE learning integration:** safety escalations and high-priority responses persist a bounded policy-learning record transactionally; the record carries event/session evidence identifiers and does not recognize gifts or engagement as revenue.
+- **Typed outbox events:** TREND_DETECTED, OPPORTUNITY_CREATED and CONTENT_CREATED provide durable downstream hand-off points without free-form agent chat.
+- **Current boundary:** trend discovery still requires an external/verified trend signal source, and content analytics/publishing evidence must come from separately authenticated platform boundaries.
+
+## Agent outcome evaluation
+
+- **Outcome evidence ledger:** one immutable, company-scoped evidence record can be attached to an executed, Governor-approved decision journal entry; it carries an evidence reference plus observed revenue and contribution-margin deltas.
+- **Deterministic agent scorecards:** the evaluation layer reports proposal/approval/execution counts, observed spend, projected revenue, evidence coverage, projected return and observed return without assigning revenue to agents from timing or correlation alone.
+- **Evidence states:** `InsufficientEvidence`, `PartialEvidence`, and `Evaluated` describe evidence coverage; they are not an autonomous ranking of agents.
+- **APIs:** `POST /api/agents/outcome-evidence` records explicit outcome evidence and `GET /api/agents/evaluation` returns the last-30-day scorecards by default.
+- **Current boundary:** no automatic causal attribution from content, LIVE, affiliate or ledger revenue to an agent is claimed; a verified system must explicitly attach the outcome evidence to a decision.
+
+## CEO Revenue Command Center
+
+- **Ledger-backed executive view:** combines authoritative MTD/30d/lifetime revenue, contribution margin evidence, affiliate reconciliation, affiliate orders/net order value, content funnel, LIVE gift pulse, policy readiness, growth opportunities and cash/runway in one read model.
+- **Consistent windows:** content metrics are evaluated on the latest seven-day observation per content item; LIVE pulse uses the last 30 days; affiliate order economics and reconciliation use the current month; revenue trend uses a complete seven-day daily series.
+- **Exception-first triage:** deterministic `Needs attention`, `Opportunities`, and `Healthy` sections surface liquidity, margin evidence, reconciliation, policy and growth states without inventing missing data.
+- **Truth boundaries:** gift value is explicitly not recognized company revenue; content commission is labeled as observed commission; missing command-center data renders as unavailable rather than zero.
+- **API:** authenticated `GET /api/ceo/command-center` exposes the same deterministic decision view used by the dashboard.
+
+## Autonomy ladder / Digital Twin
+
+- **Six-level control ladder:** Observe → Recommend → Simulate → Human approve → Limited autonomy → Strategic autonomy.
+- **Deterministic gate:** emergency stop blocks autonomous side effects; distress/emergency/liquidation/bankruptcy caps autonomy at recommendation/simulation; low confidence or insufficient evidence stays recommendation-only; material/external/critical-risk actions require human approval.
+- **Digital Twin:** proposed actions are replayed through the pure execution model against the authoritative snapshot without mutating live state; simulated cash/runway/status/downside are returned as evidence.
+- **Limited autonomy conditions:** configured ceiling must permit it, action must be reversible, cost must stay under cap, confidence/evidence gates must pass, and the Digital Twin must show non-negative cash, no bankruptcy risk and sufficient runway.
+- **Durable simulations:** autonomy assessments are persisted idempotently in an append-only, company-scoped ledger and emit `AUTONOMY_ASSESSMENT_RECORDED`.
+- **Safe default:** `AUTONOMY_MAX_LEVEL=SIMULATE`; strategic autonomy is disabled unless explicitly configured. External/material side effects remain human-gated.
+
+## Learning / Failure Ledger
+
+- **Typed learning records:** P0.5 now defines durable, company-scoped learning/failure entries with source linkage, expected vs actual outcome, impact, confidence, root cause, corrective action, reusable rule, and a deterministic follow-up decision.
+- **Evidence gate:** failure records require severity and all entries require an observed actual outcome; the library rejects empty evidence and invalid confidence values rather than inventing outcomes.
+- **Idempotent identity:** the database enforces a company-scoped unique `entry_key`, preventing duplicate learning records for the same source event.
+- **Append-only enforcement:** learning entries are append-only at the database layer; UPDATE/DELETE attempts are rejected by a trigger.
+- **Outcome integrations:** terminal experiment decisions and content observations now persist evidence-backed learning entries plus transactional `LEARNING_ENTRY_RECORDED` outbox events in the same database transaction. Material LIVE attention decisions (safety escalation or priority ≥90) are also persisted as learning/near-miss evidence; low-signal LIVE events remain out of the learning ledger.
+
+## Content Factory
+
+- **Creative planning contract:** implemented through the company-content domain with deterministic validation for hypothesis, audience, format, product/offer references, disclosure, expected cost, maximum loss, success metric and threshold.
+- **Creative primitives:** each variant persists hook, first frame, emotion, pacing, scene count, text density, voice speed, product placement, CTA, comment trigger, music style and visual style.
+- **Durable content ledger:** company-scoped PostgreSQL content items are persisted with status and explicit SCALE/ITERATE/PAUSE/KILL decisions.
+- **Control-plane API:** authenticated GET/POST /api/content/items is available for creating and reviewing content plans.
+- **Truth boundary:** content plans do not imply rendering, publishing, reach, conversion or revenue. Those outcomes require separate verified media, platform, analytics and attribution evidence.
+- **Learning integration:** measured content observations now feed the learning ledger transactionally. Verified analytics/publisher evidence is still required at the content-observation boundary; LIVE learning remains separate.
+
+- **Content lifecycle evidence:** status transitions are governed and published/measured states require persisted evidence references.
+- **Content performance evidence:** company-scoped observations persist source/evidence hash, timestamp, sample/funnel metrics, spend, commission and contribution margin with idempotent observation keys.
+- **Deterministic feedback:** content observations resolve to SCALE/ITERATE/KILL using the declared loss limit and success threshold; no platform metrics are fabricated.
+- **Integration boundary:** verified analytics and publisher integrations must supply the evidence; the content API itself does not claim TikTok publishing or analytics connectivity.
