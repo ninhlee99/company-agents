@@ -80,3 +80,5 @@ Recurring autonomous operation is technically scaffolded, but unsupervised exter
 
 ## Release rule
 Do not advance a phase until its previous phase passes tests and operational acceptance criteria.
+
+- Product freshness foundation: affiliate product ranking can apply a strict source-evidence age window and exclude stale, future-dated, missing or malformed product timestamps.
