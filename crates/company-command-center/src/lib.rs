@@ -109,16 +109,12 @@ pub fn summarize(input: &CommandCenterInput) -> Result<CommandCenterSummary, Str
     if input.revenue_target_minor <= 0 {
         return Err("revenue target must be positive".into());
     }
-    if input.cash_minor < 0
-        || input.revenue_mtd_minor < 0
-        || input.revenue_last_30d_minor < 0
-        || input.revenue_lifetime_minor < 0
-        || input.revenue_transaction_count < 0
+    if input.revenue_transaction_count < 0
         || input.affiliate_orders_mtd < 0
         || input.active_employee_count < 0
         || input.payroll_due_count < 0
     {
-        return Err("command center economic counts cannot be negative".into());
+        return Err("command center counts cannot be negative".into());
     }
     if input.unclassified_expense_entry_count < 0 {
         return Err("unclassified expense count cannot be negative".into());
@@ -298,8 +294,8 @@ fn validate_input(input: &CommandCenterInput) -> Result<(), String> {
         }
     }
     for point in &input.daily_revenue {
-        if point.day.trim().is_empty() || point.revenue_minor < 0 {
-            return Err("daily revenue points must have a day and non-negative revenue".into());
+        if point.day.trim().is_empty() {
+            return Err("daily revenue points must have a day".into());
         }
     }
     Ok(())
@@ -448,6 +444,22 @@ mod tests {
         let mut value = input();
         value.revenue_target_minor = 0;
         assert!(summarize(&value).is_err());
+    }
+
+    #[test]
+    fn signed_revenue_and_cash_are_preserved_for_truthful_alerting() {
+        let mut value = input();
+        value.cash_minor = -1;
+        value.revenue_mtd_minor = -10;
+        value.revenue_last_30d_minor = -5;
+        value.revenue_lifetime_minor = -20;
+        value.daily_revenue[0].revenue_minor = -30;
+        value.affiliate_variance_mtd_minor = 0;
+        let summary = summarize(&value).unwrap();
+        assert!(summary
+            .alerts
+            .iter()
+            .any(|alert| alert.title == "Liquidity risk"));
     }
 
     #[test]
