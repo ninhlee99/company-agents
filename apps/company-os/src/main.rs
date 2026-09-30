@@ -4058,7 +4058,6 @@ mod control_plane_audit_tests {
     }
 
     #[test]
-    #[test]
     fn browser_session_fingerprint_is_stable_and_non_secret() {
         let first = browser_session_fingerprint("session-cookie-value");
         let second = browser_session_fingerprint("session-cookie-value");
@@ -4067,6 +4066,7 @@ mod control_plane_audit_tests {
         assert!(!first.contains("session-cookie-value"));
     }
 
+    #[test]
     fn browser_cookie_fingerprint_does_not_expose_cookie() {
         let cookie = "v1.123456.test-signature";
         let id = control_plane_actor_id_for_cookie(cookie);
