@@ -3389,6 +3389,9 @@ fn normalized_trace_id(request: &Request, request_id: &str) -> String {
             let trace_id = parts.next()?;
             let span_id = parts.next()?;
             let flags = parts.next()?;
+            if parts.next().is_some() {
+                return None;
+            }
             if version.len() == 2
                 && trace_id.len() == 32
                 && span_id.len() == 16
@@ -4168,6 +4171,21 @@ mod control_plane_audit_tests {
             .body(axum::body::Body::empty())
             .unwrap();
         let fallback = normalized_trace_id(&request, "req-123");
+        assert_ne!(fallback, "00000000000000000000000000000000");
+
+        let request = Request::builder()
+            .uri("/api/run")
+            .header(
+                "traceparent",
+                "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01-extra",
+            )
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let extra_segment_fallback = normalized_trace_id(&request, "req-extra");
+        assert_ne!(
+            extra_segment_fallback,
+            "4bf92f3577b34da6a3ce929d0e0e4736"
+        );
         assert_eq!(fallback.len(), 32);
         assert!(fallback.chars().all(|value| value.is_ascii_hexdigit()));
     }
