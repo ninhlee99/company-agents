@@ -266,6 +266,9 @@ export interface LivestreamSession {
   streamType: 'Gaming & Reaction' | 'Storytelling & Mystery' | 'Healing & Q&A' | 'Lofi Chill & Minigames';
   hostAgentName: string;
   hostAgentAvatar: string;
+  personaStyle: string;
+  virtualSet: string;
+  aiDecisionRationale: string;
   title: string;
   currentGameOrTopic: string;
   streamStatus: 'Live' | 'Paused' | 'Ended';
@@ -955,6 +958,9 @@ const state: {
         streamType: 'Storytelling & Mystery',
         hostAgentName: 'Mia Thorne AI (VTuber)',
         hostAgentAvatar: '🎙️',
+        personaStyle: 'VTuber 3D Goth-Lofi Anime',
+        virtualSet: 'Phòng Thu Ánh Trăng 3D & Lofi Rainy Window',
+        aiDecisionRationale: 'Thuật toán Kenji Sato AI phát hiện từ khóa "Kỳ án đêm khuya" đang tăng +180% search volume vào khung giờ 21h-01h. Tự động chuyển đổi bối cảnh Ánh Trăng 3D để tối ưu thời gian xem trung bình.',
         title: '🔴 LIVE 24/7: Kể Chuyện Kỳ Án Hồ Sương Mù & Đọc Tâm Sự Giấu Tên Cùng 3,400 Bạn Đêm Khuya',
         currentGameOrTopic: 'Vụ án bí ẩn Ngọn Hải Đăng Cổ & Lắng nghe tâm sự fan',
         streamStatus: 'Live',
@@ -1729,6 +1735,9 @@ app.post('/api/channels/stream/start', (req, res) => {
     streamType: streamType as any,
     hostAgentName: hostName,
     hostAgentAvatar: streamType === 'Gaming & Reaction' ? '🎮' : '🎙️',
+    personaStyle: streamType === 'Gaming & Reaction' ? 'Cyberpunk Pro Gamer' : 'VTuber 3D Persona',
+    virtualSet: streamType === 'Gaming & Reaction' ? 'Đấu Trường Neon Gaming' : 'Phòng Thu Ánh Trăng 3D',
+    aiDecisionRationale: 'Quyết định tự động bởi Đạo Diễn AI Kenji Sato dựa trên dữ liệu trending thời gian thực.',
     title: title || `🔴 LIVE 24/7: ${topic || channel.niche} - Trò Chuyện & Tương Tác Cùng Fan`,
     currentGameOrTopic: topic || channel.niche,
     streamStatus: 'Live',
@@ -1745,6 +1754,7 @@ app.post('/api/channels/stream/start', (req, res) => {
     startedAt: new Date().toISOString(),
   };
 
+  const streamSession = channel.activeStreamSession;
   logOfficeActivity({
     agentId: streamType === 'Gaming & Reaction' ? 'agent-gamer' : 'agent-livestream',
     agentName: hostName,
@@ -1752,7 +1762,7 @@ app.post('/api/channels/stream/start', (req, res) => {
     department: 'Growth',
     actionType: 'CreateContent',
     title: `Lên sóng trực tiếp 24/7 trên kênh ${channel.name}`,
-    detail: `AI Virtual Streamer đã bắt đầu phiên live: "${channel.activeStreamSession.title}". Đang thu hút ${channel.activeStreamSession.viewersCount} người xem trực tiếp.`,
+    detail: `AI Virtual Streamer đã bắt đầu phiên live: "${streamSession?.title}". Đang thu hút ${streamSession?.viewersCount} người xem trực tiếp.`,
     badgeColor: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
   });
 
@@ -1802,6 +1812,85 @@ app.post('/api/channels/stream/donate', (req, res) => {
   channel.monthlyDonationMinor += amountMinor;
 
   res.json({ success: true, donation, stream: channel.activeStreamSession, channel });
+});
+
+const AUTONOMOUS_LIVE_THEMES = [
+  {
+    topic: 'Kỳ Án Hồ Sương Mù & Đọc Tâm Sự Giấu Tên',
+    title: '🔴 LIVE 24/7: Kể Chuyện Kỳ Án Hồ Sương Mù & Đọc Tâm Sự Giấu Tên Cùng 3,400 Bạn Đêm Khuya',
+    host: 'Mia Thorne AI (VTuber)',
+    avatar: '🎙️',
+    streamType: 'Storytelling & Mystery' as const,
+    personaStyle: 'VTuber 3D Goth-Lofi Anime',
+    virtualSet: 'Phòng Thu Ánh Trăng 3D & Lofi Rainy Window',
+    rationale: 'Kenji Sato AI quét thấy hashtag #TruyenKiemDiem và #HealingTalks đang viral top 1 đêm khuya. Tự động chuyển đổi sang bối cảnh Ánh Trăng 3D để giữ chân người xem trung bình > 28 phút.',
+  },
+  {
+    topic: 'Chơi Thử Game Kinh Dị Outlast II & React Meme Fan Gửi',
+    title: '🔴 LIVE 24/7: Ren Kuro AI Chơi Outlast II Thâu Đêm - Nhịp Tim 140bpm + Đọc Donate Hài Hước',
+    host: 'Ren Kuro AI (Gamer)',
+    avatar: '🎮',
+    streamType: 'Gaming & Reaction' as const,
+    personaStyle: 'Cyberpunk Pro Gamer 3D Avatar',
+    virtualSet: 'Đấu Trường Neon Gaming Arena & RGB Audio Lights',
+    rationale: 'Hệ thống radar phát hiện lượng người xem game kinh dị và meme reactions tăng đột biến +320% vào khung giờ này. Tự động hoán đổi Host Ren Kuro AI và bối cảnh Neon Gaming.',
+  },
+  {
+    topic: 'Nhạc Lofi Piano Chữa Lành, Học Bài & Q&A Tự Động',
+    title: '🔴 LIVE 24/7: Lofi Chill Beats & Không Gian Học Tập Cùng AI Host Luna - Q&A Trò Chuyện Tâm Sự',
+    host: 'Luna AI (Lofi Host)',
+    avatar: '🎧',
+    streamType: 'Lofi Chill & Minigames' as const,
+    personaStyle: 'Chibi Anime Cozy Lofi Persona',
+    virtualSet: 'Quán Cà Phê Mưa Ấm Áp Lofi Cafe',
+    rationale: 'Thuật toán tối ưu hóa tệp sinh viên & người làm việc đêm khuya cần nhạc không lời và tâm sự nhẹ nhàng, kéo lượng tương tác donate tăng đều đặn.',
+  },
+  {
+    topic: 'Giải Mã Bí Ẩn Tam Giác Bermuda & Khoa Học Viễn Tưởng',
+    title: '🔴 LIVE 24/7: Khám Phá Bí Ẩn Đại Dương & Vũ Trụ - Thảo Luận Khoa Học Cùng Host Mia AI',
+    host: 'Mia Thorne AI (VTuber)',
+    avatar: '🎙️',
+    streamType: 'Storytelling & Mystery' as const,
+    personaStyle: 'Sci-Fi Holo VTuber',
+    virtualSet: 'Đài Thiên Văn Không Gian 3D Vũ Trụ',
+    rationale: 'Chủ đề khoa học viễn tưởng và đại dương kích thích trí tò mò, thúc đẩy bình luận tranh luận tăng +210% trong live chat.',
+  },
+];
+
+app.post('/api/channels/autonomous-switch', (req, res) => {
+  const { channelId } = req.body;
+  const channel = state.channels.find(c => c.id === channelId) || state.channels[0];
+  if (!channel.activeStreamSession) {
+    return res.status(400).json({ success: false, reason: 'Kênh chưa có phiên live nào đang hoạt động' });
+  }
+
+  // Pick random next theme from autonomous pool
+  const currentTopic = channel.activeStreamSession.currentGameOrTopic;
+  const otherThemes = AUTONOMOUS_LIVE_THEMES.filter(t => t.topic !== currentTopic);
+  const nextTheme = otherThemes[Math.floor(Math.random() * otherThemes.length)] || AUTONOMOUS_LIVE_THEMES[0];
+
+  channel.activeStreamSession.currentGameOrTopic = nextTheme.topic;
+  channel.activeStreamSession.title = nextTheme.title;
+  channel.activeStreamSession.hostAgentName = nextTheme.host;
+  channel.activeStreamSession.hostAgentAvatar = nextTheme.avatar;
+  channel.activeStreamSession.streamType = nextTheme.streamType;
+  channel.activeStreamSession.personaStyle = nextTheme.personaStyle;
+  channel.activeStreamSession.virtualSet = nextTheme.virtualSet;
+  channel.activeStreamSession.aiDecisionRationale = nextTheme.rationale;
+  channel.activeStreamSession.viewersCount = Math.floor(Math.random() * 1200 + 2600);
+
+  logOfficeActivity({
+    agentId: 'agent-streamops',
+    agentName: 'Kenji Sato AI',
+    agentRole: 'Đạo Diễn Live & Quản Trị Kênh',
+    department: 'Ops',
+    actionType: 'CreateContent',
+    title: `AI Tự Động Chuyển Đổi Bối Cảnh & Chủ Đề: ${nextTheme.topic}`,
+    detail: `Quyết định tự động: Chuyển sang ${nextTheme.virtualSet} với Host ${nextTheme.host}. Lý do: ${nextTheme.rationale}`,
+    badgeColor: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
+  });
+
+  res.json({ success: true, theme: nextTheme, stream: channel.activeStreamSession, channel });
 });
 
 app.post('/api/channels/stream/change-topic', (req, res) => {
@@ -2327,7 +2416,47 @@ app.post('/api/auto-pilot/tick', async (req, res) => {
     badgeColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
   });
 
-  // 5. Auto-Audit every 10 cycles
+  // 5. Autonomous 24/7 Livestream & Channel Growth Engine
+  state.channels.forEach(ch => {
+    ch.followers += Math.floor(Math.random() * 120 + 60);
+    ch.views30d += Math.floor(Math.random() * 15000 + 8000);
+    ch.estimatedValuationMinor = Math.round(ch.followers * 6 + (ch.monthlyDonationMinor * 3.5));
+
+    if (ch.activeStreamSession && ch.activeStreamSession.streamStatus === 'Live') {
+      ch.activeStreamSession.liveDurationSec += 60;
+      const donInc = Math.floor(Math.random() * 2500 + 1000); // +$10.00 - $35.00 donate
+      ch.activeStreamSession.donationReceivedMinor += donInc;
+      ch.monthlyDonationMinor += donInc;
+      state.snapshot.cash_minor += donInc;
+      state.snapshot.revenue_minor += donInc;
+
+      // Every 4 cycles, AI Director auto-switches topic/virtual set to keep retention fresh
+      if (cycle % 4 === 0) {
+        const nextTheme = AUTONOMOUS_LIVE_THEMES[cycle % AUTONOMOUS_LIVE_THEMES.length];
+        ch.activeStreamSession.currentGameOrTopic = nextTheme.topic;
+        ch.activeStreamSession.title = nextTheme.title;
+        ch.activeStreamSession.hostAgentName = nextTheme.host;
+        ch.activeStreamSession.hostAgentAvatar = nextTheme.avatar;
+        ch.activeStreamSession.streamType = nextTheme.streamType;
+        ch.activeStreamSession.personaStyle = nextTheme.personaStyle;
+        ch.activeStreamSession.virtualSet = nextTheme.virtualSet;
+        ch.activeStreamSession.aiDecisionRationale = nextTheme.rationale;
+
+        logOfficeActivity({
+          agentId: 'agent-streamops',
+          agentName: 'Kenji Sato AI',
+          agentRole: 'Đạo Diễn Live & Quản Trị Kênh',
+          department: 'Ops',
+          actionType: 'CreateContent',
+          title: `AI Auto-Rotate: Chuyển sang ${nextTheme.virtualSet}`,
+          detail: `Thuật toán tự động chuyển chủ đề "${nextTheme.topic}". Tối ưu hóa retention và tăng donate fans.`,
+          badgeColor: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
+        });
+      }
+    }
+  });
+
+  // 6. Auto-Audit every 10 cycles
   let latestAuditReport = null;
   if (cycle % 10 === 0) {
     latestAuditReport = generateAutoAuditReport(cycle);

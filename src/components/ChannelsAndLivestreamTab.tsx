@@ -9,22 +9,23 @@ import {
   TrendingUp, 
   MessageSquare, 
   Sparkles, 
-  Share2, 
   CheckCircle2, 
   Clock, 
   Flame, 
-  Play, 
-  Square,
-  Globe,
-  Heart,
-  DollarSign,
-  Coffee,
-  Gem,
-  Send,
-  RefreshCw,
-  ShoppingBag,
-  Award,
-  Sliders,
+  Globe, 
+  Heart, 
+  DollarSign, 
+  Coffee, 
+  Gem, 
+  Award, 
+  Sliders, 
+  Bot, 
+  BrainCircuit, 
+  Cpu, 
+  Layers, 
+  Zap, 
+  ShieldCheck, 
+  Activity,
   Tv
 } from 'lucide-react';
 
@@ -63,6 +64,9 @@ const DEFAULT_CHANNELS: SocialChannel[] = [
       streamType: 'Storytelling & Mystery',
       hostAgentName: 'Mia Thorne AI (VTuber)',
       hostAgentAvatar: '🎙️',
+      personaStyle: 'VTuber 3D Goth-Lofi Anime',
+      virtualSet: 'Phòng Thu Ánh Trăng 3D & Lofi Rainy Window',
+      aiDecisionRationale: 'Kenji Sato AI quét thấy hashtag #TruyenKiemDiem và #HealingTalks đang viral top 1 đêm khuya. Tự động chuyển đổi sang bối cảnh Ánh Trăng 3D để giữ chân người xem trung bình > 28 phút.',
       title: '🔴 LIVE 24/7: Kể Chuyện Kỳ Án Hồ Sương Mù & Đọc Tâm Sự Giấu Tên Cùng 3,400 Bạn Đêm Khuya',
       currentGameOrTopic: 'Vụ án bí ẩn Ngọn Hải Đăng Cổ & Lắng nghe tâm sự fan',
       streamStatus: 'Live',
@@ -147,10 +151,8 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
 }) => {
   const safeChannels = channels && channels.length > 0 ? channels : DEFAULT_CHANNELS;
   const [selectedChannelId, setSelectedChannelId] = useState<string>(safeChannels[0]?.id || 'chan-tiktok-1');
-  const [newCommentText, setNewCommentText] = useState('');
   const [activeSubTab, setActiveSubTab] = useState<'studio' | 'network' | 'flipping'>('studio');
-  const [customTopicInput, setCustomTopicInput] = useState('');
-  const [isChangingTopic, setIsChangingTopic] = useState(false);
+  const [isScanningTrends, setIsScanningTrends] = useState(false);
 
   const selectedChannel = safeChannels.find((c) => c.id === selectedChannelId) || safeChannels[0];
   const activeStream = selectedChannel?.activeStreamSession;
@@ -169,49 +171,40 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
   const totalValuation = safeChannels.reduce((acc, c) => acc + (c.estimatedValuationMinor || 0), 0);
   const activeStreamsCount = safeChannels.filter((c) => c.status === 'LiveNow').length;
 
-  const handleSendComment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newCommentText.trim()) return;
-
-    if (onDonate) {
-      await onDonate(
-        selectedChannel.id,
-        'KhánGiả_ẨnDanh',
-        0,
-        'Tin Nhắn Chat',
-        '💬',
-        newCommentText
-      );
+  const handleTriggerAITrendScan = async () => {
+    setIsScanningTrends(true);
+    try {
+      await fetch('/api/channels/autonomous-switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId: selectedChannel.id }),
+      });
+      if (onChangeTopic) {
+        await onChangeTopic(selectedChannel.id, '');
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setTimeout(() => setIsScanningTrends(false), 800);
     }
-    setNewCommentText('');
   };
 
-  const handleQuickDonate = async (amountMinor: number, giftName: string, giftIcon: string) => {
+  const handleQuickDonateSimulation = async (amountMinor: number, giftName: string, giftIcon: string) => {
     if (onDonate) {
       await onDonate(
         selectedChannel.id,
-        'FanHâmMộ_VIP',
+        'KhánGiả_ẨnDanh_VIP',
         amountMinor,
         giftName,
         giftIcon,
-        `Tặng ${giftName} cho stream thêm vui vẻ náo nhiệt!`
+        `Tặng ${giftName} ủng hộ luồng stream tự động của AI Host!`
       );
     }
-  };
-
-  const handleChangeTopicSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customTopicInput.trim()) return;
-    if (onChangeTopic) {
-      await onChangeTopic(selectedChannel.id, customTopicInput);
-    }
-    setCustomTopicInput('');
-    setIsChangingTopic(false);
   };
 
   return (
     <div className="space-y-5 max-w-6xl mx-auto pb-12 text-slate-200">
-      {/* Top Banner Header */}
+      {/* Top Banner: 100% Autonomous Operation Badge */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-md">
         <div className="flex items-center gap-3.5">
           <div className="w-11 h-11 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 shrink-0">
@@ -220,15 +213,19 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
           <div>
             <div className="flex items-center gap-2.5 flex-wrap">
               <h2 className="text-base font-bold text-white tracking-tight">
-                Phòng Livestream AI 24/7 &amp; Mạng Lưới Kênh Giải Trí
+                Phòng Livestream Ảo &amp; Mạng Lưới Kênh Tự Động 100%
               </h2>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[11px] font-semibold bg-purple-950/60 text-purple-300 border border-purple-800/50">
+                <BrainCircuit className="w-3.5 h-3.5 text-purple-400" />
+                AI Tự Quyết Định Toàn Bộ &amp; Tự Vận Hành
+              </span>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[11px] font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-                {activeStreamsCount} Kênh Đang Phát Trực Tiếp
+                {activeStreamsCount} Luồng Live 24/7
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              Tập trung trò chuyện, tâm sự đêm khuya, chơi game giải trí, xây dựng cộng đồng triệu fans &amp; thanh khoản chuyển nhượng kênh
+              Chủ đề, phong cách nhân vật, bối cảnh 3D và lịch trình do Đạo Diễn AI (Kenji Sato) tự động phân tích xu hướng và triển khai mà không cần con người can thiệp
             </p>
           </div>
         </div>
@@ -277,7 +274,7 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
           </div>
           <div className="text-[11px] text-emerald-400 mt-1 flex items-center gap-1 font-medium">
             <TrendingUp className="w-3 h-3" />
-            <span>+14.2% tuần này</span>
+            <span>+18.4% tăng trưởng tự động</span>
           </div>
         </div>
 
@@ -290,7 +287,8 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
             {(totalViews / 1000000).toFixed(1)}M lượt xem
           </div>
           <div className="text-[11px] text-purple-400 mt-1 flex items-center gap-1 font-medium">
-            <span>Viral tự động bởi AI</span>
+            <Zap className="w-3 h-3" />
+            <span>AI Tối Ưu Thuật Toán Viral</span>
           </div>
         </div>
 
@@ -303,7 +301,7 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
             {formatMoney(totalMonthlyDonations)}
           </div>
           <div className="text-[11px] text-pink-400 mt-1 font-medium">
-            Từ Super Chat &amp; Quà tặng ảo
+            Super Chats &amp; Quà tặng tự động
           </div>
         </div>
 
@@ -312,7 +310,7 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
             <span>Tổng Giá Trị Định Giá Kênh</span>
             <DollarSign className="w-4 h-4 text-amber-400" />
           </div>
-          <div className="text-xl font-bold text-emerald-400">
+          <div className="text-xl font-bold text-emerald-400 font-mono">
             {formatMoney(totalValuation)}
           </div>
           <div className="text-[11px] text-amber-400 mt-1 font-medium">
@@ -343,7 +341,7 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
                   </div>
                 </div>
 
-                {/* Stream Switcher Select */}
+                {/* Channel Switcher */}
                 <select
                   value={selectedChannelId}
                   onChange={(e) => setSelectedChannelId(e.target.value)}
@@ -367,7 +365,7 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
                   {activeStream?.streamStatus === 'Live' ? (
                     <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-rose-600/90 text-white text-[11px] font-bold tracking-wider uppercase shadow-lg animate-pulse">
                       <span className="w-2 h-2 rounded-full bg-white"></span>
-                      LIVE 24/7
+                      LIVE 24/7 (AI VẬN HÀNH)
                     </span>
                   ) : (
                     <span className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-800 text-slate-400 text-[11px] font-medium border border-slate-700">
@@ -391,13 +389,14 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
                 <div className="relative z-10 flex flex-col items-center">
                   <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-purple-600 to-pink-500 p-1 shadow-2xl shadow-purple-500/30 mb-3 animate-pulse">
                     <div className="w-full h-full rounded-full bg-slate-900 flex items-center justify-center text-4xl border-2 border-white/20">
-                      {selectedChannel.category === 'Gaming & Reaction' ? '🎮' : '🎙️'}
+                      {activeStream?.hostAgentAvatar || (selectedChannel.category === 'Gaming & Reaction' ? '🎮' : '🎙️')}
                     </div>
                   </div>
 
                   <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900/90 border border-purple-500/30 text-xs text-purple-200 font-semibold mb-1 shadow">
                     <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                    <span>{activeStream?.hostAgentName || 'Mia Thorne AI (VTuber Host)'}</span>
+                    <span>{activeStream?.hostAgentName || 'Mia Thorne AI'}</span>
+                    <span className="text-[10px] text-slate-400 font-normal">({activeStream?.personaStyle || 'VTuber 3D Persona'})</span>
                   </div>
 
                   {/* Audio Wave Visualizer Simulation */}
@@ -410,7 +409,7 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
                   </div>
 
                   {/* Speech Bubble */}
-                  <div className="max-w-md bg-black/75 backdrop-blur-md border border-white/10 text-white rounded-xl px-4 py-2.5 text-xs shadow-xl mt-1">
+                  <div className="max-w-md bg-black/75 backdrop-blur-md border border-white/10 text-white rounded-xl px-4 py-2 text-xs shadow-xl mt-1">
                     <p className="italic text-slate-200 font-medium">
                       "{activeStream?.comments?.[0]?.aiHostReply || 'Chào cả nhà! Chúc mọi người một buổi tối thật thư giãn và vui vẻ nhé!'}"
                     </p>
@@ -418,18 +417,18 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
                 </div>
 
                 {/* Bottom Viewport Info Bar */}
-                <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-3 pt-6 flex items-center justify-between text-xs text-left z-10">
+                <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent p-3 pt-6 flex items-center justify-between text-xs text-left z-10">
                   <div className="truncate mr-4">
                     <div className="font-bold text-white text-xs truncate">
                       {activeStream?.title || 'Phiên livestream trò chuyện và kể chuyện AI 24/7'}
                     </div>
                     <div className="text-[11px] text-purple-300 flex items-center gap-1.5 mt-0.5">
-                      <Gamepad2 className="w-3 h-3 text-purple-400" />
-                      <span>Chủ đề / Game: <strong>{activeStream?.currentGameOrTopic || selectedChannel.niche}</strong></span>
+                      <Gamepad2 className="w-3 h-3 text-purple-400 shrink-0" />
+                      <span className="truncate">Chủ đề: <strong>{activeStream?.currentGameOrTopic || selectedChannel.niche}</strong></span>
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <span className="text-[10px] text-slate-400 block">Thời gian live liên tục</span>
+                    <span className="text-[10px] text-slate-400 block">Thời gian phát liên tục</span>
                     <span className="font-mono text-xs font-semibold text-emerald-400">
                       {Math.floor((activeStream?.liveDurationSec || 0) / 3600)}h {Math.floor(((activeStream?.liveDurationSec || 0) % 3600) / 60)}m
                     </span>
@@ -437,90 +436,71 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
                 </div>
               </div>
 
-              {/* Live Host Control Actions */}
-              <div className="bg-slate-950 p-3.5 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  {activeStream?.streamStatus === 'Live' ? (
-                    <button
-                      onClick={() => onStopStream && onStopStream(selectedChannel.id)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600/20 text-rose-300 border border-rose-500/30 text-xs font-semibold hover:bg-rose-600/30 transition-colors"
-                    >
-                      <Square className="w-3.5 h-3.5" />
-                      <span>Tạm Dừng Live</span>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => onStartStream && onStartStream(selectedChannel.id, `🔴 LIVE 24/7: ${selectedChannel.niche}`, selectedChannel.niche, selectedChannel.category)}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-500 transition-colors shadow-sm"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-white" />
-                      <span>Bắt Đầu Live Mới</span>
-                    </button>
-                  )}
-
-                  <button
-                    onClick={() => setIsChangingTopic(!isChangingTopic)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors"
-                  >
-                    <Sliders className="w-3.5 h-3.5 text-purple-400" />
-                    <span>Đổi Game / Chủ Đề</span>
-                  </button>
+              {/* Autonomous AI Decision Telemetry Bar */}
+              <div className="bg-slate-950 p-3.5 border-t border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 font-semibold text-[11px] flex items-center gap-1">
+                    <Layers className="w-3 h-3" />
+                    Bối cảnh 3D: {activeStream?.virtualSet || 'Phòng Thu Ánh Trăng 3D'}
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-semibold text-[11px] flex items-center gap-1">
+                    <Bot className="w-3 h-3" />
+                    {activeStream?.personaStyle || 'VTuber 3D Goth-Lofi'}
+                  </span>
                 </div>
 
-                {/* Quick Donate Simulation Buttons */}
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] text-slate-400 mr-1 hidden sm:inline">Tặng quà ảo:</span>
+                {/* AI Autonomous Trigger / Inspection */}
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                   <button
-                    onClick={() => handleQuickDonate(500, 'Super Star 500x', '🌟')}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-medium hover:bg-amber-500/20 transition-colors"
-                    title="Donate $5.00"
+                    onClick={handleTriggerAITrendScan}
+                    disabled={isScanningTrends}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors disabled:opacity-50"
+                    title="Yêu cầu AI quét xu hướng và tự động hoán đổi chủ đề/bối cảnh"
                   >
-                    <span>🌟 $5</span>
+                    <BrainCircuit className={`w-3.5 h-3.5 text-purple-400 ${isScanningTrends ? 'animate-spin' : ''}`} />
+                    <span>{isScanningTrends ? 'AI Đang Quét Xu Hướng...' : 'AI Quét Lại Xu Hướng'}</span>
                   </button>
-                  <button
-                    onClick={() => handleQuickDonate(1000, 'Cà Phê Đêm Khuya', '☕')}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-orange-500/10 border border-orange-500/20 text-orange-300 text-xs font-medium hover:bg-orange-500/20 transition-colors"
-                    title="Donate $10.00"
-                  >
-                    <span>☕ $10</span>
-                  </button>
-                  <button
-                    onClick={() => handleQuickDonate(2500, 'Kim Cương Trực Tuyến', '💎')}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 text-xs font-medium hover:bg-cyan-500/20 transition-colors"
-                    title="Donate $25.00"
-                  >
-                    <span>💎 $25</span>
-                  </button>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleQuickDonateSimulation(500, 'Super Star 500x', '🌟')}
+                      className="px-2 py-1 rounded bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] font-medium hover:bg-amber-500/20 transition-colors"
+                      title="Mô phỏng khán giả donate $5"
+                    >
+                      🌟 $5
+                    </button>
+                    <button
+                      onClick={() => handleQuickDonateSimulation(2500, 'Kim Cương Trực Tuyến', '💎')}
+                      className="px-2 py-1 rounded bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 text-[11px] font-medium hover:bg-cyan-500/20 transition-colors"
+                      title="Mô phỏng khán giả donate $25"
+                    >
+                      💎 $25
+                    </button>
+                  </div>
                 </div>
               </div>
+            </div>
 
-              {/* Change Topic Collapsible Form */}
-              {isChangingTopic && (
-                <form onSubmit={handleChangeTopicSubmit} className="bg-slate-900 border-t border-slate-800 p-3.5 flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={customTopicInput}
-                    onChange={(e) => setCustomTopicInput(e.target.value)}
-                    placeholder="Nhập game mới hoặc chủ đề kể chuyện (VD: Chơi Minecraft sinh tồn, Kể chuyện kỳ án số 5)..."
-                    className="flex-1 bg-slate-950 border border-slate-700 text-white text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-purple-500"
-                  />
-                  <button
-                    type="submit"
-                    className="px-3.5 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold transition-colors"
-                  >
-                    Cập Nhật
-                  </button>
-                </form>
-              )}
+            {/* AI Decision Rationale Card */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <BrainCircuit className="w-4 h-4 text-purple-400" />
+                <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                  Nhật Ký Quyết Định Thuật Toán AI (Kenji Sato &amp; Mia Thorne)
+                </h3>
+              </div>
+              <p className="text-xs text-slate-300 bg-slate-950 p-3 rounded-lg border border-slate-800 font-mono leading-relaxed">
+                {activeStream?.aiDecisionRationale || 'Thuật toán Kenji Sato AI liên tục quét dữ liệu xu hướng và tự động tối ưu hóa bối cảnh, âm nhạc và nhân vật nhằm duy trì thời gian xem trung bình và tỷ lệ tương tác donate tối đa.'}
+              </p>
             </div>
 
             {/* Recent Donations Honor Roll Box */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <Award className="w-4 h-4 text-amber-400" />
                   <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-                    Vinh Danh Donors &amp; Quà Tặng Ảo
+                    Vinh Danh Donors &amp; Quà Tặng Ảo Tự Động
                   </h3>
                 </div>
                 <span className="text-[11px] text-slate-400">
@@ -553,10 +533,11 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
             <div className="bg-slate-950 px-4 py-3 border-b border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <MessageSquare className="w-4 h-4 text-purple-400" />
-                <h3 className="text-xs font-bold text-white">Live Chat &amp; Phản Hồi Giọng Nói AI</h3>
+                <h3 className="text-xs font-bold text-white">Live Chat &amp; Phản Hồi Giọng Nói Tự Động</h3>
               </div>
-              <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">
-                ● Tự Động Trả Lời
+              <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40 flex items-center gap-1">
+                <Bot className="w-3 h-3" />
+                <span>AI Tự Trả Lời</span>
               </span>
             </div>
 
@@ -604,23 +585,14 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
               ))}
             </div>
 
-            {/* Chat Input Box */}
-            <form onSubmit={handleSendComment} className="p-3 bg-slate-950 border-t border-slate-800 flex items-center gap-2">
-              <input
-                type="text"
-                value={newCommentText}
-                onChange={(e) => setNewCommentText(e.target.value)}
-                placeholder="Nhập tin nhắn trò chuyện hoặc gửi lời nhắn cho AI Host..."
-                className="flex-1 bg-slate-900 border border-slate-700 text-white text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-purple-500 placeholder:text-slate-500"
-              />
-              <button
-                type="submit"
-                className="p-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white transition-colors"
-                title="Gửi tin nhắn"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </form>
+            {/* Live Chat Telemetry Footer */}
+            <div className="p-3 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Bộ lọc ngôn từ &amp; Điều hướng cảm xúc: <strong>Đang Bật</strong></span>
+              </span>
+              <span className="text-purple-400 font-mono">Độ trễ phản hồi: 0.18s</span>
+            </div>
           </div>
         </div>
       )}
@@ -632,7 +604,7 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
             <div>
               <h3 className="text-sm font-bold text-white">Mạng Lưới Kênh Nội Dung Tự Động Của NEXUS</h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                Các kênh được vận hành hoàn toàn bởi AI Agents với nội dung viral, lôi cuốn hàng triệu người xem
+                Các kênh được vận hành và mở rộng tự động 100% bởi AI Agents với nội dung viral thu hút hàng triệu fans
               </p>
             </div>
             <span className="text-xs font-semibold px-3 py-1 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
@@ -681,7 +653,7 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
                 </div>
 
                 <div className="text-xs text-slate-400 mb-4">
-                  <span className="text-slate-300 font-medium">Nội dung ngách:</span> {channel.niche}
+                  <span className="text-slate-300 font-medium">Nội dung ngách do AI vận hành:</span> {channel.niche}
                 </div>
 
                 <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs">
@@ -698,7 +670,7 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
                     className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-medium transition-colors"
                   >
                     <Radio className="w-3.5 h-3.5 text-purple-400" />
-                    <span>Xem Live Stream</span>
+                    <span>Giám Sát Phiên Live</span>
                   </button>
                 </div>
               </div>
@@ -718,7 +690,7 @@ export const ChannelsAndLivestreamTab: React.FC<ChannelsAndLivestreamTabProps> =
                   <h3 className="text-base font-bold text-white">Thị Trường Định Giá &amp; Chuyển Nhượng Kênh (Channel Flipping)</h3>
                 </div>
                 <p className="text-xs text-slate-400 mt-1 max-w-2xl">
-                  Mô hình kiếm doanh thu lớn: Công ty AI tự động xây dựng kênh từ 0 lên hàng trăm nghìn followers, sau đó niêm yết bán lại cho các thương hiệu / cá nhân có nhu cầu với giá trị cao.
+                  Mô hình kiếm doanh thu lớn tự động: AI Agents tự xây dựng kênh từ 0 lên hàng trăm nghìn followers, sau đó Ban Giám Đốc AI (CEO &amp; CFO) tự động định giá thị trường và thanh khoản chuyển nhượng để mang lại nguồn tiền lớn cho công ty.
                 </p>
               </div>
 

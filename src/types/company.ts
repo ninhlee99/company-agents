@@ -440,6 +440,9 @@ export interface LivestreamSession {
   streamType: 'Gaming & Reaction' | 'Storytelling & Mystery' | 'Healing & Q&A' | 'Lofi Chill & Minigames';
   hostAgentName: string;
   hostAgentAvatar: string;
+  personaStyle: string; // e.g. 'VTuber 3D Ánh Trăng', 'Cyberpunk Pro Gamer', 'Anime Lofi Host'
+  virtualSet: string; // e.g. 'Phòng Thu Ánh Trăng 3D', 'Đấu Trường Neon Gaming', 'Quán Cà Phê Mưa Lofi'
+  aiDecisionRationale: string; // Lý do thuật toán AI tự động chọn phong cách & bối cảnh này
   title: string;
   currentGameOrTopic: string;
   streamStatus: 'Live' | 'Paused' | 'Ended';
