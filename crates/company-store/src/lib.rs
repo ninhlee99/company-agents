@@ -1196,6 +1196,7 @@ impl CompanyStore {
                 revenue_minor: parse_i128_numeric(&row.get::<_, String>(1))?,
             });
         }
+        drop(client);
 
         let compliance = self.compliance_status(company_id).await?;
         let latest_policy = compliance.get("latest_policy");
@@ -1243,8 +1244,6 @@ impl CompanyStore {
                 }
             })
             .collect::<Vec<_>>();
-
-        drop(client);
 
         let input = company_command_center::CommandCenterInput {
             cash_minor: snapshot.cash_minor,
