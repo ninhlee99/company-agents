@@ -1240,18 +1240,35 @@ impl CompanyStore {
             return Err("policy snapshot version already exists with different evidence".into());
         }
 
+        let previous_active = if inserted.is_some() && snapshot.active {
+            tx.query_opt(
+                "SELECT id,company_id,policy_key,platform,jurisdiction,version,
+                        source_reference,evidence_hash,observed_at_epoch,effective_at_epoch,
+                        active,rules_json
+                   FROM policy_snapshots
+                  WHERE company_id=$1 AND policy_key=$2 AND platform=$3 AND jurisdiction=$4
+                    AND active=true AND id<>$5
+                  ORDER BY effective_at_epoch DESC,created_at DESC
+                  LIMIT 1",
+                &[
+                    &snapshot.company_id,
+                    &snapshot.policy_key,
+                    &snapshot.platform,
+                    &snapshot.jurisdiction,
+                    &snapshot.id,
+                ],
+            )
+            .await?
+            .map(policy_snapshot_from_row)
+            .transpose()?
+        } else {
+            None
+        };
+
         if snapshot.active {
-            let existing_effective = tx
-                .query_opt(
-                    "SELECT effective_at_epoch
-                       FROM policy_snapshots
-                      WHERE company_id=$1 AND policy_key=$2 AND platform=$4 AND jurisdiction=$5 AND active=true AND id<>$3
-                      ORDER BY effective_at_epoch DESC
-                      LIMIT 1",
-                    &[&snapshot.company_id, &snapshot.policy_key, &snapshot.id, &snapshot.platform, &snapshot.jurisdiction],
-                )
-                .await?
-                .map(|row| row.get::<_, i64>(0));
+            let existing_effective = previous_active
+                .as_ref()
+                .map(|previous| previous.effective_at_epoch);
 
             if existing_effective.is_some_and(|value| value > snapshot.effective_at_epoch) {
                 return Err("cannot activate a policy snapshot older than the active policy".into());
@@ -1270,6 +1287,16 @@ impl CompanyStore {
                 ],
             ).await?;
             if inserted.is_some() {
+                let change_impact = previous_active
+                    .as_ref()
+                    .map(|previous| {
+                        company_compliance::analyze_policy_change(previous, snapshot)
+                            .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> {
+                                error.into()
+                            })
+                    })
+                    .transpose()?;
+
                 let event = company_domain::CompanyEventEnvelope::new(
                     snapshot.company_id,
                     company_domain::CompanyEventType::PolicyChanged,
@@ -1289,6 +1316,11 @@ impl CompanyStore {
                         "source_reference": snapshot.source_reference,
                         "evidence_hash": snapshot.evidence_hash,
                         "active": snapshot.active,
+                        "previous_active_version": previous_active.as_ref().map(|value| value.version.clone()),
+                        "change_impact": change_impact
+                            .as_ref()
+                            .map(serde_json::to_value)
+                            .transpose()?,
                     }),
                 )?;
                 enqueue_company_event_tx(&tx, &event).await?;
