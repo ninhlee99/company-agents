@@ -409,6 +409,17 @@ export interface ClientContract {
   clientFeedback?: string;
 }
 
+export interface LiveStreamDonation {
+  id: string;
+  donor: string;
+  avatar: string;
+  amountMinor: number;
+  giftName: string;
+  giftIcon: string;
+  message: string;
+  timestamp: string;
+}
+
 export interface LiveStreamComment {
   id: string;
   userName: string;
@@ -416,54 +427,49 @@ export interface LiveStreamComment {
   message: string;
   timestamp: string;
   aiHostReply?: string;
-  isPurchased?: boolean;
-}
-
-export interface PinnedProduct {
-  id: string;
-  title: string;
-  priceMinor: number;
-  originalPriceMinor: number;
-  discountPercent: number;
-  commissionRatePercent: number;
-  salesCount: number;
-  stockRemaining: number;
-  imageUrl?: string;
+  isDonation?: boolean;
+  donationAmountMinor?: number;
+  giftIcon?: string;
 }
 
 export interface LivestreamSession {
   id: string;
   channelId: string;
   channelName: string;
-  platform: 'TikTok Shop' | 'Shopee Live' | 'YouTube Shopping' | 'Facebook Live';
+  platform: 'TikTok Live' | 'YouTube Live' | 'Twitch' | 'Facebook Gaming';
+  streamType: 'Gaming & Reaction' | 'Storytelling & Mystery' | 'Healing & Q&A' | 'Lofi Chill & Minigames';
   hostAgentName: string;
   hostAgentAvatar: string;
   title: string;
+  currentGameOrTopic: string;
   streamStatus: 'Live' | 'Paused' | 'Ended';
   viewersCount: number;
   peakViewers: number;
-  pinnedProduct: PinnedProduct;
+  donationReceivedMinor: number;
   liveDurationSec: number;
-  revenueEarnedMinor: number;
-  ordersCount: number;
   comments: LiveStreamComment[];
+  recentDonations: LiveStreamDonation[];
   startedAt: string;
 }
 
 export interface SocialChannel {
   id: string;
-  platform: 'TikTok Shop' | 'Shopee Live' | 'YouTube Shorts' | 'Facebook Reels' | 'Instagram';
+  platform: 'TikTok' | 'YouTube' | 'Twitch' | 'Facebook Reels' | 'Instagram';
   name: string;
   handle: string;
   avatar: string;
-  status: 'LiveNow' | 'Active' | 'Scheduled' | 'Disconnected';
+  status: 'LiveNow' | 'Active' | 'Growing' | 'Listed' | 'Sold';
+  category: 'Gaming & Reaction' | 'Storytelling & Mystery' | 'Lofi & Healing Talks' | 'AI Tech & Memes';
   followers: number;
   views30d: number;
-  gmvMinor: number;
+  monthlyDonationMinor: number;
+  estimatedValuationMinor: number; // Định giá bán kênh trên thị trường
+  saleStatus: 'NotForSale' | 'AcceptingOffers' | 'Listed' | 'Sold';
   engagementRateBps: number;
   niche: string;
   activeStreamSession?: LivestreamSession;
   totalStreamsRun: number;
 }
+
 
 

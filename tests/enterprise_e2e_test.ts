@@ -515,16 +515,18 @@ async function runEnterpriseE2ESuite() {
   });
 
   // --------------------------------------------------------------------------
-  // SUITE 10: Multi-Channel Distribution Network & 24/7 AI Livestream
+  // SUITE 10: Multi-Channel Network, 24/7 AI Livestream & Channel Flipping
   // --------------------------------------------------------------------------
-  console.log('\n📌 SUITE 10: Multi-Channel Distribution Network & 24/7 AI Livestream Studio');
-  await executeTest('LivestreamNetwork', 'Fetch Multi-Channel Network overview & Active Livestreams', async () => {
+  console.log('\n📌 SUITE 10: Multi-Channel Network, 24/7 AI Livestream & Channel Flipping');
+  await executeTest('LivestreamNetwork', 'Fetch Multi-Channel Network overview, followers & valuations', async () => {
     const res = await request('GET', '/api/channels');
     if (res.status !== 200) throw new Error(`Status ${res.status}`);
     const liveChannels = res.body.channels.filter((c: any) => c.status === 'LiveNow');
     return {
       totalChannels: res.body.channels.length,
       liveChannelsCount: liveChannels.length,
+      totalFollowers: res.body.totalFollowers.toLocaleString(),
+      totalValuationUSD: (res.body.totalChannelValuationMinor / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' }),
       channels: res.body.channels.map((c: any) => ({
         platform: c.platform,
         name: c.name,
@@ -534,28 +536,35 @@ async function runEnterpriseE2ESuite() {
     };
   });
 
-  await executeTest('LivestreamNetwork', 'Trigger AI Live Pin Product & dynamic viewer purchase simulation', async () => {
-    const res = await request('POST', '/api/channels/stream/pin-product', {
+  await executeTest('LivestreamNetwork', 'Trigger AI Live Super Chat Donation & real-time voice response', async () => {
+    const res = await request('POST', '/api/channels/stream/donate', {
       channelId: 'chan-tiktok-1',
-      product: {
-        id: 'prod-pin-02',
-        title: 'Giá Đỡ Laptop Tản Nhiệt Nhôm AI Auto-Cool',
-        priceMinor: 2999,
-        originalPriceMinor: 5999,
-        discountPercent: 50,
-        commissionRatePercent: 30,
-        salesCount: 42,
-        stockRemaining: 18,
-        imageUrl: '💻',
-      },
+      donorName: 'MinhQuang_VIP',
+      amountMinor: 2500, // $25.00
+      giftName: 'Kim Cương Trực Tuyến',
+      giftIcon: '💎',
+      message: 'Host Mia kể chuyện cuốn quá, ủng hộ kênh 1 viên kim cương!',
     });
     if (res.status !== 200) throw new Error(`Status ${res.status}`);
     return {
-      channelId: res.body.channel.id,
-      streamTitle: res.body.channel.activeStreamSession.title,
-      pinnedProduct: res.body.channel.activeStreamSession.pinnedProduct.title,
-      discount: `-${res.body.channel.activeStreamSession.pinnedProduct.discountPercent}%`,
-      viewersCount: res.body.channel.activeStreamSession.viewersCount,
+      donor: res.body.donation.donor,
+      gift: res.body.donation.giftName,
+      amountUSD: `$${(res.body.donation.amountMinor / 100).toFixed(2)}`,
+      aiHostVoiceReply: res.body.stream.comments[0].aiHostReply,
+      totalDonationsCollected: `$${(res.body.stream.donationReceivedMinor / 100).toFixed(2)}`,
+    };
+  });
+
+  await executeTest('LivestreamNetwork', 'Liquidate / Sell channel to buyer & inject cash into company treasury', async () => {
+    const res = await request('POST', '/api/channels/sell', {
+      channelId: 'chan-fb-1',
+      buyerName: 'Nordic Media Investment Group',
+    });
+    if (res.status !== 200) throw new Error(`Status ${res.status}`);
+    return {
+      soldChannel: res.body.channel.name,
+      salePriceUSD: `$${(res.body.salePrice / 100).toLocaleString()}`,
+      newTreasuryBalance: res.body.cashUSD,
     };
   });
 

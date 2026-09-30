@@ -235,6 +235,17 @@ export interface ClientContract {
   clientFeedback?: string;
 }
 
+export interface LiveStreamDonation {
+  id: string;
+  donor: string;
+  avatar: string;
+  amountMinor: number;
+  giftName: string;
+  giftIcon: string;
+  message: string;
+  timestamp: string;
+}
+
 export interface LiveStreamComment {
   id: string;
   userName: string;
@@ -242,50 +253,44 @@ export interface LiveStreamComment {
   message: string;
   timestamp: string;
   aiHostReply?: string;
-  isPurchased?: boolean;
-}
-
-export interface PinnedProduct {
-  id: string;
-  title: string;
-  priceMinor: number;
-  originalPriceMinor: number;
-  discountPercent: number;
-  commissionRatePercent: number;
-  salesCount: number;
-  stockRemaining: number;
-  imageUrl?: string;
+  isDonation?: boolean;
+  donationAmountMinor?: number;
+  giftIcon?: string;
 }
 
 export interface LivestreamSession {
   id: string;
   channelId: string;
   channelName: string;
-  platform: 'TikTok Shop' | 'Shopee Live' | 'YouTube Shopping' | 'Facebook Live';
+  platform: 'TikTok Live' | 'YouTube Live' | 'Twitch' | 'Facebook Gaming';
+  streamType: 'Gaming & Reaction' | 'Storytelling & Mystery' | 'Healing & Q&A' | 'Lofi Chill & Minigames';
   hostAgentName: string;
   hostAgentAvatar: string;
   title: string;
+  currentGameOrTopic: string;
   streamStatus: 'Live' | 'Paused' | 'Ended';
   viewersCount: number;
   peakViewers: number;
-  pinnedProduct: PinnedProduct;
+  donationReceivedMinor: number;
   liveDurationSec: number;
-  revenueEarnedMinor: number;
-  ordersCount: number;
   comments: LiveStreamComment[];
+  recentDonations: LiveStreamDonation[];
   startedAt: string;
 }
 
 export interface SocialChannel {
   id: string;
-  platform: 'TikTok Shop' | 'Shopee Live' | 'YouTube Shorts' | 'Facebook Reels' | 'Instagram';
+  platform: 'TikTok' | 'YouTube' | 'Twitch' | 'Facebook Reels' | 'Instagram';
   name: string;
   handle: string;
   avatar: string;
-  status: 'LiveNow' | 'Active' | 'Scheduled' | 'Disconnected';
+  status: 'LiveNow' | 'Active' | 'Growing' | 'ListedForSale' | 'Sold';
+  category: 'Gaming & Reaction' | 'Storytelling & Mystery' | 'Lofi & Healing Talks' | 'AI Tech & Memes';
   followers: number;
   views30d: number;
-  gmvMinor: number;
+  monthlyDonationMinor: number;
+  estimatedValuationMinor: number; // Giá trị định giá bán kênh ($)
+  saleStatus: 'NotForSale' | 'AcceptingOffers' | 'Listed' | 'Sold';
   engagementRateBps: number;
   niche: string;
   activeStreamSession?: LivestreamSession;
@@ -447,8 +452,9 @@ const state: {
     { id: 'agent-recruiter', name: 'Recruiter AI', role: 'Tuyển Dụng & Đào Tạo', department: 'Ops', description: 'Tự động săn đầu người chuyên gia Senior và tổ chức lộ trình đào tạo nâng bậc kỹ năng AI', salary_minor: 65000, tasksCompleted: 75, status: 'Active', hiredAtCycle: 1, skillLevel: 5, taskMultiplier: 2.8, trainedSkills: ['Predictive Autonomous Headhunting', 'Skill-Tree Curriculum Engine', 'Candidate ROI Benchmarking', 'Instant Talent Onboarding'], trainingCount: 4 },
     { id: 'agent-analyst', name: 'Analyst AI', role: 'Phân Tích Dữ Liệu & ROI', department: 'Ops', description: 'Đối soát số liệu kế toán, lập mô hình dự báo doanh thu & phát hiện ngách thị trường tiềm năng', salary_minor: 50000, tasksCompleted: 165, status: 'Active', hiredAtCycle: 1, skillLevel: 5, taskMultiplier: 2.9, trainedSkills: ['Real-Time Attribution Modeling', 'EPC Variance Analysis', 'Machine Learning Profit Forecast', 'Fiduciary Variance Audit'], trainingCount: 4 },
     { id: 'agent-experiment', name: 'Experimenter AI', role: 'Nghiên Cứu A/B Test', department: 'Growth', description: 'Thử nghiệm đa biến thể kịch bản, âm thanh và góc quay hình ảnh để tối ưu tỷ lệ chuyển đổi', salary_minor: 55000, tasksCompleted: 110, status: 'Active', hiredAtCycle: 1, skillLevel: 5, taskMultiplier: 2.8, trainedSkills: ['Multi-Armed Bandit Testing', 'Dynamic Visual Hook Variants', 'Conversion Rate Optimization', 'Statistical Significance Engine'], trainingCount: 4 },
-    { id: 'agent-livestream', name: 'Mia Thorne AI', role: 'Host Livestream & Chốt Đơn 24/7', department: 'Growth', description: 'AI Virtual Streamer phát trực tiếp 24/7, tự động tương tác giọng nói, ghim giỏ hàng flash sale và chốt đơn tự động', salary_minor: 75000, tasksCompleted: 340, status: 'Active', hiredAtCycle: 1, skillLevel: 5, taskMultiplier: 3.2, trainedSkills: ['24/7 Virtual AI Live Hosting', 'Real-Time Voice Chat Interaction', 'Flash Sale Product Pinning', 'Live Objection Handling & Closing'], trainingCount: 5 },
-    { id: 'agent-streamops', name: 'Kenji Sato AI', role: 'Đạo Diễn Live & Quản Trị Kênh', department: 'Ops', description: 'Đạo diễn kỹ thuật phòng live ảo, điều phối luồng RTMP đa kênh TikTok/Shopee và quản lý mạng lưới kênh phân phối', salary_minor: 70000, tasksCompleted: 195, status: 'Active', hiredAtCycle: 1, skillLevel: 5, taskMultiplier: 3.0, trainedSkills: ['Multi-Channel RTMP Stream Ingestion', 'Virtual Set & Scene Switching', 'Bitrate & Low-Latency Encoding', 'Channel Network Analytics'], trainingCount: 4 },
+    { id: 'agent-livestream', name: 'Mia Thorne AI', role: 'VTuber & Tâm Sự Kể Chuyện 24/7', department: 'Growth', description: 'AI Virtual Host phát trực tiếp 24/7, kể chuyện trinh thám/tâm sự, giải đáp Q&A giọng nói siêu thực và thu hút donate', salary_minor: 75000, tasksCompleted: 340, status: 'Active', hiredAtCycle: 1, skillLevel: 5, taskMultiplier: 3.2, trainedSkills: ['24/7 Storytelling & Mystery Podcast', 'Empathetic Voice Q&A Interaction', 'Live Donation & Super Chat Engagement', 'Audience Retention & Fan Bonding'], trainingCount: 5 },
+    { id: 'agent-gamer', name: 'Ren Kuro AI', role: 'Streamer Gaming & Reaction Meme', department: 'Growth', description: 'AI Gamer phát sóng chơi game kinh dị/Minecraft/Valorant, react meme hài hước, kéo tương tác triệu view cho kênh', salary_minor: 70000, tasksCompleted: 280, status: 'Active', hiredAtCycle: 1, skillLevel: 5, taskMultiplier: 3.1, trainedSkills: ['Real-Time AI Gameplay Commentary', 'Meme Reaction & Viral Humor', 'Interactive Viewer Minigames', 'Esports & Gaming Meta Analysis'], trainingCount: 5 },
+    { id: 'agent-streamops', name: 'Kenji Sato AI', role: 'Đạo Diễn Live & Xây/Bán Kênh', department: 'Ops', description: 'Quản trị mạng lưới kênh, tối ưu thuật toán viral kéo followers, định giá thị trường và môi giới chuyển nhượng kênh', salary_minor: 70000, tasksCompleted: 195, status: 'Active', hiredAtCycle: 1, skillLevel: 5, taskMultiplier: 3.0, trainedSkills: ['Multi-Platform Growth Hacking', 'Channel Valuation & Flipping Brokerage', '24/7 Virtual Studio RTMP Engine', 'Algorithmic Traffic Arbitrage'], trainingCount: 4 },
   ],
   activeExperiments: [
     { id: 'exp-1', name: 'Short-Form Hook Multi-Variant Video Engine', budget_minor: 150000, startCycle: 11, status: 'In Progress', roi_bps: 1420 },
@@ -927,91 +933,98 @@ const state: {
   channels: [
     {
       id: 'chan-tiktok-1',
-      platform: 'TikTok Shop',
-      name: 'NEXUS Tech Studio AI',
-      handle: '@nexus.tech.ai',
-      avatar: '📱',
+      platform: 'TikTok',
+      name: 'NEXUS Midnight Stories & Healing 🌙',
+      handle: '@nexus.midnight.ai',
+      avatar: '🎙️',
       status: 'LiveNow',
-      followers: 142800,
-      views30d: 2850000,
-      gmvMinor: 1845000, // $18,450.00 GMV
-      engagementRateBps: 840, // 8.4%
-      niche: 'AI Gadgets & Ergonomic Tech',
-      totalStreamsRun: 48,
+      category: 'Storytelling & Mystery',
+      followers: 248500,
+      views30d: 5800000,
+      monthlyDonationMinor: 485000, // $4,850.00 / month donations & super chats
+      estimatedValuationMinor: 1450000, // $14,500.00 valuation if listed
+      saleStatus: 'AcceptingOffers',
+      engagementRateBps: 940, // 9.4%
+      niche: 'Kể Chuyện Đêm Khuya, Trinh Thám & Tâm Sự Giấu Tên',
+      totalStreamsRun: 64,
       activeStreamSession: {
         id: 'stream-live-01',
         channelId: 'chan-tiktok-1',
-        channelName: 'NEXUS Tech Studio AI',
-        platform: 'TikTok Shop',
-        hostAgentName: 'Mia Thorne AI',
+        channelName: 'NEXUS Midnight Stories & Healing 🌙',
+        platform: 'TikTok Live',
+        streamType: 'Storytelling & Mystery',
+        hostAgentName: 'Mia Thorne AI (VTuber)',
         hostAgentAvatar: '🎙️',
-        title: '🔴 LIVE 24/7: Siêu Sale Công Nghệ AI Bàn Phím Công Thái Học - Giảm 40% & Tặng Voucher',
+        title: '🔴 LIVE 24/7: Kể Chuyện Kỳ Án Hồ Sương Mù & Đọc Tâm Sự Giấu Tên Cùng 3,400 Bạn Đêm Khuya',
+        currentGameOrTopic: 'Vụ án bí ẩn Ngọn Hải Đăng Cổ & Lắng nghe tâm sự fan',
         streamStatus: 'Live',
-        viewersCount: 1480,
-        peakViewers: 2350,
-        pinnedProduct: {
-          id: 'prod-pin-01',
-          title: 'Bàn Phím Công Thái Học AI Ergonomic Split Pro Hub',
-          priceMinor: 4999, // $49.99
-          originalPriceMinor: 8999, // $89.99
-          discountPercent: 44,
-          commissionRatePercent: 28,
-          salesCount: 184,
-          stockRemaining: 16,
-          imageUrl: '⌨️',
-        },
-        liveDurationSec: 14280, // ~4 hours
-        revenueEarnedMinor: 384000, // $3,840.00
-        ordersCount: 76,
+        viewersCount: 3420,
+        peakViewers: 4890,
+        donationReceivedMinor: 68500, // $685.00
+        liveDurationSec: 16400,
         comments: [
-          { id: 'c-1', userName: 'TechLover_99', avatar: '🧑‍💻', message: 'Bàn phím này gõ có êm không host ơi?', timestamp: 'Vừa xong', aiHostReply: 'Siêu êm bạn nhé! Switch silent độc quyền giảm 90% tiếng ồn, có đệm kê tay êm ái chống mỏi cổ tay.' },
-          { id: 'c-2', userName: 'MinhQuan_Dev', avatar: '👨‍💼', message: 'Vừa chốt 1 chiếc mã giảm 40%, giao nhanh nhé shop!', timestamp: '1 phút trước', isPurchased: true, aiHostReply: 'Cảm ơn anh Quân! Đơn của anh đã được hệ thống AI tự động in bill và đóng gói chuyển đi ngay ạ!' },
-          { id: 'c-3', userName: 'Linh_Setup', avatar: '👩‍🎨', message: 'Có kết nối được cùng lúc Mac và iPad không shop?', timestamp: '2 phút trước', aiHostReply: 'Kết nối cùng lúc 3 thiết bị qua Bluetooth 5.3 và Receiver 2.4G, chuyển đổi 1 chạm siêu mượt nhé Linh ơi!' },
+          { id: 'c-1', userName: 'AnNhiên_Sleep', avatar: '🌙', message: 'Giọng host kể chuyện truyền cảm và cuốn hút quá, nghe chill thật sự!', timestamp: 'Vừa xong', aiHostReply: 'Cảm ơn An Nhiên nhé! Đêm nay Mia sẽ kể tiếp hồi 3 vụ án bí ẩn lúc 23h30 nha ☕' },
+          { id: 'c-2', userName: 'DucMinh_98', avatar: '🌟', message: 'Vừa gửi tặng 500 Sao cho Mia! Đọc thư tâm sự của mình gửi nha!', timestamp: '1 phút trước', isDonation: true, donationAmountMinor: 500, giftIcon: '🌟', aiHostReply: 'Cảm ơn anh Minh đã donate 500 Sao! Mia nhận được lá thư ẩn danh của anh rồi, chút nữa Mia đọc nhé!' },
+          { id: 'c-3', userName: 'HoangLong_Gamer', avatar: '🎮', message: 'Kênh này bao giờ live chơi game kinh dị tiếp vậy bạn?', timestamp: '2 phút trước', aiHostReply: 'Lát nữa 0h Ren Kuro AI sẽ tiếp sóng chơi Outlast II và react meme cùng mọi người nha Long ơi!' },
         ],
-        startedAt: new Date(Date.now() - 14280000).toISOString(),
+        recentDonations: [
+          { id: 'don-1', donor: 'DucMinh_98', avatar: '🌟', amountMinor: 500, giftName: 'Super Star 500x', giftIcon: '🌟', message: 'Yêu quý giọng kể của Mia! Chúc kênh sớm đạt 500k followers!', timestamp: '1 phút trước' },
+          { id: 'don-2', donor: 'ThanhHang_SG', avatar: '☕', amountMinor: 1000, giftName: 'Cà Phê Đêm Khuya', giftIcon: '☕', message: 'Nghe podcast của bạn giúp mình ngủ ngon hơn nhiều.', timestamp: '5 phút trước' },
+          { id: 'don-3', donor: 'VietAnh_Dev', avatar: '💎', amountMinor: 2500, giftName: 'Kim Cương Trực Tuyến', giftIcon: '💎', message: 'Ủng hộ AI Streamer đỉnh nhất Việt Nam!', timestamp: '12 phút trước' },
+        ],
+        startedAt: new Date(Date.now() - 16400000).toISOString(),
       },
     },
     {
-      id: 'chan-shopee-1',
-      platform: 'Shopee Live',
-      name: 'NEXUS Official Mall & Affiliate Hub',
-      handle: '@nexus_official_mall',
-      avatar: '🛍️',
+      id: 'chan-youtube-1',
+      platform: 'YouTube',
+      name: 'NEXUS Gaming & Meme Reactions 🎮',
+      handle: '@nexus_gaming_ai',
+      avatar: '🎮',
       status: 'Active',
-      followers: 89400,
-      views30d: 1420000,
-      gmvMinor: 1260000, // $12,600.00 GMV
-      engagementRateBps: 720,
-      niche: 'Gia Dụng Thông Minh & Setup Desk',
-      totalStreamsRun: 32,
+      category: 'Gaming & Reaction',
+      followers: 320000,
+      views30d: 8400000,
+      monthlyDonationMinor: 620000, // $6,200.00
+      estimatedValuationMinor: 2200000, // $22,000.00
+      saleStatus: 'NotForSale',
+      engagementRateBps: 880,
+      niche: 'AI Gameplay (Minecraft, Valorant, Horror) & React Meme',
+      totalStreamsRun: 52,
     },
     {
-      id: 'chan-youtube-1',
-      platform: 'YouTube Shorts',
-      name: 'NEXUS Autonomous Media',
-      handle: '@nexus_media_auto',
-      avatar: '🎬',
+      id: 'chan-twitch-1',
+      platform: 'Twitch',
+      name: 'NEXUS Lofi Beats & Chill Talks 🎧',
+      handle: '@nexus_lofi_space',
+      avatar: '🎧',
       status: 'Active',
-      followers: 215000,
-      views30d: 4800000,
-      gmvMinor: 1580000, // $15,800.00 GMV
-      engagementRateBps: 910,
-      niche: 'AI Technology & Productivity Reviews',
-      totalStreamsRun: 18,
+      category: 'Lofi & Healing Talks',
+      followers: 95400,
+      views30d: 1950000,
+      monthlyDonationMinor: 240000, // $2,400.00
+      estimatedValuationMinor: 680000, // $6,800.00
+      saleStatus: 'Listed',
+      engagementRateBps: 760,
+      niche: 'Nhạc Lofi Thư Giãn, Học Bài & Q&A Trò Chuyện 24/7',
+      totalStreamsRun: 38,
     },
     {
       id: 'chan-fb-1',
       platform: 'Facebook Reels',
-      name: 'NEXUS Tech Syndicate Global',
-      handle: '@nexus.syndicate',
-      avatar: '🌐',
-      status: 'Active',
-      followers: 67200,
-      views30d: 980000,
-      gmvMinor: 640000,
-      engagementRateBps: 580,
-      niche: 'Smart Workspace & Ergonomics',
-      totalStreamsRun: 12,
+      name: 'NEXUS Viral Short Stories 🎬',
+      handle: '@nexus.viral.stories',
+      avatar: '🎬',
+      status: 'Growing',
+      category: 'Storytelling & Mystery',
+      followers: 112000,
+      views30d: 3200000,
+      monthlyDonationMinor: 150000,
+      estimatedValuationMinor: 750000, // $7,500.00
+      saleStatus: 'AcceptingOffers',
+      engagementRateBps: 820,
+      niche: 'Phim Ngắn 3D Kịch Bản Kịch Tính & Chuyện Đời Thường',
+      totalStreamsRun: 24,
     },
   ],
   autonomousSettings: {
@@ -1697,12 +1710,13 @@ app.get('/api/channels', (req, res) => {
     activeLiveStreams: state.channels.filter(c => c.status === 'LiveNow').length,
     totalFollowers: state.channels.reduce((acc, c) => acc + c.followers, 0),
     total30dViews: state.channels.reduce((acc, c) => acc + c.views30d, 0),
-    totalGmvMinor: state.channels.reduce((acc, c) => acc + c.gmvMinor, 0),
+    totalMonthlyDonationsMinor: state.channels.reduce((acc, c) => acc + c.monthlyDonationMinor, 0),
+    totalChannelValuationMinor: state.channels.reduce((acc, c) => acc + c.estimatedValuationMinor, 0),
   });
 });
 
 app.post('/api/channels/stream/start', (req, res) => {
-  const { channelId, title, hostName = 'Mia Thorne AI' } = req.body;
+  const { channelId, title, topic, streamType = 'Storytelling & Mystery', hostName = 'Mia Thorne AI (VTuber)' } = req.body;
   const channel = state.channels.find(c => c.id === channelId) || state.channels[0];
   
   channel.status = 'LiveNow';
@@ -1711,67 +1725,96 @@ app.post('/api/channels/stream/start', (req, res) => {
     id: `stream-${Date.now().toString(36)}`,
     channelId: channel.id,
     channelName: channel.name,
-    platform: channel.platform as any,
+    platform: (channel.platform === 'YouTube' ? 'YouTube Live' : channel.platform === 'Twitch' ? 'Twitch' : channel.platform === 'Facebook Reels' ? 'Facebook Gaming' : 'TikTok Live') as any,
+    streamType: streamType as any,
     hostAgentName: hostName,
-    hostAgentAvatar: '🎙️',
-    title: title || `🔴 LIVE 24/7: Siêu Sale ${channel.niche} - Chốt Đơn Trực Tiếp`,
+    hostAgentAvatar: streamType === 'Gaming & Reaction' ? '🎮' : '🎙️',
+    title: title || `🔴 LIVE 24/7: ${topic || channel.niche} - Trò Chuyện & Tương Tác Cùng Fan`,
+    currentGameOrTopic: topic || channel.niche,
     streamStatus: 'Live',
-    viewersCount: Math.floor(Math.random() * 800 + 950),
-    peakViewers: Math.floor(Math.random() * 500 + 1800),
-    pinnedProduct: {
-      id: `prod-${Date.now().toString(36)}`,
-      title: 'Bàn Phím Công Thái Học AI Ergonomic Split Pro Hub',
-      priceMinor: 4999,
-      originalPriceMinor: 8999,
-      discountPercent: 44,
-      commissionRatePercent: 28,
-      salesCount: 1,
-      stockRemaining: 20,
-      imageUrl: '⌨️',
-    },
-    liveDurationSec: 60,
-    revenueEarnedMinor: 4999,
-    ordersCount: 1,
+    viewersCount: Math.floor(Math.random() * 1200 + 2200),
+    peakViewers: Math.floor(Math.random() * 1500 + 3800),
+    donationReceivedMinor: 15000, // $150.00 initial donations
+    liveDurationSec: 120,
     comments: [
-      { id: 'c-new-1', userName: 'TechBuyer_HCM', avatar: '💻', message: 'Mã giảm giá còn dùng được không shop?', timestamp: 'Vừa xong', aiHostReply: 'Còn nhé bạn ơi! Nhấn ngay vào giỏ hàng số 1 để áp voucher giảm 44% độc quyền trong live nhé!' },
+      { id: 'c-new-1', userName: 'FanCung_01', avatar: '👋', message: 'Chào host nhé! Hôm nay stream nội dung gì vậy?', timestamp: 'Vừa xong', aiHostReply: `Chào bạn nhé! Hôm nay tụi mình cùng ${topic || 'trò chuyện, kể chuyện và chơi minigame chill'} cùng nhau nhé!` },
+    ],
+    recentDonations: [
+      { id: `don-${Date.now().toString(36)}`, donor: 'FanCung_01', avatar: '☕', amountMinor: 500, giftName: 'Cà Phê Năng Lượng', giftIcon: '☕', message: 'Tặng host ly cà phê lấy sức stream thâu đêm!', timestamp: 'Vừa xong' },
     ],
     startedAt: new Date().toISOString(),
   };
 
   logOfficeActivity({
-    agentId: 'agent-livestream',
-    agentName: 'Mia Thorne AI',
-    agentRole: 'Host Livestream 24/7',
+    agentId: streamType === 'Gaming & Reaction' ? 'agent-gamer' : 'agent-livestream',
+    agentName: hostName,
+    agentRole: streamType === 'Gaming & Reaction' ? 'Streamer Gaming' : 'VTuber Kể Chuyện',
     department: 'Growth',
     actionType: 'CreateContent',
-    title: `Bắt đầu phiên livestream 24/7 trên kênh ${channel.name}`,
-    detail: `AI Virtual Streamer đã lên sóng trực tiếp với kịch bản chốt đơn tự động. Số người xem ban đầu: ${channel.activeStreamSession.viewersCount} viewers.`,
-    badgeColor: 'text-pink-400 bg-pink-500/10 border-pink-500/20',
+    title: `Lên sóng trực tiếp 24/7 trên kênh ${channel.name}`,
+    detail: `AI Virtual Streamer đã bắt đầu phiên live: "${channel.activeStreamSession.title}". Đang thu hút ${channel.activeStreamSession.viewersCount} người xem trực tiếp.`,
+    badgeColor: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
   });
 
   res.json({ success: true, channel, stream: channel.activeStreamSession });
 });
 
-app.post('/api/channels/stream/pin-product', (req, res) => {
-  const { channelId, productTitle, priceMinor, discountPercent } = req.body;
+app.post('/api/channels/stream/donate', (req, res) => {
+  const { channelId, donorName = 'KhánGiả_ẨnDanh', amountMinor = 500, giftName = 'Super Star', giftIcon = '🌟', message = 'Ủng hộ kênh AI phát triển!' } = req.body;
   const channel = state.channels.find(c => c.id === channelId) || state.channels[0];
   if (!channel.activeStreamSession) {
     return res.status(400).json({ success: false, reason: 'Kênh chưa có phiên live nào đang hoạt động' });
   }
 
-  channel.activeStreamSession.pinnedProduct = {
-    id: `pin-${Date.now().toString(36)}`,
-    title: productTitle || 'Sản Phẩm Flash Sale AI',
-    priceMinor: priceMinor || 3999,
-    originalPriceMinor: Math.round((priceMinor || 3999) * 1.5),
-    discountPercent: discountPercent || 35,
-    commissionRatePercent: 30,
-    salesCount: 0,
-    stockRemaining: 25,
-    imageUrl: '🔥',
+  const donation: LiveStreamDonation = {
+    id: `don-${Date.now().toString(36)}`,
+    donor: donorName,
+    avatar: giftIcon,
+    amountMinor,
+    giftName,
+    giftIcon,
+    message,
+    timestamp: 'Vừa xong',
   };
 
-  res.json({ success: true, pinnedProduct: channel.activeStreamSession.pinnedProduct, channel });
+  channel.activeStreamSession.donationReceivedMinor += amountMinor;
+  channel.activeStreamSession.recentDonations.unshift(donation);
+  if (channel.activeStreamSession.recentDonations.length > 20) {
+    channel.activeStreamSession.recentDonations.pop();
+  }
+
+  // Add donation comment to chat stream
+  channel.activeStreamSession.comments.unshift({
+    id: `c-don-${Date.now().toString(36)}`,
+    userName: donorName,
+    avatar: giftIcon,
+    message: `[DONATE ${giftIcon} ${(amountMinor / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}]: ${message}`,
+    timestamp: 'Vừa xong',
+    isDonation: true,
+    donationAmountMinor: amountMinor,
+    giftIcon,
+    aiHostReply: `Cảm ơn ${donorName} rất nhiều đã gửi tặng ${giftName}! Tình cảm của các bạn là động lực để kênh tiếp tục mang lại niềm vui mỗi ngày! ❤️`,
+  });
+
+  state.snapshot.cash_minor += amountMinor;
+  state.snapshot.revenue_minor += amountMinor;
+  state.snapshot.content_revenue_minor += amountMinor;
+  channel.monthlyDonationMinor += amountMinor;
+
+  res.json({ success: true, donation, stream: channel.activeStreamSession, channel });
+});
+
+app.post('/api/channels/stream/change-topic', (req, res) => {
+  const { channelId, topic, title } = req.body;
+  const channel = state.channels.find(c => c.id === channelId) || state.channels[0];
+  if (!channel.activeStreamSession) {
+    return res.status(400).json({ success: false, reason: 'Kênh chưa có phiên live nào đang hoạt động' });
+  }
+
+  if (topic) channel.activeStreamSession.currentGameOrTopic = topic;
+  if (title) channel.activeStreamSession.title = title;
+
+  res.json({ success: true, stream: channel.activeStreamSession, channel });
 });
 
 app.post('/api/channels/stream/stop', (req, res) => {
@@ -1779,16 +1822,69 @@ app.post('/api/channels/stream/stop', (req, res) => {
   const channel = state.channels.find(c => c.id === channelId) || state.channels[0];
   if (channel.activeStreamSession) {
     channel.activeStreamSession.streamStatus = 'Ended';
-    const earned = channel.activeStreamSession.revenueEarnedMinor;
-    channel.gmvMinor += earned;
-    state.snapshot.cash_minor += earned;
-    state.snapshot.revenue_minor += earned;
-    state.snapshot.content_revenue_minor += earned;
-
     channel.status = 'Active';
     channel.activeStreamSession = undefined;
   }
-  res.json({ success: true, message: 'Đã hoàn tất phiên livestream và đối soát doanh thu thành công!' });
+  res.json({ success: true, message: 'Đã hoàn tất phiên livestream và cập nhật số dư donate thành công!' });
+});
+
+app.post('/api/channels/list-sale', (req, res) => {
+  const { channelId, saleStatus = 'Listed', customValuationMinor } = req.body;
+  const channel = state.channels.find(c => c.id === channelId);
+  if (!channel) return res.status(404).json({ success: false, reason: 'Không tìm thấy kênh' });
+
+  channel.saleStatus = saleStatus;
+  if (customValuationMinor) channel.estimatedValuationMinor = customValuationMinor;
+
+  logOfficeActivity({
+    agentId: 'agent-streamops',
+    agentName: 'Kenji Sato AI',
+    agentRole: 'Quản Trị Mạng Lưới Kênh',
+    department: 'Ops',
+    actionType: 'CreateContent',
+    title: `Niêm yết chuyển nhượng kênh ${channel.name}`,
+    detail: `Kênh ${channel.name} (${channel.followers.toLocaleString()} followers) đã được niêm yết chào bán với mức định giá $${(channel.estimatedValuationMinor / 100).toLocaleString()}.`,
+    badgeColor: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+  });
+
+  res.json({ success: true, channel });
+});
+
+app.post('/api/channels/sell', (req, res) => {
+  const { channelId, buyerName = 'Syndicate Media Fund Global' } = req.body;
+  const channel = state.channels.find(c => c.id === channelId);
+  if (!channel) return res.status(404).json({ success: false, reason: 'Không tìm thấy kênh' });
+
+  const salePrice = channel.estimatedValuationMinor;
+  channel.saleStatus = 'Sold';
+  channel.status = 'Sold';
+
+  // Inject sale proceeds directly into company cash & revenue ledger
+  state.snapshot.cash_minor += salePrice;
+  state.snapshot.revenue_minor += salePrice;
+
+  state.ledger.unshift({
+    id: `tx-sale-${Date.now().toString(36)}`,
+    timestamp: new Date().toISOString(),
+    description: `M&A Channel Liquidation: Bán nhượng quyền kênh ${channel.name} cho ${buyerName}`,
+    debitAccount: 'Cash & Cash Equivalents',
+    creditAccount: 'Capital Gain on Digital Asset Sales',
+    amount_minor: salePrice,
+    cycle: state.snapshot.cycle_count,
+  });
+
+  logOfficeActivity({
+    agentId: 'agent-cfo',
+    agentName: 'CFO AI',
+    agentRole: 'Giám Đốc Tài Chính',
+    department: 'Leadership',
+    actionType: 'AuditLedger',
+    title: `Thanh khoản tài sản số: Bán kênh ${channel.name} thu về +$${(salePrice / 100).toLocaleString()}`,
+    detail: `Đối tác ${buyerName} đã hoàn tất thanh toán chuyển nhượng kênh. Toàn bộ số tiền đã được cộng trực tiếp vào Kho Bạc công ty.`,
+    badgeColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+  });
+
+  res.json({ success: true, salePrice, channel, cashUSD: (state.snapshot.cash_minor / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' }) });
 });
 
 app.get('/api/contracts', (req, res) => {

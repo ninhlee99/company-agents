@@ -241,12 +241,12 @@ export default function App() {
   };
 
   // Start livestream session
-  const handleStartStream = async (channelId: string, title: string) => {
+  const handleStartStream = async (channelId: string, title: string, topic?: string, streamType?: string, hostName?: string) => {
     try {
       const res = await fetch('/api/channels/stream/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channelId, title }),
+        body: JSON.stringify({ channelId, title, topic, streamType, hostName }),
       });
       if (res.ok) {
         triggerToast('Đã kích hoạt phiên livestream 24/7 với Host AI thành công!');
@@ -257,16 +257,70 @@ export default function App() {
     }
   };
 
-  // Pin product in live stream
-  const handlePinProduct = async (channelId: string, productTitle: string, priceMinor: number) => {
+  // Donate to live stream
+  const handleDonate = async (channelId: string, donorName: string, amountMinor: number, giftName: string, giftIcon: string, message: string) => {
     try {
-      const res = await fetch('/api/channels/stream/pin-product', {
+      const res = await fetch('/api/channels/stream/donate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channelId, productTitle, priceMinor }),
+        body: JSON.stringify({ channelId, donorName, amountMinor, giftName, giftIcon, message }),
       });
       if (res.ok) {
-        triggerToast(`Đã ghim sản phẩm "${productTitle}" vào phiên live!`);
+        if (amountMinor > 0) {
+          triggerToast(`Đã nhận donate +$${(amountMinor / 100).toFixed(2)} từ ${donorName}!`);
+        }
+        loadState();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Change topic during live stream
+  const handleChangeTopic = async (channelId: string, topic: string) => {
+    try {
+      const res = await fetch('/api/channels/stream/change-topic', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId, topic }),
+      });
+      if (res.ok) {
+        triggerToast(`Đã chuyển chủ đề stream sang "${topic}"!`);
+        loadState();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // List channel for sale
+  const handleListChannelForSale = async (channelId: string, status: string, customValuationMinor?: number) => {
+    try {
+      const res = await fetch('/api/channels/list-sale', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId, saleStatus: status, customValuationMinor }),
+      });
+      if (res.ok) {
+        triggerToast('Đã cập nhật trạng thái niêm yết bán kênh thành công!');
+        loadState();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Sell channel (Liquidation)
+  const handleSellChannel = async (channelId: string) => {
+    try {
+      const res = await fetch('/api/channels/sell', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        triggerToast(`Chuyển nhượng kênh thành công! Đã thu về +$${(data.salePrice / 100).toLocaleString()} vào kho bạc!`);
         loadState();
       }
     } catch (e) {
@@ -283,7 +337,7 @@ export default function App() {
         body: JSON.stringify({ channelId }),
       });
       if (res.ok) {
-        triggerToast('Đã kết thúc phiên live và đối soát doanh thu vào kho bạc!');
+        triggerToast('Đã tạm dừng phiên live thành công!');
         loadState();
       }
     } catch (e) {
@@ -423,8 +477,11 @@ export default function App() {
           <ChannelsAndLivestreamTab
             channels={channels}
             onStartStream={handleStartStream}
-            onPinProduct={handlePinProduct}
+            onDonate={handleDonate}
+            onChangeTopic={handleChangeTopic}
             onStopStream={handleStopStream}
+            onListChannelForSale={handleListChannelForSale}
+            onSellChannel={handleSellChannel}
           />
         )}
 
