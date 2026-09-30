@@ -658,13 +658,14 @@ async fn index(
                 .unwrap_or("no active stop reason");
             let b = &record.controls.budgets;
             format!(
-                r#"<div class="card"><h2>Safety controls</h2><div class="metric">{}</div><div class="muted">{} · budgets reset daily at UTC day start</div><div class="grid" style="margin-top:10px"><div><small>Content publishes</small><div class="metric" style="font-size:18px">{}</div></div><div><small>LIVE minutes</small><div class="metric" style="font-size:18px">{}</div></div><div><small>Messages</small><div class="metric" style="font-size:18px">{}</div></div><div><small>Autonomous capital</small><div class="metric" style="font-size:18px">{}</div></div></div><small class="muted">Stop reason: {} · actor: {}</small></div>"#,
+                r#"<div class="card"><h2>Safety controls</h2><div class="metric">{}</div><div class="muted">{} · budgets reset daily at UTC day start</div><div class="grid" style="margin-top:10px"><div><small>Content publishes</small><div class="metric" style="font-size:18px">{}</div></div><div><small>LIVE minutes</small><div class="metric" style="font-size:18px">{}</div></div><div><small>Messages</small><div class="metric" style="font-size:18px">{}</div></div><div><small>Autonomous capital</small><div class="metric" style="font-size:18px">{}</div></div></div><div style="margin-top:10px">{}</div><small class="muted">Stop reason: {} · actor: {}</small></div>"#,
                 stop_label,
                 escape_html(stop_reason),
                 b.content_publish_daily,
                 b.live_minutes_daily,
                 b.outbound_messages_daily,
                 format_minor(b.autonomous_capital_daily_minor, &state.currency),
+                budget_status_html,
                 escape_html(stop_reason),
                 escape_html(&record.controls.emergency_stop.actor),
             )
