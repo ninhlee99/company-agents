@@ -229,7 +229,7 @@ pub fn assess(
 
     let required_level = if input.external_side_effect || input.action.inherently_material() {
         AutonomyLevel::HumanApprove
-    } else if input.risk >= RiskTier::Critical {
+    } else if input.risk.rank() >= RiskTier::Critical.rank() {
         AutonomyLevel::HumanApprove
     } else if input.company_status != CompanyStatus::Active
         && input.company_status != CompanyStatus::Growth
@@ -253,7 +253,7 @@ pub fn assess(
         });
     }
 
-    if input.external_side_effect || input.action.inherently_material() || input.risk >= RiskTier::Critical {
+    if input.external_side_effect || input.action.inherently_material() || input.risk.rank() >= RiskTier::Critical.rank() {
         return Ok(AutonomyAssessment {
             decision: AutonomyDecision::NeedsApproval,
             ceiling: input.policy.max_level,
