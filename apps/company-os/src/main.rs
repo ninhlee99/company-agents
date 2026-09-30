@@ -1103,6 +1103,69 @@ async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, S
         })
 }
 
+async fn autonomy_controls_get_api(
+    State(state): State<AppState>,
+) -> Result<Json<company_store::AutonomyControlRecord>, StatusCode> {
+    state
+        .store
+        .autonomy_controls(&state.company_id)
+        .await
+        .map(Json)
+        .map_err(|error| {
+            tracing::warn!(%error, "autonomy controls unavailable");
+            StatusCode::SERVICE_UNAVAILABLE
+        })
+}
+
+async fn autonomy_controls_set_api(
+    State(state): State<AppState>,
+    Json(request): Json<AutonomyControlsRequest>,
+) -> Result<Json<company_store::AutonomyControlRecord>, StatusCode> {
+    state
+        .store
+        .set_autonomy_controls(
+            &state.company_id,
+            request.emergency_stop,
+            request.reason.as_deref(),
+            &request.actor,
+            &request.budgets,
+        )
+        .await
+        .map(Json)
+        .map_err(|error| {
+            tracing::warn!(%error, "autonomy control update rejected");
+            StatusCode::BAD_REQUEST
+        })
+}
+
+async fn autonomy_budget_consume_api(
+    State(state): State<AppState>,
+    Json(request): Json<AutonomyBudgetConsumeRequest>,
+) -> Result<Json<company_safety_controls::BudgetDecision>, StatusCode> {
+    let kind = company_safety_controls::BudgetKind::parse(&request.kind)
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let now_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
+    let decision = state
+        .store
+        .consume_autonomy_budget(
+            &state.company_id,
+            kind,
+            request.amount,
+            &request.idempotency_key,
+            now_epoch,
+        )
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, "autonomy budget consumption rejected");
+            StatusCode::BAD_REQUEST
+        })?;
+    if decision.allowed {
+        Ok(Json(decision))
+    } else {
+        Err(StatusCode::PRECONDITION_FAILED)
+    }
+}
+
 async fn autonomy_assess_api(
     State(state): State<AppState>,
     Json(request): Json<AutonomyAssessRequest>,
