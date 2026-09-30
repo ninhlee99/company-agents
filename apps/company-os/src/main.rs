@@ -3860,7 +3860,6 @@ async fn browser_login(
         )
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let secure = if browser_cookie_secure() { "; Secure" } else { "" };
     let mut response = Response::builder()
         .status(StatusCode::SEE_OTHER)
         .header(header::LOCATION, "/");
