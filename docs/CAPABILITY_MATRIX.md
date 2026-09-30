@@ -23,10 +23,6 @@ This document intentionally separates implemented behavior from contracts, simul
 | Media production | Implemented | Media jobs run through isolated FFmpeg/FFprobe QA in the media worker. |
 | Publishing approval contract | Implemented | Publish intent, approval, lease, completion and revocation are durable and guarded. |
 | TikTok publishing adapter | Implemented + webhook reconciliation, environment-gated | Approved TikTok intents can be executed through the Content Posting API adapter; publish IDs are persisted, signed TikTok webhooks are verified with replay protection, terminal outcomes reconcile idempotently, and status polling remains available as fallback. Real use requires valid TikTok authorization, app approval/audit and operator configuration. |
-
-## TikTok OAuth refresh durability
-
-- **Durable refresh lease:** enabled refresh workers use the existing `scheduled_jobs` lease, so concurrent Company OS instances claim at most one refresh job at a time. Refresh failures release the job for bounded retry; successful/no-op cycles advance the next run.
 | TikTok LIVE engine | Implemented + durable event persistence + governed stream publisher | Session/event contracts, durable idempotent gift/comment/follow/share/like ingestion, gift-statement reconciliation, AI engagement modes and an optional FFmpeg RTMP(S) publisher with hot-reload overlay are implemented. Actual TikTok account transport, gift events and platform PK control remain provider/account gated. |
 | External email/message sending | Implemented + environment-gated | Governed outbound email has durable approval/consent evidence, outbox execution, Resend provider idempotency, provider references and failure tracking; real sending still requires verified provider configuration. |
 | External payment execution | Governed + environment-gated | Payment intents, explicit approval evidence, idempotent execution intents, provider adapter boundary, execution evidence and reconciliation linkage exist; only the deterministic simulated provider is enabled by default. Real bank/card/processor settlement remains a separately gated adapter. |
@@ -47,6 +43,11 @@ This document intentionally separates implemented behavior from contracts, simul
 | Model evaluation / routing | Evidence capture + shadow routing + benchmark harness | Per-cycle evaluation evidence is persisted. Shadow routing classifies task complexity, detects hardware tier and records a deterministic provider recommendation without changing actual provider selection. A CLI benchmark matrix now measures per-provider latency, success and JSON-object validity across Fast/Standard/Deep cases; active routing remains gated pending target-environment quality/cost/failure evidence. |
 | Autonomous hiring/payroll execution | NOT achieved | Economic primitives and proposals exist; real external hiring/payroll actions remain gated. |
 | Autonomous company operation with no human | NOT achieved | The architecture is a controlled autonomy foundation. Real external credentials, platform adapters and production acceptance are still required. |
+
+
+## TikTok OAuth refresh durability
+
+- **Durable refresh lease:** enabled refresh workers use the existing `scheduled_jobs` lease, so concurrent Company OS instances claim at most one refresh job at a time. Refresh failures release the job for bounded retry; successful/no-op cycles advance the next run.
 
 ## Hard conclusion
 
