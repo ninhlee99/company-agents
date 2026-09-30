@@ -7780,6 +7780,64 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
               WHERE company_id=$1 AND id=$2",
             &[&company, &opportunity_id, &item.id],
         ).await?;
+        let growth_observed_at_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company,
+                company_revenue_graph::RevenueNodeType::Trend,
+                &format!("growth-trend:{}", opportunity.trend_id),
+                "GENERATES_CONTENT",
+                company_revenue_graph::RevenueNodeType::Content,
+                &item.id.to_string(),
+                None,
+                None,
+                opportunity.confidence_bps,
+                &format!("growth-opportunity:{}", opportunity.id),
+                "growth-loop",
+                growth_observed_at_epoch,
+            ),
+        )
+        .await?;
+
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company,
+                company_revenue_graph::RevenueNodeType::Content,
+                &item.id.to_string(),
+                "USES_HOOK",
+                company_revenue_graph::RevenueNodeType::Hook,
+                &hashed_graph_ref("hook", &item.variant.hook),
+                None,
+                None,
+                10_000,
+                &format!("content:{}", item.id),
+                "content-factory",
+                growth_observed_at_epoch,
+            ),
+        )
+        .await?;
+
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company,
+                company_revenue_graph::RevenueNodeType::Content,
+                &item.id.to_string(),
+                "TARGETS_AUDIENCE",
+                company_revenue_graph::RevenueNodeType::Audience,
+                &hashed_graph_ref("audience", &item.brief.audience),
+                None,
+                None,
+                10_000,
+                &format!("content:{}", item.id),
+                "content-factory",
+                growth_observed_at_epoch,
+            ),
+        )
+        .await?;
+
         tx.execute(
             "INSERT INTO outbox_events
              (company_id,event_type,aggregate_id,idempotency_key,payload)
