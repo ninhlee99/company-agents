@@ -304,6 +304,406 @@ fn validate_input(input: &CommandCenterInput) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum CeoExamStatus {
+    Pass,
+    Review,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum CeoExamDomain {
+    Market,
+    Product,
+    Content,
+    Live,
+    Finance,
+    Strategy,
+    Ai,
+    Operations,
+}
+
+impl CeoExamDomain {
+    pub const ALL: [Self; 8] = [
+        Self::Market,
+        Self::Product,
+        Self::Content,
+        Self::Live,
+        Self::Finance,
+        Self::Strategy,
+        Self::Ai,
+        Self::Operations,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Market => "market",
+            Self::Product => "product",
+            Self::Content => "content",
+            Self::Live => "live",
+            Self::Finance => "finance",
+            Self::Strategy => "strategy",
+            Self::Ai => "ai",
+            Self::Operations => "operations",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CeoExamDomainResult {
+    pub domain: CeoExamDomain,
+    pub status: CeoExamStatus,
+    pub score_bps: Option<u32>,
+    pub evidence_refs: Vec<String>,
+    pub findings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CeoExamReport {
+    pub company_id: uuid::Uuid,
+    pub exam_key: String,
+    pub period_start_epoch: i64,
+    pub period_end_epoch: i64,
+    pub overall_status: CeoExamStatus,
+    pub overall_score_bps: Option<u32>,
+    pub domains: Vec<CeoExamDomainResult>,
+    pub critical_findings: Vec<String>,
+    pub source: String,
+}
+
+pub fn run_ceo_exam(
+    company_id: uuid::Uuid,
+    exam_key: impl Into<String>,
+    period_start_epoch: i64,
+    period_end_epoch: i64,
+    input: &CommandCenterInput,
+    summary: &CommandCenterSummary,
+    agent_evaluations: &[company_agent_evaluation::AgentEvaluation],
+) -> Result<CeoExamReport, String> {
+    if company_id == uuid::Uuid::nil() {
+        return Err("CEO exam company_id is required".into());
+    }
+    if period_start_epoch <= 0 || period_end_epoch <= period_start_epoch {
+        return Err("CEO exam period must be positive and ordered".into());
+    }
+    validate_input(input)?;
+    if agent_evaluations.len() > 500 {
+        return Err("CEO exam received too many agent evaluations".into());
+    }
+
+    let mut domains = Vec::with_capacity(CeoExamDomain::ALL.len());
+
+    domains.push(exam_market(input));
+    domains.push(exam_product(input));
+    domains.push(exam_content(input));
+    domains.push(exam_live(input));
+    domains.push(exam_finance(input));
+    domains.push(exam_strategy(input, summary));
+    domains.push(exam_ai(agent_evaluations));
+    domains.push(exam_operations(input));
+
+    let overall_status = if domains.iter().any(|d| d.status == CeoExamStatus::Review) {
+        CeoExamStatus::Review
+    } else if domains.iter().any(|d| d.status == CeoExamStatus::Unknown) {
+        CeoExamStatus::Unknown
+    } else {
+        CeoExamStatus::Pass
+    };
+
+    let scored = domains.iter().filter_map(|d| d.score_bps);
+    let scores: Vec<u32> = scored.collect();
+    let overall_score_bps = if scores.len() >= 4 {
+        Some(
+            (scores.iter().map(|value| u64::from(*value)).sum::<u64>() / scores.len() as u64)
+                .min(10_000) as u32,
+        )
+    } else {
+        None
+    };
+
+    let critical_findings = domains
+        .iter()
+        .filter(|d| d.status != CeoExamStatus::Pass)
+        .flat_map(|d| d.findings.iter().map(|finding| format!("{}: {finding}", d.domain.as_str())))
+        .take(24)
+        .collect();
+
+    Ok(CeoExamReport {
+        company_id,
+        exam_key: exam_key.into(),
+        period_start_epoch,
+        period_end_epoch,
+        overall_status,
+        overall_score_bps,
+        domains,
+        critical_findings,
+        source: "authoritative_company_command_center".into(),
+    })
+}
+
+fn exam_market(input: &CommandCenterInput) -> CeoExamDomainResult {
+    let evidence = "command-center:growth-opportunities".into();
+    let best_confidence = input
+        .growth_opportunities
+        .iter()
+        .map(|item| item.confidence_bps)
+        .max();
+    match best_confidence {
+        Some(confidence) if confidence >= 8_000 => CeoExamDomainResult {
+            domain: CeoExamDomain::Market,
+            status: CeoExamStatus::Pass,
+            score_bps: Some(confidence),
+            evidence_refs: vec![evidence],
+            findings: vec!["At least one current growth opportunity has strong evidence confidence.".into()],
+        },
+        Some(confidence) => CeoExamDomainResult {
+            domain: CeoExamDomain::Market,
+            status: CeoExamStatus::Review,
+            score_bps: Some(confidence),
+            evidence_refs: vec![evidence],
+            findings: vec!["Current growth opportunities are below the strong-confidence gate.".into()],
+        },
+        None => CeoExamDomainResult {
+            domain: CeoExamDomain::Market,
+            status: CeoExamStatus::Unknown,
+            score_bps: None,
+            evidence_refs: vec![evidence],
+            findings: vec!["No current growth-opportunity evidence is available.".into()],
+        },
+    }
+}
+
+fn exam_product(input: &CommandCenterInput) -> CeoExamDomainResult {
+    let refs = vec!["command-center:affiliate-orders".into()];
+    if input.affiliate_orders_mtd > 0 && input.affiliate_net_order_value_mtd_minor > 0 {
+        CeoExamDomainResult {
+            domain: CeoExamDomain::Product,
+            status: CeoExamStatus::Pass,
+            score_bps: Some(10_000),
+            evidence_refs: refs,
+            findings: vec!["Observed affiliate orders and positive net order value are present for MTD.".into()],
+        }
+    } else if input.affiliate_orders_mtd > 0 {
+        CeoExamDomainResult {
+            domain: CeoExamDomain::Product,
+            status: CeoExamStatus::Review,
+            score_bps: Some(5_000),
+            evidence_refs: refs,
+            findings: vec!["Orders are present but observed net order value is not positive.".into()],
+        }
+    } else {
+        CeoExamDomainResult {
+            domain: CeoExamDomain::Product,
+            status: CeoExamStatus::Unknown,
+            score_bps: None,
+            evidence_refs: refs,
+            findings: vec!["No observed affiliate order evidence is available for the current MTD period.".into()],
+        }
+    }
+}
+
+fn exam_content(input: &CommandCenterInput) -> CeoExamDomainResult {
+    let refs = vec!["command-center:content-funnel-7d".into()];
+    if input.content.content_count_7d <= 0 {
+        return CeoExamDomainResult {
+            domain: CeoExamDomain::Content,
+            status: CeoExamStatus::Unknown,
+            score_bps: None,
+            evidence_refs: refs,
+            findings: vec!["No content observation exists in the 7-day window.".into()],
+        };
+    }
+    if input.content.contribution_margin_7d_minor < 0 {
+        return CeoExamDomainResult {
+            domain: CeoExamDomain::Content,
+            status: CeoExamStatus::Review,
+            score_bps: Some((input.content.ctr_bps / 2 + input.content.cvr_bps / 2).min(10_000)),
+            evidence_refs: refs,
+            findings: vec!["Observed 7-day content contribution margin is negative.".into()],
+        };
+    }
+    CeoExamDomainResult {
+        domain: CeoExamDomain::Content,
+        status: CeoExamStatus::Pass,
+        score_bps: Some((input.content.ctr_bps / 2 + input.content.cvr_bps / 2).min(10_000)),
+        evidence_refs: refs,
+        findings: vec!["Content has current observations with non-negative 7-day contribution margin.".into()],
+    }
+}
+
+fn exam_live(input: &CommandCenterInput) -> CeoExamDomainResult {
+    let refs = vec!["command-center:live-30d".into()];
+    if input.live.sessions_30d <= 0 {
+        return CeoExamDomainResult {
+            domain: CeoExamDomain::Live,
+            status: CeoExamStatus::Unknown,
+            score_bps: None,
+            evidence_refs: refs,
+            findings: vec!["No LIVE session evidence exists in the 30-day window.".into()],
+        };
+    }
+    CeoExamDomainResult {
+        domain: CeoExamDomain::Live,
+        status: CeoExamStatus::Pass,
+        score_bps: Some(10_000),
+        evidence_refs: refs,
+        findings: vec![
+            format!("{} LIVE sessions were observed in 30 days.", input.live.sessions_30d),
+            "Gift value is treated as engagement evidence, not company revenue.".into(),
+        ],
+    }
+}
+
+fn exam_finance(input: &CommandCenterInput) -> CeoExamDomainResult {
+    let refs = vec![
+        "command-center:revenue-periods".into(),
+        "command-center:contribution-margin".into(),
+        "command-center:affiliate-reconciliation".into(),
+    ];
+    let mut findings = Vec::new();
+    if input.cash_minor <= 0 {
+        findings.push("Cash is non-positive.".into());
+    }
+    if input.runway_days < 15 {
+        findings.push("Runway is below the emergency liquidity threshold.".into());
+    }
+    if input.contribution_margin_mtd_minor.is_none() {
+        findings.push("Contribution-margin evidence is incomplete.".into());
+    }
+    if input.unclassified_expense_entry_count > 0 {
+        findings.push("Unclassified expense entries remain.".into());
+    }
+    if input.affiliate_variance_mtd_minor != 0 {
+        findings.push("Affiliate reported-attributed variance is non-zero.".into());
+    }
+    if !findings.is_empty() {
+        return CeoExamDomainResult {
+            domain: CeoExamDomain::Finance,
+            status: CeoExamStatus::Review,
+            score_bps: None,
+            evidence_refs: refs,
+            findings,
+        };
+    }
+    let liquidity_score = (input.runway_days.max(0).min(100) as u32 * 100).min(10_000);
+    let margin_score = if input.contribution_margin_mtd_minor.unwrap_or(0) >= 0 {
+        10_000
+    } else {
+        0
+    };
+    CeoExamDomainResult {
+        domain: CeoExamDomain::Finance,
+        status: CeoExamStatus::Pass,
+        score_bps: Some(((liquidity_score as u64 + margin_score as u64) / 2) as u32),
+        evidence_refs: refs,
+        findings: vec!["Liquidity, margin evidence and reconciliation gates show no current exception.".into()],
+    }
+}
+
+fn exam_strategy(
+    input: &CommandCenterInput,
+    summary: &CommandCenterSummary,
+) -> CeoExamDomainResult {
+    let refs = vec!["command-center:revenue-trend-and-target".into()];
+    if input.daily_revenue.len() < 6 {
+        return CeoExamDomainResult {
+            domain: CeoExamDomain::Strategy,
+            status: CeoExamStatus::Unknown,
+            score_bps: None,
+            evidence_refs: refs,
+            findings: vec!["Fewer than 6 daily revenue points are available; trend confidence is insufficient.".into()],
+        };
+    }
+    if summary.revenue_trend == RevenueTrend::Down && summary.target_progress_bps < 5_000 {
+        return CeoExamDomainResult {
+            domain: CeoExamDomain::Strategy,
+            status: CeoExamStatus::Review,
+            score_bps: Some(summary.target_progress_bps),
+            evidence_refs: refs,
+            findings: vec!["Revenue trend is down while MTD progress remains below half of the planning target.".into()],
+        };
+    }
+    CeoExamDomainResult {
+        domain: CeoExamDomain::Strategy,
+        status: CeoExamStatus::Pass,
+        score_bps: Some(summary.target_progress_bps),
+        evidence_refs: refs,
+        findings: vec!["Current revenue trend does not trigger the deterministic strategy review gate.".into()],
+    }
+}
+
+fn exam_ai(evaluations: &[company_agent_evaluation::AgentEvaluation]) -> CeoExamDomainResult {
+    let refs = vec!["agent-evaluation:outcome-evidence".into()];
+    if evaluations.is_empty() {
+        return CeoExamDomainResult {
+            domain: CeoExamDomain::Ai,
+            status: CeoExamStatus::Unknown,
+            score_bps: None,
+            evidence_refs: refs,
+            findings: vec!["No agent outcome evaluation evidence exists in the exam window.".into()],
+        };
+    }
+    let coverage: u32 = (evaluations
+        .iter()
+        .map(|value| u64::from(value.outcome_evidence_coverage_bps))
+        .sum::<u64>()
+        / evaluations.len() as u64)
+        .min(10_000) as u32;
+    let has_insufficient = evaluations
+        .iter()
+        .any(|value| matches!(value.status, company_agent_evaluation::EvaluationStatus::InsufficientEvidence));
+    let status = if has_insufficient {
+        CeoExamStatus::Review
+    } else if coverage >= 8_000 {
+        CeoExamStatus::Pass
+    } else {
+        CeoExamStatus::Review
+    };
+    CeoExamDomainResult {
+        domain: CeoExamDomain::Ai,
+        status,
+        score_bps: Some(coverage),
+        evidence_refs: refs,
+        findings: vec![format!(
+            "Average outcome-evidence coverage across {} evaluated agents is {}%.",
+            evaluations.len(),
+            coverage / 100
+        )],
+    }
+}
+
+fn exam_operations(input: &CommandCenterInput) -> CeoExamDomainResult {
+    let refs = vec![
+        "command-center:workforce".into(),
+        "command-center:payroll".into(),
+    ];
+    if input.active_employee_count <= 0 {
+        return CeoExamDomainResult {
+            domain: CeoExamDomain::Operations,
+            status: CeoExamStatus::Unknown,
+            score_bps: None,
+            evidence_refs: refs,
+            findings: vec!["No active employee evidence is available.".into()],
+        };
+    }
+    if input.payroll_due_count > 0 {
+        return CeoExamDomainResult {
+            domain: CeoExamDomain::Operations,
+            status: CeoExamStatus::Review,
+            score_bps: Some(5_000),
+            evidence_refs: refs,
+            findings: vec![format!("{} payroll obligations are due.", input.payroll_due_count)],
+        };
+    }
+    CeoExamDomainResult {
+        domain: CeoExamDomain::Operations,
+        status: CeoExamStatus::Pass,
+        score_bps: Some(10_000),
+        evidence_refs: refs,
+        findings: vec!["Active workforce evidence exists with no currently due payroll obligation.".into()],
+    }
+}
+
 fn ratio_bps(numerator: i128, denominator: i128) -> u32 {
     if numerator <= 0 || denominator <= 0 {
         return 0;
@@ -396,6 +796,89 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn ceo_exam_marks_missing_evidence_unknown_instead_of_zero() {
+        let value = input();
+        let summary = summarize(&value).unwrap();
+        let report = run_ceo_exam(
+            uuid::Uuid::new_v4(),
+            "test-exam",
+            1_800_000_000 - 86_400,
+            1_800_000_000,
+            &value,
+            &summary,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(report.domains.len(), 8);
+        assert_eq!(
+            report.domains.iter().find(|d| d.domain == CeoExamDomain::Ai).unwrap().status,
+            CeoExamStatus::Unknown
+        );
+        assert_eq!(report.domains.iter().filter(|d| d.status == CeoExamStatus::Unknown).count(), 1);
+        assert_eq!(report.overall_status, CeoExamStatus::Unknown);
+    }
+
+    #[test]
+    fn ceo_exam_flags_finance_and_compliance_exceptions() {
+        let mut value = input();
+        value.cash_minor = 0;
+        value.contribution_margin_mtd_minor = Some(-1);
+        value.affiliate_variance_mtd_minor = 100;
+        value.compliance.policy_ready = false;
+        let summary = summarize(&value).unwrap();
+        let report = run_ceo_exam(
+            uuid::Uuid::new_v4(),
+            "risk-exam",
+            1_800_000_000 - 86_400,
+            1_800_000_000,
+            &value,
+            &summary,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            report.domains.iter().find(|d| d.domain == CeoExamDomain::Finance).unwrap().status,
+            CeoExamStatus::Review
+        );
+        assert!(report.critical_findings.len() >= 2);
+    }
+
+    #[test]
+    fn ceo_exam_ai_domain_passes_with_full_outcome_evidence() {
+        let value = input();
+        let summary = summarize(&value).unwrap();
+        let eval = company_agent_evaluation::evaluate(&company_agent_evaluation::AgentEvaluationInput {
+            agent_name: "Growth".into(),
+            proposal_count: 10,
+            approved_count: 8,
+            rejected_count: 1,
+            revision_count: 1,
+            escalated_count: 0,
+            executed_count: 6,
+            deferred_count: 2,
+            observed_spend_minor: 1_000,
+            projected_revenue_minor: 2_000,
+            outcome_evidence_count: 6,
+            observed_revenue_delta_minor: 1_500,
+            observed_contribution_margin_delta_minor: 700,
+        }).unwrap();
+        let report = run_ceo_exam(
+            uuid::Uuid::new_v4(),
+            "ai-exam",
+            1_800_000_000 - 86_400,
+            1_800_000_000,
+            &value,
+            &summary,
+            &[eval],
+        )
+        .unwrap();
+        assert_eq!(
+            report.domains.iter().find(|d| d.domain == CeoExamDomain::Ai).unwrap().status,
+            CeoExamStatus::Pass
+        );
     }
 
     #[test]
