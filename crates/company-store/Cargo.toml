@@ -27,3 +27,4 @@ company-content = { path = "../company-content" }
 company-growth = { path = "../company-growth" }
 company-live-attention = { path = "../company-live-attention" }
 company-compliance = { path = "../company-compliance" }
+company-command-center = { path = "../company-command-center" }
