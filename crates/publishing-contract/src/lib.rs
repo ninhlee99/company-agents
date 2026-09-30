@@ -146,7 +146,11 @@ pub fn generate_approval_token() -> (String, String) {
 }
 
 pub fn hash_secret(value: &str) -> String {
-    format!("sha256:{:x}", Sha256::digest(value.as_bytes()))
+    format!("sha256:{}", hex(&Sha256::digest(value.as_bytes())))
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 
