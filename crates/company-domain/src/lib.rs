@@ -24,6 +24,7 @@ pub enum CompanyEventType {
     RefundSpike,
     ExperimentCompleted,
     AffiliatePayoutSettled,
+    AgentDecisionRecorded,
 }
 
 impl CompanyEventType {
@@ -44,6 +45,7 @@ impl CompanyEventType {
             Self::RefundSpike => "REFUND_SPIKE",
             Self::ExperimentCompleted => "EXPERIMENT_COMPLETED",
             Self::AffiliatePayoutSettled => "AFFILIATE_PAYOUT_SETTLED",
+            Self::AgentDecisionRecorded => "AGENT_DECISION_RECORDED",
         }
     }
 }
