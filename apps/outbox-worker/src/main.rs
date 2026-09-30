@@ -128,12 +128,26 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                             idempotency_key: delivery.payload.get("idempotency_key").and_then(|v| v.as_str()).ok_or("idempotency_key missing")?.to_owned(),
                             unsubscribe_url: delivery.payload.get("unsubscribe_url").and_then(|v| v.as_str()).map(str::to_owned),
                         };
-                        match provider.send_email(&email).await {
-                            Ok(receipt) => {
-                                store.record_outbound_email_result(&event.company_id, &email.message_id, Some(&receipt.provider), Some(&receipt.provider_reference), None).await?;
-                                Ok(())
+                        let now_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
+                        let budget = store
+                            .consume_autonomy_budget(
+                                &event.company_id,
+                                company_safety_controls::BudgetKind::OutboundMessages,
+                                1,
+                                &format!("outbound-email:{}:{}", event.id, email.message_id),
+                                now_epoch,
+                            )
+                            .await?;
+                        if !budget.allowed {
+                            Err(budget.reason)
+                        } else {
+                            match provider.send_email(&email).await {
+                                Ok(receipt) => {
+                                    store.record_outbound_email_result(&event.company_id, &email.message_id, Some(&receipt.provider), Some(&receipt.provider_reference), None).await?;
+                                    Ok(())
+                                }
+                                Err(error) => Err(error.to_string())
                             }
-                            Err(error) => Err(error.to_string())
                         }
                     }
                     None => Err("Resend provider is not configured".to_owned())
