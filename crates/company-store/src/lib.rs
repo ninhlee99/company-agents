@@ -8496,7 +8496,7 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
         rows.into_iter().map(|row| {
             let committed=parse_i128_numeric(&row.get::<_,String>(7))?;
             let delivered=parse_i128_numeric(&row.get::<_,String>(8))?;
-            let delivery_bps = if committed > 0 { delivered.saturating_mul(10_000).checked_div(committed).unwrap_or(0).clamp(0,10_000) as i64 } else { 0 };
+            let delivery_bps = sponsorship_delivery_ratio_bps(delivered, committed);
             Ok::<_,Box<dyn std::error::Error + Send + Sync>>(CommercialDeliveryMetric{
                 currency:row.get(0),
                 proposal_count:row.get(1),
