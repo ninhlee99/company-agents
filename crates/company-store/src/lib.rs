@@ -1053,6 +1053,208 @@ impl CompanyStore {
         })
     }
 
+    pub async fn record_agent_outcome_evidence(
+        &self,
+        company_id: &str,
+        decision_journal_id: i64,
+        evidence_ref: &str,
+        observed_revenue_delta_minor: i128,
+        observed_contribution_margin_delta_minor: i128,
+        observed_at_epoch: i64,
+    ) -> Result<AgentOutcomeEvidenceRecord, Box<dyn std::error::Error + Send + Sync>> {
+        if decision_journal_id <= 0
+            || evidence_ref.trim().is_empty()
+            || evidence_ref.len() > 1024
+            || observed_at_epoch <= 0
+        {
+            return Err("agent outcome evidence identity is invalid".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        let journal = tx
+            .query_opt(
+                "SELECT agent_name, action, governor_decision, execution, EXTRACT(EPOCH FROM created_at)::bigint
+                   FROM decision_journal
+                  WHERE company_id=$1 AND id=$2
+                  FOR UPDATE",
+                &[&company, &decision_journal_id],
+            )
+            .await?
+            .ok_or("decision journal record not found for company")?;
+
+        let agent_name: String = journal.get(0);
+        let action: String = journal.get(1);
+        let governor_decision: String = journal.get(2);
+        let execution: Option<serde_json::Value> = journal.get(3);
+        let decision_created_at_epoch: i64 = journal.get(4);
+
+        if governor_decision != "Approve"
+            && governor_decision != "APPROVE"
+        {
+            return Err("outcome evidence requires a Governor-approved decision".into());
+        }
+        if execution
+            .as_ref()
+            .and_then(|value| value.get("status"))
+            .and_then(|value| value.as_str())
+            != Some("Executed")
+        {
+            return Err("outcome evidence requires an executed decision".into());
+        }
+        if observed_at_epoch < decision_created_at_epoch {
+            return Err("outcome evidence cannot predate the decision".into());
+        }
+
+        if let Some(row) = tx
+            .query_opt(
+                "SELECT id,agent_name,action,evidence_ref,
+                        observed_revenue_delta_minor::text,
+                        observed_contribution_margin_delta_minor::text,
+                        observed_at_epoch,created_at::text
+                   FROM agent_outcome_evidence oe
+                  JOIN decision_journal dj
+                    ON dj.company_id=oe.company_id
+                   AND dj.id=oe.decision_journal_id
+                  WHERE oe.company_id=$1 AND oe.decision_journal_id=$2
+                  FOR UPDATE",
+                &[&company, &decision_journal_id],
+            )
+            .await?
+        {
+            let existing = agent_outcome_evidence_from_row(row, company, decision_journal_id)?;
+            if existing.evidence_ref != evidence_ref
+                || existing.observed_revenue_delta_minor != observed_revenue_delta_minor
+                || existing.observed_contribution_margin_delta_minor
+                    != observed_contribution_margin_delta_minor
+                || existing.observed_at_epoch != observed_at_epoch
+            {
+                return Err("agent outcome evidence is immutable and already recorded with different values".into());
+            }
+            tx.rollback().await?;
+            return Ok(existing);
+        }
+
+        let id = Uuid::new_v4();
+        let row = tx
+            .query_one(
+                "INSERT INTO agent_outcome_evidence
+                 (id,company_id,decision_journal_id,evidence_ref,
+                  observed_revenue_delta_minor,observed_contribution_margin_delta_minor,
+                  observed_at_epoch)
+                 VALUES ($1,$2,$3,$4,$5::numeric,$6::numeric,$7)
+                 RETURNING created_at::text",
+                &[
+                    &id,
+                    &company,
+                    &decision_journal_id,
+                    &evidence_ref,
+                    &observed_revenue_delta_minor.to_string(),
+                    &observed_contribution_margin_delta_minor.to_string(),
+                    &observed_at_epoch,
+                ],
+            )
+            .await?;
+
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'AGENT_OUTCOME_EVIDENCE_RECORDED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[
+                &company,
+                &decision_journal_id.to_string(),
+                &format!("outbox:agent-outcome:{decision_journal_id}"),
+                &serde_json::json!({
+                    "decision_journal_id": decision_journal_id,
+                    "agent": agent_name,
+                    "action": action,
+                    "evidence_ref": evidence_ref,
+                    "observed_revenue_delta_minor": observed_revenue_delta_minor,
+                    "observed_contribution_margin_delta_minor": observed_contribution_margin_delta_minor,
+                    "observed_at_epoch": observed_at_epoch,
+                }),
+            ],
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(AgentOutcomeEvidenceRecord {
+            id,
+            company_id: company,
+            decision_journal_id,
+            agent_name,
+            action,
+            evidence_ref: evidence_ref.trim().to_owned(),
+            observed_revenue_delta_minor,
+            observed_contribution_margin_delta_minor,
+            observed_at_epoch,
+            created_at: row.get(0),
+        })
+    }
+
+    pub async fn agent_outcome_evaluations(
+        &self,
+        company_id: &str,
+        days: i64,
+    ) -> Result<Vec<company_agent_evaluation::AgentEvaluation>, Box<dyn std::error::Error + Send + Sync>> {
+        if !(1..=365).contains(&days) {
+            return Err("agent evaluation window must be between 1 and 365 days".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT
+                    dj.agent_name,
+                    COUNT(*)::bigint AS proposal_count,
+                    COUNT(*) FILTER (WHERE dj.governor_decision IN ('Approve','APPROVE'))::bigint,
+                    COUNT(*) FILTER (WHERE dj.governor_decision IN ('Reject','REJECT'))::bigint,
+                    COUNT(*) FILTER (WHERE dj.governor_decision IN ('RequestRevision','REQUESTREVISION','REQUEST_REVISION'))::bigint,
+                    COUNT(*) FILTER (WHERE dj.governor_decision IN ('Escalate','ESCALATE'))::bigint,
+                    COUNT(*) FILTER (WHERE dj.execution->>'status'='Executed')::bigint,
+                    COUNT(*) FILTER (WHERE dj.execution->>'status'='Deferred')::bigint,
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN dj.execution->>'status'='Executed'
+                                THEN (dj.execution->>'cost_minor')::numeric
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    )::text,
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN dj.execution->>'status'='Executed'
+                                THEN (dj.proposal->>'expected_revenue_minor')::numeric
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    )::text,
+                    COUNT(oe.id)::bigint,
+                    COALESCE(SUM(oe.observed_revenue_delta_minor),0)::text,
+                    COALESCE(SUM(oe.observed_contribution_margin_delta_minor),0)::text
+                 FROM decision_journal dj
+            LEFT JOIN agent_outcome_evidence oe
+                   ON oe.company_id=dj.company_id
+                  AND oe.decision_journal_id=dj.id
+                WHERE dj.company_id=$1
+                  AND dj.created_at >= now() - ($2::double precision * interval '1 day')
+                GROUP BY dj.agent_name
+                ORDER BY dj.agent_name ASC",
+                &[&company, &days],
+            )
+            .await?;
+
+        rows.into_iter()
+            .map(agent_evaluation_from_row)
+            .collect()
+    }
+
     pub async fn ceo_command_center(
         &self,
         company_id: &str,
