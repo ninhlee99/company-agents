@@ -4789,25 +4789,70 @@ impl CompanyStore {
             return Err("affiliate click has incomplete identifiers".into());
         }
         let company_id = Uuid::parse_str(&event.company_id)?;
-        let client = self.client.lock().await;
-        client
-            .execute(
-                "INSERT INTO affiliate_clicks
-                 (company_id, click_id, product_id, advertiser_id, content_id,
-                  occurred_at, source)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7)
-                 ON CONFLICT (company_id, click_id) DO NOTHING",
-                &[
-                    &company_id,
-                    &event.click_id,
-                    &event.product_id,
-                    &event.advertiser_id,
-                    &event.content_id,
-                    &event.occurred_at,
-                    &event.source,
-                ],
+        let observed_at_epoch = parse_rfc3339_epoch(&event.occurred_at)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        tx.execute(
+            "INSERT INTO affiliate_clicks
+             (company_id, click_id, product_id, advertiser_id, content_id,
+              occurred_at, source)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)
+             ON CONFLICT (company_id, click_id) DO NOTHING",
+            &[
+                &company_id,
+                &event.click_id,
+                &event.product_id,
+                &event.advertiser_id,
+                &event.content_id,
+                &event.occurred_at,
+                &event.source,
+            ],
+        )
+        .await?;
+
+        let content_ref = event.content_id.trim();
+        let product_ref = event.product_id.trim();
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company_id,
+                company_revenue_graph::RevenueNodeType::Content,
+                content_ref,
+                "PROMOTES",
+                company_revenue_graph::RevenueNodeType::Product,
+                product_ref,
+                None,
+                None,
+                10_000,
+                &format!("affiliate:click:{}", event.click_id),
+                if event.source.trim().is_empty() { "affiliate" } else { event.source.trim() },
+                observed_at_epoch,
+            ),
+        )
+        .await?;
+
+        if !event.source.trim().is_empty() {
+            record_revenue_graph_edge_tx(
+                &tx,
+                &new_graph_edge(
+                    company_id,
+                    company_revenue_graph::RevenueNodeType::Traffic,
+                    event.source.trim(),
+                    "DRIVES",
+                    company_revenue_graph::RevenueNodeType::Content,
+                    content_ref,
+                    None,
+                    None,
+                    10_000,
+                    &format!("affiliate:click:{}", event.click_id),
+                    event.source.trim(),
+                    observed_at_epoch,
+                ),
             )
             .await?;
+        }
+
+        tx.commit().await?;
         Ok(())
     }
 
