@@ -2012,7 +2012,13 @@ impl CompanyStore {
                     COALESCE(SUM(CASE WHEN a.account_type = 'EXPENSE' AND (a.code IN ('PRODUCTION_AI_EXPENSE','AI_PRODUCTION') OR lower(a.name) LIKE '%production%' OR lower(a.name) LIKE '%ai cost%') THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text,
                     COALESCE(SUM(CASE WHEN a.account_type = 'EXPENSE' AND (a.code IN ('AD_SPEND_EXPENSE','AD_SPEND') OR lower(a.name) LIKE '%ad spend%' OR lower(a.name) LIKE '%advertising%') THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text,
                     COALESCE(SUM(CASE WHEN a.account_type = 'EXPENSE' AND a.cost_class = 'FIXED' THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text,
-                    COALESCE(SUM(CASE WHEN a.account_type = 'ASSET' AND a.code = 'CASH' THEN e.debit_minor - e.credit_minor ELSE 0 END), 0)::text
+                    COALESCE((
+                        SELECT SUM(ce.debit_minor - ce.credit_minor)
+                          FROM ledger_entries ce
+                          JOIN ledger_accounts ca ON ca.id = ce.account_id
+                         WHERE ca.company_id = $1
+                           AND ca.code = 'CASH'
+                    ), 0)::text
                  FROM ledger_transactions t
                  JOIN ledger_entries e ON e.transaction_id = t.id
                  JOIN ledger_accounts a ON a.id = e.account_id
