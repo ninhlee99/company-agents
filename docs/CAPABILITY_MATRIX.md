@@ -252,7 +252,7 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **TTFC evidence:** the growth ledger stores the first content creation timestamp and derives trend-to-content elapsed seconds so growth speed can be measured instead of inferred.
 - **LIVE attention controller:** each accepted LIVE event is scored for purchase intent, objections, gifts, PK moments, engagement, explicit high-value viewer evidence and safety escalation; per-session response caps/cooldowns are persisted, with human escalation for safety signals.
 - **LIVE learning integration:** safety escalations and high-priority responses persist a bounded policy-learning record transactionally; the record carries event/session evidence identifiers and does not recognize gifts or engagement as revenue.
-- **Typed outbox events:** trend/opportunity/content events plus verified commission, affiliate conversion reconciliation, affiliate payout settlement, Agent decisions, agent outcome evidence, publish approvals/completions, and ledger commits now use canonical typed envelopes for durable downstream hand-off without free-form agent chat.
+- **Typed outbox events:** trend/opportunity/content events plus verified commission, affiliate conversion reconciliation, affiliate payout settlement, Agent decisions, agent outcome evidence, learning entries, publish approvals/completions, and ledger commits now use canonical typed envelopes for durable downstream hand-off without free-form agent chat.
 - **Current boundary:** trend discovery still requires an external/verified trend signal source, and content analytics/publishing evidence must come from separately authenticated platform boundaries.
 
 - **Affiliate payout event:** verified payout settlement emits `AFFILIATE_PAYOUT_SETTLED` with deterministic correlation, ledger transaction ID, currency, amount and remaining recognized receivable evidence; no payout is recognized beyond the existing ledger gate.
@@ -297,6 +297,7 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 
 ## Learning / Failure Ledger
 
+- **Learning entry event:** `LEARNING_ENTRY_RECORDED` carries the immutable learning-entry identity, source linkage, kind/decision and bounded confidence under a deterministic correlation derived from `entry_key`; it does not add a business outcome claim.
 - **Typed learning records:** P0.5 now defines durable, company-scoped learning/failure entries with source linkage, expected vs actual outcome, impact, confidence, root cause, corrective action, reusable rule, and a deterministic follow-up decision.
 - **Evidence gate:** failure records require severity and all entries require an observed actual outcome; the library rejects empty evidence and invalid confidence values rather than inventing outcomes.
 - **Idempotent identity:** the database enforces a company-scoped unique `entry_key`, preventing duplicate learning records for the same source event.
