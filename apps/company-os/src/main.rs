@@ -3311,10 +3311,22 @@ async fn payment_reconciliation_evidence_api(
     ).await.map(Json).map_err(|_| StatusCode::BAD_REQUEST)
 }
 
+fn production_environment() -> bool {
+    ["NODE_ENV", "RUST_ENV", "APP_ENV", "ENVIRONMENT"]
+        .iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .any(|value| value.trim().eq_ignore_ascii_case("production"))
+}
+
+fn control_plane_auth_disabled_for(configured: bool, production: bool) -> bool {
+    configured && !production
+}
+
 fn control_plane_auth_disabled() -> bool {
-    std::env::var("CONTROL_PLANE_AUTH_DISABLED")
+    let configured = std::env::var("CONTROL_PLANE_AUTH_DISABLED")
         .ok()
-        .is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"));
+    control_plane_auth_disabled_for(configured, production_environment())
 }
 
 fn cookie_value(request: &Request, name: &str) -> Option<String> {
@@ -4095,7 +4107,14 @@ async fn metrics(
 }
 
 #[cfg(test)]
-mod control_plane_audit_tests {
+mod control_plane_audit_tests {#[test]
+    fn auth_disable_switch_is_never_effective_in_production() {
+        assert!(!control_plane_auth_disabled_for(true, true));
+        assert!(control_plane_auth_disabled_for(true, false));
+        assert!(!control_plane_auth_disabled_for(false, false));
+    }
+
+
     use super::*;
 
     #[test]
