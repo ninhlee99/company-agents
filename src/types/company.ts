@@ -360,3 +360,52 @@ export interface AutonomousSettings {
   maxSpendPerAutoCycleMinor: number; // e.g. $500
   lastTickTimestamp?: string;
 }
+
+export interface ClientContractDeliverables {
+  summary: string;
+  scriptContent?: string;
+  audioVoiceover?: string;
+  visualPrompts?: string[];
+  videoSpecs?: {
+    resolution: string;
+    fps: string;
+    duration: string;
+    aspectRatio: string;
+  };
+  researchInsights?: string[];
+  deliveredAt: string;
+  qualityScore?: number;
+  downloadUrl?: string;
+}
+
+export interface ClientContract {
+  id: string;
+  contractNumber: string;
+  clientName: string;
+  clientEmail?: string;
+  title: string;
+  category: 'VideoMarketing' | 'Copywriting' | 'MediaDesign' | 'MarketIntelligence' | 'FullCampaign';
+  requirements: string;
+  budgetMinor: number; // in cents (e.g. 25000 = $250.00)
+  createdAt: string;
+  deadline: string;
+  status: 'Received' | 'Scoping' | 'InProduction' | 'QualityReview' | 'Delivered' | 'Completed';
+  currentStage: string;
+  progressPercent: number;
+  assignedAgents: {
+    role: string;
+    name: string;
+    step: string;
+    completed: boolean;
+  }[];
+  deliverables?: ClientContractDeliverables;
+  invoice: {
+    amountMinor: number;
+    paidStatus: 'Paid' | 'Pending';
+    paidAt?: string;
+    transactionId?: string;
+  };
+  rating?: number;
+  clientFeedback?: string;
+}
+

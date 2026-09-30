@@ -187,11 +187,60 @@ export interface OfficeActivityEvent {
   badgeColor?: string;
 }
 
+export interface ClientContractDeliverables {
+  summary: string;
+  scriptContent?: string;
+  audioVoiceover?: string;
+  visualPrompts?: string[];
+  videoSpecs?: {
+    resolution: string;
+    fps: string;
+    duration: string;
+    aspectRatio: string;
+  };
+  researchInsights?: string[];
+  deliveredAt: string;
+  qualityScore?: number;
+  downloadUrl?: string;
+}
+
+export interface ClientContract {
+  id: string;
+  contractNumber: string;
+  clientName: string;
+  clientEmail?: string;
+  title: string;
+  category: 'VideoMarketing' | 'Copywriting' | 'MediaDesign' | 'MarketIntelligence' | 'FullCampaign';
+  requirements: string;
+  budgetMinor: number;
+  createdAt: string;
+  deadline: string;
+  status: 'Received' | 'Scoping' | 'InProduction' | 'QualityReview' | 'Delivered' | 'Completed';
+  currentStage: string;
+  progressPercent: number;
+  assignedAgents: {
+    role: string;
+    name: string;
+    step: string;
+    completed: boolean;
+  }[];
+  deliverables?: ClientContractDeliverables;
+  invoice: {
+    amountMinor: number;
+    paidStatus: 'Paid' | 'Pending';
+    paidAt?: string;
+    transactionId?: string;
+  };
+  rating?: number;
+  clientFeedback?: string;
+}
+
 // In-Memory Database
 const state: {
   snapshot: CompanySnapshot;
   ledger: LedgerEntry[];
   receipts: ExecutionReceipt[];
+  clientContracts: ClientContract[];
   cycles: {
     cycleNumber: number;
     timestamp: string;
@@ -709,8 +758,114 @@ const state: {
     },
   ],
   creativeProductions: [],
+  clientContracts: [
+    {
+      id: 'ctr-init-1',
+      contractNumber: 'HD-2026-0891',
+      clientName: 'TechVision Global Inc.',
+      clientEmail: 'procurement@techvision.io',
+      title: 'Chiến Dịch Video Viral TikTok Shop: Bàn Phím Công Thái Học AI',
+      category: 'VideoMarketing',
+      requirements: 'Sản xuất gói video 60s tỷ lệ 9:16 dọc, tập trung vào pain-point mỏi cổ tay lập trình viên, tích hợp link affiliate hoa hồng 25%, chuẩn âm thanh -14 LUFS và render 60fps.',
+      budgetMinor: 45000, // $450.00
+      createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+      deadline: new Date(Date.now() + 86400000 * 3).toISOString(),
+      status: 'Delivered',
+      currentStage: 'Bàn giao thành phẩm & Kiểm duyệt FTC',
+      progressPercent: 100,
+      assignedAgents: [
+        { role: 'Growth Lead', name: 'Growth Lead', step: 'Nghiên cứu EPC & Định vị ngách', completed: true },
+        { role: 'Content Lead', name: 'Content Lead', step: 'Soạn kịch bản Hook 3s', completed: true },
+        { role: 'Media Worker', name: 'COO & Media Worker', step: 'Render video 1080x1920 60fps', completed: true },
+        { role: 'Governor & CFO', name: 'Governor AI', step: 'Kiểm toán FTC & Bàn giao', completed: true },
+      ],
+      deliverables: {
+        summary: 'Bộ sản phẩm bàn giao đầy đủ gồm Kịch bản phân cảnh, Voiceover âm thanh -14 LUFS, 4 Shot ảnh 8K Studio, File video 60fps và Chứng nhận tuân thủ FTC.',
+        scriptContent: '[0:00 - 0:03] HOOK: "92% lập trình viên bị đau cổ tay sau 30 tuổi chỉ vì dùng bàn phím phẳng thông thường..."\n[0:03 - 0:15] PAIN POINT: Hình ảnh góc nghiêng bàn tay căng cứng khi gõ phím liên tục 8 tiếng.\n[0:15 - 0:40] SOLUTION: Giới thiệu layout cánh cung tách đôi với switch êm ái và đệm kê tay công thái học.\n[0:40 - 0:60] CTA: Bấm ngay giỏ hàng bên dưới để nhận voucher độc quyền -20%!',
+        audioVoiceover: 'Giọng đọc Deep & Authoritative, tiết tấu dồn dập ở 3s đầu, nhạc nền Lo-Fi Tech năng lượng cao.',
+        visualPrompts: [
+          'Macro 8k photo of ultra-minimalist glowing AI ergonomic split keyboard on matte dark walnut desk',
+          'Cinematic POV shot of hands typing effortlessly with soft ambient warm lighting',
+        ],
+        videoSpecs: {
+          resolution: '1080x1920 (Vertical 9:16)',
+          fps: '60 fps',
+          duration: '58 giây',
+          aspectRatio: '9:16',
+        },
+        researchInsights: [
+          'Ngách Bàn phím công thái học đang có EPC $1.24/click trên TikTok Shop US/VN.',
+          'Tỷ lệ giữ chân người xem dự kiến đạt >65% qua 15 giây đầu.',
+        ],
+        deliveredAt: new Date(Date.now() - 3600000 * 6).toISOString(),
+        qualityScore: 98,
+        downloadUrl: '/deliverables/HD-2026-0891-package.zip',
+      },
+      invoice: {
+        amountMinor: 45000,
+        paidStatus: 'Paid',
+        paidAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+        transactionId: 'TXN-CLIENT-891-PAID',
+      },
+      rating: 5,
+      clientFeedback: 'Chất lượng kịch bản và độ hoàn thiện video vượt xa mong đợi! AI bàn giao đúng hạn 100%.',
+    },
+    {
+      id: 'ctr-init-2',
+      contractNumber: 'HD-2026-0892',
+      clientName: 'SmartHome Dynamics',
+      clientEmail: 'marketing@smarthome-dynamics.com',
+      title: 'Bộ Kịch Bản & Audio Voiceover Series: Đèn Màn Hình Bảo Vệ Mắt',
+      category: 'Copywriting',
+      requirements: 'Viết 5 kịch bản short-form bán hàng xoay quanh tính năng cảm biến ánh sáng tự động, chống chói mắt ban đêm. Bàn giao kèm file prompt âm thanh và CTA affiliate.',
+      budgetMinor: 28000, // $280.00
+      createdAt: new Date(Date.now() - 3600000 * 12).toISOString(),
+      deadline: new Date(Date.now() + 86400000 * 2).toISOString(),
+      status: 'InProduction',
+      currentStage: 'Content Lead đang viết kịch bản phân cảnh',
+      progressPercent: 65,
+      assignedAgents: [
+        { role: 'Growth Lead', name: 'Growth Lead', step: 'Quét từ khóa chuyển đổi cao', completed: true },
+        { role: 'Content Lead', name: 'Content Lead', step: 'Soạn 5 kịch bản phân cảnh', completed: false },
+        { role: 'Media Worker', name: 'Audio Engineer', step: 'Tạo voiceover và nhạc nền', completed: false },
+        { role: 'Governor & CFO', name: 'Governor AI', step: 'Kiểm toán và bàn giao', completed: false },
+      ],
+      invoice: {
+        amountMinor: 28000,
+        paidStatus: 'Paid',
+        paidAt: new Date(Date.now() - 3600000 * 12).toISOString(),
+        transactionId: 'TXN-CLIENT-892-PAID',
+      },
+    },
+    {
+      id: 'ctr-init-3',
+      contractNumber: 'HD-2026-0893',
+      clientName: 'Nordic Workspace Co.',
+      clientEmail: 'contact@nordicworkspace.se',
+      title: 'Nghiên Cứu Thị Trường & Báo Cáo Chiến Lược Affiliate Q4',
+      category: 'MarketIntelligence',
+      requirements: 'Phân tích top 20 mặt hàng phụ kiện setup bàn làm việc có tỷ lệ hoàn vốn ROI > 30% trên mạng lưới Awin & TikTok Shop, phân loại theo độ khó cạnh tranh.',
+      budgetMinor: 35000, // $350.00
+      createdAt: new Date(Date.now() - 3600000 * 2).toISOString(),
+      deadline: new Date(Date.now() + 86400000 * 4).toISOString(),
+      status: 'Scoping',
+      currentStage: 'Growth & Analyst đang thẩm định dữ liệu thị trường',
+      progressPercent: 25,
+      assignedAgents: [
+        { role: 'Growth Lead', name: 'Growth Lead', step: 'Khai phá dữ liệu affiliate', completed: false },
+        { role: 'Analyst', name: 'Data Analyst', step: 'Lập mô hình định giá EPC', completed: false },
+        { role: 'Governor & CFO', name: 'CFO AI', step: 'Kiểm toán báo cáo chiến lược', completed: false },
+      ],
+      invoice: {
+        amountMinor: 35000,
+        paidStatus: 'Paid',
+        paidAt: new Date(Date.now() - 3600000 * 2).toISOString(),
+        transactionId: 'TXN-CLIENT-893-PAID',
+      },
+    },
+  ],
   autonomousSettings: {
-    isAutoPilotActive: false,
+    isAutoPilotActive: true,
     intervalSeconds: 10,
     autoHireWhenBacklogHigh: true,
     autoReinvestProfitPct: 25,
@@ -725,6 +880,7 @@ function trimMemoryState() {
   if (state.officeActivities.length > 60) state.officeActivities = state.officeActivities.slice(0, 60);
   if (state.communicationStream.length > 60) state.communicationStream = state.communicationStream.slice(0, 60);
   if (state.creativeProductions.length > 40) state.creativeProductions = state.creativeProductions.slice(0, 40);
+  if (state.clientContracts.length > 50) state.clientContracts = state.clientContracts.slice(0, 50);
 }
 
 // Log a real-world office activity
@@ -1378,7 +1534,215 @@ app.get('/api/state', (req, res) => {
     communicationStream: state.communicationStream.slice(0, 40),
     systemAlerts: state.systemAlerts,
     auditReports: state.auditReports,
+    clientContracts: state.clientContracts,
     hasGeminiKey: Boolean(apiKey && apiKey !== 'MY_GEMINI_API_KEY'),
+  });
+});
+
+app.get('/api/contracts', (req, res) => {
+  res.json({
+    contracts: state.clientContracts,
+    totalContracts: state.clientContracts.length,
+    activeCount: state.clientContracts.filter(c => c.status !== 'Delivered' && c.status !== 'Completed').length,
+    completedCount: state.clientContracts.filter(c => c.status === 'Delivered' || c.status === 'Completed').length,
+    totalContractValueMinor: state.clientContracts.reduce((acc, c) => acc + c.budgetMinor, 0),
+  });
+});
+
+app.get('/api/contracts/:id', (req, res) => {
+  const contract = state.clientContracts.find(c => c.id === req.params.id);
+  if (!contract) {
+    return res.status(404).json({ success: false, reason: 'Contract not found' });
+  }
+  res.json({ contract });
+});
+
+app.post('/api/contracts/order', async (req, res) => {
+  const { 
+    clientName = 'Khách Hàng Đối Tác', 
+    clientEmail = 'partner@enterprise.ai', 
+    title, 
+    category = 'VideoMarketing', 
+    requirements, 
+    budgetMinor 
+  } = req.body;
+
+  if (!title || !requirements) {
+    return res.status(400).json({ success: false, reason: 'Thiếu tiêu đề hoặc yêu cầu hợp đồng' });
+  }
+
+  // Determine standard pricing if not specified
+  const standardPricing: Record<string, number> = {
+    VideoMarketing: 45000, // $450
+    Copywriting: 28000,    // $280
+    MediaDesign: 32000,    // $320
+    MarketIntelligence: 35000, // $350
+    FullCampaign: 85000,   // $850
+  };
+
+  const finalBudgetMinor = budgetMinor || standardPricing[category] || 35000;
+  const contractId = `ctr-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 5)}`;
+  const contractNumber = `HD-2026-${Math.floor(Math.random() * 9000 + 1000)}`;
+  const cycle = state.snapshot.cycle_count;
+
+  // Autonomous Scoping & Deliverables Generation
+  const scriptContent = `[0:00 - 0:03] HOOK: "Bí quyết tăng tỷ lệ chuyển đổi gấp 3 lần với sản phẩm ${title} mà các top seller không tiết lộ..."\n[0:03 - 0:18] PAIN POINT: Khách hàng thường đắn đo và rời đi vì thiếu giải pháp trực quan rõ ràng.\n[0:18 - 0:42] SOLUTION & USP: Giới thiệu ưu điểm vượt trội của ${title} với độ chính xác cao và trải nghiệm cao cấp.\n[0:42 - 0:60] CALL TO ACTION: Nhấn vào liên kết bên dưới để nhận ưu đãi đối tác đặc quyền ngay hôm nay!`;
+  
+  const visualPrompts = [
+    `Cinematic 8k commercial macro hero shot of ${title}, soft studio box lighting, minimalist modern aesthetic, depth of field`,
+    `Handheld POV lifestyle showcase of ${title} in sleek professional environment, 4k ultra-detailed`,
+    `Infographic split comparison showing 300% performance efficiency for ${title}, clean dark UI layout`,
+  ];
+
+  const audioVoiceover = `Giọng đọc chuyên nghiệp, truyền cảm hứng và tự tin. Nhạc nền: Commercial Pop & Lo-Fi Tech (BPM 118), âm lượng chuẩn hóa -14.0 LUFS.`;
+
+  const videoSpecs = {
+    resolution: '1080x1920 (Vertical 9:16)',
+    fps: '60 fps',
+    duration: '60 giây',
+    aspectRatio: '9:16',
+  };
+
+  const researchInsights = [
+    `Ngách "${title}" đang có lưu lượng tìm kiếm tăng 42% trên TikTok Shop & Shopee.`,
+    `Tỷ lệ chuyển đổi đơn hàng trung bình dự kiến đạt 3.8% với EPC $1.15/click.`,
+    `Đã kiểm duyệt quy chuẩn FTC và bản quyền âm nhạc thương mại 100% an toàn.`,
+  ];
+
+  const newContract: ClientContract = {
+    id: contractId,
+    contractNumber,
+    clientName,
+    clientEmail,
+    title,
+    category,
+    requirements,
+    budgetMinor: finalBudgetMinor,
+    createdAt: new Date().toISOString(),
+    deadline: new Date(Date.now() + 86400000 * 3).toISOString(),
+    status: 'Delivered',
+    currentStage: 'Hoàn tất bàn giao thành phẩm & nghiệm thu',
+    progressPercent: 100,
+    assignedAgents: [
+      { role: 'Growth Lead', name: 'Growth Lead', step: 'Nghiên cứu thị trường & Từ khóa chuyển đổi', completed: true },
+      { role: 'Content Lead', name: 'Content Lead', step: 'Soạn kịch bản Viral Hook & Lời thoại', completed: true },
+      { role: 'Media Worker', name: 'Media Worker', step: 'Tạo prompt ảnh 8K & Render video 60fps', completed: true },
+      { role: 'Governor & CFO', name: 'Governor AI', step: 'Kiểm toán chất lượng & Đối soát', completed: true },
+    ],
+    deliverables: {
+      summary: `Hợp đồng "${title}" đã được các phòng ban AI phối hợp sản xuất tự động và bàn giao thành công.`,
+      scriptContent,
+      audioVoiceover,
+      visualPrompts,
+      videoSpecs,
+      researchInsights,
+      deliveredAt: new Date().toISOString(),
+      qualityScore: 99,
+      downloadUrl: `/deliverables/${contractNumber}-deliverable.zip`,
+    },
+    invoice: {
+      amountMinor: finalBudgetMinor,
+      paidStatus: 'Paid',
+      paidAt: new Date().toISOString(),
+      transactionId: `TXN-${contractNumber}-PAID`,
+    },
+    rating: 5,
+  };
+
+  state.clientContracts.unshift(newContract);
+  trimMemoryState();
+
+  // Financial Accounting (Double-Entry Ledger)
+  state.snapshot.cash_minor += finalBudgetMinor;
+  state.snapshot.revenue_minor += finalBudgetMinor;
+  state.snapshot.content_revenue_minor += finalBudgetMinor;
+
+  state.ledger.unshift({
+    id: `tx-contract-${contractNumber}`,
+    timestamp: new Date().toISOString(),
+    description: `Hợp đồng thuê khoán #${contractNumber}: ${title} (${clientName})`,
+    debitAccount: 'Cash & Cash Equivalents',
+    creditAccount: 'Client Contract Revenue',
+    amount_minor: finalBudgetMinor,
+    cycle,
+  });
+
+  // Increment Agent Metrics
+  state.customAgents.forEach(agent => {
+    agent.tasksCompleted += 1;
+  });
+
+  // Log Virtual Office Activity
+  logOfficeActivity({
+    agentId: 'agent-gov',
+    agentName: 'Governor AI',
+    agentRole: 'Hiến Pháp & Quản Trị',
+    department: 'Leadership',
+    actionType: 'CreateContent',
+    title: `Tiếp nhận & Bàn giao hợp đồng #${contractNumber}`,
+    detail: `Hợp đồng "${title}" trị giá $${(finalBudgetMinor / 100).toFixed(2)} từ khách hàng ${clientName} đã được hoàn tất và bàn giao tự động.`,
+    impactMinor: finalBudgetMinor,
+    badgeColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+  });
+
+  // Autonomous Recruiter check: If contracts backlog is high, auto-hire candidates
+  if (state.clientContracts.length % 3 === 0 && state.candidatePool.length > 0) {
+    const candidateToHire = state.candidatePool.find(c => c.status === 'Available');
+    if (candidateToHire && state.snapshot.cash_minor > 2000000) {
+      candidateToHire.status = 'Hired';
+      state.customAgents.push({
+        id: `agent-auto-${Date.now().toString(36)}`,
+        name: candidateToHire.name,
+        role: candidateToHire.role,
+        department: candidateToHire.department,
+        description: candidateToHire.bio,
+        salary_minor: candidateToHire.expectedSalaryMinor,
+        tasksCompleted: 1,
+        status: 'Active',
+        hiredAtCycle: cycle,
+        skillLevel: 3,
+        taskMultiplier: 1.5,
+        trainedSkills: candidateToHire.skills.map(s => s.name),
+        trainingCount: 1,
+      });
+      logOfficeActivity({
+        agentId: 'agent-recruiter',
+        agentName: 'Recruiter AI',
+        agentRole: 'Tuyển Dụng',
+        department: 'Ops',
+        actionType: 'RecruitTalent',
+        title: `Tự động tuyển dụng ${candidateToHire.name}`,
+        detail: `Do khối lượng hợp đồng khách hàng gia tăng, công ty đã tự động onboard chuyên gia ${candidateToHire.name} (${candidateToHire.role}).`,
+        impactMinor: -candidateToHire.expectedSalaryMinor,
+        badgeColor: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
+      });
+    }
+  }
+
+  recalculateCompanyHealth();
+
+  res.json({
+    success: true,
+    contract: newContract,
+    message: `Hợp đồng #${contractNumber} đã được tiếp nhận và xử lý thành công!`,
+  });
+});
+
+app.post('/api/contracts/:id/accept', (req, res) => {
+  const { rating = 5, feedback = 'Nghiệm thu thành công, sản phẩm đạt chất lượng cao.' } = req.body;
+  const contract = state.clientContracts.find(c => c.id === req.params.id);
+  if (!contract) {
+    return res.status(404).json({ success: false, reason: 'Contract not found' });
+  }
+
+  contract.status = 'Completed';
+  contract.rating = rating;
+  contract.clientFeedback = feedback;
+
+  res.json({
+    success: true,
+    contract,
+    message: 'Đã nghiệm thu hợp đồng thành công!',
   });
 });
 

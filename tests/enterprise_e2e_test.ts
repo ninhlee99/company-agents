@@ -458,6 +458,61 @@ async function runEnterpriseE2ESuite() {
   });
 
   // --------------------------------------------------------------------------
+  // SUITE 10: Client Contracts & Autonomous Fulfillment
+  // --------------------------------------------------------------------------
+  console.log('\n📌 SUITE 10: Client Contracts & Autonomous Fulfillment');
+  await executeTest('ClientContracts', 'Fetch client contract registry and active order statuses', async () => {
+    const res = await request('GET', '/api/contracts');
+    if (res.status !== 200) throw new Error(`Status ${res.status}`);
+    if (!Array.isArray(res.body.contracts) || res.body.contracts.length === 0) throw new Error('Missing contracts');
+    return {
+      totalContracts: res.body.totalContracts,
+      activeCount: res.body.activeCount,
+      completedCount: res.body.completedCount,
+      totalContractValueUSD: (res.body.totalContractValueMinor / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' }),
+      sampleContract: res.body.contracts[0].contractNumber,
+    };
+  });
+
+  let createdContractId = '';
+  await executeTest('ClientContracts', 'Post new client job contract and verify instant autonomous fulfillment', async () => {
+    const res = await request('POST', '/api/contracts/order', {
+      clientName: 'AlphaTech Ventures',
+      clientEmail: 'procurement@alphatech.com',
+      title: 'Chiến Dịch Video TikTok Shop: Chuột Công Thái Học Không Dây AI',
+      category: 'VideoMarketing',
+      requirements: 'Yêu cầu sản xuất kịch bản viral hook 3s, render 60fps và file âm thanh -14 LUFS',
+      budgetMinor: 45000,
+    });
+    if (res.status !== 200) throw new Error(`Status ${res.status}`);
+    if (!res.body.contract || !res.body.contract.deliverables) throw new Error('Contract or deliverables missing');
+    createdContractId = res.body.contract.id;
+    return {
+      contractNumber: res.body.contract.contractNumber,
+      clientName: res.body.contract.clientName,
+      status: res.body.contract.status,
+      qualityScore: res.body.contract.deliverables.qualityScore,
+      scriptHookSnippet: res.body.contract.deliverables.scriptContent.substring(0, 80) + '...',
+      invoiceStatus: res.body.contract.invoice.paidStatus,
+    };
+  });
+
+  await executeTest('ClientContracts', 'Client inspects & accepts delivered contract deliverables with 5-star rating', async () => {
+    if (!createdContractId) throw new Error('No contract to accept');
+    const res = await request('POST', `/api/contracts/${createdContractId}/accept`, {
+      rating: 5,
+      feedback: 'Chất lượng kịch bản và độ hoàn thiện video vượt xa mong đợi!',
+    });
+    if (res.status !== 200) throw new Error(`Status ${res.status}`);
+    return {
+      contractId: createdContractId,
+      status: res.body.contract.status,
+      rating: res.body.contract.rating + ' / 5 stars',
+      clientFeedback: res.body.contract.clientFeedback,
+    };
+  });
+
+  // --------------------------------------------------------------------------
   // SUMMARY REPORT
   // --------------------------------------------------------------------------
   console.log('\n======================================================================');

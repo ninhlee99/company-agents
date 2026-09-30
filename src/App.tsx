@@ -1,62 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import { 
   CompanySnapshot, 
-  GovernedProposal, 
-  ExecutionReceipt, 
   LedgerEntry, 
   CustomAgent, 
-  CycleTrendPoint, 
-  AutoAuditReport, 
-  DepartmentBudgetPoint, 
-  SystemAlert, 
-  CompanyKPIs,
   CandidateProfile,
   OfficeActivityEvent,
   CompanyPnL,
-  AutonomousSettings,
-  SkillTrainingCourse
+  ClientContract
 } from './types/company';
 import { Header } from './components/Header';
-import { BasicDashboard } from './components/BasicDashboard';
-import { ManageAgents } from './components/ManageAgents';
+import { ClientContractsTab } from './components/ClientContractsTab';
+import { CreateContractTab } from './components/CreateContractTab';
+import { CompanyCapabilitiesTab } from './components/CompanyCapabilitiesTab';
 import { ManageFinances } from './components/ManageFinances';
-import { AutonomousPipelineTab } from './components/AutonomousPipelineTab';
-import { MediaStudioTab } from './components/MediaStudioTab';
-import { AgentSkillTrainingModal } from './components/AgentSkillTrainingModal';
-
-// Pro Mode Components
-import { ReviewTab } from './components/ReviewTab';
-import { CycleRunnerTab } from './components/CycleRunnerTab';
-import { WarRoomTab } from './components/WarRoomTab';
-import { LedgerTab } from './components/LedgerTab';
-import { ChaosSimulatorTab } from './components/ChaosSimulatorTab';
 
 import { 
-  LayoutDashboard, 
-  Users, 
-  Wallet, 
+  FileText, 
   Sparkles, 
-  ShieldAlert, 
-  RotateCw, 
-  CheckCircle2,
-  AlertOctagon,
-  Video
+  Building2, 
+  Wallet,
+  CheckCircle2
 } from 'lucide-react';
 
 export default function App() {
-  const [uiMode, setUiMode] = useState<'basic' | 'pro'>('basic');
-  
-  // Basic Nav Tabs
-  const [basicTab, setBasicTab] = useState<'dashboard' | 'agents' | 'studio' | 'pipeline' | 'finances'>('dashboard');
-
-  // Pro Nav Tabs
-  const [proTab, setProTab] = useState<'audit' | 'cycles' | 'war-room' | 'ledger' | 'chaos'>('audit');
-
-  const [isRunningCycle, setIsRunningCycle] = useState(false);
-  const [hasGeminiKey, setHasGeminiKey] = useState(false);
-  const [dataMode, setDataMode] = useState<'SIMULATION' | 'UNKNOWN'>('UNKNOWN');
-  const [simulatedMutationsEnabled, setSimulatedMutationsEnabled] = useState(false);
+  const [activeTab, setActiveTab] = useState<'contracts' | 'order' | 'capabilities' | 'finances'>('contracts');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [dataMode, setDataMode] = useState<'SIMULATION' | 'UNKNOWN'>('UNKNOWN');
 
   const [snapshot, setSnapshot] = useState<CompanySnapshot>({
     status: 'Active',
@@ -77,39 +46,18 @@ export default function App() {
     currency: 'USD',
   });
 
-  const [proposals, setProposals] = useState<GovernedProposal[]>([]);
-  const [receipts, setReceipts] = useState<ExecutionReceipt[]>([]);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [employees, setEmployees] = useState<{ id: string; role: string; name: string; salary_minor: number; hiredAtCycle: number }[]>([]);
-  const [customAgents, setCustomAgents] = useState<CustomAgent[]>([
-    { id: 'agent-gov', name: 'Governor', role: 'Hiến Pháp & Quỹ Tiền', department: 'Leadership', description: 'Phủ quyết chi tiêu nguy hiểm, chống phá sản', salary_minor: 70000, tasksCompleted: 42, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-ceo', name: 'CEO', role: 'Tổng Giám Đốc', department: 'Leadership', description: 'Chiến lược tăng trưởng & phân bổ nguồn vốn', salary_minor: 95000, tasksCompleted: 35, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-cfo', name: 'CFO', role: 'Giám Đốc Tài Chính', department: 'Leadership', description: 'Kiểm toán kho bạc và cắt giảm chi tiêu', salary_minor: 90000, tasksCompleted: 22, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-coo', name: 'COO', role: 'Giám Đốc Vận Hành', department: 'Ops', description: 'Điều phối hàng đợi và tiến độ công việc', salary_minor: 80000, tasksCompleted: 50, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-growth', name: 'Growth Lead', role: 'Kinh Doanh & Traffic', department: 'Growth', description: 'Tìm ngách sản phẩm hoa hồng cao', salary_minor: 75000, tasksCompleted: 62, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-content', name: 'Content Lead', role: 'Sáng Tạo Nội Dung', department: 'Growth', description: 'Kịch bản video short-form bán hàng', salary_minor: 60000, tasksCompleted: 78, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-recruiter', name: 'Recruiter', role: 'Tuyển Dụng', department: 'Ops', description: 'Đề xuất bổ sung vị trí mới khi có lãi', salary_minor: 65000, tasksCompleted: 14, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-analyst', name: 'Analyst', role: 'Phân Tích Dữ Liệu', department: 'Ops', description: 'Đối soát số liệu và tính toán hoa hồng', salary_minor: 50000, tasksCompleted: 45, status: 'Active', hiredAtCycle: 1 },
-    { id: 'agent-experiment', name: 'Experimenter', role: 'Nghiên Cứu A/B Test', department: 'Growth', description: 'Thử nghiệm mẫu kịch bản và thị trường', salary_minor: 55000, tasksCompleted: 29, status: 'Active', hiredAtCycle: 1 },
-  ]);
-
-  const [candidatePool, setCandidatePool] = useState<CandidateProfile[]>([]);
+  const [customAgents, setCustomAgents] = useState<CustomAgent[]>([]);
   const [officeActivities, setOfficeActivities] = useState<OfficeActivityEvent[]>([]);
-  const [pnl, setPnl] = useState<CompanyPnL | undefined>(undefined);
-  const [autonomousSettings, setAutonomousSettings] = useState<AutonomousSettings>({
-    isAutoPilotActive: false,
-    intervalSeconds: 10,
-    autoHireWhenBacklogHigh: true,
-    autoReinvestProfitPct: 25,
-    maxSpendPerAutoCycleMinor: 50000,
-  });
+  const [clientContracts, setClientContracts] = useState<ClientContract[]>([]);
 
-  const [cycleHistory, setCycleHistory] = useState<CycleTrendPoint[]>([]);
-  const [departmentBudgets, setDepartmentBudgets] = useState<DepartmentBudgetPoint[]>([]);
-  const [auditReports, setAuditReports] = useState<AutoAuditReport[]>([]);
-  const [systemAlerts, setSystemAlerts] = useState<SystemAlert[]>([]);
-  const [showTrainingModal, setShowTrainingModal] = useState(false);
-  const [trainingAgentId, setTrainingAgentId] = useState<string | null>(null);
+  const triggerToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 4000);
+  };
 
   const loadState = async () => {
     try {
@@ -118,38 +66,11 @@ export default function App() {
         const data = await res.json();
         setSnapshot(data.snapshot);
         setLedger(data.ledger || []);
-        setReceipts(data.receipts || []);
         setEmployees(data.employees || []);
-        if (data.customAgents && data.customAgents.length > 0) {
-          setCustomAgents(data.customAgents);
-        }
-        if (data.candidatePool) {
-          setCandidatePool(data.candidatePool);
-        }
-        if (data.officeActivities) {
-          setOfficeActivities(data.officeActivities);
-        }
-        if (data.pnl) {
-          setPnl(data.pnl);
-        }
-        if (data.autonomousSettings) {
-          setAutonomousSettings(data.autonomousSettings);
-        }
-        if (data.cycleHistory) {
-          setCycleHistory(data.cycleHistory);
-        }
-        if (data.departmentBudgets) {
-          setDepartmentBudgets(data.departmentBudgets);
-        }
-        if (data.systemAlerts) {
-          setSystemAlerts(data.systemAlerts);
-        }
-        if (data.auditReports) {
-          setAuditReports(data.auditReports);
-        }
-        setHasGeminiKey(data.hasGeminiKey);
+        if (data.customAgents) setCustomAgents(data.customAgents);
+        if (data.officeActivities) setOfficeActivities(data.officeActivities);
+        if (data.clientContracts) setClientContracts(data.clientContracts);
         setDataMode(data.dataMode === 'SIMULATION' ? 'SIMULATION' : 'UNKNOWN');
-        setSimulatedMutationsEnabled(data.simulatedMutationsEnabled === true);
       }
     } catch (err) {
       console.warn('Backend load note:', err);
@@ -160,345 +81,64 @@ export default function App() {
     loadState();
   }, []);
 
-  // 24/7 Auto-Pilot Background Loop Engine
+  // 24/7 Autonomous Background Engine (Auto-updates contract & office activities)
   useEffect(() => {
-    let interval: any = null;
-    if (autonomousSettings.isAutoPilotActive) {
-      interval = setInterval(async () => {
-        try {
-          const res = await fetch('/api/auto-pilot/tick', { method: 'POST' });
-          if (res.ok) {
-            const data = await res.json();
-            setSnapshot(data.snapshot);
-            if (data.pnl) setPnl(data.pnl);
-            if (data.autoHiredMessage) {
-              triggerToast(data.autoHiredMessage);
-            }
-            loadState();
-          }
-        } catch (e) {
-          console.warn('Auto-pilot tick note:', e);
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/state');
+        if (res.ok) {
+          const data = await res.json();
+          setSnapshot(data.snapshot);
+          if (data.clientContracts) setClientContracts(data.clientContracts);
+          if (data.officeActivities) setOfficeActivities(data.officeActivities);
+          if (data.customAgents) setCustomAgents(data.customAgents);
         }
-      }, (autonomousSettings.intervalSeconds || 10) * 1000);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [autonomousSettings.isAutoPilotActive, autonomousSettings.intervalSeconds]);
-
-  const triggerToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3500);
-  };
-
-  const handleToggleAutoPilot = async () => {
-    const nextState = !autonomousSettings.isAutoPilotActive;
-    try {
-      const res = await fetch('/api/auto-pilot/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isAutoPilotActive: nextState }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setAutonomousSettings(data.settings);
-        triggerToast(nextState ? '⚡ Đã kích hoạt chế độ Auto-Pilot 24/7 (Tự kiếm tiền liên tục)!' : '⏸️ Đã tạm dừng Auto-Pilot.');
+      } catch (e) {
+        // silent background sync
       }
-    } catch (e) {
-      setAutonomousSettings(prev => ({ ...prev, isAutoPilotActive: nextState }));
-    }
-  };
+    }, 8000);
 
-  const handleInterviewCandidate = async (candidateId: string) => {
-    try {
-      const res = await fetch('/api/candidates/interview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ candidateId }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        loadState();
-        return data;
-      }
-    } catch (e) {
-      console.error(e);
-    }
-    return null;
-  };
+    return () => clearInterval(interval);
+  }, []);
 
-  const handleHireCandidate = async (candidateId: string) => {
-    try {
-      const res = await fetch('/api/candidates/hire', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ candidateId }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSnapshot(data.snapshot);
-        triggerToast(data.message);
-        loadState();
-        return data;
-      }
-    } catch (e) {
-      console.error(e);
-    }
-    return { success: false };
-  };
-
-  const handleRunCycle = async () => {
-    setIsRunningCycle(true);
-    try {
-      const res = await fetch('/api/run-cycle', { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        setSnapshot(data.snapshot);
-        setProposals(data.proposals);
-        setReceipts((prev) => [...data.receipts, ...prev]);
-        if (data.auditReports) {
-          setAuditReports(data.auditReports);
-        }
-        if (data.auditReport) {
-          triggerToast(`Kiểm toán định kỳ Kỳ #${data.auditReport.cycleMilestone}: Doanh thu ${data.auditReport.variancePercent >= 0 ? '+' : ''}${data.auditReport.variancePercent}% vs ngân sách!`);
-        } else {
-          triggerToast(`Chu kỳ #${data.cycleNumber} đã xong! AI đã ra quyết định.`);
-        }
-        loadState();
-      }
-    } catch (err) {
-      console.error(err);
-      triggerToast('Đã ghi nhận chu kỳ.');
-    } finally {
-      setIsRunningCycle(false);
-    }
-  };
-
-  const handleTriggerAudit = async () => {
-    try {
-      const res = await fetch('/api/trigger-audit', { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.reports) setAuditReports(data.reports);
-        triggerToast('Báo cáo kiểm toán 10 chu kỳ đã hoàn tất!');
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleResolveAlert = async (alertId: string) => {
-    try {
-      const res = await fetch('/api/system-alerts/resolve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ alertId }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.alerts) setSystemAlerts(data.alerts);
-        triggerToast('Đã xác nhận xử lý cảnh báo thành công!');
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleTriggerAlert = async (alertData: Partial<SystemAlert>) => {
-    try {
-      const res = await fetch('/api/system-alerts/trigger', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(alertData),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.alerts) setSystemAlerts(data.alerts);
-        triggerToast(`Governor phát hiện cảnh báo mới: ${alertData.title || 'Biến động hệ thống'}`);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleOverride = async (proposalId: string, decision: 'Approve' | 'Reject') => {
-    try {
-      const res = await fetch('/api/governor-override', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ proposalId, decision }),
-      });
-      if (res.ok) {
-        setProposals((prev) =>
-          prev.map((item) =>
-            item.proposal.id === proposalId
-              ? { ...item, decision, executed: decision === 'Approve' }
-              : item
-          )
-        );
-        triggerToast(`Quyết định: ${decision === 'Approve' ? 'Duyệt thành công' : 'Đã từ chối'}`);
-        loadState();
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // Hire dynamic custom agent
-  const handleHireAgent = async (data: {
-    name: string;
-    role: string;
-    department: 'Leadership' | 'Growth' | 'Ops' | 'Sales' | 'Tech';
-    description: string;
-    salary_minor: number;
+  // Client creates a new contract
+  const handleOrderContract = async (orderData: {
+    clientName: string;
+    clientEmail: string;
+    title: string;
+    category: 'VideoMarketing' | 'Copywriting' | 'MediaDesign' | 'MarketIntelligence' | 'FullCampaign';
+    requirements: string;
+    budgetMinor: number;
   }) => {
     try {
-      const res = await fetch('/api/hire-custom-agent', {
+      const res = await fetch('/api/contracts/order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      const result = await res.json();
-      if (result.success) {
-        setCustomAgents((prev) => [...prev, result.agent]);
-        setSnapshot(result.snapshot);
-        triggerToast(result.message);
-        loadState();
-        return { success: true };
-      }
-      return { success: false, reason: result.reason };
-    } catch (err) {
-      return { success: false, reason: 'Lỗi kết nối tuyển dụng.' };
-    }
-  };
-
-  const handleToggleAgentStatus = async (agentId: string) => {
-    try {
-      const res = await fetch('/api/toggle-agent-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId }),
-      });
-      if (res.ok) {
-        setCustomAgents((prev) =>
-          prev.map((a) => (a.id === agentId ? { ...a, status: a.status === 'Active' ? 'Paused' : 'Active' } : a))
-        );
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleOpenTraining = (agentId?: string) => {
-    setTrainingAgentId(agentId || null);
-    setShowTrainingModal(true);
-  };
-
-  const handleTrainAgent = async (agentId: string, course: SkillTrainingCourse) => {
-    try {
-      const res = await fetch('/api/train-agent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId, course }),
-      });
-      const result = await res.json();
-      if (result.success) {
-        setCustomAgents((prev) =>
-          prev.map((a) => (a.id === agentId ? result.agent : a))
-        );
-        setSnapshot(result.snapshot);
-        triggerToast(result.message);
-        loadState();
-        return { success: true };
-      }
-      return { success: false, reason: result.reason };
-    } catch (err) {
-      return { success: false, reason: 'Lỗi kết nối đào tạo.' };
-    }
-  };
-
-  const handleAutoRecruit = async (thresholdMinor?: number) => {
-    try {
-      const res = await fetch('/api/auto-recruit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ thresholdMinor }),
-      });
-      const result = await res.json();
-      if (result.success) {
-        setCustomAgents((prev) => [...prev, result.agent]);
-        setSnapshot(result.snapshot);
-        triggerToast(result.message);
-        loadState();
-        return { success: true };
-      }
-      return { success: false, reason: result.reason };
-    } catch (err) {
-      return { success: false, reason: 'Lỗi kết nối tuyển dụng tự động.' };
-    }
-  };
-
-  const handleAutoTalentCycle = async (options: {
-    autoRecruit: boolean;
-    autoTrain: boolean;
-    cashSafetyThreshold: number;
-  }) => {
-    try {
-      const res = await fetch('/api/auto-talent-cycle', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          autoRecruit: options.autoRecruit,
-          autoTrain: options.autoTrain,
-          cashSafetyThreshold: options.cashSafetyThreshold * 100,
-        }),
-      });
-      const result = await res.json();
-      if (result.success) {
-        if (result.customAgents) setCustomAgents(result.customAgents);
-        if (result.snapshot) setSnapshot(result.snapshot);
-        triggerToast(result.message);
-        loadState();
-        return { success: true, message: result.message, actionsTaken: result.actionsTaken };
-      }
-      return { success: false, message: result.message || 'Lỗi xử lý chu trình.', actionsTaken: false };
-    } catch (err) {
-      return { success: false, message: 'Lỗi kết nối chu trình tự động.', actionsTaken: false };
-    }
-  };
-
-  // Run autonomous multi-agent pipeline
-  const handleRunPipeline = async (topic: string) => {
-    try {
-      const res = await fetch('/api/run-pipeline', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic }),
+        body: JSON.stringify(orderData),
       });
       const data = await res.json();
-      if (data.success) {
-        setSnapshot(data.snapshot);
-        triggerToast(`Simulation hoàn tất: synthetic outcome +${((data.simulatedRevenueGainMinor ?? 0) / 100).toFixed(2)} — không phải revenue thực tế.`);
+      if (res.ok && data.success) {
+        triggerToast(`Hợp đồng "${orderData.title}" đã được AI tiếp nhận & hoàn tất thành công!`);
         loadState();
-        return { success: true, steps: data.steps, simulatedRevenueGainMinor: data.simulatedRevenueGainMinor };
+        return { success: true, message: data.message };
+      } else {
+        return { success: false, message: data.reason || 'Lỗi xử lý hợp đồng' };
       }
-      return { success: false, steps: [], simulatedRevenueGainMinor: 0 };
-    } catch (err) {
-      return { success: false, steps: [], simulatedRevenueGainMinor: 0 };
+    } catch (err: any) {
+      return { success: false, message: err.message || 'Lỗi kết nối máy chủ' };
     }
   };
 
-  const handleApplyShock = async (shockType: string) => {
+  // Client accepts and rates deliverables
+  const handleAcceptContract = async (contractId: string, rating: number, feedback: string) => {
     try {
-      const res = await fetch('/api/chaos-shock', {
+      const res = await fetch(`/api/contracts/${contractId}/accept`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shockType }),
+        body: JSON.stringify({ rating, feedback }),
       });
       if (res.ok) {
-        const data = await res.json();
-        setSnapshot(data.snapshot);
-        triggerToast(`Đã áp dụng biến cố "${shockType}". Trạng thái: ${data.snapshot.status}`);
+        triggerToast(`Đã nghiệm thu hợp đồng thành công với đánh giá ${rating} sao!`);
         loadState();
       }
     } catch (err) {
@@ -506,255 +146,119 @@ export default function App() {
     }
   };
 
+  const activeContractsCount = clientContracts.filter(
+    (c) => c.status !== 'Delivered' && c.status !== 'Completed'
+  ).length;
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
+      {/* Simulation Info Bar */}
       {dataMode === 'SIMULATION' && (
-        <div className="bg-amber-950/90 border-b border-amber-500/40 px-4 py-2.5 text-center text-[11px] font-semibold text-amber-200">
-          CHẾ ĐỘ MÔ PHỎNG — cash, revenue, ROI, audit, workforce và pipeline outcome trên UI này là dữ liệu synthetic.
-          Đây không phải sổ cái thật và không chứng minh tiền đã kiếm được hay đã nhận từ nền tảng. {simulatedMutationsEnabled ? 'Simulated mutations đang bật theo cấu hình non-production.' : 'Thay đổi mô phỏng đang bị khóa mặc định.'}
+        <div className="bg-slate-900 border-b border-slate-800 px-4 py-1.5 text-center text-[11px] font-medium text-slate-400">
+          CỔNG THUÊ KHOÁN KHÁCH HÀNG — Doanh nghiệp AI vận hành hoàn toàn tự động 24/7 (Black-Box Autonomous). Khách hàng giao việc dưới dạng hợp đồng và nhận bàn giao thành phẩm.
         </div>
       )}
 
-      {/* Sticky Master Header: Keeps Header & Navigation Bar Fixed at Top */}
-      <div className="sticky top-0 z-50 bg-slate-950/95 backdrop-blur-md border-b border-slate-800 shadow-md">
+      {/* Sticky Top Header */}
+      <div className="sticky top-0 z-50 bg-slate-950/95 backdrop-blur-md border-b border-slate-800 shadow-sm">
         <Header
           snapshot={snapshot}
-          onRunCycle={handleRunCycle}
-          isRunningCycle={isRunningCycle}
-          uiMode={uiMode}
-          setUiMode={setUiMode}
-          hasGeminiKey={hasGeminiKey}
-          autonomousSettings={autonomousSettings}
-          onToggleAutoPilot={handleToggleAutoPilot}
+          activeContractsCount={activeContractsCount}
+          onNavigateToOrder={() => setActiveTab('order')}
         />
 
-        {/* Clean Navigation Bar */}
+        {/* Clean Client Navigation Bar */}
         <nav className="border-t border-slate-800/80 bg-slate-900/40 px-4 lg:px-8">
-          <div className="max-w-5xl mx-auto flex items-center justify-between gap-2 py-2">
-            {uiMode === 'basic' ? (
-              <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none w-full">
-                <button
-                  onClick={() => setBasicTab('dashboard')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-                    basicTab === 'dashboard'
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-                  }`}
-                >
-                  <LayoutDashboard className="w-3.5 h-3.5" />
-                  <span>Tổng Quan</span>
-                </button>
+          <div className="max-w-5xl mx-auto flex items-center justify-start gap-2 py-2 overflow-x-auto scrollbar-none">
+            <button
+              onClick={() => setActiveTab('contracts')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                activeTab === 'contracts'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Hợp Đồng Của Tôi ({clientContracts.length})</span>
+            </button>
 
-                <button
-                  onClick={() => setBasicTab('agents')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-                    basicTab === 'agents'
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-                  }`}
-                >
-                  <Users className="w-3.5 h-3.5" />
-                  <span>Nhân Sự</span>
-                </button>
+            <button
+              onClick={() => setActiveTab('order')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                activeTab === 'order'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Đặt Hàng Thuê Khoán</span>
+            </button>
 
-                <button
-                  onClick={() => setBasicTab('studio')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-                    basicTab === 'studio'
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-                  }`}
-                >
-                  <Video className="w-3.5 h-3.5" />
-                  <span>Xưởng Media</span>
-                </button>
+            <button
+              onClick={() => setActiveTab('capabilities')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                activeTab === 'capabilities'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+              }`}
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              <span>Hồ Sơ Năng Lực Doanh Nghiệp ({customAgents.length} AI)</span>
+            </button>
 
-                <button
-                  onClick={() => setBasicTab('pipeline')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-                    basicTab === 'pipeline'
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-                  }`}
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Dây Chuyền Tự Động</span>
-                </button>
-
-                <button
-                  onClick={() => setBasicTab('finances')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-                    basicTab === 'finances'
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-                  }`}
-                >
-                  <Wallet className="w-3.5 h-3.5" />
-                  <span>Tài Chính</span>
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none w-full">
-                <button
-                  onClick={() => setProTab('audit')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-                    proTab === 'audit' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <ShieldAlert className="w-3.5 h-3.5" />
-                  <span>Review Khắt Khe</span>
-                </button>
-
-                <button
-                  onClick={() => setProTab('cycles')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-                    proTab === 'cycles' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <RotateCw className="w-3.5 h-3.5" />
-                  <span>Chu Kỳ Tự Trị</span>
-                </button>
-
-                <button
-                  onClick={() => setProTab('war-room')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-                    proTab === 'war-room' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <Users className="w-3.5 h-3.5" />
-                  <span>War Room Tranh Luận</span>
-                </button>
-
-                <button
-                  onClick={() => setProTab('ledger')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-                    proTab === 'ledger' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <Wallet className="w-3.5 h-3.5" />
-                  <span>Sổ Cái Kép</span>
-                </button>
-
-                <button
-                  onClick={() => setProTab('chaos')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-                    proTab === 'chaos' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <AlertOctagon className="w-3.5 h-3.5" />
-                  <span>Giả Lập Khủng Hoảng</span>
-                </button>
-              </div>
-            )}
+            <button
+              onClick={() => setActiveTab('finances')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                activeTab === 'finances'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+              }`}
+            >
+              <Wallet className="w-3.5 h-3.5" />
+              <span>Đối Soát Hóa Đơn & Sổ Cái</span>
+            </button>
           </div>
         </nav>
       </div>
 
-      {/* Main Content Area */}
+      {/* Main Content */}
       <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-5">
-        {uiMode === 'basic' ? (
-          <>
-            {basicTab === 'dashboard' && (
-              <BasicDashboard
-                snapshot={snapshot}
-                recentProposals={proposals}
-                cycleHistory={cycleHistory}
-                departmentBudgets={departmentBudgets}
-                auditReports={auditReports}
-                systemAlerts={systemAlerts}
-                agents={customAgents}
-                officeActivities={officeActivities}
-                pnl={pnl}
-                autonomousSettings={autonomousSettings}
-                onOpenTraining={handleOpenTraining}
-                onRunCycle={handleRunCycle}
-                isRunningCycle={isRunningCycle}
-                onOverride={handleOverride}
-                onNavigate={(view) => setBasicTab(view as any)}
-                onTriggerAudit={handleTriggerAudit}
-                onResolveAlert={handleResolveAlert}
-                onTriggerAlert={handleTriggerAlert}
-                onToggleAutoPilot={handleToggleAutoPilot}
-              />
-            )}
-            {basicTab === 'agents' && (
-              <ManageAgents
-                snapshot={snapshot}
-                agents={customAgents}
-                candidates={candidatePool}
-                onHireAgent={handleHireAgent}
-                onToggleStatus={handleToggleAgentStatus}
-                onOpenTraining={handleOpenTraining}
-                onInterviewCandidate={handleInterviewCandidate}
-                onHireCandidate={handleHireCandidate}
-              />
-            )}
-            {basicTab === 'studio' && (
-              <MediaStudioTab
-                snapshot={snapshot}
-                onPublishToCycle={(title, cost) => handleRunPipeline(title)}
-              />
-            )}
-            {basicTab === 'pipeline' && (
-              <AutonomousPipelineTab
-                snapshot={snapshot}
-                onRunPipeline={handleRunPipeline}
-              />
-            )}
-            {basicTab === 'finances' && (
-              <ManageFinances
-                snapshot={snapshot}
-                ledger={ledger}
-                employees={employees}
-                agents={customAgents}
-              />
-            )}
-          </>
-        ) : (
-          <>
-            {proTab === 'audit' && <ReviewTab />}
-            {proTab === 'cycles' && (
-              <CycleRunnerTab
-                snapshot={snapshot}
-                recentProposals={proposals}
-                recentReceipts={receipts}
-                onRunCycle={handleRunCycle}
-                isRunningCycle={isRunningCycle}
-                onOverride={handleOverride}
-              />
-            )}
-            {proTab === 'war-room' && <WarRoomTab snapshot={snapshot} />}
-            {proTab === 'ledger' && (
-              <LedgerTab
-                snapshot={snapshot}
-                ledger={ledger}
-                employees={employees}
-                experiments={[]}
-              />
-            )}
-            {proTab === 'chaos' && (
-              <ChaosSimulatorTab
-                snapshot={snapshot}
-                onApplyShock={handleApplyShock}
-              />
-            )}
-          </>
+        {activeTab === 'contracts' && (
+          <ClientContractsTab
+            contracts={clientContracts}
+            onAcceptContract={handleAcceptContract}
+            onNavigateToOrder={() => setActiveTab('order')}
+          />
+        )}
+
+        {activeTab === 'order' && (
+          <CreateContractTab
+            onSubmitContract={handleOrderContract}
+            onNavigateToContracts={() => setActiveTab('contracts')}
+          />
+        )}
+
+        {activeTab === 'capabilities' && (
+          <CompanyCapabilitiesTab
+            snapshot={snapshot}
+            agents={customAgents}
+            officeActivities={officeActivities}
+          />
+        )}
+
+        {activeTab === 'finances' && (
+          <ManageFinances
+            snapshot={snapshot}
+            ledger={ledger}
+            employees={employees}
+            agents={customAgents}
+          />
         )}
       </main>
 
-      {/* Agent Skill Training Modal */}
-      <AgentSkillTrainingModal
-        isOpen={showTrainingModal}
-        onClose={() => setShowTrainingModal(false)}
-        agents={customAgents}
-        snapshot={snapshot}
-        onTrainAgent={handleTrainAgent}
-        initialSelectedAgentId={trainingAgentId}
-      />
-
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 bg-slate-900 border border-indigo-500/50 text-white px-3.5 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 text-xs animate-bounce">
+        <div className="fixed bottom-5 right-5 z-50 bg-slate-900 border border-blue-500/50 text-white px-3.5 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 text-xs animate-bounce">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{toastMessage}</span>
         </div>
