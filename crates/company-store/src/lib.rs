@@ -1825,6 +1825,21 @@ impl CompanyStore {
             return Err("authoritative snapshot belongs to another company".into());
         }
 
+        let safety_controls = {
+            tx.execute(
+                "INSERT INTO autonomy_control_state
+                 (company_id, emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
+                  emergency_stop_changed_at_epoch, content_publish_daily, ads_spend_daily_minor,
+                  live_minutes_daily, outbound_messages_daily, autonomous_capital_daily_minor,
+                  updated_at_epoch)
+                 VALUES ($1,false,NULL,'system-default',EXTRACT(EPOCH FROM now())::bigint,10,0,60,100,0,EXTRACT(EPOCH FROM now())::bigint)
+                 ON CONFLICT(company_id) DO NOTHING",
+                &[&company_id],
+            )
+            .await?;
+            load_safety_controls_for_tx(&tx, company_id).await?
+        };
+
         let governor = agent_runtime::governor::Governor;
         let authoritative_results = results
             .iter()
@@ -1877,8 +1892,25 @@ impl CompanyStore {
         )
         .await?;
 
-        let batch =
-            execute_approved_results(current_snapshot, &authoritative_results, execution_policy())?;
+        let batch = if safety_controls.emergency_stop.enabled {
+            company_execution::ExecutionBatch {
+                snapshot: current_snapshot.clone(),
+                receipts: authoritative_results
+                    .iter()
+                    .map(|result| company_execution::ExecutionReceipt {
+                        idempotency_key: proposal_idempotency_key(&result.proposal),
+                        agent: result.agent,
+                        action: result.proposal.action,
+                        status: company_execution::ExecutionStatus::Rejected,
+                        cost_minor: result.proposal.cost_minor,
+                        reason: "persistent emergency stop blocks autonomous cycle side effects".into(),
+                    })
+                    .collect(),
+                total_spend_minor: 0,
+            }
+        } else {
+            execute_approved_results(current_snapshot, &authoritative_results, execution_policy())?
+        };
 
         for result in &authoritative_results {
             let proposal = &result.proposal;
