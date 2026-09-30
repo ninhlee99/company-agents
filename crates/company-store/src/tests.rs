@@ -107,13 +107,14 @@ async fn payment_execution_intent_is_idempotent_approval_gated_and_non_accountin
         &company_id, &first.id.to_string(), "operator-test", "approval-test-1", 1_900_000_001,
     ).await.unwrap();
 
-    let previous = std::env::var("PAYMENT_EXECUTION_SIMULATION").ok();
-    std::env::set_var("PAYMENT_EXECUTION_SIMULATION", "true");
-    let executed = store.execute_payment_execution_intent(&company_id, &first.id.to_string()).await.unwrap();
-    match previous {
-        Some(value) => std::env::set_var("PAYMENT_EXECUTION_SIMULATION", value),
-        None => std::env::remove_var("PAYMENT_EXECUTION_SIMULATION"),
-    }
+    let executed = store
+        .execute_payment_execution_intent_with_gate(
+            &company_id,
+            &first.id.to_string(),
+            true,
+        )
+        .await
+        .unwrap();
 
     assert_eq!(executed.status, "SUCCEEDED");
     assert!(executed.provider_execution_ref.as_deref().unwrap_or_default().starts_with("simulated:"));
