@@ -1189,8 +1189,9 @@ impl CompanyStore {
         observation: &company_content::ContentObservation,
     ) -> Result<ContentObservationRecord, Box<dyn std::error::Error + Send + Sync>> {
         company_content::validate_observation(observation).map_err(|error| error.to_string())?;
-        let client = self.client.lock().await;
-        let row = client.query_opt(
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let row = tx.query_opt(
             "SELECT hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
                     expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,
                     success_metric,success_threshold_bps,variant_key,hook,first_frame,emotion,
@@ -1209,7 +1210,7 @@ impl CompanyStore {
             .map_err(|error| error.to_string())?;
 
         let id = Uuid::new_v4();
-        let inserted = client.query_opt(
+        let inserted = tx.query_opt(
             "INSERT INTO content_observations
              (id,company_id,content_id,observation_key,source,evidence_hash,observed_at_epoch,
               sample_count,spend_minor,metric_bps,views,clicks,conversions,commission_minor,
@@ -1234,12 +1235,77 @@ impl CompanyStore {
                 } else {
                     "KILLED"
                 };
-                client.execute(
+                tx.execute(
                     "UPDATE content_items SET status=$3,decision=$4
                      WHERE company_id=$1 AND id=$2",
                     &[&observation.company_id,&observation.content_id,&next_status,&content_decision_name(decision)],
                 ).await?;
             }
+
+            let learning = content_learning_entry(&item, observation, decision);
+            company_learning::validate_evidence(&learning)
+                .map_err(|error| error.to_string())?;
+
+            let learning_inserted = tx.query_opt(
+                "INSERT INTO learning_entries
+                 (id,company_id,entry_key,source_type,source_id,kind,severity,hypothesis,context,
+                  expected_outcome,actual_outcome,impact_minor,confidence_bps,root_cause,
+                  corrective_action,reusable_rule,decision)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+                 ON CONFLICT(company_id,entry_key) DO NOTHING
+                 RETURNING id",
+                &[
+                    &Uuid::new_v4(),
+                    &observation.company_id,
+                    &learning.entry_key,
+                    &learning.source_type,
+                    &learning.source_id,
+                    &learning_kind_name(learning.kind),
+                    &failure_severity_name(learning.severity),
+                    &learning.hypothesis,
+                    &learning.context,
+                    &learning.expected_outcome,
+                    &learning.actual_outcome,
+                    &learning.impact_minor.to_string(),
+                    &learning.confidence_bps,
+                    &learning.root_cause,
+                    &learning.corrective_action,
+                    &learning.reusable_rule,
+                    &learning_decision_name(learning.decision),
+                ],
+            ).await?;
+
+            let learning_id = match learning_inserted {
+                Some(row) => row.get(0),
+                None => tx.query_one(
+                    "SELECT id FROM learning_entries WHERE company_id=$1 AND entry_key=$2",
+                    &[&observation.company_id, &learning.entry_key],
+                ).await?.get(0),
+            };
+
+            let outbox_key = format!("outbox:learning:{}", learning.entry_key);
+            let payload = serde_json::json!({
+                "entry_key": &learning.entry_key,
+                "source_type": &learning.source_type,
+                "source_id": &learning.source_id,
+                "kind": learning.kind,
+                "decision": learning.decision,
+                "confidence_bps": learning.confidence_bps
+            });
+            tx.execute(
+                "INSERT INTO outbox_events
+                 (company_id,event_type,aggregate_id,idempotency_key,payload)
+                 VALUES ($1,'LEARNING_ENTRY_RECORDED',$2,$3,$4)
+                 ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+                &[
+                    &observation.company_id,
+                    &learning_id,
+                    &outbox_key,
+                    &payload,
+                ],
+            ).await?;
+
+            tx.commit().await?;
             return Ok(ContentObservationRecord {
                 id: inserted.get(0),
                 observation: observation.clone(),
@@ -1248,6 +1314,7 @@ impl CompanyStore {
             });
         }
 
+        tx.commit().await?;
         content_observation_by_key(&client, &observation.company_id, &observation.observation_key).await
     }
 
@@ -8563,6 +8630,113 @@ async fn content_observation_by_key(
     })
 }
 
+fn content_learning_entry(
+    item: &company_content::ContentItem,
+    observation: &company_content::ContentObservation,
+    decision: company_content::ContentDecision,
+) -> company_learning::LearningEntry {
+    let confidence_bps = (observation.sample_count.min(1_000) * 10) as i64;
+    let (kind, severity, learning_decision, root_cause, corrective_action, reusable_rule) =
+        match decision {
+            company_content::ContentDecision::Scale => (
+                company_learning::LearningKind::Success,
+                company_learning::FailureSeverity::None,
+                company_learning::LearningDecision::Reuse,
+                "Observed content metric met the configured success threshold.",
+                "Reuse only the recorded creative variant with fresh verified evidence.",
+                "A content observation that clears its declared threshold is eligible for follow-up validation.",
+            ),
+            company_content::ContentDecision::Kill => {
+                let cause = if observation.spend_minor > item.brief.max_loss_minor {
+                    "Recorded content spend exceeded the declared maximum loss."
+                } else if matches!(
+                    item.brief.success_metric,
+                    company_content::SuccessMetric::ContributionMargin
+                ) && observation.contribution_margin_minor < 0
+                {
+                    "Recorded contribution margin was negative for a contribution-margin target."
+                } else {
+                    "Recorded content metric did not satisfy the configured guardrails."
+                };
+                (
+                    company_learning::LearningKind::Failure,
+                    company_learning::FailureSeverity::Medium,
+                    company_learning::LearningDecision::Stop,
+                    cause,
+                    "Stop the current creative treatment and revise before another measured run.",
+                    "Do not reuse a killed creative treatment under unchanged evidence conditions.",
+                )
+            }
+            company_content::ContentDecision::Iterate => (
+                company_learning::LearningKind::Learning,
+                company_learning::FailureSeverity::None,
+                company_learning::LearningDecision::Adjust,
+                "Recorded content metric was below the configured success threshold without breaching the loss guardrail.",
+                "Revise the creative treatment and collect new verified observations.",
+                "A below-threshold content observation requires iteration before reuse.",
+            ),
+            company_content::ContentDecision::Pause => (
+                company_learning::LearningKind::Learning,
+                company_learning::FailureSeverity::None,
+                company_learning::LearningDecision::Retest,
+                "Content was explicitly paused and does not constitute validated success.",
+                "Retest after a revised hypothesis or evidence plan.",
+                "Paused content should not be treated as validated learning.",
+            ),
+        };
+
+    let metric_name = match item.brief.success_metric {
+        company_content::SuccessMetric::Views => "VIEWS",
+        company_content::SuccessMetric::ClickThroughRate => "CLICK_THROUGH_RATE",
+        company_content::SuccessMetric::ConversionRate => "CONVERSION_RATE",
+        company_content::SuccessMetric::Commission => "COMMISSION",
+        company_content::SuccessMetric::ContributionMargin => "CONTRIBUTION_MARGIN",
+    };
+
+    company_learning::LearningEntry {
+        entry_key: format!("content:{}:learning:{}", observation.content_id, observation.observation_key),
+        source_type: "CONTENT_OBSERVATION".into(),
+        source_id: observation.content_id.to_string(),
+        kind,
+        severity,
+        hypothesis: item.brief.hypothesis.clone(),
+        context: format!(
+            "audience={} variant={} success_metric={} success_threshold_bps={}",
+            item.brief.audience,
+            item.variant.variant_key,
+            metric_name,
+            item.brief.success_threshold_bps
+        ),
+        expected_outcome: format!(
+            "{} metric reaches at least {} bps.",
+            metric_name,
+            item.brief.success_threshold_bps
+        ),
+        actual_outcome: format!(
+            "decision={:?}; metric_bps={}; sample_count={}; views={}; clicks={}; conversions={}; commission_minor={}; contribution_margin_minor={}; spend_minor={}; source={}; evidence_hash={}; observed_at_epoch={}; observation_key={}",
+            decision,
+            observation.metric_bps,
+            observation.sample_count,
+            observation.views,
+            observation.clicks,
+            observation.conversions,
+            observation.commission_minor,
+            observation.contribution_margin_minor,
+            observation.spend_minor,
+            observation.source,
+            observation.evidence_hash,
+            observation.observed_at_epoch,
+            observation.observation_key
+        ),
+        impact_minor: observation.contribution_margin_minor,
+        confidence_bps,
+        root_cause: root_cause.into(),
+        corrective_action: corrective_action.into(),
+        reusable_rule: reusable_rule.into(),
+        decision: learning_decision,
+    }
+}
+
 fn experiment_learning_entry(
     experiment_id: Uuid,
     spec: &company_experiments::ExperimentSpec,
@@ -8992,6 +9166,95 @@ fn content_record_from_row(
     company_content::validate_item(&item).map_err(|error| error.to_string())?;
     Ok(ContentRecord { item, created_at: row.get(28) })
 }
+#[cfg(test)]
+mod content_learning_tests {
+    use super::*;
+
+    fn item() -> company_content::ContentItem {
+        company_content::ContentItem {
+            id: Uuid::from_u128(2),
+            company_id: Uuid::from_u128(3),
+            brief: company_content::ContentBrief {
+                hypothesis: "Proof-first hook improves clicks".into(),
+                audience: "Mobile shoppers".into(),
+                format: company_content::ContentFormat::ShortVideo,
+                product_ref: Some("product-1".into()),
+                offer_ref: None,
+                disclosure_required: true,
+                expected_cost_minor: 100,
+                max_loss_minor: 500,
+                max_duration_seconds: 60,
+                success_metric: company_content::SuccessMetric::ClickThroughRate,
+                success_threshold_bps: 500,
+            },
+            variant: company_content::CreativeVariant {
+                variant_key: "proof-a".into(),
+                hook: "See the result first".into(),
+                first_frame: "Product + result".into(),
+                emotion: "curiosity".into(),
+                pacing: "fast".into(),
+                scene_count: 6,
+                text_density: "low".into(),
+                voice_speed: "1.0x".into(),
+                product_placement: "second-2".into(),
+                cta: "Open product card".into(),
+                comment_trigger: "Ask use case".into(),
+                music_style: "light".into(),
+                visual_style: "clean".into(),
+            },
+            status: company_content::ContentStatus::Measured,
+            decision: Some(company_content::ContentDecision::Scale),
+        }
+    }
+
+    fn observation() -> company_content::ContentObservation {
+        company_content::ContentObservation {
+            observation_key: "obs-1".into(),
+            content_id: Uuid::from_u128(2),
+            company_id: Uuid::from_u128(3),
+            source: "analytics".into(),
+            evidence_hash: "sha256:demo".into(),
+            observed_at_epoch: 1_700_000_000,
+            sample_count: 1000,
+            spend_minor: 250,
+            metric_bps: 700,
+            views: 1000,
+            clicks: 70,
+            conversions: 7,
+            commission_minor: 80,
+            contribution_margin_minor: 60,
+        }
+    }
+
+    #[test]
+    fn content_success_becomes_evidence_backed_learning() {
+        let entry = content_learning_entry(
+            &item(),
+            &observation(),
+            company_content::ContentDecision::Scale,
+        );
+        assert_eq!(entry.entry_key, "content:00000000-0000-0000-0000-000000000002:learning:obs-1");
+        assert_eq!(entry.kind, company_learning::LearningKind::Success);
+        assert_eq!(entry.decision, company_learning::LearningDecision::Reuse);
+        assert_eq!(entry.impact_minor, 60);
+        assert_eq!(entry.confidence_bps, 10_000);
+        assert!(company_learning::validate_evidence(&entry).is_ok());
+    }
+
+    #[test]
+    fn content_confidence_is_bounded_sample_coverage() {
+        let mut value = observation();
+        value.sample_count = 50;
+        let entry = content_learning_entry(
+            &item(),
+            &value,
+            company_content::ContentDecision::Iterate,
+        );
+        assert_eq!(entry.confidence_bps, 500);
+        assert_eq!(entry.decision, company_learning::LearningDecision::Adjust);
+    }
+}
+
 #[cfg(test)]
 mod experiment_learning_tests {
     use super::*;
