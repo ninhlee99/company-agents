@@ -904,7 +904,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 @media(max-width:520px){{.grid{{grid-template-columns:1fr}}.cc-kpis{{grid-template-columns:1fr 1fr}}.cc-body{{grid-template-columns:1fr}}.autonomy-steps{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
 </style></head><body>
 <header><h1>Veridara AI</h1><small>Autonomous Company OS · {}</small></header>
-<nav><a href="/">Overview</a><a href="/api/ceo/command-center">Revenue JSON</a><a href="/api/capital/plan">Capital plan</a><a href="/api/autonomy/controls">Safety controls</a><a href="/api/autonomy/policy">Autonomy policy</a><a href="/api/agents">Agents</a><a href="/api/agents/evaluation">Agent outcomes</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Audit</a></nav>
+<nav><a href="/auth/login">Browser sign-in</a><form method="post" action="/auth/logout" style="display:inline"><button type="submit">Sign out</button></form><a href="/">Overview</a><a href="/api/ceo/command-center">Revenue JSON</a><a href="/api/capital/plan">Capital plan</a><a href="/api/autonomy/controls">Safety controls</a><a href="/api/autonomy/policy">Autonomy policy</a><a href="/api/agents">Agents</a><a href="/api/agents/evaluation">Agent outcomes</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Audit</a></nav>
 {}
 {}
 {}
@@ -936,7 +936,22 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <p>Search live Awin feed data when <code>AFFILIATE_PROVIDER=awin</code>; local mock data is used by default.</p>
 <small>Example: <code>/api/affiliate/search?category=electronics&amp;min_commission_bps=1500&amp;require_coupon=true</code></small>
 </div>
-</body></html>"#,
+<script>
+(() => {
+  const csrf = document.cookie
+    .split('; ')
+    .find(row => row.startsWith('company_os_csrf='))
+    ?.split('=')[1];
+  if (!csrf) return;
+  for (const form of document.querySelectorAll('form[method="post"]')) {
+    const action = form.getAttribute('action');
+    if (!action || action.startsWith('/auth/session')) continue;
+    const url = new URL(action, window.location.origin);
+    url.searchParams.set('csrf', csrf);
+    form.setAttribute('action', url.pathname + url.search + url.hash);
+  }
+})();
+</script></body></html>"#,
         state.company_id.clone(),
         command_center_html,
         agent_evaluation_html,
