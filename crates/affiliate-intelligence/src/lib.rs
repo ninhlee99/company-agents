@@ -1313,7 +1313,9 @@ fn normalize_epoch(value: i64) -> Option<i64> {
     if value <= 0 {
         return None;
     }
-    if value > 2_000_000_000_000 {
+    // Unix seconds for realistic contemporary dates are far below 1e11.
+    // Values above that are treated as Unix milliseconds.
+    if value > 100_000_000_000 {
         value.checked_div(1_000)
     } else {
         Some(value)
