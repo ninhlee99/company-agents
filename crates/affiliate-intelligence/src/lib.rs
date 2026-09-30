@@ -16,6 +16,7 @@ const SCORE_MAX: u32 = 10_000;
 const DEFAULT_HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_FEED_BYTES: usize = 64 * 1024 * 1024;
 const MAX_TIKTOK_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
+const DEFAULT_MAX_PRODUCT_AGE_DAYS: i64 = 7;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Product {
@@ -143,8 +144,23 @@ pub struct EconomicsAssessment {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ProductFreshnessStatus {
+    Fresh,
+    Stale,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProductFreshness {
+    pub status: ProductFreshnessStatus,
+    pub age_days: Option<i64>,
+    pub max_age_days: i64,
+}
+
 pub struct RankedProduct {
     pub product: Product,
+    pub freshness: ProductFreshness,
     pub coupons: Vec<Coupon>,
     pub quality: QualityAssessment,
     pub economics: EconomicsAssessment,
@@ -1141,6 +1157,11 @@ pub fn rank_products(
             continue;
         }
 
+        let freshness = product_freshness(product, query.as_of_date.as_deref());
+        if freshness.status == ProductFreshnessStatus::Stale {
+            continue;
+        }
+
         let usable_coupons = coupons
             .iter()
             .filter(|coupon| coupon.active)
@@ -1161,7 +1182,7 @@ pub fn rank_products(
         let quality = quality_assessment(product);
         let economics = economics_assessment(product, &usable_coupons);
         let content_fit_bps = content_fit(product, query);
-        let data_confidence_bps = confidence(product, &quality, &economics);
+        let data_confidence_bps = confidence(product, &quality, &economics, &freshness);
         let score_bps = weighted_score(
             quality.score_bps,
             economics.score_bps,
@@ -1183,12 +1204,26 @@ pub fn rank_products(
         if usable_coupons.iter().any(|c| c.code.is_some()) {
             reasons.push("active voucher code available in provider data".into());
         }
+        match freshness.status {
+            ProductFreshnessStatus::Fresh => {
+                reasons.push(format!(
+                    "source data is {} day(s) old; within the {}-day freshness window",
+                    freshness.age_days.unwrap_or_default(),
+                    freshness.max_age_days
+                ));
+            }
+            ProductFreshnessStatus::Unknown => {
+                reasons.push("source freshness unknown; provider did not supply a valid update timestamp".into());
+            }
+            ProductFreshnessStatus::Stale => {}
+        }
         if data_confidence_bps < 6_000 {
             reasons.push("limited evidence coverage; treat ranking as lower confidence".into());
         }
 
         let candidate = RankedProduct {
             product: product.clone(),
+            freshness: freshness.clone(),
             coupons: usable_coupons,
             quality,
             economics,
@@ -1585,14 +1620,18 @@ fn confidence(
     product: &Product,
     quality: &QualityAssessment,
     economics: &EconomicsAssessment,
+    freshness: &ProductFreshness,
 ) -> u32 {
-    let source_signal = if product.source.trim().is_empty() {
-        0
-    } else {
-        1_000
+    let source_signal = if product.source.trim().is_empty() { 0 } else { 1_000 };
+    let freshness_signal: i64 = match freshness.status {
+        ProductFreshnessStatus::Fresh => 1_000,
+        ProductFreshnessStatus::Unknown => -2_000,
+        ProductFreshnessStatus::Stale => -10_000,
     };
-    ((quality.confidence_bps as u64 + economics.confidence_bps as u64 + source_signal as u64) / 3)
-        .min(SCORE_MAX as u64) as u32
+    let base =
+        (quality.confidence_bps as i64 + economics.confidence_bps as i64 + source_signal + freshness_signal)
+            / 3;
+    base.clamp(0, SCORE_MAX as i64) as u32
 }
 
 fn weighted_score(
@@ -1630,6 +1669,73 @@ fn dedupe_key(product: &Product) -> String {
         return format!("gtin:{gtin}");
     }
     format!("{}:{}", product.advertiser_id, product.id)
+}
+
+fn product_freshness(
+    product: &Product,
+    as_of_date: Option<&str>,
+) -> ProductFreshness {
+    let Some(raw_updated_at) = product.source_updated_at.as_deref() else {
+        return ProductFreshness {
+            status: ProductFreshnessStatus::Unknown,
+            age_days: None,
+            max_age_days: DEFAULT_MAX_PRODUCT_AGE_DAYS,
+        };
+    };
+    let Some(updated_date) = parse_iso_date(date_prefix(raw_updated_at).as_str()) else {
+        return ProductFreshness {
+            status: ProductFreshnessStatus::Stale,
+            age_days: None,
+            max_age_days: DEFAULT_MAX_PRODUCT_AGE_DAYS,
+        };
+    };
+
+    let reference_date = as_of_date
+        .and_then(parse_iso_date)
+        .unwrap_or_else(|| time::OffsetDateTime::now_utc().date());
+    let age_days = (reference_date - updated_date).whole_days();
+    let status = if age_days < 0 || age_days > DEFAULT_MAX_PRODUCT_AGE_DAYS {
+        ProductFreshnessStatus::Stale
+    } else {
+        ProductFreshnessStatus::Fresh
+    };
+
+    ProductFreshness {
+        status,
+        age_days: Some(age_days),
+        max_age_days: DEFAULT_MAX_PRODUCT_AGE_DAYS,
+    }
+}
+
+fn parse_iso_date(value: &str) -> Option<time::Date> {
+    if !is_iso_date(value) {
+        return None;
+    }
+    let bytes = value.as_bytes();
+    let year = i32::from(bytes.get(0).copied()? - b'0') * 1000
+        + i32::from(bytes.get(1).copied()? - b'0') * 100
+        + i32::from(bytes.get(2).copied()? - b'0') * 10
+        + i32::from(bytes.get(3).copied()? - b'0');
+    let month = i32::from(bytes.get(5).copied()? - b'0') * 10
+        + i32::from(bytes.get(6).copied()? - b'0');
+    let day = i32::from(bytes.get(8).copied()? - b'0') * 10
+        + i32::from(bytes.get(9).copied()? - b'0');
+    let month = match month {
+        1 => time::Month::January,
+        2 => time::Month::February,
+        3 => time::Month::March,
+        4 => time::Month::April,
+        5 => time::Month::May,
+        6 => time::Month::June,
+        7 => time::Month::July,
+        8 => time::Month::August,
+        9 => time::Month::September,
+        10 => time::Month::October,
+        11 => time::Month::November,
+        12 => time::Month::December,
+        _ => return None,
+    };
+    time::Date::from_calendar_date(year, month, day).ok()
 }
 
 fn coupon_is_active_on(coupon: &Coupon, as_of_date: Option<&str>) -> bool {
@@ -2714,7 +2820,7 @@ mod tests {
             commission_fixed_minor: None,
             commission_currency: None,
             source: "test".into(),
-            source_updated_at: None,
+            source_updated_at: Some("2026-09-27T00:00:00Z".into()),
         }
     }
 
@@ -2968,6 +3074,45 @@ mod tests {
             ..Default::default()
         };
         assert!(rank_products(&[p], &[coupon], &query).is_empty());
+    }
+
+    #[test]
+    fn stale_product_is_not_ranked() {
+        let mut p = product("stale", "Stale", Some(2_000), Some(9_000), Some(100));
+        p.source_updated_at = Some("2026-08-01T00:00:00Z".into());
+        let query = ProductSearchQuery {
+            as_of_date: Some("2026-09-30".into()),
+            ..Default::default()
+        };
+        assert!(rank_products(&[p], &[], &query).is_empty());
+    }
+
+    #[test]
+    fn missing_product_timestamp_is_never_claimed_fresh() {
+        let p = product("unknown", "Unknown", Some(2_000), Some(9_000), Some(100));
+        let query = ProductSearchQuery {
+            as_of_date: Some("2026-09-30".into()),
+            ..Default::default()
+        };
+        let ranked = rank_products(&[p], &[], &query);
+        assert_eq!(ranked.len(), 1);
+        assert_eq!(ranked[0].freshness.status, ProductFreshnessStatus::Unknown);
+        assert!(ranked[0].data_confidence_bps < 5_000);
+    }
+
+    #[test]
+    fn fresh_product_carries_source_age_evidence() {
+        let mut p = product("fresh", "Fresh", Some(2_000), Some(9_000), Some(100));
+        p.source_updated_at = Some("2026-09-27T00:00:00Z".into());
+        let query = ProductSearchQuery {
+            as_of_date: Some("2026-09-30".into()),
+            ..Default::default()
+        };
+        let ranked = rank_products(&[p], &[], &query);
+        assert_eq!(ranked.len(), 1);
+        assert_eq!(ranked[0].freshness.status, ProductFreshnessStatus::Fresh);
+        assert_eq!(ranked[0].freshness.age_days, Some(3));
+        assert!(ranked[0].reasons.iter().any(|r| r.contains("within the 7-day freshness window")));
     }
 
     #[test]
