@@ -246,6 +246,15 @@ struct CompetitorWhitespaceRequest {
     as_of_epoch: i64,
     max_age_seconds: i64,
 }
+#[derive(Debug, Deserialize)]
+struct CreatorProductMatchingRequest {
+    creators: Vec<company_growth::CreatorIntelligence>,
+    products: Vec<company_growth::ProductMatchCandidate>,
+    as_of_epoch: i64,
+    max_age_seconds: i64,
+    max_results: usize,
+}
+
 
 
 #[derive(Debug, Deserialize)]
@@ -2426,6 +2435,32 @@ async fn revenue_graph_lineage_api(
     ))
 }
 
+async fn creator_product_matches_api(
+    State(state): State<AppState>,
+    Json(request): Json<CreatorProductMatchingRequest>,
+) -> Result<Json<Vec<company_growth::CreatorProductMatch>>, StatusCode> {
+    if request
+        .creators
+        .iter()
+        .any(|creator| creator.company_id.to_string() != state.company_id)
+        || request
+            .products
+            .iter()
+            .any(|product| product.company_id.to_string() != state.company_id)
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    company_growth::match_creators_to_products(
+        &request.creators,
+        &request.products,
+        request.as_of_epoch,
+        request.max_age_seconds,
+        request.max_results,
+    )
+    .map(Json)
+    .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
 async fn competitor_whitespace_api(
     State(state): State<AppState>,
     Json(request): Json<CompetitorWhitespaceRequest>,
@@ -3820,6 +3855,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/content/status", post(content_status_transition_api))
         .route("/api/growth/trends", get(growth_trends_api).post(growth_trend_api))
         .route("/api/growth/competitor-whitespace", post(competitor_whitespace_api))
+        .route("/api/growth/creator-product-matches", post(creator_product_matches_api))
         .route("/api/revenue-graph/edges", post(revenue_graph_edge_api))
         .route("/api/revenue-graph/summary", get(revenue_graph_summary_api))
         .route("/api/revenue-graph/lineage", get(revenue_graph_lineage_api))
