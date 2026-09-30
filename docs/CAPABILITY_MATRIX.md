@@ -290,6 +290,7 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Digital Twin:** proposed actions are replayed through the pure execution model against the authoritative snapshot without mutating live state; simulated cash/runway/status/downside are returned as evidence.
 - **Limited autonomy conditions:** configured ceiling must permit it, action must be reversible, cost must stay under cap, confidence/evidence gates must pass, and the Digital Twin must show non-negative cash, no bankruptcy risk and sufficient runway.
 - **Durable simulations:** autonomy assessments are persisted idempotently in an append-only, company-scoped ledger and emit `AUTONOMY_ASSESSMENT_RECORDED`.
+- **Typed autonomy event:** the assessment event now uses the unified envelope with simulation identity, decision/ceiling/required-level, reason, emergency-stop state and the existing idempotency key.
 - **Safe default:** `AUTONOMY_MAX_LEVEL=SIMULATE`; strategic autonomy is disabled unless explicitly configured. External/material side effects remain human-gated.
 
 ## Learning / Failure Ledger
