@@ -392,11 +392,8 @@ async fn index(
         rows.push_str(r#"<tr><td colspan="4">No cycle has run yet.</td></tr>"#);
     }
 
-    let target_minor = std::env::var("MONTHLY_REVENUE_TARGET_MINOR")
-        .ok()
-        .and_then(|v| v.parse::<i128>().ok())
-        .filter(|v| *v > 0)
-        .unwrap_or_else(|| if state.currency.eq_ignore_ascii_case("VND") { 50_000_000 } else { 500_000 });
+    let target_minor = configured_revenue_target_minor(&state.currency)
+        .unwrap_or_else(|_| if state.currency.eq_ignore_ascii_case("VND") { 50_000_000 } else { 500_000 });
     let revenue_periods = state
         .store
         .revenue_period_metrics(&state.company_id)
@@ -555,6 +552,18 @@ async fn index(
         })
         .unwrap_or(0);
 
+    let command_center_html = match state
+        .store
+        .ceo_command_center(&state.company_id, target_minor)
+        .await
+    {
+        Ok(record) => render_ceo_command_center(&record, &state.currency),
+        Err(error) => {
+            tracing::warn!(%error, "CEO revenue command center unavailable");
+            r#"<section class="card"><div class="section-kicker">CEO Revenue Command Center</div><h2>Evidence unavailable</h2><p class="muted">The command center cannot safely assemble a complete view right now. Missing data is not being shown as zero.</p></section>"#.into()
+        }
+    };
+
     Html(format!(
         r#"<!doctype html>
 <html lang="en"><head>
@@ -569,11 +578,48 @@ body{{font-family:Inter,system-ui,-apple-system,sans-serif;max-width:1400px;marg
 table{{width:100%;border-collapse:collapse}}th,td{{text-align:left;padding:9px;border-bottom:1px solid #e5e5e5;font-size:14px}}
 button{{padding:10px 14px;border:0;border-radius:9px;background:linear-gradient(135deg,#8b5cf6,#6366f1);color:#fff;cursor:pointer;font-weight:700}}
 small,.muted{{color:#94a3b8}} code{{background:#f3f3f3;padding:2px 4px}}
+.section-kicker{{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#a78bfa;font-weight:800}}
+.cc-shell{{border:1px solid #33415f;border-radius:22px;padding:22px;margin:0 0 18px;background:linear-gradient(180deg,#111827,#0d1422);box-shadow:0 24px 80px #0006}}
+.cc-head{{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}}
+.cc-head h2{{margin:6px 0 8px;font-size:28px}}
+.cc-trend{{display:flex;flex-direction:column;align-items:flex-end;gap:4px;white-space:nowrap}}
+.cc-trend strong{{font-size:18px}}
+.cc-kpis{{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin:18px 0}}
+.cc-kpi{{padding:14px;border:1px solid #273550;border-radius:14px;background:#0c1320}}
+.cc-kpi span,.cc-mini-grid span{{display:block;font-size:12px;color:#94a3b8}}
+.cc-kpi strong{{display:block;font-size:20px;margin-top:5px}}
+.cc-kpi em{{display:block;font-size:12px;color:#94a3b8;font-style:normal;margin-top:4px}}
+.cc-body{{display:grid;grid-template-columns:1.25fr 1.25fr .8fr .9fr;gap:10px}}
+.cc-panel{{padding:16px;border:1px solid #273550;border-radius:14px;background:#0c1320;min-width:0}}
+.cc-panel h3,.cc-alerts h3{{margin:0 0 10px}}
+.cc-progress{{height:8px;border-radius:999px;background:#172033;overflow:hidden;margin:12px 0}}
+.cc-progress span,.cc-bar span{{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#8b5cf6,#22d3ee)}}
+.cc-chart{{display:grid;gap:7px;margin-top:14px}}
+.cc-day{{display:grid;grid-template-columns:78px 1fr 96px;gap:8px;align-items:center;font-size:12px}}
+.cc-day-label,.cc-day-value{{color:#cbd5e1}}
+.cc-day-value{{text-align:right}}
+.cc-bar{{height:7px;border-radius:999px;background:#172033;overflow:hidden}}
+.cc-mini-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}}
+.cc-mini-grid strong{{display:block;font-size:16px;margin-top:3px}}
+.cc-bigline{{display:flex;align-items:baseline;gap:8px;margin:8px 0 16px}}
+.cc-bigline strong{{font-size:27px}}
+.cc-bigline span{{font-size:12px;color:#94a3b8}}
+.cc-alerts{{display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:10px;margin-top:10px}}
+.cc-alerts>div{{padding:14px;border:1px solid #273550;border-radius:14px;background:#0c1320}}
+.cc-alert{{padding:10px 0;border-bottom:1px solid #273550}}
+.cc-alert:last-child{{border-bottom:0}}
+.cc-alert.attention strong{{color:#fbbf24}}
+.cc-alert.opportunity strong{{color:#67e8f9}}
+.cc-alert.healthy strong{{color:#86efac}}
+.cc-footer{{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #273550;font-size:12px;color:#94a3b8}}
 nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;text-decoration:none;padding:8px 10px;border-radius:8px}} nav a:hover{{background:#171e30;color:#fff}}
-@media(max-width:800px){{.grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}}} @media(max-width:520px){{.grid{{grid-template-columns:1fr}}}}
+@media(max-width:1050px){{.cc-kpis{{grid-template-columns:repeat(3,minmax(0,1fr))}}.cc-body{{grid-template-columns:repeat(2,minmax(0,1fr))}}.cc-alerts{{grid-template-columns:1fr}}}}
+@media(max-width:800px){{.grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}.cc-head{{flex-direction:column}}.cc-trend{{align-items:flex-start}}}}
+@media(max-width:520px){{.grid{{grid-template-columns:1fr}}.cc-kpis{{grid-template-columns:1fr 1fr}}.cc-body{{grid-template-columns:1fr}}}}
 </style></head><body>
 <header><h1>Veridara AI</h1><small>Autonomous Company OS · {}</small></header>
-<nav><a href="/">Overview</a><a href="/api/agents">Agents</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Audit</a></nav>
+<nav><a href="/">Overview</a><a href="/api/ceo/command-center">Revenue JSON</a><a href="/api/agents">Agents</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Audit</a></nav>
+{}
 <div class="grid">
 <div class="card"><small>Cash</small><div class="metric">{}</div></div>
 <div class="card"><small>Revenue MTD</small><div class="metric">{}</div><small>Ledger evidence: {} revenue transactions</small></div>
@@ -598,6 +644,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 </div>
 </body></html>"#,
         state.company_id.clone(),
+        command_center_html,
         format_minor(company.cash_minor, &state.currency),
         format_minor(revenue_periods.month_to_date_minor, &state.currency),
         revenue_periods.revenue_transaction_count,
@@ -624,6 +671,152 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         rows,
         live_feedback(&query),
     ))
+}
+
+fn render_ceo_command_center(
+    record: &company_store::CeoCommandCenterRecord,
+    currency: &str,
+) -> String {
+    use company_command_center::AlertKind;
+
+    let input = &record.input;
+    let summary = &record.summary;
+    let trend = match summary.revenue_trend {
+        company_command_center::RevenueTrend::Up => "↑ Up",
+        company_command_center::RevenueTrend::Down => "↓ Down",
+        company_command_center::RevenueTrend::Flat => "→ Flat",
+    };
+    let trend_delta = format!("{:.2}%", summary.revenue_trend_delta_bps as f64 / 100.0);
+    let target_progress = summary.target_progress_bps / 100;
+
+    let mut attention = String::new();
+    let mut opportunities = String::new();
+    let mut healthy = String::new();
+    for alert in &summary.alerts {
+        let class = match alert.kind {
+            AlertKind::NeedsAttention => "attention",
+            AlertKind::Opportunity => "opportunity",
+            AlertKind::Healthy => "healthy",
+        };
+        let html = format!(
+            r#"<div class="cc-alert {}"><strong>{}</strong><div class="muted">{}</div></div>"#,
+            class,
+            escape_html(&alert.title),
+            escape_html(&alert.detail)
+        );
+        match alert.kind {
+            AlertKind::NeedsAttention => attention.push_str(&html),
+            AlertKind::Opportunity => opportunities.push_str(&html),
+            AlertKind::Healthy => healthy.push_str(&html),
+        }
+    }
+    if attention.is_empty() {
+        attention = r#"<div class="muted">No active exception was raised from available evidence.</div>"#.into();
+    }
+    if opportunities.is_empty() {
+        opportunities = r#"<div class="muted">No scored growth opportunity is ready for attention.</div>"#.into();
+    }
+    if healthy.is_empty() {
+        healthy = r#"<div class="muted">Healthy state will appear when no exception is active.</div>"#.into();
+    }
+
+    let max_daily = input
+        .daily_revenue
+        .iter()
+        .map(|point| point.revenue_minor)
+        .max()
+        .unwrap_or(0);
+    let mut daily_html = String::new();
+    for point in &input.daily_revenue {
+        let width = if max_daily > 0 {
+            point
+                .revenue_minor
+                .saturating_mul(100)
+                .checked_div(max_daily)
+                .unwrap_or(0)
+                .clamp(0, 100)
+        } else {
+            0
+        };
+        daily_html.push_str(&format!(
+            r#"<div class="cc-day"><div class="cc-day-label">{}</div><div class="cc-bar"><span style="width:{}%"></span></div><div class="cc-day-value">{}</div></div>"#,
+            escape_html(&point.day),
+            width,
+            format_minor(point.revenue_minor, currency)
+        ));
+    }
+
+    let employee_productivity = summary
+        .revenue_mtd_per_active_employee_minor
+        .map(|value| format_minor(value, currency))
+        .unwrap_or_else(|| "n/a".into());
+    let content_productivity = summary
+        .commission_7d_per_content_minor
+        .map(|value| format_minor(value, currency))
+        .unwrap_or_else(|| "n/a".into());
+
+    format!(
+        r#"<section class="cc-shell">
+<div class="cc-head"><div><div class="section-kicker">CEO Revenue Command Center</div><h2>What is happening with the business?</h2><p class="muted">Ledger-backed revenue, commerce, content, LIVE and policy evidence in one operating view.</p></div><div class="cc-trend"><strong>{}</strong><span class="muted">7d pulse · {}</span></div></div>
+<div class="cc-kpis">
+<div class="cc-kpi"><span>Cash</span><strong>{}</strong></div>
+<div class="cc-kpi"><span>Revenue MTD</span><strong>{}</strong><em>{}% of target</em></div>
+<div class="cc-kpi"><span>Contribution margin MTD</span><strong>{}</strong><em>{}</em></div>
+<div class="cc-kpi"><span>Runway</span><strong>{}d</strong></div>
+<div class="cc-kpi"><span>Affiliate orders MTD</span><strong>{}</strong><em>{}</em></div>
+<div class="cc-kpi"><span>Affiliate variance</span><strong>{}</strong><em>reported − attributed</em></div>
+</div>
+<div class="cc-body">
+<div class="cc-panel"><h3>Revenue pulse</h3><div class="cc-progress"><span style="width:{}%"></span></div><div class="muted">MTD {} · last 30d {} · lifetime {}</div><div class="cc-chart">{}</div></div>
+<div class="cc-panel"><h3>Content funnel · last 7d</h3><div class="cc-mini-grid"><div><span>Views</span><strong>{}</strong></div><div><span>Clicks</span><strong>{}</strong></div><div><span>CTR</span><strong>{:.2}%</strong></div><div><span>CVR</span><strong>{:.2}%</strong></div><div><span>Conversions</span><strong>{}</strong></div><div><span>Commission</span><strong>{}</strong></div><div><span>Spend</span><strong>{}</strong></div><div><span>Margin</span><strong>{}</strong></div></div><div class="muted">Commission / content: {} · commission RPM: {}</div></div>
+<div class="cc-panel"><h3>LIVE pulse · last 30d</h3><div class="cc-bigline"><strong>{}</strong><span>sessions</span></div><div class="cc-mini-grid"><div><span>Gift count</span><strong>{}</strong></div><div><span>Recorded gift value</span><strong>{}</strong></div></div><div class="muted">Gift value is not recognized company revenue.</div></div>
+<div class="cc-panel"><h3>Policy & evidence</h3><div class="cc-bigline"><strong>{}</strong><span>{} / {} / {} / {} (24h)</span></div><div class="muted">Allowed / review / blocked / unknown. External side effects stay fail-closed when evidence is missing.</div></div>
+</div>
+<div class="cc-alerts"><div><h3>Needs attention</h3>{}</div><div><h3>Opportunities</h3>{}</div><div><h3>Healthy</h3>{}</div></div>
+<div class="cc-footer"><span>Revenue / active employee: {}</span><span>Affiliate net order value MTD: {}</span><span>7d spend: {}</span><span>Payroll due: {}</span></div>
+</section>"#,
+        trend,
+        trend_delta,
+        format_minor(input.cash_minor, currency),
+        format_minor(input.revenue_mtd_minor, currency),
+        target_progress,
+        format_minor(input.contribution_margin_mtd_minor.unwrap_or(0), currency),
+        if input.contribution_margin_mtd_minor.is_some() { "evidence complete" } else { "incomplete" },
+        input.runway_days,
+        input.affiliate_orders_mtd,
+        format_minor(input.affiliate_net_order_value_mtd_minor, currency),
+        format_minor(input.affiliate_variance_mtd_minor, currency),
+        summary.target_progress_bps / 100,
+        format_minor(input.revenue_mtd_minor, currency),
+        format_minor(input.revenue_last_30d_minor, currency),
+        format_minor(input.revenue_lifetime_minor, currency),
+        daily_html,
+        input.content.views_7d,
+        input.content.clicks_7d,
+        input.content.ctr_bps as f64 / 100.0,
+        input.content.cvr_bps as f64 / 100.0,
+        input.content.conversions_7d,
+        format_minor(input.content.commission_7d_minor, currency),
+        format_minor(input.content.spend_7d_minor, currency),
+        format_minor(input.content.contribution_margin_7d_minor, currency),
+        content_productivity,
+        format_minor(input.content.commission_rpm_minor, currency),
+        input.live.sessions_30d,
+        input.live.gift_count_30d,
+        format_minor(input.live.gift_value_30d_minor, currency),
+        if input.compliance.policy_ready { "Policy ready" } else { "Policy blocked" },
+        input.compliance.allowed_24h,
+        input.compliance.review_24h,
+        input.compliance.blocked_24h,
+        input.compliance.unknown_24h,
+        attention,
+        opportunities,
+        healthy,
+        employee_productivity,
+        format_minor(input.affiliate_net_order_value_mtd_minor, currency),
+        format_minor(input.content.spend_7d_minor, currency),
+        input.payroll_due_count,
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -711,6 +904,36 @@ async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, S
             });
             StatusCode::INTERNAL_SERVER_ERROR
         })
+}
+
+async fn ceo_command_center_api(
+    State(state): State<AppState>,
+) -> Result<Json<company_store::CeoCommandCenterRecord>, StatusCode> {
+    let target_minor = configured_revenue_target_minor(&state.currency)?;
+    state
+        .store
+        .ceo_command_center(&state.company_id, target_minor)
+        .await
+        .map(Json)
+        .map_err(|error| {
+            tracing::warn!(%error, "CEO command center unavailable");
+            StatusCode::SERVICE_UNAVAILABLE
+        })
+}
+
+fn configured_revenue_target_minor(currency: &str) -> Result<i128, StatusCode> {
+    if let Some(value) = std::env::var("MONTHLY_REVENUE_TARGET_MINOR")
+        .ok()
+        .and_then(|value| value.parse::<i128>().ok())
+        .filter(|value| *value > 0)
+    {
+        return Ok(value);
+    }
+    Ok(if currency.eq_ignore_ascii_case("VND") {
+        50_000_000
+    } else {
+        500_000
+    })
 }
 
 async fn agents_api(State(state): State<AppState>) -> Json<Vec<AgentRunResult>> {
@@ -1495,6 +1718,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/live/start", post(live_start_html))
         .route("/live/stop", post(live_stop_html))
         .route("/api/run", post(run_api))
+        .route("/api/ceo/command-center", get(ceo_command_center_api))
         .route("/api/agents", get(agents_api))
         .route("/api/content/items", get(content_list_api).post(content_create_api))
         .route("/api/content/observations", post(content_observation_api))

@@ -55,6 +55,12 @@ pub struct GrowthTrendRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CeoCommandCenterRecord {
+    pub input: company_command_center::CommandCenterInput,
+    pub summary: company_command_center::CommandCenterSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GrowthOpportunityRecord {
     pub opportunity: company_growth::Opportunity,
     pub status: company_growth::OpportunityStatus,
@@ -1026,6 +1032,258 @@ impl CompanyStore {
             verified_conversion_count_mtd: row.get(4),
             partial_or_rejected_count_mtd: row.get(5),
         })
+    }
+
+    pub async fn ceo_command_center(
+        &self,
+        company_id: &str,
+        revenue_target_minor: i128,
+    ) -> Result<CeoCommandCenterRecord, Box<dyn std::error::Error + Send + Sync>> {
+        if revenue_target_minor <= 0 {
+            return Err("CEO command center revenue target must be positive".into());
+        }
+
+        let company = Uuid::parse_str(company_id)?;
+        let snapshot = self
+            .load_snapshot(company_id)
+            .await?
+            .ok_or("authoritative company snapshot is unavailable")?;
+
+        let revenue = self.revenue_period_metrics(company_id).await?;
+        let margin = self.contribution_margin_metrics(company_id).await?;
+        let affiliate = self.affiliate_reconciliation_metrics(company_id).await?;
+
+        let client = self.client.lock().await;
+
+        let affiliate_order_row = client
+            .query_one(
+                "SELECT
+                    COUNT(DISTINCT order_id) FILTER (WHERE cancelled=false),
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN cancelled=false
+                                THEN GREATEST(order_value_minor - refunded_minor, 0)
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    )::text
+                 FROM affiliate_conversions
+                WHERE company_id=$1
+                  AND created_at >= date_trunc('month', now())",
+                &[&company],
+            )
+            .await?;
+        let affiliate_orders_mtd: i64 = affiliate_order_row.get(0);
+        let affiliate_net_order_value_mtd_minor =
+            parse_i128_numeric(&affiliate_order_row.get::<_, String>(1))?;
+
+        let content_row = client
+            .query_one(
+                "WITH latest AS (
+                    SELECT DISTINCT ON (content_id)
+                        content_id,
+                        views,
+                        clicks,
+                        conversions,
+                        spend_minor::text AS spend_minor,
+                        commission_minor::text AS commission_minor,
+                        contribution_margin_minor::text AS contribution_margin_minor
+                      FROM content_observations
+                     WHERE company_id=$1
+                       AND observed_at_epoch >= EXTRACT(EPOCH FROM (now() - interval '7 days'))::bigint
+                     ORDER BY content_id, observed_at_epoch DESC, created_at DESC
+                 )
+                 SELECT
+                    COALESCE(SUM(views),0)::bigint,
+                    COALESCE(SUM(clicks),0)::bigint,
+                    COALESCE(SUM(conversions),0)::bigint,
+                    COALESCE(SUM(spend_minor::numeric),0)::text,
+                    COALESCE(SUM(commission_minor::numeric),0)::text,
+                    COALESCE(SUM(contribution_margin_minor::numeric),0)::text,
+                    COUNT(*)::bigint
+                   FROM latest",
+                &[&company],
+            )
+            .await?;
+        let views_7d: i64 = content_row.get(0);
+        let clicks_7d: i64 = content_row.get(1);
+        let conversions_7d: i64 = content_row.get(2);
+        let spend_7d_minor = parse_i128_numeric(&content_row.get::<_, String>(3))?;
+        let commission_7d_minor = parse_i128_numeric(&content_row.get::<_, String>(4))?;
+        let contribution_margin_7d_minor =
+            parse_i128_numeric(&content_row.get::<_, String>(5))?;
+        let content_count_7d: i64 = content_row.get(6);
+
+        let content = company_command_center::ContentFunnel {
+            views_7d,
+            clicks_7d,
+            conversions_7d,
+            spend_7d_minor,
+            commission_7d_minor,
+            contribution_margin_7d_minor,
+            content_count_7d,
+            ctr_bps: metric_bps(clicks_7d, views_7d)?,
+            cvr_bps: metric_bps(conversions_7d, clicks_7d)?,
+            commission_rpm_minor: scaled_minor(commission_7d_minor, views_7d, 1_000)?,
+        };
+
+        let live_row = client
+            .query_one(
+                "SELECT
+                    COUNT(DISTINCT s.id)::bigint,
+                    COALESCE(
+                        SUM(
+                            CASE WHEN e.kind='GIFT' THEN e.gift_quantity ELSE 0 END
+                        ),
+                        0
+                    )::numeric::text,
+                    COALESCE(
+                        SUM(
+                            CASE WHEN e.kind='GIFT' THEN e.gift_value_minor ELSE 0 END
+                        ),
+                        0
+                    )::numeric::text
+                   FROM tiktok_live_sessions s
+              LEFT JOIN tiktok_live_events e
+                     ON e.company_id=s.company_id
+                    AND e.session_id=s.id
+                  WHERE s.company_id=$1
+                    AND s.started_at_epoch >= EXTRACT(EPOCH FROM (now() - interval '30 days'))::bigint",
+                &[&company],
+            )
+            .await?;
+        let live = company_command_center::LivePulse {
+            sessions_30d: live_row.get(0),
+            gift_count_30d: parse_i128_numeric(&live_row.get::<_, String>(1))?,
+            gift_value_30d_minor: parse_i128_numeric(&live_row.get::<_, String>(2))?,
+        };
+
+        let daily_rows = client
+            .query(
+                "WITH days AS (
+                    SELECT generate_series(
+                        date_trunc('day', now()) - interval '6 days',
+                        date_trunc('day', now()),
+                        interval '1 day'
+                    ) AS day
+                ),
+                revenue AS (
+                    SELECT date_trunc('day', t.created_at) AS day,
+                           COALESCE(SUM(e.credit_minor - e.debit_minor),0)::text AS revenue_minor
+                      FROM ledger_transactions t
+                      JOIN ledger_entries e ON e.transaction_id=t.id
+                      JOIN ledger_accounts a ON a.id=e.account_id
+                     WHERE t.company_id=$1
+                       AND a.company_id=$1
+                       AND a.account_type='REVENUE'
+                       AND t.created_at >= now() - interval '7 days'
+                     GROUP BY 1
+                )
+                SELECT to_char(days.day,'YYYY-MM-DD'),
+                       COALESCE(revenue.revenue_minor,'0')
+                  FROM days
+                  LEFT JOIN revenue ON revenue.day=days.day
+                 ORDER BY days.day ASC",
+                &[&company],
+            )
+            .await?;
+        let mut daily_revenue = Vec::with_capacity(daily_rows.len());
+        for row in daily_rows {
+            daily_revenue.push(company_command_center::DailyRevenuePoint {
+                day: row.get(0),
+                revenue_minor: parse_i128_numeric(&row.get::<_, String>(1))?,
+            });
+        }
+        drop(client);
+
+        let compliance = self.compliance_status(company_id).await?;
+        let latest_policy = compliance.get("latest_policy");
+        let compliance_counts = compliance
+            .get("checks_last_24h")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+        let compliance_pulse = company_command_center::CompliancePulse {
+            policy_ready: latest_policy
+                .and_then(|policy| policy.get("active"))
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false),
+            allowed_24h: compliance_counts
+                .get("allowed")
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0),
+            review_24h: compliance_counts
+                .get("review")
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0),
+            blocked_24h: compliance_counts
+                .get("blocked")
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0),
+            unknown_24h: compliance_counts
+                .get("unknown")
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0),
+        };
+
+        let growth_records = self.list_growth_opportunities(company_id, 5).await?;
+        let growth_opportunities = growth_records
+            .into_iter()
+            .map(|record| {
+                let status = match record.status {
+                    company_growth::OpportunityStatus::Ready => "READY",
+                    company_growth::OpportunityStatus::ContentCreated => "CONTENT_CREATED",
+                };
+                company_command_center::GrowthOpportunityDigest {
+                    title: record.opportunity.title,
+                    score_bps: record.opportunity.score_bps,
+                    confidence_bps: record.opportunity.confidence_bps,
+                    status: status.into(),
+                    ttfc_seconds: record.ttfc_seconds,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let input = company_command_center::CommandCenterInput {
+            cash_minor: snapshot.cash_minor,
+            revenue_mtd_minor: revenue.month_to_date_minor,
+            revenue_last_30d_minor: revenue.last_30_days_minor,
+            revenue_lifetime_minor: revenue.lifetime_minor,
+            revenue_target_minor,
+            revenue_transaction_count: revenue.revenue_transaction_count,
+            contribution_margin_mtd_minor: margin.month_to_date_contribution_margin_minor,
+            unclassified_expense_entry_count: margin.unclassified_expense_entry_count,
+            affiliate_reported_commission_mtd_minor: affiliate.reported_commission_mtd_minor,
+            affiliate_attributed_commission_mtd_minor: affiliate.attributed_commission_mtd_minor,
+            affiliate_payout_mtd_minor: affiliate.recorded_payout_mtd_minor,
+            affiliate_variance_mtd_minor: affiliate.variance_mtd_minor,
+            affiliate_orders_mtd,
+            affiliate_net_order_value_mtd_minor,
+            runway_days: snapshot.runway_days,
+            active_employee_count: {
+                let employees = self.list_employees(company_id).await?;
+                employees
+                    .iter()
+                    .filter(|employee| {
+                        matches!(
+                            employee.status,
+                            company_organization::EmployeeStatus::Active
+                        )
+                    })
+                    .count() as i64
+            },
+            payroll_due_count: self.payroll_due(company_id, 500).await?.len() as i64,
+            content,
+            live,
+            compliance: compliance_pulse,
+            growth_opportunities,
+            daily_revenue,
+        };
+
+        let summary =
+            company_command_center::summarize(&input).map_err(|error| error.to_string())?;
+        Ok(CeoCommandCenterRecord { input, summary })
     }
 
     pub async fn contribution_margin_metrics(
@@ -4477,6 +4735,37 @@ async fn existing_compliance_check(
         &[&input.company_id, &input.policy_key, &input.policy_snapshot_key, &input_hash],
     ).await?;
     compliance_check_from_row(row, input)
+}
+
+fn metric_bps(numerator: i64, denominator: i64) -> Result<u32, Box<dyn std::error::Error + Send + Sync>> {
+    if numerator < 0 || denominator < 0 {
+        return Err("command center rate inputs cannot be negative".into());
+    }
+    if denominator == 0 {
+        return Ok(0);
+    }
+    let value = (i128::from(numerator))
+        .checked_mul(10_000)
+        .and_then(|value| value.checked_div(i128::from(denominator)))
+        .ok_or("command center rate overflow")?;
+    Ok(value.clamp(0, 10_000) as u32)
+}
+
+fn scaled_minor(
+    numerator: i128,
+    denominator: i64,
+    scale: i128,
+) -> Result<i128, Box<dyn std::error::Error + Send + Sync>> {
+    if numerator < 0 || denominator < 0 || scale < 0 {
+        return Err("command center scaled metric inputs cannot be negative".into());
+    }
+    if denominator == 0 {
+        return Ok(0);
+    }
+    numerator
+        .checked_mul(scale)
+        .and_then(|value| value.checked_div(i128::from(denominator)))
+        .ok_or_else(|| "command center scaled metric overflow".into())
 }
 
 fn parse_reconciliation_status(

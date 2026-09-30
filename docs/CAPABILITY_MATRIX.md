@@ -123,6 +123,14 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Current boundary:** no automatic policy scraping is claimed. Operators or a verified policy watcher must supply the policy snapshot and evidence; changing platform rules do not silently become trusted.
 
 ## Trend → Opportunity → Content loop
+## CEO Revenue Command Center
+
+- **Ledger-backed executive view:** combines authoritative MTD/30d/lifetime revenue, contribution margin evidence, affiliate reconciliation, affiliate orders/net order value, content funnel, LIVE gift pulse, policy readiness, growth opportunities and cash/runway in one read model.
+- **Consistent windows:** content metrics are evaluated on the latest seven-day observation per content item; LIVE pulse uses the last 30 days; affiliate order economics and reconciliation use the current month; revenue trend uses a complete seven-day daily series.
+- **Exception-first triage:** deterministic `Needs attention`, `Opportunities`, and `Healthy` sections surface liquidity, margin evidence, reconciliation, policy and growth states without ranking business choices or inventing missing data.
+- **Truth boundaries:** gift value is explicitly not recognized company revenue; content commission is labeled as observed commission; missing command-center data renders as unavailable rather than zero.
+- **API:** authenticated `GET /api/ceo/command-center` exposes the same deterministic decision view used by the dashboard.
+
 
 - **Evidence-gated trend ingestion:** trend signals require a source, evidence reference, timestamp, normalized scoring inputs, confidence and policy evidence before they can enter the growth loop.
 - **Deterministic opportunity scoring:** trend signals are scored from velocity, audience fit, product fit, contentability and inverse competition; low-confidence/high-score signals remain monitored instead of being auto-pursued.
