@@ -55,6 +55,20 @@ pub struct GrowthTrendRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentOutcomeEvidenceRecord {
+    pub id: Uuid,
+    pub company_id: Uuid,
+    pub decision_journal_id: i64,
+    pub agent_name: String,
+    pub action: String,
+    pub evidence_ref: String,
+    pub observed_revenue_delta_minor: i128,
+    pub observed_contribution_margin_delta_minor: i128,
+    pub observed_at_epoch: i64,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CeoCommandCenterRecord {
     pub input: company_command_center::CommandCenterInput,
     pub summary: company_command_center::CommandCenterSummary,
