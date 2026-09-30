@@ -8238,6 +8238,109 @@ fn parse_content_decision(value: Option<String>) -> Result<Option<company_conten
     }
 }
 
+async fn record_revenue_graph_edge_tx(
+    tx: &Transaction<'_>,
+    edge: &company_revenue_graph::RevenueGraphEdge,
+) -> Result<company_revenue_graph::RevenueGraphEdge, Box<dyn std::error::Error + Send + Sync>> {
+    company_revenue_graph::validate_edge(edge).map_err(|error| error.to_string())?;
+
+    if let Some(row) = tx
+        .query_opt(
+            "SELECT id,company_id,edge_key,from_type,from_ref,relation,to_type,to_ref,
+                    value_minor::text,currency,confidence_bps,evidence_ref,source,
+                    observed_at_epoch,created_at::text
+               FROM revenue_graph_edges
+              WHERE company_id=$1 AND edge_key=$2
+              FOR UPDATE",
+            &[&edge.company_id, &edge.edge_key],
+        )
+        .await?
+    {
+        let stored = revenue_graph_edge_from_row(row)?;
+        if stored != *edge {
+            return Err("revenue graph edge key already exists with different evidence".into());
+        }
+        return Ok(stored);
+    }
+
+    let id = company_revenue_graph::RevenueGraphEdge::deterministic_id(
+        edge.company_id,
+        &edge.edge_key,
+    );
+    if id != edge.id {
+        return Err("revenue graph edge id must be deterministic from company and edge key".into());
+    }
+
+    tx.execute(
+        "INSERT INTO revenue_graph_edges
+         (id,company_id,edge_key,from_type,from_ref,relation,to_type,to_ref,
+          value_minor,currency,confidence_bps,evidence_ref,source,observed_at_epoch)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::numeric,$10,$11,$12,$13,$14)",
+        &[
+            &edge.id,
+            &edge.company_id,
+            &edge.edge_key,
+            &edge.from_type.as_str(),
+            &edge.from_ref,
+            &edge.relation,
+            &edge.to_type.as_str(),
+            &edge.to_ref,
+            &edge.value_minor.map(|value| value.to_string()),
+            &edge.currency,
+            &(edge.confidence_bps as i32),
+            &edge.evidence_ref,
+            &edge.source,
+            &edge.observed_at_epoch,
+        ],
+    )
+    .await?;
+
+    tx.execute(
+        "INSERT INTO outbox_events
+         (company_id,event_type,aggregate_id,idempotency_key,payload)
+         VALUES ($1,'REVENUE_GRAPH_EDGE_RECORDED',$2,$3,$4)
+         ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+        &[
+            &edge.company_id,
+            &edge.id,
+            &format!("outbox:revenue-graph:{}", edge.edge_key),
+            &serde_json::to_value(edge)?,
+        ],
+    )
+    .await?;
+
+    Ok(edge.clone())
+}
+
+fn revenue_graph_edge_from_row(
+    row: tokio_postgres::Row,
+) -> Result<company_revenue_graph::RevenueGraphEdge, Box<dyn std::error::Error + Send + Sync>> {
+    let from_type = company_revenue_graph::RevenueNodeType::parse(row.get::<_, String>(3))
+        .ok_or("unknown revenue graph from_type")?;
+    let to_type = company_revenue_graph::RevenueNodeType::parse(row.get::<_, String>(6))
+        .ok_or("unknown revenue graph to_type")?;
+    let value_minor = row
+        .get::<_, Option<String>>(8)
+        .map(|value| parse_i128_numeric(&value))
+        .transpose()?;
+    Ok(company_revenue_graph::RevenueGraphEdge {
+        id: row.get(0),
+        company_id: row.get(1),
+        edge_key: row.get(2),
+        from_type,
+        from_ref: row.get(4),
+        relation: row.get(5),
+        to_type,
+        to_ref: row.get(7),
+        value_minor,
+        currency: row.get(9),
+        confidence_bps: row.get::<_, i32>(10) as u32,
+        evidence_ref: row.get(11),
+        source: row.get(12),
+        observed_at_epoch: row.get(13),
+    })
+}
+
 fn content_record_from_row(
     row: tokio_postgres::Row,
 ) -> Result<ContentRecord, Box<dyn std::error::Error + Send + Sync>> {
