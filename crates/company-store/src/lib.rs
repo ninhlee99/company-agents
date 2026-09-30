@@ -10609,6 +10609,64 @@ fn parse_i128_numeric(
 }
 
 #[cfg(test)]
+mod autonomy_safety_event_tests {
+    use super::*;
+
+    #[test]
+    fn autonomy_control_event_keeps_safety_state() {
+        let company = Uuid::from_u128(301);
+        let key = "outbox:autonomy-controls:301:1800000000";
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::AutonomyControlsChanged,
+            "autonomy_control",
+            Some(company),
+            1_800_000_000,
+            autonomy_controls_correlation_id(company, key),
+            None,
+            key,
+            serde_json::json!({
+                "emergency_stop_enabled": true,
+                "actor": "principal:ops",
+                "reason": "manual safety stop"
+            }),
+        ).unwrap();
+
+        assert_eq!(event.event_type_name(), "AUTONOMY_CONTROLS_CHANGED");
+        assert_eq!(event.aggregate_id, Some(company));
+        assert_eq!(event.payload["emergency_stop_enabled"], true);
+        assert_eq!(event.payload["reason"], "manual safety stop");
+    }
+
+    #[test]
+    fn autonomy_budget_event_keeps_budget_lineage() {
+        let company = Uuid::from_u128(302);
+        let key = "outbox:autonomy-budget:ContentPublish:302:budget-1";
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::AutonomyBudgetConsumed,
+            "autonomy_budget",
+            Some(company),
+            1_800_000_001,
+            autonomy_budget_correlation_id(company, key),
+            None,
+            key,
+            serde_json::json!({
+                "kind": "CONTENT_PUBLISH",
+                "amount": 1,
+                "period_start_epoch": 1_799_000_000,
+                "used_before": 0,
+                "used_after": 1
+            }),
+        ).unwrap();
+
+        assert_eq!(event.event_type_name(), "AUTONOMY_BUDGET_CONSUMED");
+        assert_eq!(event.idempotency_key, key);
+        assert_eq!(event.payload["used_after"], 1);
+    }
+}
+
+#[cfg(test)]
 mod commercial_report_tests {
     use super::*;
     #[test]
