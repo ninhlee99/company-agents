@@ -3312,6 +3312,11 @@ impl CompanyStore {
                 return Err("autonomy control reason is invalid".into());
             }
         }
+        let emergency_stop_reason = if emergency_stop_enabled {
+            emergency_stop_reason.map(str::trim)
+        } else {
+            None
+        };
 
         let company = Uuid::parse_str(company_id)?;
         let mut client = self.client.lock().await;
