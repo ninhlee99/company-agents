@@ -101,13 +101,13 @@ pub struct AutonomyControlRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RevenueGraphSummary {
     pub edge_count: i64,
     pub value_backed_edge_count: i64,
     pub latest_observed_at_epoch: Option<i64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TikTokConnectionRecord {
     pub company_id: Uuid,
     pub open_id: String,
