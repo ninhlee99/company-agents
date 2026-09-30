@@ -5122,35 +5122,6 @@ fn autonomy_simulation_from_row(
     })
 }
 
-fn parse_autonomy_level(
-    value: &str,
-) -> Result<company_autonomy::AutonomyLevel, Box<dyn std::error::Error + Send + Sync>> {
-    match value {
-        "OBSERVE" => Ok(company_autonomy::AutonomyLevel::Observe),
-        "RECOMMEND" => Ok(company_autonomy::AutonomyLevel::Recommend),
-        "SIMULATE" => Ok(company_autonomy::AutonomyLevel::Simulate),
-        "HUMAN_APPROVE" => Ok(company_autonomy::AutonomyLevel::HumanApprove),
-        "LIMITED_AUTONOMY" => Ok(company_autonomy::AutonomyLevel::LimitedAutonomy),
-        "STRATEGIC_AUTONOMY" => Ok(company_autonomy::AutonomyLevel::StrategicAutonomy),
-        other => Err(format!("unknown autonomy level: {other}").into()),
-    }
-}
-
-fn parse_autonomy_decision(
-    value: &str,
-) -> Result<company_autonomy::AutonomyDecision, Box<dyn std::error::Error + Send + Sync>> {
-    match value {
-        "OBSERVE" => Ok(company_autonomy::AutonomyDecision::Observe),
-        "RECOMMEND" => Ok(company_autonomy::AutonomyDecision::Recommend),
-        "SIMULATE_ONLY" => Ok(company_autonomy::AutonomyDecision::SimulateOnly),
-        "NEEDS_APPROVAL" => Ok(company_autonomy::AutonomyDecision::NeedsApproval),
-        "EXECUTE_LIMITED" => Ok(company_autonomy::AutonomyDecision::ExecuteLimited),
-        "EXECUTE_STRATEGIC" => Ok(company_autonomy::AutonomyDecision::ExecuteStrategic),
-        "BLOCKED" => Ok(company_autonomy::AutonomyDecision::Blocked),
-        other => Err(format!("unknown autonomy decision: {other}").into()),
-    }
-}
-
 fn agent_outcome_evidence_from_row(
     row: tokio_postgres::Row,
     company_id: Uuid,
