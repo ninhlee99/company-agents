@@ -154,6 +154,13 @@ struct ContentObservationRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct AutonomyAssessRequest {
+    proposal: agent_runtime::types::Proposal,
+    daily_burn_minor: i128,
+    reserve_cash_minor: i128,
+}
+
+#[derive(Debug, Deserialize)]
 struct AgentOutcomeEvidenceRequest {
     decision_journal_id: i64,
     evidence_ref: String,
@@ -1000,6 +1007,55 @@ async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, S
             });
             StatusCode::INTERNAL_SERVER_ERROR
         })
+}
+
+async fn autonomy_assess_api(
+    State(state): State<AppState>,
+    Json(request): Json<AutonomyAssessRequest>,
+) -> Result<Json<company_store::AutonomySimulationRecord>, StatusCode> {
+    if request.daily_burn_minor <= 0 || request.reserve_cash_minor < 0 {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let policy = autonomy_policy_from_env().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let emergency_stop = autonomy_emergency_stop_from_env()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let config = company_autonomy::DigitalTwinConfig {
+        daily_burn_minor: request.daily_burn_minor,
+        reserve_cash_minor: request.reserve_cash_minor,
+    };
+    state
+        .store
+        .assess_autonomy_for_company(
+            &state.company_id,
+            &request.proposal,
+            policy,
+            emergency_stop,
+            &config,
+        )
+        .await
+        .map(Json)
+        .map_err(|error| {
+            tracing::warn!(%error, "autonomy assessment unavailable");
+            StatusCode::BAD_REQUEST
+        })
+}
+
+async fn autonomy_policy_api(
+    State(_state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let policy = autonomy_policy_from_env().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let emergency_stop = autonomy_emergency_stop_from_env()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    Ok(Json(serde_json::json!({
+        "max_level": policy.max_level.as_str(),
+        "min_confidence_bps": policy.min_confidence_bps,
+        "min_evidence_count": policy.min_evidence_count,
+        "max_limited_cost_minor": policy.max_limited_cost_minor,
+        "min_runway_days": policy.min_runway_days,
+        "allow_strategic": policy.allow_strategic,
+        "emergency_stop": emergency_stop,
+        "material_and_external_actions_require_human_approval": true
+    })))
 }
 
 async fn agent_outcome_evidence_api(
