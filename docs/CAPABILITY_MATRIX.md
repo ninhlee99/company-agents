@@ -123,6 +123,16 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Current boundary:** no automatic policy scraping is claimed. Operators or a verified policy watcher must supply the policy snapshot and evidence; changing platform rules do not silently become trusted.
 
 ## Trend → Opportunity → Content loop
+
+- **Evidence-gated trend ingestion:** trend signals require a source, evidence reference, timestamp, normalized scoring inputs, confidence and policy evidence before they can enter the growth loop.
+- **Deterministic opportunity scoring:** trend signals are scored from velocity, audience fit, product fit, contentability and inverse competition; low-confidence/high-score signals remain monitored instead of being auto-pursued.
+- **Durable opportunity ledger:** pursued trends create idempotent, company-scoped opportunities with the exact content economics and policy evidence used to generate them.
+- **Content-plan bridge:** a pursued opportunity can be materialized once into the Content Factory as a Draft; this does not publish externally or claim reach/revenue.
+- **TTFC evidence:** the growth ledger stores the first content creation timestamp and derives trend-to-content elapsed seconds so growth speed can be measured instead of inferred.
+- **LIVE attention controller:** each accepted LIVE event is scored for purchase intent, objections, gifts, PK moments, engagement, explicit high-value viewer evidence and safety escalation; per-session response caps/cooldowns are persisted, with human escalation for safety signals.
+- **Typed outbox events:** TREND_DETECTED, OPPORTUNITY_CREATED and CONTENT_CREATED provide durable downstream hand-off points without free-form agent chat.
+- **Current boundary:** trend discovery still requires an external/verified trend signal source, and content analytics/publishing evidence must come from separately authenticated platform boundaries.
+
 ## Agent outcome evaluation
 
 - **Outcome evidence ledger:** one immutable, company-scoped evidence record can be attached to an executed, Governor-approved decision journal entry; it carries an evidence reference plus observed revenue and contribution-margin deltas.
