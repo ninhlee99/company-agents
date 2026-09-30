@@ -1068,6 +1068,169 @@ impl CompanyStore {
         })
     }
 
+    pub async fn assess_autonomy(
+        &self,
+        proposal: &agent_runtime::types::Proposal,
+        policy: company_autonomy::AutonomyPolicy,
+        emergency_stop: bool,
+        twin_config: &company_autonomy::DigitalTwinConfig,
+    ) -> Result<AutonomySimulationRecord, Box<dyn std::error::Error + Send + Sync>> {
+        let company_id = proposal
+            .agent;
+        let _ = company_id;
+        let snapshot_company = std::env::var("COMPANY_ID").ok();
+        if let Some(expected) = snapshot_company {
+            if expected.trim().is_empty() {
+                return Err("COMPANY_ID is invalid".into());
+            }
+        }
+        let snapshot = self
+            .load_snapshot(
+                &std::env::var("COMPANY_ID")
+                    .map_err(|_| "COMPANY_ID is required for autonomy assessment")?,
+            )
+            .await?
+            .ok_or("authoritative company snapshot is unavailable")?;
+        self.assess_autonomy_for_company(
+            &snapshot.company_id,
+            proposal,
+            policy,
+            emergency_stop,
+            twin_config,
+        )
+        .await
+    }
+
+    pub async fn assess_autonomy_for_company(
+        &self,
+        company_id: &str,
+        proposal: &agent_runtime::types::Proposal,
+        policy: company_autonomy::AutonomyPolicy,
+        emergency_stop: bool,
+        twin_config: &company_autonomy::DigitalTwinConfig,
+    ) -> Result<AutonomySimulationRecord, Box<dyn std::error::Error + Send + Sync>> {
+        proposal.validate().map_err(|error| error.to_string())?;
+        twin_config.validate().map_err(|error| error.to_string())?;
+        let company = Uuid::parse_str(company_id)?;
+        let snapshot = self
+            .load_snapshot(company_id)
+            .await?
+            .ok_or("authoritative company snapshot is unavailable")?;
+
+        let simulation =
+            company_autonomy::simulate_proposal(&snapshot, proposal, twin_config)?;
+        let input = company_autonomy::AutonomyGateInput {
+            emergency_stop,
+            company_status: snapshot.status,
+            action: proposal.action,
+            cost_minor: proposal.cost_minor,
+            risk: proposal.risk,
+            confidence_bps: proposal.confidence_bps,
+            evidence_count: proposal.evidence.len().min(u8::MAX as usize) as u8,
+            reversible: proposal.reversible,
+            external_side_effect: proposal.action.inherently_material(),
+            policy,
+            simulation: Some(simulation.clone()),
+        };
+        let assessment = company_autonomy::assess(&input)?;
+
+        let key_payload = serde_json::json!({
+            "company_id": company_id,
+            "proposal": proposal,
+            "policy": policy,
+            "emergency_stop": emergency_stop,
+            "twin_config": twin_config,
+            "snapshot": {
+                "cash_minor": snapshot.cash_minor,
+                "revenue_minor": snapshot.revenue_minor,
+                "expenses_minor": snapshot.expenses_minor,
+                "liabilities_minor": snapshot.liabilities_minor,
+                "assets_minor": snapshot.assets_minor,
+                "runway_days": snapshot.runway_days,
+                "status": snapshot.status,
+                "budget_remaining_minor": snapshot.budget_remaining_minor,
+                "experiment_budget_minor": snapshot.experiment_budget_minor,
+                "backlog": snapshot.backlog,
+                "capacity": snapshot.capacity
+            }
+        });
+        let payload_bytes = serde_json::to_vec(&key_payload)?;
+        let digest = Sha256::digest(payload_bytes);
+        let idempotency_key = format!("autonomy:{}", digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>());
+        let simulation_json = serde_json::to_value(&assessment)?;
+
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        if let Some(row) = tx
+            .query_opt(
+                "SELECT id,proposal,decision,ceiling,required_level,reason,simulation,created_at::text
+                   FROM autonomy_simulations
+                  WHERE company_id=$1 AND idempotency_key=$2",
+                &[&company, &idempotency_key],
+            )
+            .await?
+        {
+            let existing = autonomy_simulation_from_row(
+                row,
+                company,
+                idempotency_key.clone(),
+            )?;
+            tx.rollback().await?;
+            return Ok(existing);
+        }
+
+        let id = Uuid::new_v4();
+        let row = tx
+            .query_one(
+                "INSERT INTO autonomy_simulations
+                 (id,company_id,idempotency_key,proposal,decision,ceiling,required_level,reason,simulation)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                 RETURNING created_at::text",
+                &[
+                    &id,
+                    &company,
+                    &idempotency_key,
+                    &serde_json::to_value(proposal)?,
+                    &assessment.decision.as_str(),
+                    &assessment.ceiling.as_str(),
+                    &assessment.required_level.as_str(),
+                    &assessment.reason,
+                    &simulation_json,
+                ],
+            )
+            .await?;
+
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'AUTONOMY_ASSESSMENT_RECORDED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[
+                &company,
+                &id,
+                &format!("outbox:{idempotency_key}"),
+                &serde_json::json!({
+                    "simulation_id": id,
+                    "decision": assessment.decision.as_str(),
+                    "ceiling": assessment.ceiling.as_str(),
+                    "required_level": assessment.required_level.as_str(),
+                }),
+            ],
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(AutonomySimulationRecord {
+            id,
+            company_id: company,
+            idempotency_key,
+            proposal: proposal.clone(),
+            assessment,
+            created_at: row.get(0),
+        })
+    }
+
     pub async fn record_agent_outcome_evidence(
         &self,
         company_id: &str,
