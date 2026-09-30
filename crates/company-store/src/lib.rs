@@ -5684,6 +5684,25 @@ impl CompanyStore {
         )
         .await?;
 
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company_uuid,
+                company_revenue_graph::RevenueNodeType::Commission,
+                &format!("affiliate:recognized:{}", company_uuid),
+                "SETTLES_TO_CASH",
+                company_revenue_graph::RevenueNodeType::Cash,
+                &format!("company:{}:cash", company_uuid),
+                Some(amount_minor),
+                Some(&company_currency),
+                10_000,
+                &format!("affiliate:payout:{}", payout_id),
+                "affiliate-payout-ledger",
+                occurred.timestamp(),
+            ),
+        )
+        .await?;
+
         tx.execute(
             "INSERT INTO outbox_events
              (company_id,event_type,aggregate_id,idempotency_key,payload)
