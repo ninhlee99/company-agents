@@ -1552,17 +1552,20 @@ impl CompanyStore {
         let company = Uuid::parse_str(company_id)?;
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
-        let row = tx.query_opt(
-            "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
-                    expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
-                    success_threshold_bps,variant_key,hook,first_frame,emotion,pacing,scene_count,
-                    text_density,voice_speed,product_placement,cta,comment_trigger,music_style,
-                    visual_style,status,decision,created_at::text
-               FROM content_items
-              WHERE company_id=$1 AND id=$2
-              FOR UPDATE",
-            &[&company, &content_id],
-        ).await?.ok_or("content item not found")?;
+        let row = tx
+            .query_opt(
+                "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
+                        expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
+                        success_threshold_bps,variant_key,hook,first_frame,emotion,pacing,scene_count,
+                        text_density,voice_speed,product_placement,cta,comment_trigger,music_style,
+                        visual_style,status,decision,created_at::text
+                   FROM content_items
+                  WHERE company_id=$1 AND id=$2
+                  FOR UPDATE",
+                &[&company, &content_id],
+            )
+            .await?
+            .ok_or("content item not found")?;
         let current = parse_content_status(row.get::<_, String>(26))?;
         company_content::validate_status_transition(current, next, evidence_ref)
             .map_err(|error| error.to_string())?;
@@ -1573,17 +1576,21 @@ impl CompanyStore {
                 SET status=$3, status_evidence_ref=$4
               WHERE company_id=$1 AND id=$2",
             &[&company, &content_id, &next_name, &evidence_ref],
-        ).await?;
+        )
+        .await?;
 
-        let refreshed = tx.query_one(
-            "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
-                    expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
-                    success_threshold_bps,variant_key,hook,first_frame,emotion,pacing,scene_count,
-                    text_density,voice_speed,product_placement,cta,comment_trigger,music_style,
-                    visual_style,status,decision,created_at::text
-               FROM content_items WHERE company_id=$1 AND id=$2",
-            &[&company, &content_id],
-        ).await?;
+        let refreshed = tx
+            .query_one(
+                "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
+                        expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
+                        success_threshold_bps,variant_key,hook,first_frame,emotion,pacing,scene_count,
+                        text_density,voice_speed,product_placement,cta,comment_trigger,music_style,
+                        visual_style,status,decision,created_at::text
+                   FROM content_items
+                  WHERE company_id=$1 AND id=$2",
+                &[&company, &content_id],
+            )
+            .await?;
         let record = content_record_from_row(refreshed)?;
 
         if current != company_content::ContentStatus::Published
