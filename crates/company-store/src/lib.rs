@@ -4985,6 +4985,70 @@ impl CompanyStore {
             .await?;
         }
 
+        let observed_at_epoch = parse_rfc3339_epoch(&event.occurred_at)?;
+        let net_order_value = event
+            .order_value_minor
+            .checked_sub(event.refunded_minor)
+            .ok_or("affiliate order value underflow")?;
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company_id,
+                company_revenue_graph::RevenueNodeType::Order,
+                &event.order_id,
+                "PURCHASES",
+                company_revenue_graph::RevenueNodeType::Product,
+                &event.product_id,
+                Some(net_order_value),
+                Some(&currency),
+                if event.cancelled { 2_000 } else { 10_000 },
+                &format!("affiliate:conversion:{}", event.conversion_id),
+                &event.source,
+                observed_at_epoch,
+            ),
+        )
+        .await?;
+
+        record_revenue_graph_edge_tx(
+            &tx,
+            &new_graph_edge(
+                company_id,
+                company_revenue_graph::RevenueNodeType::Order,
+                &event.order_id,
+                "REPORTS_COMMISSION",
+                company_revenue_graph::RevenueNodeType::Commission,
+                &event.conversion_id,
+                Some(if event.cancelled { 0 } else { event.commission_minor }),
+                Some(&currency),
+                5_000,
+                &format!("affiliate:conversion:{}", event.conversion_id),
+                &event.source,
+                observed_at_epoch,
+            ),
+        )
+        .await?;
+
+        for attribution in &reconciled.attributed {
+            record_revenue_graph_edge_tx(
+                &tx,
+                &new_graph_edge(
+                    company_id,
+                    company_revenue_graph::RevenueNodeType::Content,
+                    &attribution.content_id,
+                    "ATTRIBUTED_TO",
+                    company_revenue_graph::RevenueNodeType::Order,
+                    &event.order_id,
+                    Some(attribution.attributed_order_value_minor),
+                    Some(&currency),
+                    attribution.confidence_bps,
+                    &format!("affiliate:conversion:{}", event.conversion_id),
+                    &event.source,
+                    observed_at_epoch,
+                ),
+            )
+            .await?;
+        }
+
         let target_recognized = 0_i128;
 
         let prior = tx
