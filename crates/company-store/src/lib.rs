@@ -441,6 +441,11 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/039_autonomy_controls.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/040_tiktok_oauth.sql"
+            ))
             .await
     }
 
