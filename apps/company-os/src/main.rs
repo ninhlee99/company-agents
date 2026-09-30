@@ -3106,7 +3106,7 @@ async fn require_control_plane_auth(
     ) {
         Some(role) => role,
         None => {
-            mark_control_plane_denied(&state, false);
+            mark_control_plane_denied(&state, false, started);
             record_control_plane_audit(
                 &state,
                 &actor_id,
