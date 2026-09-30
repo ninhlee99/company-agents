@@ -152,6 +152,12 @@ struct RevenueGraphEdgeRequest {
     edge: company_revenue_graph::RevenueGraphEdge,
 }
 
+#[derive(Debug, Deserialize, Default)]
+struct ControlPlaneAuditQuery {
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
 #[derive(Debug, Deserialize)]
 struct RevenueGraphLineageQuery {
     root_type: String,
@@ -1266,6 +1272,18 @@ async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, S
             });
             StatusCode::INTERNAL_SERVER_ERROR
         })
+}
+
+async fn control_plane_audit_api(
+    State(state): State<AppState>,
+    Query(query): Query<ControlPlaneAuditQuery>,
+) -> Result<Json<Vec<company_store::ControlPlaneAuditRecord>>, StatusCode> {
+    state
+        .store
+        .list_control_plane_audit(&state.company_id, query.limit.unwrap_or(100))
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
 }
 
 async fn autonomy_controls_get_api(
@@ -2957,6 +2975,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/agents", get(agents_api))
         .route("/api/agents/outcome-evidence", post(agent_outcome_evidence_api))
         .route("/api/agents/evaluation", get(agent_outcome_evaluations_api))
+        .route("/api/control-plane/audit", get(control_plane_audit_api))
         .route("/api/autonomy/policy", get(autonomy_policy_api))
         .route("/api/autonomy/controls", get(autonomy_controls_get_api).post(autonomy_controls_set_api))
         .route("/api/autonomy/budget/consume", post(autonomy_budget_consume_api))

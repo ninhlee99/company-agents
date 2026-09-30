@@ -176,6 +176,7 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 ## Control-plane audit
 
 - **Control-plane audit:** authenticated/denied requests are durably recorded with company, coarse operator role, method/path, outcome, request ID, and non-secret bearer-token fingerprint. The system still does not provide multi-user identity, RBAC, or SSO.
+- **Read-only audit feed:** `GET /api/control-plane/audit?limit=N` exposes recent company-scoped audit metadata to authenticated control-plane clients; the bearer token itself is never returned.
 - **Coarse auth scope:** `CONTROL_PLANE_READ_TOKEN` may authorize only `GET/HEAD` requests; `CONTROL_PLANE_TOKEN` remains the operator credential for mutating control-plane actions. This narrows blast radius but is not multi-user RBAC.
 
 ## Model routing (shadow)

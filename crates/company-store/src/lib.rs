@@ -173,6 +173,20 @@ pub struct ContributionMarginMetrics {
     pub variable_cost_transaction_count: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ControlPlaneAuditRecord {
+    pub id: i64,
+    pub company_id: Uuid,
+    pub actor_id: String,
+    pub actor_role: String,
+    pub method: String,
+    pub path: String,
+    pub action: String,
+    pub outcome: String,
+    pub request_id: Option<String>,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct OutboxEvent {
     pub id: i64,
@@ -535,6 +549,43 @@ impl CompanyStore {
             )
             .await?;
         Ok(())
+    }
+
+    pub async fn list_control_plane_audit(
+        &self,
+        company_id: &str,
+        limit: i64,
+    ) -> Result<Vec<ControlPlaneAuditRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        if !(1..=200).contains(&limit) {
+            return Err("control-plane audit limit must be between 1 and 200".into());
+        }
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT id,company_id,actor_id,actor_role,method,path,action,outcome,request_id,created_at::text
+                   FROM control_plane_audit_log
+                  WHERE company_id=$1
+                  ORDER BY created_at DESC,id DESC
+                  LIMIT $2",
+                &[&company, &limit],
+            )
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| ControlPlaneAuditRecord {
+                id: row.get(0),
+                company_id: row.get(1),
+                actor_id: row.get(2),
+                actor_role: row.get(3),
+                method: row.get(4),
+                path: row.get(5),
+                action: row.get(6),
+                outcome: row.get(7),
+                request_id: row.get(8),
+                created_at: row.get(9),
+            })
+            .collect())
     }
 
     pub async fn record_revenue_graph_edge(
