@@ -122,6 +122,14 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Policy activation event:** activating a new version deactivates the prior active snapshot, rejects rollback to an older effective policy, and emits `POLICY_SNAPSHOT_ACTIVATED` for downstream watchers.
 - **Current boundary:** no automatic policy scraping is claimed. Operators or a verified policy watcher must supply the policy snapshot and evidence; changing platform rules do not silently become trusted.
 
+## Emergency stop + autonomy budgets
+
+- **Persistent emergency stop:** a company-scoped stop survives process restarts and blocks autonomous cycle side effects, TikTok publishing, LIVE starts and outbound email delivery while leaving audit/evidence/accounting paths available.
+- **Daily hard budgets:** content publishes, ad spend, LIVE minutes, outbound messages and autonomous capital each have explicit daily ceilings. Zero is a valid hard block.
+- **Atomic idempotent consumption:** budget consumption is checked and recorded inside a transaction with an immutable consumption ledger and durable outbox event.
+- **Operational visibility:** Company OS exposes the stop state and configured daily caps; blocked actions return an explicit precondition failure rather than appearing successful.
+- **Current boundary:** ad execution and fully automatic autonomous-capital execution are not yet present in the repository, so their budgets are control-plane reservations for the next execution adapters.
+
 ## Capital allocation planning
 
 - **Evidence-backed candidate contract:** capital candidates carry an explicit evidence reference plus expected contribution, downside, capital required, time-to-feedback, reversibility, strategic value, confidence, evidence count and a hard allocation cap.
