@@ -9140,23 +9140,27 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
                     ],
                 ).await?;
                 if inserted_opportunity.is_some() {
-                    tx.execute(
-                        "INSERT INTO outbox_events
-                         (company_id,event_type,aggregate_id,idempotency_key,payload)
-                         VALUES ($1,'OPPORTUNITY_CREATED',$2,$3,$4)
-                         ON CONFLICT(company_id,idempotency_key) DO NOTHING",
-                        &[
-                            &company,
-                            &opportunity.id,
-                            &format!("outbox:growth-opportunity:{}", opportunity.id),
-                            &serde_json::json!({
-                                "opportunity_id": opportunity.id,
-                                "trend_id": trend.id,
-                                "score_bps": opportunity.score_bps,
-                                "confidence_bps": opportunity.confidence_bps
-                            }),
-                        ],
-                    ).await?;
+                    let opportunity_event = company_domain::CompanyEventEnvelope::new(
+                        company,
+                        company_domain::CompanyEventType::OpportunityCreated,
+                        "growth_opportunity",
+                        Some(opportunity.id),
+                        trend.signal.observed_at_epoch,
+                        opportunity.id,
+                        Some(trend.id),
+                        format!("outbox:growth-opportunity:{}", opportunity.id),
+                        serde_json::json!({
+                            "opportunity_id": opportunity.id,
+                            "trend_id": trend.id,
+                            "opportunity_key": opportunity.opportunity_key,
+                            "title": opportunity.title,
+                            "score_bps": opportunity.score_bps,
+                            "confidence_bps": opportunity.confidence_bps,
+                            "policy_evidence_ref": opportunity.policy_evidence_ref,
+                            "plan": opportunity.plan,
+                        }),
+                    )?;
+                    enqueue_company_event_tx(&tx, &opportunity_event).await?;
                 }
                 load_growth_opportunity_by_trend(&tx, &company, trend.id)
                     .await?
@@ -10582,6 +10586,45 @@ mod customer_intelligence_tests {
         assert_eq!(collection_rate_bps(0, 0), 0);
         assert_eq!(collection_rate_bps(100, 50), 5_000);
         assert_eq!(collection_rate_bps(100, 120), 10_000);
+    }
+}
+
+#[cfg(test)]
+mod opportunity_created_event_tests {
+    use super::*;
+
+    #[test]
+    fn opportunity_event_links_trend_causation_and_policy_evidence() {
+        let company = Uuid::from_u128(121);
+        let trend = Uuid::from_u128(122);
+        let opportunity = Uuid::from_u128(123);
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::OpportunityCreated,
+            "growth_opportunity",
+            Some(opportunity),
+            1_800_001_000,
+            opportunity,
+            Some(trend),
+            "outbox:growth-opportunity:00000000-0000-0000-0000-000000000123",
+            serde_json::json!({
+                "opportunity_id": opportunity,
+                "trend_id": trend,
+                "opportunity_key": "trend-123-opportunity",
+                "title": "Test opportunity",
+                "score_bps": 7800,
+                "confidence_bps": 9200,
+                "policy_evidence_ref": "policy:2026-09",
+                "plan": {"format": "short_video"}
+            }),
+        ).unwrap();
+
+        assert_eq!(event.event_type_name(), "OPPORTUNITY_CREATED");
+        assert_eq!(event.aggregate_id, Some(opportunity));
+        assert_eq!(event.correlation_id, opportunity);
+        assert_eq!(event.causation_id, Some(trend));
+        assert_eq!(event.payload["policy_evidence_ref"], "policy:2026-09");
+        assert_eq!(event.payload["score_bps"], 7800);
     }
 }
 
