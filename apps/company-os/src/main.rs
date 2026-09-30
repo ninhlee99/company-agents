@@ -1148,20 +1148,20 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <small>Example: <code>/api/affiliate/search?category=electronics&amp;min_commission_bps=1500&amp;require_coupon=true</code></small>
 </div>
 <script>
-(() => {{
+(() => {{{{
   const csrf = document.cookie
     .split('; ')
     .find(row => row.startsWith('company_os_csrf='))
     ?.split('=')[1];
   if (!csrf) return;
-  for (const form of document.querySelectorAll('form[method="post"]')) {
+  for (const form of document.querySelectorAll('form[method="post"]')) {{
     const action = form.getAttribute('action');
     if (!action || action.startsWith('/auth/session')) continue;
     const url = new URL(action, window.location.origin);
     url.searchParams.set('csrf', csrf);
     form.setAttribute('action', url.pathname + url.search + url.hash);
-  }
-}})();</script></body></html>"#,
+  }}
+}}}})();</script></body></html>"#,
         state.company_id.clone(),
         command_center_html,
         agent_evaluation_html,
