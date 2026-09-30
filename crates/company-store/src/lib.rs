@@ -308,6 +308,11 @@ fn autonomy_controls_correlation_id(company: Uuid, idempotency_key: &str) -> Uui
     Uuid::from_bytes(digest[..16].try_into().expect("sha256 digest is at least 16 bytes"))
 }
 
+fn live_attention_event_correlation_id(company: Uuid, session: Uuid, event_id: &str) -> Uuid {
+    let digest = Sha256::digest(format!("live-attention:{company}:{session}:{event_id}").as_bytes());
+    Uuid::from_bytes(digest[..16].try_into().expect("sha256 digest is at least 16 bytes"))
+}
+
 fn sponsorship_event_correlation_id(company: Uuid, identity: &str) -> Uuid {
     let digest = Sha256::digest(format!("sponsorship:{company}:{identity}").as_bytes());
     Uuid::from_bytes(digest[..16].try_into().expect("sha256 digest is at least 16 bytes"))
@@ -7154,18 +7159,19 @@ impl CompanyStore {
             ],
         ).await?;
 
-        tx.execute(
-            "INSERT INTO outbox_events
-             (company_id,event_type,aggregate_id,idempotency_key,payload)
-             VALUES ($1,'LIVE_ATTENTION_DECIDED',$2,$3,$4)
-             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
-            &[
-                &company_uuid,
-                &session_uuid.to_string(),
-                &format!("outbox:live-attention:{}:{}", session_uuid, decision.event_id),
-                &serde_json::to_value(&decision)?,
-            ],
-        ).await?;
+        let attention_key = format!("outbox:live-attention:{}:{}", session_uuid, decision.event_id);
+        let attention_event = company_domain::CompanyEventEnvelope::new(
+            company_uuid,
+            company_domain::CompanyEventType::LiveAttentionDecided,
+            "live_attention_session",
+            Some(session_uuid),
+            decision.decided_at_epoch,
+            live_attention_event_correlation_id(company_uuid, session_uuid, &decision.event_id),
+            None,
+            attention_key,
+            serde_json::to_value(&decision)?,
+        )?;
+        enqueue_company_event_tx(&tx, &attention_event).await?;
 
         if let Some(learning) = live_attention_learning_entry(event, &decision) {
             company_learning::validate_evidence(&learning)
@@ -10667,6 +10673,40 @@ fn parse_i128_numeric(
     trimmed
         .parse::<i128>()
         .map_err(|error| format!("invalid integer numeric value: {error}").into())
+}
+
+#[cfg(test)]
+mod live_attention_event_tests {
+    use super::*;
+
+    #[test]
+    fn live_attention_event_preserves_human_safety_flags() {
+        let company = Uuid::from_u128(801);
+        let session = Uuid::from_u128(802);
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::LiveAttentionDecided,
+            "live_attention_session",
+            Some(session),
+            1_800_000_500,
+            live_attention_event_correlation_id(company, session, "event-1"),
+            None,
+            format!("outbox:live-attention:{}:event-1", session),
+            serde_json::json!({
+                "session_id": session,
+                "event_id": "event-1",
+                "action": "ESCALATE",
+                "reason": "SAFETY_ESCALATION",
+                "priority": 100,
+                "requires_human": true
+            }),
+        ).unwrap();
+
+        assert_eq!(event.event_type_name(), "LIVE_ATTENTION_DECIDED");
+        assert_eq!(event.aggregate_id, Some(session));
+        assert_eq!(event.payload["action"], "ESCALATE");
+        assert_eq!(event.payload["requires_human"], true);
+    }
 }
 
 #[cfg(test)]
