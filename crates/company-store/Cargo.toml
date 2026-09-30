@@ -31,3 +31,4 @@ company-command-center = { path = "../company-command-center" }
 company-agent-evaluation = { path = "../company-agent-evaluation" }
 company-autonomy = { path = "../company-autonomy" }
 company-capital = { path = "../company-capital" }
+company-safety-controls = { path = "../company-safety-controls" }

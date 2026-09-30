@@ -161,6 +161,21 @@ struct ContentObservationRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct AutonomyControlsRequest {
+    emergency_stop: bool,
+    reason: Option<String>,
+    actor: String,
+    budgets: company_safety_controls::AutonomyBudgets,
+}
+
+#[derive(Debug, Deserialize)]
+struct AutonomyBudgetConsumeRequest {
+    kind: String,
+    amount: i128,
+    idempotency_key: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct AutonomyAssessRequest {
     proposal: agent_runtime::types::Proposal,
     daily_burn_minor: i128,
@@ -586,8 +601,80 @@ async fn index(
             contribution_margin.variable_cost_transaction_count
         )
     };
+    let budget_statuses = state
+        .store
+        .autonomy_budget_statuses(
+            &state.company_id,
+            time::OffsetDateTime::now_utc().unix_timestamp(),
+        )
+        .await
+        .unwrap_or_default();
+    let mut budget_status_html = String::new();
+    for status in &budget_statuses {
+        let (used, remaining, limit) = match status.kind {
+            company_safety_controls::BudgetKind::AdsSpend
+            | company_safety_controls::BudgetKind::AutonomousCapital => (
+                format_minor(status.used, &state.currency),
+                format_minor(status.remaining, &state.currency),
+                format_minor(status.daily_limit, &state.currency),
+            ),
+            _ => (
+                status.used.to_string(),
+                status.remaining.to_string(),
+                status.daily_limit.to_string(),
+            ),
+        };
+        budget_status_html.push_str(&format!(
+            r#"<div style="padding:7px 0;border-bottom:1px solid #26304a"><span class="muted">{}</span> · used {} / limit {} · remaining {}</div>"#,
+            status.kind.as_str(),
+            used,
+            limit,
+            remaining
+        ));
+    }
+
     let autonomy_policy = autonomy_policy_from_env();
-    let autonomy_stop = autonomy_emergency_stop_from_env();
+    let persistent_controls = state.store.autonomy_controls(&state.company_id).await;
+    let autonomy_stop = match (
+        autonomy_emergency_stop_from_env(),
+        persistent_controls.as_ref().map(|record| record.controls.emergency_stop.enabled),
+    ) {
+        (Ok(env_stop), Ok(persisted_stop)) => Ok(env_stop || persisted_stop),
+        (Err(error), _) => Err(error),
+        (_, Err(error)) => Err(error.to_string()),
+    };
+    let safety_controls_html = match persistent_controls {
+        Ok(record) => {
+            let stop_label = match autonomy_stop.as_ref() {
+                Ok(true) => "EMERGENCY STOP ON",
+                Ok(false) => "normal",
+                Err(_) => "SAFETY STATE UNKNOWN",
+            };
+            let stop_reason = record
+                .controls
+                .emergency_stop
+                .reason
+                .as_deref()
+                .unwrap_or("no active stop reason");
+            let b = &record.controls.budgets;
+            format!(
+                r#"<div class="card"><h2>Safety controls</h2><div class="metric">{}</div><div class="muted">{} · budgets reset daily at UTC day start</div><div class="grid" style="margin-top:10px"><div><small>Content publishes</small><div class="metric" style="font-size:18px">{}</div></div><div><small>LIVE minutes</small><div class="metric" style="font-size:18px">{}</div></div><div><small>Messages</small><div class="metric" style="font-size:18px">{}</div></div><div><small>Autonomous capital</small><div class="metric" style="font-size:18px">{}</div></div></div><div style="margin-top:10px">{}</div><small class="muted">Stop reason: {} · actor: {}</small></div>"#,
+                stop_label,
+                escape_html(stop_reason),
+                b.content_publish_daily,
+                b.live_minutes_daily,
+                b.outbound_messages_daily,
+                format_minor(b.autonomous_capital_daily_minor, &state.currency),
+                budget_status_html,
+                escape_html(stop_reason),
+                escape_html(&record.controls.emergency_stop.actor),
+            )
+        }
+        Err(error) => {
+            tracing::warn!(%error, "autonomy safety controls unavailable");
+            r#"<div class="card"><h2>Safety controls</h2><p class="muted">Persistent safety controls are unavailable. Autonomous side effects remain fail-closed.</p></div>"#.into()
+        }
+    };
     let autonomy_html = match (autonomy_policy, autonomy_stop) {
         (Ok(policy), Ok(emergency_stop)) => {
             let ceiling = policy.max_level.as_str();
@@ -736,7 +823,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 @media(max-width:520px){{.grid{{grid-template-columns:1fr}}.cc-kpis{{grid-template-columns:1fr 1fr}}.cc-body{{grid-template-columns:1fr}}.autonomy-steps{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
 </style></head><body>
 <header><h1>Veridara AI</h1><small>Autonomous Company OS · {}</small></header>
-<nav><a href="/">Overview</a><a href="/api/ceo/command-center">Revenue JSON</a><a href="/api/capital/plan">Capital plan</a><a href="/api/autonomy/policy">Autonomy policy</a><a href="/api/agents">Agents</a><a href="/api/agents/evaluation">Agent outcomes</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Audit</a></nav>
+<nav><a href="/">Overview</a><a href="/api/ceo/command-center">Revenue JSON</a><a href="/api/capital/plan">Capital plan</a><a href="/api/autonomy/controls">Safety controls</a><a href="/api/autonomy/policy">Autonomy policy</a><a href="/api/agents">Agents</a><a href="/api/agents/evaluation">Agent outcomes</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Audit</a></nav>
 {}
 {}
 {}
@@ -750,6 +837,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <div class="card"><small>Affiliate reconciliation MTD</small><div class="metric">{}</div><small>variance · reported · attributed · paid: {} · {} · {} · {}</small></div>
 <div class="card"><h2>Growth pipeline</h2><p class="muted">Evidence-backed trend signals become scored opportunities before any content plan is created.</p>{}</div>
 <div class="card"><h2>Capital allocation</h2><p class="muted">Expected contribution, downside, speed, reversibility and evidence are evaluated before any capital movement.</p>{}</div>
+{}
 <div class="card"><h2>Policy intelligence</h2><p class="muted">External content/LIVE side effects require a matching versioned policy snapshot and evidence.</p>{}</div>
 <div class="grid"><div class="card"><small>Status</small><div class="metric">{:?}</div></div><div class="card"><small>Agent cycle</small><div class="metric">{}</div></div><div class="card"><small>Backlog / capacity</small><div class="metric">{}%</div></div><div class="card"><small>Agent results</small><div class="metric">{}</div></div></div>
 <div class="grid"><div class="card"><small>Active workforce</small><div class="metric">{}</div></div><div class="card"><small>Payroll due</small><div class="metric">{}</div></div><div class="card"><small>Business units</small><div class="metric">{}</div></div><div class="card"><small>Operating loop</small><div class="metric">observe → act → learn</div></div></div>
@@ -783,6 +871,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         format_minor(affiliate_reconciliation.recorded_payout_mtd_minor, &state.currency),
         growth_html,
         capital_plan_html,
+        safety_controls_html,
         compliance_html,
         company.runway_days,
         company.status,
@@ -1088,6 +1177,84 @@ async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, S
         })
 }
 
+async fn autonomy_controls_get_api(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let record = state
+        .store
+        .autonomy_controls(&state.company_id)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let budgets = state
+        .store
+        .autonomy_budget_statuses(
+            &state.company_id,
+            time::OffsetDateTime::now_utc().unix_timestamp(),
+        )
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let env_stop = autonomy_emergency_stop_from_env()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let effective_emergency_stop = env_stop || record.controls.emergency_stop.enabled;
+    Ok(Json(serde_json::json!({
+        "company_id": state.company_id,
+        "controls": record.controls,
+        "updated_at": record.updated_at,
+        "effective_emergency_stop": effective_emergency_stop,
+        "budgets": budgets,
+        "identity_boundary": "actor is audit metadata; operator identity is the control-plane bearer token"
+    })))
+}
+
+async fn autonomy_controls_set_api(
+    State(state): State<AppState>,
+    Json(request): Json<AutonomyControlsRequest>,
+) -> Result<Json<company_store::AutonomyControlRecord>, StatusCode> {
+    state
+        .store
+        .set_autonomy_controls(
+            &state.company_id,
+            request.emergency_stop,
+            request.reason.as_deref(),
+            &request.actor,
+            &request.budgets,
+        )
+        .await
+        .map(Json)
+        .map_err(|error| {
+            tracing::warn!(%error, "autonomy control update rejected");
+            StatusCode::BAD_REQUEST
+        })
+}
+
+async fn autonomy_budget_consume_api(
+    State(state): State<AppState>,
+    Json(request): Json<AutonomyBudgetConsumeRequest>,
+) -> Result<Json<company_safety_controls::BudgetDecision>, StatusCode> {
+    let kind = company_safety_controls::BudgetKind::parse(&request.kind)
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let now_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
+    let decision = state
+        .store
+        .consume_autonomy_budget(
+            &state.company_id,
+            kind,
+            request.amount,
+            &request.idempotency_key,
+            now_epoch,
+        )
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, "autonomy budget consumption rejected");
+            StatusCode::BAD_REQUEST
+        })?;
+    if decision.allowed {
+        Ok(Json(decision))
+    } else {
+        Err(StatusCode::PRECONDITION_FAILED)
+    }
+}
+
 async fn autonomy_assess_api(
     State(state): State<AppState>,
     Json(request): Json<AutonomyAssessRequest>,
@@ -1096,8 +1263,14 @@ async fn autonomy_assess_api(
         return Err(StatusCode::BAD_REQUEST);
     }
     let policy = autonomy_policy_from_env().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let emergency_stop = autonomy_emergency_stop_from_env()
+    let env_stop = autonomy_emergency_stop_from_env()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let controls = state
+        .store
+        .autonomy_controls(&state.company_id)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let emergency_stop = env_stop || controls.controls.emergency_stop.enabled;
     let config = company_autonomy::DigitalTwinConfig {
         daily_burn_minor: request.daily_burn_minor,
         reserve_cash_minor: request.reserve_cash_minor,
@@ -1120,11 +1293,17 @@ async fn autonomy_assess_api(
 }
 
 async fn autonomy_policy_api(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let policy = autonomy_policy_from_env().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let emergency_stop = autonomy_emergency_stop_from_env()
+    let env_stop = autonomy_emergency_stop_from_env()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let controls = state
+        .store
+        .autonomy_controls(&state.company_id)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let emergency_stop = env_stop || controls.controls.emergency_stop.enabled;
     Ok(Json(serde_json::json!({
         "max_level": policy.max_level.as_str(),
         "min_confidence_bps": policy.min_confidence_bps,
@@ -1611,9 +1790,24 @@ async fn create_capital_plan_api(
     policy.company_status = snapshot.status;
     policy.cash_available_minor = snapshot.cash_minor.max(0);
     policy.runway_days = snapshot.runway_days.max(0);
-    if autonomy_emergency_stop_from_env().unwrap_or(true) {
-        policy.emergency_stop = true;
-    }
+    let env_stop = autonomy_emergency_stop_from_env().unwrap_or(true);
+    let controls = state
+        .store
+        .autonomy_controls(&state.company_id)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    policy.emergency_stop = policy.emergency_stop || env_stop || controls.controls.emergency_stop.enabled;
+    let now_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
+    let capital_remaining = state
+        .store
+        .autonomy_budget_remaining(
+            &state.company_id,
+            company_safety_controls::BudgetKind::AutonomousCapital,
+            now_epoch,
+        )
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    policy.discretionary_budget_minor = policy.discretionary_budget_minor.min(capital_remaining);
     state
         .store
         .create_capital_allocation_plan(
@@ -2090,6 +2284,8 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/agents/outcome-evidence", post(agent_outcome_evidence_api))
         .route("/api/agents/evaluation", get(agent_outcome_evaluations_api))
         .route("/api/autonomy/policy", get(autonomy_policy_api))
+        .route("/api/autonomy/controls", get(autonomy_controls_get_api).post(autonomy_controls_set_api))
+        .route("/api/autonomy/budget/consume", post(autonomy_budget_consume_api))
         .route("/api/autonomy/assess", post(autonomy_assess_api))
         .route("/api/content/items", get(content_list_api).post(content_create_api))
         .route("/api/content/observations", post(content_observation_api))

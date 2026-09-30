@@ -45,6 +45,7 @@ jobs:
           - company-agent-evaluation
           - company-autonomy
           - company-capital
+          - company-safety-controls
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

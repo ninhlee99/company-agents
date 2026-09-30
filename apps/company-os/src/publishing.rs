@@ -216,6 +216,40 @@ pub async fn execute_tiktok(
         return Err(fail_message(message));
     }
 
+    let now_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
+    let budget = state
+        .store
+        .consume_autonomy_budget(
+            &state.company_id,
+            company_safety_controls::BudgetKind::ContentPublish,
+            1,
+            &format!(
+                "content-publish:{}:{}:{}",
+                state.company_id, request.intent_id, request.approval_token
+            ),
+            now_epoch,
+        )
+        .await
+        .map_err(|error| fail_message(error))?;
+    if !budget.allowed {
+        let reason = "content publish blocked by emergency stop or daily autonomy budget";
+        let _ = state.store.complete_publish_intent(
+            &state.company_id,
+            &request.intent_id,
+            &job.execution_token,
+            false,
+            None,
+            Some(reason),
+        ).await;
+        return Err((
+            StatusCode::PRECONDITION_FAILED,
+            Json(serde_json::json!({
+                "error": reason,
+                "budget": budget
+            })),
+        ));
+    }
+
     let receipt = match publisher.publish_video_authorized(publish_request, &creator).await {
         Ok(receipt) => receipt,
         Err(error) => {
