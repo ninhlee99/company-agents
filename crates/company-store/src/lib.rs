@@ -303,6 +303,16 @@ async fn enqueue_company_event_tx(
     Ok(inserted == 1)
 }
 
+fn autonomy_controls_correlation_id(company: Uuid, idempotency_key: &str) -> Uuid {
+    let digest = Sha256::digest(format!("autonomy-controls:{company}:{idempotency_key}").as_bytes());
+    Uuid::from_bytes(digest[..16].try_into().expect("sha256 digest is at least 16 bytes"))
+}
+
+fn autonomy_budget_correlation_id(company: Uuid, idempotency_key: &str) -> Uuid {
+    let digest = Sha256::digest(format!("autonomy-budget:{company}:{idempotency_key}").as_bytes());
+    Uuid::from_bytes(digest[..16].try_into().expect("sha256 digest is at least 16 bytes"))
+}
+
 fn learning_entry_correlation_id(entry_key: &str) -> Uuid {
     let digest = Sha256::digest(format!("learning:{entry_key}").as_bytes());
     Uuid::from_bytes(
@@ -4469,24 +4479,24 @@ impl CompanyStore {
         .await?;
 
         {
-            tx.execute(
-                "INSERT INTO outbox_events
-                 (company_id,event_type,aggregate_id,idempotency_key,payload)
-                 VALUES ($1,'AUTONOMY_CONTROLS_CHANGED',$2,$3,$4)
-                 ON CONFLICT(company_id,idempotency_key) DO NOTHING",
-                &[
-                    &company,
-                    &company,
-                    &format!("outbox:autonomy-controls:{company}:{now_epoch}"),
-                    &serde_json::json!({
-                        "emergency_stop_enabled": emergency_stop_enabled,
-                        "actor": actor.trim(),
-                        "reason": emergency_stop_reason,
-                        "budgets": budgets
-                    }),
-                ],
-            )
-            .await?;
+            let controls_key = format!("outbox:autonomy-controls:{company}:{now_epoch}");
+            let controls_event = company_domain::CompanyEventEnvelope::new(
+                company,
+                company_domain::CompanyEventType::AutonomyControlsChanged,
+                "autonomy_control",
+                Some(company),
+                now_epoch,
+                autonomy_controls_correlation_id(company, &controls_key),
+                None,
+                controls_key,
+                serde_json::json!({
+                    "emergency_stop_enabled": emergency_stop_enabled,
+                    "actor": actor.trim(),
+                    "reason": emergency_stop_reason,
+                    "budgets": budgets
+                }),
+            )?;
+            enqueue_company_event_tx(&tx, &controls_event).await?;
         }
 
         tx.execute(
@@ -4752,25 +4762,25 @@ impl CompanyStore {
             &[&company, &kind.as_str(), &period, &amount.to_string(), &idempotency_key],
         )
         .await?;
-        tx.execute(
-            "INSERT INTO outbox_events
-             (company_id,event_type,aggregate_id,idempotency_key,payload)
-             VALUES ($1,'AUTONOMY_BUDGET_CONSUMED',$2,$3,$4)
-             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
-            &[
-                &company,
-                &company,
-                &format!("outbox:autonomy-budget:{kind:?}:{company}:{idempotency_key}"),
-                &serde_json::json!({
-                    "kind": kind.as_str(),
-                    "amount": amount,
-                    "period_start_epoch": period,
-                    "used_before": used,
-                    "used_after": next_used
-                }),
-            ],
-        )
-        .await?;
+        let budget_key = format!("outbox:autonomy-budget:{kind:?}:{company}:{idempotency_key}");
+        let budget_event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::AutonomyBudgetConsumed,
+            "autonomy_budget",
+            Some(company),
+            now_epoch,
+            autonomy_budget_correlation_id(company, &budget_key),
+            None,
+            budget_key,
+            serde_json::json!({
+                "kind": kind.as_str(),
+                "amount": amount,
+                "period_start_epoch": period,
+                "used_before": used,
+                "used_after": next_used
+            }),
+        )?;
+        enqueue_company_event_tx(&tx, &budget_event).await?;
 
         Ok(decision)
     }
