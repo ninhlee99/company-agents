@@ -75,3 +75,6 @@ Recurring autonomous operation is technically scaffolded, but unsupervised exter
 
 ## Release rule
 Do not advance a phase until its previous phase passes tests and operational acceptance criteria.
+
+- Forecast-vs-actual variance report: implemented baseline via `/api/fpa/forecast-variance` and `/fpa/variance`, company-scoped and evidence-aware.
+
