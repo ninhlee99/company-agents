@@ -161,6 +161,21 @@ struct ContentObservationRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct AutonomyControlsRequest {
+    emergency_stop: bool,
+    reason: Option<String>,
+    actor: String,
+    budgets: company_safety_controls::AutonomyBudgets,
+}
+
+#[derive(Debug, Deserialize)]
+struct AutonomyBudgetConsumeRequest {
+    kind: String,
+    amount: i128,
+    idempotency_key: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct AutonomyAssessRequest {
     proposal: agent_runtime::types::Proposal,
     daily_burn_minor: i128,
