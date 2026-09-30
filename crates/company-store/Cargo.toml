@@ -34,3 +34,4 @@ company-capital = { path = "../company-capital" }
 company-safety-controls = { path = "../company-safety-controls" }
 company-tiktok-auth = { path = "../company-tiktok-auth" }
 company-revenue-graph = { path = "../company-revenue-graph" }
+company-learning = { path = "../company-learning" }

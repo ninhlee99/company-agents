@@ -1343,6 +1343,81 @@ impl CompanyStore {
         )
         .await?;
 
+        if !matches!(decision, company_experiments::ExperimentDecision::Continue) {
+            let learning = experiment_learning_entry(
+                experiment_id,
+                &spec,
+                observation,
+                decision,
+                observation_key,
+            );
+            company_learning::validate_evidence(&learning)
+                .map_err(|error| error.to_string())?;
+
+            let inserted = tx.query_opt(
+                "INSERT INTO learning_entries
+                 (id,company_id,entry_key,source_type,source_id,kind,severity,hypothesis,context,
+                  expected_outcome,actual_outcome,impact_minor,confidence_bps,root_cause,
+                  corrective_action,reusable_rule,decision)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+                 ON CONFLICT(company_id,entry_key) DO NOTHING
+                 RETURNING id",
+                &[
+                    &Uuid::new_v4(),
+                    &company,
+                    &learning.entry_key,
+                    &learning.source_type,
+                    &learning.source_id,
+                    &learning_kind_name(learning.kind),
+                    &failure_severity_name(learning.severity),
+                    &learning.hypothesis,
+                    &learning.context,
+                    &learning.expected_outcome,
+                    &learning.actual_outcome,
+                    &learning.impact_minor.to_string(),
+                    &learning.confidence_bps,
+                    &learning.root_cause,
+                    &learning.corrective_action,
+                    &learning.reusable_rule,
+                    &learning_decision_name(learning.decision),
+                ],
+            )
+            .await?;
+            let learning_id = match inserted {
+                Some(row) => row.get(0),
+                None => tx
+                    .query_one(
+                        "SELECT id FROM learning_entries WHERE company_id=$1 AND entry_key=$2",
+                        &[&company, &learning.entry_key],
+                    )
+                    .await?
+                    .get(0),
+            };
+
+            let outbox_key = format!("outbox:learning:{}", learning.entry_key);
+            let payload = serde_json::json!({
+                "entry_key": &learning.entry_key,
+                "source_type": &learning.source_type,
+                "source_id": &learning.source_id,
+                "kind": learning.kind,
+                "decision": learning.decision,
+                "confidence_bps": learning.confidence_bps
+            });
+            tx.execute(
+                "INSERT INTO outbox_events
+                 (company_id,event_type,aggregate_id,idempotency_key,payload)
+                 VALUES ($1,'LEARNING_ENTRY_RECORDED',$2,$3,$4)
+                 ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+                &[
+                    &company,
+                    &learning_id,
+                    &outbox_key,
+                    &payload,
+                ],
+            )
+            .await?;
+        }
+
         tx.commit().await?;
         Ok(decision)
     }
@@ -8488,6 +8563,128 @@ async fn content_observation_by_key(
     })
 }
 
+fn experiment_learning_entry(
+    experiment_id: Uuid,
+    spec: &company_experiments::ExperimentSpec,
+    observation: &company_experiments::ExperimentObservation,
+    decision: company_experiments::ExperimentDecision,
+    observation_key: &str,
+) -> company_learning::LearningEntry {
+    let min_observations = observation
+        .control_observations
+        .min(observation.treatment_observations);
+    let required_observations = spec.min_observations.max(1);
+    let confidence_bps =
+        ((min_observations.min(required_observations) as u128 * 10_000)
+            / required_observations as u128) as i64;
+
+    let (kind, severity, learning_decision, root_cause, corrective_action, reusable_rule) =
+        match decision {
+            company_experiments::ExperimentDecision::Succeed => (
+                company_learning::LearningKind::Success,
+                company_learning::FailureSeverity::None,
+                company_learning::LearningDecision::Reuse,
+                "Recorded treatment lift met the configured success threshold.",
+                "Carry the treatment forward only with new verified outcome evidence.",
+                "A treatment that clears the configured success threshold is eligible for follow-up validation.",
+            ),
+            company_experiments::ExperimentDecision::Kill => {
+                let cause = if observation.spend_minor >= spec.max_budget_minor {
+                    "Recorded experiment spend reached the configured maximum budget."
+                } else {
+                    "Recorded treatment lift reached the configured kill boundary."
+                };
+                (
+                    company_learning::LearningKind::Failure,
+                    company_learning::FailureSeverity::Medium,
+                    company_learning::LearningDecision::Stop,
+                    cause,
+                    "Stop the treatment under the current hypothesis and revise before retesting.",
+                    "Do not reuse a killed treatment under the same evidence conditions.",
+                )
+            }
+            company_experiments::ExperimentDecision::Expire => (
+                company_learning::LearningKind::Learning,
+                company_learning::FailureSeverity::None,
+                company_learning::LearningDecision::Retest,
+                "Recorded elapsed time reached the configured duration before a terminal success or kill boundary.",
+                "Retest only with a new evidence plan or revised duration.",
+                "Do not treat an expired experiment as validated; retest with new evidence.",
+            ),
+            company_experiments::ExperimentDecision::Continue => (
+                company_learning::LearningKind::Learning,
+                company_learning::FailureSeverity::None,
+                company_learning::LearningDecision::Adjust,
+                "The recorded observation did not reach a terminal threshold.",
+                "Continue collecting evidence before changing the treatment.",
+                "Do not treat an in-flight experiment as validated learning.",
+            ),
+        };
+
+    company_learning::LearningEntry {
+        entry_key: format!("experiment:{}:learning:{}", experiment_id, observation_key),
+        source_type: "EXPERIMENT_DECISION".into(),
+        source_id: experiment_id.to_string(),
+        kind,
+        severity,
+        hypothesis: spec.hypothesis.clone(),
+        context: format!(
+            "control={} treatment={} success_threshold_bps={} kill_threshold_bps={}",
+            spec.control, spec.treatment, spec.success_metric_bps, spec.kill_metric_bps
+        ),
+        expected_outcome: format!(
+            "Treatment lift reaches at least {} bps above control.",
+            spec.success_metric_bps
+        ),
+        actual_outcome: format!(
+            "decision={:?}; control_observations={}; treatment_observations={}; control_metric_bps={}; treatment_metric_bps={}; spend_minor={}; elapsed_seconds={}; observation_key={}",
+            decision,
+            observation.control_observations,
+            observation.treatment_observations,
+            observation.control_metric_bps,
+            observation.treatment_metric_bps,
+            observation.spend_minor,
+            observation.elapsed_seconds,
+            observation_key
+        ),
+        impact_minor: -observation.spend_minor,
+        confidence_bps,
+        root_cause: root_cause.into(),
+        corrective_action: corrective_action.into(),
+        reusable_rule: reusable_rule.into(),
+        decision: learning_decision,
+    }
+}
+
+fn learning_kind_name(value: company_learning::LearningKind) -> &'static str {
+    match value {
+        company_learning::LearningKind::Learning => "LEARNING",
+        company_learning::LearningKind::Failure => "FAILURE",
+        company_learning::LearningKind::NearMiss => "NEAR_MISS",
+        company_learning::LearningKind::Success => "SUCCESS",
+    }
+}
+
+fn failure_severity_name(value: company_learning::FailureSeverity) -> &'static str {
+    match value {
+        company_learning::FailureSeverity::None => "NONE",
+        company_learning::FailureSeverity::Low => "LOW",
+        company_learning::FailureSeverity::Medium => "MEDIUM",
+        company_learning::FailureSeverity::High => "HIGH",
+        company_learning::FailureSeverity::Critical => "CRITICAL",
+    }
+}
+
+fn learning_decision_name(value: company_learning::LearningDecision) -> &'static str {
+    match value {
+        company_learning::LearningDecision::Reuse => "REUSE",
+        company_learning::LearningDecision::Adjust => "ADJUST",
+        company_learning::LearningDecision::Retest => "RETEST",
+        company_learning::LearningDecision::Stop => "STOP",
+        company_learning::LearningDecision::Escalate => "ESCALATE",
+    }
+}
+
 fn content_format_name(value: company_content::ContentFormat) -> &'static str {
     match value {
         company_content::ContentFormat::ShortVideo => "SHORT_VIDEO",
@@ -8795,6 +8992,70 @@ fn content_record_from_row(
     company_content::validate_item(&item).map_err(|error| error.to_string())?;
     Ok(ContentRecord { item, created_at: row.get(28) })
 }
+#[cfg(test)]
+mod experiment_learning_tests {
+    use super::*;
+
+    fn spec() -> company_experiments::ExperimentSpec {
+        company_experiments::ExperimentSpec {
+            hypothesis: "short hook improves conversion".into(),
+            control: "baseline".into(),
+            treatment: "short-hook".into(),
+            max_budget_minor: 1_000,
+            min_observations: 100,
+            duration_seconds: 86_400,
+            success_metric_bps: 500,
+            kill_metric_bps: 300,
+        }
+    }
+
+    fn observation() -> company_experiments::ExperimentObservation {
+        company_experiments::ExperimentObservation {
+            control_observations: 100,
+            treatment_observations: 120,
+            control_metric_bps: 500,
+            treatment_metric_bps: 1_000,
+            spend_minor: 250,
+            elapsed_seconds: 3_600,
+        }
+    }
+
+    #[test]
+    fn terminal_experiment_decision_becomes_evidence_backed_learning() {
+        let entry = experiment_learning_entry(
+            Uuid::from_u128(1),
+            &spec(),
+            &observation(),
+            company_experiments::ExperimentDecision::Succeed,
+            "obs-1",
+        );
+
+        assert_eq!(entry.entry_key, "experiment:00000000-0000-0000-0000-000000000001:learning:obs-1");
+        assert_eq!(entry.kind, company_learning::LearningKind::Success);
+        assert_eq!(entry.decision, company_learning::LearningDecision::Reuse);
+        assert_eq!(entry.impact_minor, -250);
+        assert_eq!(entry.confidence_bps, 10_000);
+        assert!(company_learning::validate_evidence(&entry).is_ok());
+    }
+
+    #[test]
+    fn learning_confidence_reflects_observation_coverage() {
+        let mut value = observation();
+        value.control_observations = 50;
+        value.treatment_observations = 100;
+
+        let entry = experiment_learning_entry(
+            Uuid::from_u128(1),
+            &spec(),
+            &value,
+            company_experiments::ExperimentDecision::Succeed,
+            "obs-2",
+        );
+
+        assert_eq!(entry.confidence_bps, 5_000);
+    }
+}
+
 #[cfg(test)]
 mod revenue_period_tests {
     use super::CompanyStore;

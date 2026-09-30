@@ -226,7 +226,7 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Evidence gate:** failure records require severity and all entries require an observed actual outcome; the library rejects empty evidence and invalid confidence values rather than inventing outcomes.
 - **Idempotent identity:** the database enforces a company-scoped unique `entry_key`, preventing duplicate learning records for the same source event.
 - **Write-path baseline:** P0.5 introduces no update/delete workflow; the current contract is append-oriented, while database-level immutability enforcement remains a later hardening step.
-- **Integration boundary:** the domain crate and durable schema are implemented, but automatic ingestion from every experiment/content/LIVE workflow is still a subsequent integration step; P0.5 does not claim those upstream systems emit learning automatically yet.
+- **Experiment integration:** terminal experiment decisions now persist an evidence-backed learning entry and transactional `LEARNING_ENTRY_RECORDED` outbox event in the same database transaction. Content/LIVE automatic ingestion remains a later integration step.
 
 ## Content Factory
 
