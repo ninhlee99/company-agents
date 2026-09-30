@@ -82,7 +82,6 @@ It should not be described as an AI company that can independently operate every
 
 - **Unified event contract:** `CompanyEventType` provides stable names for the P1 event set; `CompanyEventEnvelope` carries company, schema, aggregate, correlation/causation, idempotency and payload metadata. Store persistence keeps the existing durable outbox path and does not claim every producer has already migrated.
 
-
 The commercial control plane now exposes a read-only pipeline view plus deterministic proposal and sponsorship transitions. Sponsorship delivery is bounded by the contracted value and emits durable outbox events. These APIs do not execute external contracts or payment settlement; those remain provider/reconciliation boundaries.
 
 
