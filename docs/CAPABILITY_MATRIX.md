@@ -86,7 +86,6 @@ It should not be described as an AI company that can independently operate every
 
 - **Forecast-vs-actual cash flow:** `GET /api/fpa/forecast-variance` and `/fpa/variance` read the newest ACTIVE forecast and match the latest same-period cash-flow observation. Missing actual evidence remains `Unavailable`; variance is `actual net cash flow − forecast net cash flow` and is never treated as a forecast or guaranteed outcome.
 
-
 - **Tenant-bound principals:** named RBAC principals must declare `company_id`; a principal bound to another company cannot authenticate against this runtime. This closes the identity→company boundary for the named-principal path without claiming full SaaS tenancy.
 
 - **Named control-plane principals:** `CONTROL_PLANE_PRINCIPALS_JSON` replaces the shared-token role map when configured. Principal IDs are audited; raw credentials are never written to audit metadata. `read-only` is limited to GET/HEAD; `operator` and `admin` cover current mutating control-plane APIs.
