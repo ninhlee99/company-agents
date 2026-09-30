@@ -308,6 +308,11 @@ fn autonomy_controls_correlation_id(company: Uuid, idempotency_key: &str) -> Uui
     Uuid::from_bytes(digest[..16].try_into().expect("sha256 digest is at least 16 bytes"))
 }
 
+fn procurement_event_correlation_id(company: Uuid, identity: &str) -> Uuid {
+    let digest = Sha256::digest(format!("procurement:{company}:{identity}").as_bytes());
+    Uuid::from_bytes(digest[..16].try_into().expect("sha256 digest is at least 16 bytes"))
+}
+
 fn tiktok_oauth_correlation_id(company: Uuid, identity: &str) -> Uuid {
     let digest = Sha256::digest(format!("tiktok-oauth:{company}:{identity}").as_bytes());
     Uuid::from_bytes(digest[..16].try_into().expect("sha256 digest is at least 16 bytes"))
@@ -9667,14 +9672,23 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
              WHERE company_id=$1 AND id=$2",
             &[&company,&request,&approved_by,&approval_reference],
         ).await?;
-        tx.execute(
-            "INSERT INTO outbox_events
-             (company_id,event_type,aggregate_id,idempotency_key,payload)
-             VALUES ($1,'PURCHASE_REQUEST_APPROVED',$2,$3,$4)
-             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
-            &[&company,&request,&format!("outbox:purchase-approved:{}",request),
-              &serde_json::json!({"purchase_request_id":request,"approved_by":approved_by,"approval_reference":approval_reference})],
-        ).await?;
+        let approval_key = format!("outbox:purchase-approved:{}", request);
+        let approval_event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::PurchaseRequestApproved,
+            "purchase_request",
+            Some(request),
+            time::OffsetDateTime::now_utc().unix_timestamp(),
+            procurement_event_correlation_id(company, &approval_key),
+            None,
+            approval_key,
+            serde_json::json!({
+                "purchase_request_id": request,
+                "approved_by": approved_by,
+                "approval_reference": approval_reference
+            }),
+        )?;
+        enqueue_company_event_tx(&tx, &approval_event).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -9710,14 +9724,23 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
              WHERE company_id=$1 AND id=$2",
             &[&company,&request],
         ).await?;
-        tx.execute(
-            "INSERT INTO outbox_events
-             (company_id,event_type,aggregate_id,idempotency_key,payload)
-             VALUES ($1,'VENDOR_DELIVERY_RECORDED',$2,$3,$4)
-             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
-            &[&company,&request,&format!("outbox:vendor-delivery:{}:{}",request,evidence_hash),
-              &serde_json::json!({"purchase_request_id":request,"delivery_id":delivery_id,"evidence_hash":evidence_hash})],
-        ).await?;
+        let delivery_key = format!("outbox:vendor-delivery:{}:{}", request, evidence_hash);
+        let delivery_event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::VendorDeliveryRecorded,
+            "vendor_delivery",
+            Some(delivery_id),
+            received_at_epoch,
+            procurement_event_correlation_id(company, &delivery_key),
+            None,
+            delivery_key,
+            serde_json::json!({
+                "purchase_request_id": request,
+                "delivery_id": delivery_id,
+                "evidence_hash": evidence_hash
+            }),
+        )?;
+        enqueue_company_event_tx(&tx, &delivery_event).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -10628,6 +10651,62 @@ fn parse_i128_numeric(
     trimmed
         .parse::<i128>()
         .map_err(|error| format!("invalid integer numeric value: {error}").into())
+}
+
+#[cfg(test)]
+mod procurement_event_tests {
+    use super::*;
+
+    #[test]
+    fn purchase_approval_event_keeps_explicit_operator_evidence() {
+        let company = Uuid::from_u128(501);
+        let request = Uuid::from_u128(502);
+        let key = "outbox:purchase-approved:00000000-0000-0000-0000-000000000502";
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::PurchaseRequestApproved,
+            "purchase_request",
+            Some(request),
+            1_800_000_200,
+            procurement_event_correlation_id(company, key),
+            None,
+            key,
+            serde_json::json!({
+                "purchase_request_id": request,
+                "approved_by": "operator-1",
+                "approval_reference": "approval-1"
+            }),
+        ).unwrap();
+        assert_eq!(event.event_type_name(), "PURCHASE_REQUEST_APPROVED");
+        assert_eq!(event.aggregate_id, Some(request));
+        assert_eq!(event.payload["approval_reference"], "approval-1");
+    }
+
+    #[test]
+    fn vendor_delivery_event_keeps_verified_evidence_hash() {
+        let company = Uuid::from_u128(503);
+        let delivery = Uuid::from_u128(504);
+        let request = Uuid::from_u128(505);
+        let key = "outbox:vendor-delivery:request:evidence";
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::VendorDeliveryRecorded,
+            "vendor_delivery",
+            Some(delivery),
+            1_800_000_201,
+            procurement_event_correlation_id(company, key),
+            None,
+            key,
+            serde_json::json!({
+                "purchase_request_id": request,
+                "delivery_id": delivery,
+                "evidence_hash": "sha256:verified"
+            }),
+        ).unwrap();
+        assert_eq!(event.event_type_name(), "VENDOR_DELIVERY_RECORDED");
+        assert_eq!(event.aggregate_id, Some(delivery));
+        assert_eq!(event.payload["evidence_hash"], "sha256:verified");
+    }
 }
 
 #[cfg(test)]
