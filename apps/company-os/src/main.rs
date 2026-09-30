@@ -3540,13 +3540,13 @@ fn control_plane_auth_principal(
 }
 
 fn control_plane_auth_scope(
-    company_id: uuid::Uuid,
     method: &str,
     provided: Option<&str>,
     operator_token: &str,
     read_token: Option<&str>,
 ) -> Option<&'static str> {
-    control_plane_auth_principal(company_id, method, provided, operator_token, read_token)
+    let principals = control_plane_principals(operator_token, read_token).ok()?;
+    control_plane_auth_principal_from(uuid::Uuid::nil(), method, provided, &principals)
         .ok()
         .flatten()
         .map(|(_, role)| role)
