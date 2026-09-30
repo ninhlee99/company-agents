@@ -4024,7 +4024,7 @@ impl CompanyStore {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let company = Uuid::parse_str(company_id)?;
         let client = self.client.lock().await;
-        client
+        let changed = client
             .execute(
                 "UPDATE tiktok_oauth_connections
                     SET status='REVOKED',last_error=NULL,updated_at=now()
@@ -4032,6 +4032,30 @@ impl CompanyStore {
                 &[&company],
             )
             .await?;
+        if changed == 1 {
+            client
+                .execute(
+                    "INSERT INTO audit_log
+                     (company_id,actor_type,actor_id,action,resource_type,resource_id,decision,metadata)
+                     VALUES ($1,'SYSTEM','tiktok-oauth','TIKTOK_OAUTH_REVOKED','TIKTOK_CONNECTION',$2,'REVOKED','{}'::jsonb)",
+                    &[&company, &company.to_string()],
+                )
+                .await?;
+            client
+                .execute(
+                    "INSERT INTO outbox_events
+                     (company_id,event_type,aggregate_id,idempotency_key,payload)
+                     VALUES ($1,'TIKTOK_OAUTH_REVOKED',$2,$3,$4)
+                     ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+                    &[
+                        &company,
+                        &company.to_string(),
+                        &format!("outbox:tiktok-oauth:revoked:{}:{}", company, time::OffsetDateTime::now_utc().unix_timestamp()),
+                        &serde_json::json!({"company_id": company}),
+                    ],
+                )
+                .await?;
+        }
         Ok(())
     }
 
