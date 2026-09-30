@@ -613,7 +613,9 @@ small,.muted{{color:#94a3b8}} code{{background:#f3f3f3;padding:2px 4px}}
 .cc-alert.healthy strong{{color:#86efac}}
 .cc-footer{{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #273550;font-size:12px;color:#94a3b8}}
 nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;text-decoration:none;padding:8px 10px;border-radius:8px}} nav a:hover{{background:#171e30;color:#fff}}
-@media(max-width:800px){{.grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}}} @media(max-width:520px){{.grid{{grid-template-columns:1fr}}}}
+@media(max-width:1050px){{.cc-kpis{{grid-template-columns:repeat(3,minmax(0,1fr))}}.cc-body{{grid-template-columns:repeat(2,minmax(0,1fr))}}.cc-alerts{{grid-template-columns:1fr}}}}
+@media(max-width:800px){{.grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}.cc-head{{flex-direction:column}}.cc-trend{{align-items:flex-start}}}}
+@media(max-width:520px){{.grid{{grid-template-columns:1fr}}.cc-kpis{{grid-template-columns:1fr 1fr}}.cc-body{{grid-template-columns:1fr}}}}
 </style></head><body>
 <header><h1>Veridara AI</h1><small>Autonomous Company OS · {}</small></header>
 <nav><a href="/">Overview</a><a href="/api/ceo/command-center">Revenue JSON</a><a href="/api/agents">Agents</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Audit</a></nav>
