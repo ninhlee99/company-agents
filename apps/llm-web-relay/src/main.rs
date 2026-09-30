@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{env, sync::Arc, time::{Duration, Instant}};
-use tokio_postgres::{Client, NoTls};
+use tokio_postgres::{types::ToSql, Client, NoTls};
 use uuid::Uuid;
 
 const MAX_REQUEST_BYTES: usize = 512 * 1024;
@@ -262,7 +262,7 @@ async fn generate(
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'QUEUED',0,$10,
                          now() + ($11::double precision * interval '1 second'))",
                 &[
-                    &job_id,
+                    &job_id as &(dyn ToSql + Sync),
                     &idempotency_key,
                     &request_hash,
                     &request.backend,
@@ -426,7 +426,11 @@ async fn claim(
                     updated_at=now()
               WHERE id=$1
               RETURNING attempt",
-            &[&job_id, &lease_token, &state.lease.as_secs_f64()],
+            &[
+                &job_id as &(dyn ToSql + Sync),
+                &lease_token,
+                &state.lease.as_secs_f64(),
+            ],
         )
         .await
         .map_err(|_| ApiError::Internal)?;
@@ -482,7 +486,11 @@ async fn complete(
                     updated_at=now()
               WHERE id=$1 AND status='RUNNING' AND lease_token=$2
                 AND expires_at > now()",
-            &[&job_id, &request.lease_token, &request.output],
+            &[
+                &job_id as &(dyn ToSql + Sync),
+                &request.lease_token,
+                &request.output,
+            ],
         )
         .await
         .map_err(|_| ApiError::Internal)?;
@@ -514,7 +522,11 @@ async fn fail(
                     error_message=$3,
                     updated_at=now()
               WHERE id=$1 AND status='RUNNING' AND lease_token=$2",
-            &[&job_id, &request.lease_token, &request.error],
+            &[
+                &job_id as &(dyn ToSql + Sync),
+                &request.lease_token,
+                &request.error,
+            ],
         )
         .await
         .map_err(|_| ApiError::Internal)?;
