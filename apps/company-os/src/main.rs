@@ -392,11 +392,8 @@ async fn index(
         rows.push_str(r#"<tr><td colspan="4">No cycle has run yet.</td></tr>"#);
     }
 
-    let target_minor = std::env::var("MONTHLY_REVENUE_TARGET_MINOR")
-        .ok()
-        .and_then(|v| v.parse::<i128>().ok())
-        .filter(|v| *v > 0)
-        .unwrap_or_else(|| if state.currency.eq_ignore_ascii_case("VND") { 50_000_000 } else { 500_000 });
+    let target_minor = configured_revenue_target_minor(&state.currency)
+        .unwrap_or_else(|_| if state.currency.eq_ignore_ascii_case("VND") { 50_000_000 } else { 500_000 });
     let revenue_periods = state
         .store
         .revenue_period_metrics(&state.company_id)
