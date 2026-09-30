@@ -40,6 +40,173 @@ pub struct ContentWhitespaceGap {
     pub reason: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CreatorIntelligence {
+    pub company_id: Uuid,
+    pub creator_id: Uuid,
+    pub name: String,
+    pub specialty_categories: Vec<String>,
+    pub audience_quality_bps: u32,
+    pub engagement_bps: u32,
+    pub click_through_bps: u32,
+    pub conversion_bps: u32,
+    pub observed_at_epoch: i64,
+    pub evidence_ref: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProductMatchCandidate {
+    pub company_id: Uuid,
+    pub product_id: String,
+    pub category: String,
+    pub commission_rate_bps: Option<u32>,
+    pub rating_bps: Option<u32>,
+    pub refund_rate_bps: Option<u32>,
+    pub delivery_reliability_bps: Option<u32>,
+    pub in_stock: bool,
+    pub observed_at_epoch: i64,
+    pub evidence_ref: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CreatorProductMatch {
+    pub creator_id: Uuid,
+    pub creator_name: String,
+    pub product_id: String,
+    pub creator_fit_bps: u32,
+    pub product_economics_bps: u32,
+    pub match_score_bps: u32,
+    pub evidence_refs: Vec<String>,
+    pub reason: String,
+}
+
+fn bounded_signal(name: &str, value: u32) -> Result<(), String> {
+    if value > 10_000 {
+        return Err(format!("{name} must be between 0 and 10000 bps"));
+    }
+    Ok(())
+}
+
+pub fn match_creators_to_products(
+    creators: &[CreatorIntelligence],
+    products: &[ProductMatchCandidate],
+    as_of_epoch: i64,
+    max_age_seconds: i64,
+    max_results: usize,
+) -> Result<Vec<CreatorProductMatch>, String> {
+    if as_of_epoch <= 0 {
+        return Err("creator-product as_of_epoch must be positive".into());
+    }
+    if !(60..=31_536_000).contains(&max_age_seconds) {
+        return Err("creator-product max_age_seconds is outside safe bounds".into());
+    }
+    if !(1..=500).contains(&max_results) {
+        return Err("creator-product max_results must be between 1 and 500".into());
+    }
+    for creator in creators {
+        if creator.company_id == Uuid::nil() || creator.creator_id == Uuid::nil()
+            || creator.observed_at_epoch <= 0 || creator.observed_at_epoch > as_of_epoch
+        {
+            return Err("creator intelligence has invalid company/time scope".into());
+        }
+        if creator.specialty_categories.is_empty() || creator.specialty_categories.len() > 32 {
+            return Err("creator specialty_categories must contain 1..32 values".into());
+        }
+        for category in &creator.specialty_categories {
+            require_text("creator.specialty_category", category, 128)?;
+        }
+        for (name, value) in [
+            ("audience_quality_bps", creator.audience_quality_bps),
+            ("engagement_bps", creator.engagement_bps),
+            ("click_through_bps", creator.click_through_bps),
+            ("conversion_bps", creator.conversion_bps),
+        ] {
+            bounded_signal(name, value)?;
+        }
+        require_text("creator.name", &creator.name, MAX_TEXT)?;
+        require_text("creator.evidence_ref", &creator.evidence_ref, 256)?;
+    }
+    for product in products {
+        if product.company_id == Uuid::nil()
+            || product.observed_at_epoch <= 0
+            || product.observed_at_epoch > as_of_epoch
+        {
+            return Err("product candidate has invalid company/time scope".into());
+        }
+        require_text("product.product_id", &product.product_id, MAX_KEY)?;
+        require_text("product.category", &product.category, MAX_TEXT)?;
+        require_text("product.evidence_ref", &product.evidence_ref, 256)?;
+        for (name, value) in [
+            ("commission_rate_bps", product.commission_rate_bps.unwrap_or(0)),
+            ("rating_bps", product.rating_bps.unwrap_or(0)),
+            ("refund_rate_bps", product.refund_rate_bps.unwrap_or(0)),
+            ("delivery_reliability_bps", product.delivery_reliability_bps.unwrap_or(0)),
+        ] {
+            bounded_signal(name, value)?;
+        }
+    }
+
+    let mut results = Vec::new();
+    for creator in creators.iter().filter(|value| {
+        as_of_epoch.saturating_sub(value.observed_at_epoch) <= max_age_seconds
+    }) {
+        for product in products.iter().filter(|value| {
+            value.in_stock
+                && as_of_epoch.saturating_sub(value.observed_at_epoch) <= max_age_seconds
+                && value.company_id == creator.company_id
+        }) {
+            let product_category = product.category.trim().to_ascii_lowercase();
+            let category_matches = creator
+                .specialty_categories
+                .iter()
+                .any(|category| category.trim().eq_ignore_ascii_case(&product_category));
+            if !category_matches {
+                continue;
+            }
+            let creator_fit = ((10_000_u64 * 40
+                + u64::from(creator.audience_quality_bps) * 20
+                + u64::from(creator.engagement_bps) * 20
+                + u64::from(creator.click_through_bps) * 10
+                + u64::from(creator.conversion_bps) * 10)
+                / 100) as u32;
+
+            let inverse_refund = 10_000_u32.saturating_sub(product.refund_rate_bps.unwrap_or(0));
+            let economics = ((u64::from(product.commission_rate_bps.unwrap_or(0)) * 35
+                + u64::from(product.rating_bps.unwrap_or(0)) * 20
+                + u64::from(inverse_refund) * 25
+                + u64::from(product.delivery_reliability_bps.unwrap_or(0)) * 20)
+                / 100) as u32;
+            let match_score = ((u64::from(creator_fit) * 65 + u64::from(economics) * 35) / 100) as u32;
+
+            let mut evidence_refs = vec![creator.evidence_ref.clone(), product.evidence_ref.clone()];
+            evidence_refs.sort();
+            evidence_refs.dedup();
+            results.push(CreatorProductMatch {
+                creator_id: creator.creator_id,
+                creator_name: creator.name.clone(),
+                product_id: product.product_id.clone(),
+                creator_fit_bps: creator_fit,
+                product_economics_bps: economics,
+                match_score_bps: match_score,
+                evidence_refs,
+                reason: format!(
+                    "Creator fit {} bps × 65% plus product economics {} bps × 35%; only fresh in-stock evidence is considered.",
+                    creator_fit, economics
+                ),
+            });
+        }
+    }
+
+    results.sort_by(|a, b| {
+        b.match_score_bps
+            .cmp(&a.match_score_bps)
+            .then_with(|| a.creator_id.cmp(&b.creator_id))
+            .then_with(|| a.product_id.cmp(&b.product_id))
+    });
+    results.truncate(max_results);
+    Ok(results)
+}
+
 pub fn evaluate_content_whitespace(
     observations: &[CompetitorObservation],
     owned_coverage: &[OwnedContentCoverage],
@@ -400,6 +567,133 @@ mod tests {
             success_threshold_bps: 500,
             policy_evidence_ref: "policy-2026-09".into(),
         }
+    }
+
+    #[test]
+    fn creator_product_matching_is_deterministic_and_economic() {
+        let company_id = Uuid::new_v4();
+        let creator = CreatorIntelligence {
+            company_id,
+            creator_id: Uuid::new_v4(),
+            name: "Creator A".into(),
+            specialty_categories: vec!["desk".into()],
+            audience_quality_bps: 8_000,
+            engagement_bps: 8_500,
+            click_through_bps: 7_000,
+            conversion_bps: 6_000,
+            observed_at_epoch: 1_800_000_000,
+            evidence_ref: "creator-evidence".into(),
+        };
+        let product_good = ProductMatchCandidate {
+            company_id,
+            product_id: "product-good".into(),
+            category: "desk".into(),
+            commission_rate_bps: Some(8_000),
+            rating_bps: Some(9_000),
+            refund_rate_bps: Some(500),
+            delivery_reliability_bps: Some(9_000),
+            in_stock: true,
+            observed_at_epoch: 1_800_000_050,
+            evidence_ref: "product-good-evidence".into(),
+        };
+        let product_bad = ProductMatchCandidate {
+            company_id,
+            product_id: "product-bad".into(),
+            category: "desk".into(),
+            commission_rate_bps: Some(8_000),
+            rating_bps: Some(9_000),
+            refund_rate_bps: Some(9_000),
+            delivery_reliability_bps: Some(9_000),
+            in_stock: true,
+            observed_at_epoch: 1_800_000_050,
+            evidence_ref: "product-bad-evidence".into(),
+        };
+        let matches = match_creators_to_products(
+            &[creator.clone()],
+            &[product_bad.clone(), product_good.clone()],
+            1_800_000_100,
+            86_400,
+            10,
+        )
+        .unwrap();
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0].product_id, "product-good");
+        let again = match_creators_to_products(
+            &[creator],
+            &[product_bad, product_good],
+            1_800_000_100,
+            86_400,
+            10,
+        )
+        .unwrap();
+        assert_eq!(matches, again);
+    }
+
+    #[test]
+    fn creator_product_matching_requires_specialty_category_alignment() {
+        let company_id = Uuid::new_v4();
+        let creator = CreatorIntelligence {
+            company_id,
+            creator_id: Uuid::new_v4(),
+            name: "Creator A".into(),
+            specialty_categories: vec!["desk".into()],
+            audience_quality_bps: 9_000,
+            engagement_bps: 9_000,
+            click_through_bps: 9_000,
+            conversion_bps: 9_000,
+            observed_at_epoch: 1_800_000_000,
+            evidence_ref: "creator-evidence".into(),
+        };
+        let unrelated = ProductMatchCandidate {
+            company_id,
+            product_id: "unrelated".into(),
+            category: "beauty".into(),
+            commission_rate_bps: Some(10_000),
+            rating_bps: Some(10_000),
+            refund_rate_bps: Some(0),
+            delivery_reliability_bps: Some(10_000),
+            in_stock: true,
+            observed_at_epoch: 1_800_000_050,
+            evidence_ref: "unrelated-evidence".into(),
+        };
+        let matches = match_creators_to_products(&[creator], &[unrelated], 1_800_000_100, 86_400, 10).unwrap();
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn creator_product_matching_excludes_stale_or_out_of_stock_products() {
+        let company_id = Uuid::new_v4();
+        let creator = CreatorIntelligence {
+            company_id,
+            creator_id: Uuid::new_v4(),
+            name: "Creator A".into(),
+            specialty_categories: vec!["desk".into()],
+            audience_quality_bps: 8_000,
+            engagement_bps: 8_000,
+            click_through_bps: 8_000,
+            conversion_bps: 8_000,
+            observed_at_epoch: 1_800_000_000,
+            evidence_ref: "creator-evidence".into(),
+        };
+        let stale = ProductMatchCandidate {
+            company_id,
+            product_id: "stale".into(),
+            category: "desk".into(),
+            commission_rate_bps: Some(9_000),
+            rating_bps: Some(9_000),
+            refund_rate_bps: Some(0),
+            delivery_reliability_bps: Some(9_000),
+            in_stock: true,
+            observed_at_epoch: 1_700_000_000,
+            evidence_ref: "stale-evidence".into(),
+        };
+        let out_of_stock = ProductMatchCandidate {
+            product_id: "oos".into(),
+            in_stock: false,
+            ..stale.clone()
+        };
+        let matches = match_creators_to_products(&[creator], &[stale, out_of_stock], 1_800_000_100, 86_400, 10).unwrap();
+        assert!(matches.is_empty());
     }
 
     #[test]

@@ -21,6 +21,7 @@ This document intentionally separates implemented behavior from contracts, simul
 | Web research / web-session relay | Environment-gated | Browser/web relay protocols and workers exist, but usable capability depends on configured relay/browser credentials. |
 | Affiliate product discovery | Environment-gated | Mock, Awin and TikTok Shop adapters exist; real data requires operator credentials/contracts. |
 | Competitor intelligence + content whitespace | Implemented foundation | Evidence-backed competitor observations and owned-content coverage can be evaluated deterministically into ranked whitespace gaps. The module excludes stale observations and never invents external competitor data. |
+| Creator intelligence and creator/product matching | Implemented foundation | Company-scoped creator performance signals and product economics can be matched deterministically by specialty/category, audience quality, engagement, CTR, conversion, commission, rating, refunds, delivery reliability and freshness. No external creator data is inferred. |
 | Affiliate attribution/reconciliation | Implemented + environment-gated | Click/conversion state and provider verification/accounting are durable; real provider verification requires provider data. |
 | Media production | Implemented | Media jobs run through isolated FFmpeg/FFprobe QA in the media worker. |
 | Publishing approval contract | Implemented | Publish intent, approval, lease, completion and revocation are durable and guarded. |
@@ -182,6 +183,9 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **No lifetime-vs-monthly comparison:** dashboard target progress uses only month-to-date observed revenue.
 
 ## Integration readiness
+
+- **Creator-product matching:** `POST /api/growth/creator-product-matches` accepts only caller-supplied company-scoped creator/product evidence. Results are deterministic fit/economic signals; only specialty/category-aligned, fresh and in-stock products are considered, and no external marketplace connectivity or commercial success is implied.
+
 
 - **Competitor whitespace:** `POST /api/growth/competitor-whitespace` accepts only caller-supplied observations with source/evidence/timestamp metadata plus owned-content coverage. Results are deterministic priority signals; they are not claims about unobserved competitors or platform-wide market demand.
 
