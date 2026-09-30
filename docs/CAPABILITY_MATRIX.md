@@ -38,7 +38,7 @@ This document intentionally separates implemented behavior from contracts, simul
 | Control-plane authentication | Implemented baseline + audit + coarse scopes + browser session | Bearer token authentication is required by default for non-health endpoints, with constant-time comparison. Auth ALLOW/DENY decisions are persisted to a company-scoped append-only audit log. An optional read-only bearer token is limited to GET/HEAD; mutations still require the operator token. HTML control-plane sessions can use a signed HttpOnly cookie with SameSite=Strict and CSRF double-submit protection. |
 | Multi-user identity / RBAC / SSO | NOT achieved | Authentication is a shared control-plane token, not an operator identity system. |
 | Multi-tenant SaaS isolation | NOT achieved | The runtime is company-scoped by deployment configuration, not a full user/tenant authorization model. |
-| Observability | Implemented baseline | Health/readiness and Prometheus-style counters exist. Distributed tracing/load/chaos acceptance is still environment-dependent. |
+| Observability | Implemented baseline + request correlation | Health/readiness and Prometheus-style counters exist. Protected control-plane requests now emit a bounded `x-request-id`, and Prometheus includes request count, auth-denial count, CSRF-denial count and last latency. Distributed tracing/load/chaos acceptance is still environment-dependent. |
 | Integration readiness | Implemented baseline | Authenticated control-plane clients can inspect deterministic readiness for LLM, affiliate, TikTok OAuth, LIVE, outbound email, browser session and compliance. Configured/authenticated/evidence-fresh remain separate signals; external reachability is not inferred. |
 | Disaster recovery | Implemented baseline | Backup/restore drill automation exists; production-scale recovery evidence is still environment-dependent. |
 | Simulator multi-run statistical evaluation | Implemented baseline | Deterministic seeded runs now produce descriptive mean/stddev/95% intervals and p05/median/p95 for key economic outcomes plus simulated survival/bankruptcy rates. These intervals describe model-run variability, not real-world forecast confidence. |
@@ -176,6 +176,9 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **No lifetime-vs-monthly comparison:** dashboard target progress uses only month-to-date observed revenue.
 
 ## Integration readiness
+
+- **Control-plane request telemetry:** protected requests are correlated with `x-request-id`; auth/scope/CSRF denials increment dedicated counters and protected request latency is exposed as a low-cardinality gauge. No path/actor labels are exported to avoid cardinality and secret leakage.
+
 
 - **Readiness API:** `GET /api/integrations/readiness` returns explicit `READY`, `CONFIGURED`, `NOT_CONFIGURED`, `ACTION_REQUIRED`, `GATED`, or `UNAVAILABLE` states.
 - **Evidence boundary:** configuration and stored authentication are reported separately from provider reachability or business-outcome acceptance; no external success is inferred from environment variables alone.
