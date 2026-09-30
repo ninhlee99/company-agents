@@ -8283,6 +8283,54 @@ fn parse_content_decision(value: Option<String>) -> Result<Option<company_conten
     }
 }
 
+fn parse_rfc3339_epoch(value: &str) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+    Ok(time::OffsetDateTime::parse(
+        value,
+        &time::format_description::well_known::Rfc3339,
+    )
+    .map_err(|error| format!("invalid RFC3339 timestamp: {error}"))?
+    .unix_timestamp())
+}
+
+fn new_graph_edge(
+    company_id: Uuid,
+    from_type: company_revenue_graph::RevenueNodeType,
+    from_ref: &str,
+    relation: &str,
+    to_type: company_revenue_graph::RevenueNodeType,
+    to_ref: &str,
+    value_minor: Option<i128>,
+    currency: Option<&str>,
+    confidence_bps: u32,
+    evidence_ref: &str,
+    source: &str,
+    observed_at_epoch: i64,
+) -> company_revenue_graph::RevenueGraphEdge {
+    let edge_key = company_revenue_graph::build_edge_key(
+        from_type,
+        from_ref,
+        relation,
+        to_type,
+        to_ref,
+    );
+    company_revenue_graph::RevenueGraphEdge {
+        id: company_revenue_graph::RevenueGraphEdge::deterministic_id(company_id, &edge_key),
+        company_id,
+        edge_key,
+        from_type,
+        from_ref: from_ref.trim().to_owned(),
+        relation: relation.trim().to_owned(),
+        to_type,
+        to_ref: to_ref.trim().to_owned(),
+        value_minor,
+        currency: currency.map(|value| value.trim().to_ascii_uppercase()),
+        confidence_bps,
+        evidence_ref: evidence_ref.trim().to_owned(),
+        source: source.trim().to_owned(),
+        observed_at_epoch,
+    }
+}
+
 async fn record_revenue_graph_edge_tx(
     tx: &Transaction<'_>,
     edge: &company_revenue_graph::RevenueGraphEdge,
