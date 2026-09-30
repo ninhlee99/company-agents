@@ -4825,7 +4825,7 @@ impl CompanyStore {
                 None,
                 10_000,
                 &format!("affiliate:click:{}", event.click_id),
-                if event.source.trim().is_empty() { "affiliate" } else { event.source.trim() },
+                graph_source(&event.source)?,
                 observed_at_epoch,
             ),
         )
@@ -4837,7 +4837,7 @@ impl CompanyStore {
                 &new_graph_edge(
                     company_id,
                     company_revenue_graph::RevenueNodeType::Traffic,
-                    event.source.trim(),
+                    graph_source(&event.source)?,
                     "DRIVES",
                     company_revenue_graph::RevenueNodeType::Content,
                     content_ref,
@@ -5003,7 +5003,7 @@ impl CompanyStore {
                 Some(&currency),
                 if event.cancelled { 2_000 } else { 10_000 },
                 &format!("affiliate:conversion:{}", event.conversion_id),
-                &event.source,
+                graph_source(&event.source)?,
                 observed_at_epoch,
             ),
         )
