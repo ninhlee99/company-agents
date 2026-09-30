@@ -535,6 +535,12 @@ mod tests {
     }
 
     #[test]
+    fn event_serialization_uses_canonical_names() {
+        let value = serde_json::to_value(CompanyEventType::ProductFound).unwrap();
+        assert_eq!(value, serde_json::json!("PRODUCT_FOUND"));
+    }
+
+    #[test]
     fn company_event_rejects_invalid_metadata() {
         let event = CompanyEventEnvelope {
             event_id: Uuid::new_v4(),
