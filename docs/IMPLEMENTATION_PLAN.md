@@ -16,6 +16,7 @@
 
 **Next acceptance work:** calibrate distributions from real observations and add multi-run statistical evaluation with confidence intervals.
 
+- Unified event architecture foundation: canonical event names, versioned envelope, correlation/causation metadata and idempotent outbox persistence are implemented; producer migration remains incremental.
 ## Phase 3 — Agent Harness
 **Status: implemented safety baseline**
 - Typed Agent contract, multi-provider LLM gateway, bounded runtime, timeouts, fail-closed errors.
