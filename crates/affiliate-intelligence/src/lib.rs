@@ -808,10 +808,11 @@ fn parse_tiktok_search_response(
         .iter()
         .find_map(|key| item.get(*key))
         .and_then(|value| {
-            value
-                .as_str()
-                .and_then(source_updated_epoch)
-                .or_else(|| value.as_i64())
+            value.as_str().and_then(source_updated_epoch).or_else(|| {
+                value
+                    .as_i64()
+                    .and_then(normalize_epoch)
+            })
         })
         .and_then(format_unix_rfc3339);
 
@@ -1298,12 +1299,7 @@ fn source_updated_epoch(value: &str) -> Option<i64> {
         return None;
     }
     if let Ok(epoch) = trimmed.parse::<i64>() {
-        if epoch > 2_000_000_000_000 {
-            return epoch.checked_div(1_000);
-        }
-        if epoch > 0 {
-            return Some(epoch);
-        }
+        return normalize_epoch(epoch);
     }
     time::OffsetDateTime::parse(
         trimmed,
@@ -1311,6 +1307,17 @@ fn source_updated_epoch(value: &str) -> Option<i64> {
     )
     .ok()
     .map(|value| value.unix_timestamp())
+}
+
+fn normalize_epoch(value: i64) -> Option<i64> {
+    if value <= 0 {
+        return None;
+    }
+    if value > 2_000_000_000_000 {
+        value.checked_div(1_000)
+    } else {
+        Some(value)
+    }
 }
 
 fn product_freshness_ok(product: &Product, as_of_epoch: i64, max_age_seconds: i64) -> bool {
@@ -2777,6 +2784,21 @@ mod tests {
             source: "test".into(),
             source_updated_at: None,
         }
+    }
+
+    #[test]
+    fn source_timestamp_parser_supports_seconds_milliseconds_and_rfc3339() {
+        assert_eq!(source_updated_epoch("1790726400"), Some(1_790_726_400));
+        assert_eq!(
+            source_updated_epoch("1790726400000"),
+            Some(1_790_726_400)
+        );
+        assert_eq!(
+            source_updated_epoch("2026-09-30T00:00:00Z"),
+            Some(1_790_726_400)
+        );
+        assert_eq!(source_updated_epoch("0"), None);
+        assert_eq!(source_updated_epoch("not-a-timestamp"), None);
     }
 
     #[test]
