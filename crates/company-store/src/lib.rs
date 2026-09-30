@@ -5022,7 +5022,7 @@ impl CompanyStore {
                 Some(&currency),
                 5_000,
                 &format!("affiliate:conversion:{}", event.conversion_id),
-                &event.source,
+                graph_source(&event.source)?,
                 observed_at_epoch,
             ),
         )
