@@ -825,7 +825,82 @@ impl CompanyStore {
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/044_company_isolation_hardening.sql"
             ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/045_browser_session_revocation.sql"
+            ))
             .await
+    }
+
+    pub async fn register_browser_session(
+        &self,
+        company_id: &str,
+        session_fingerprint: &str,
+        expires_at_epoch: i64,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        if session_fingerprint.trim().is_empty() || session_fingerprint.len() > 64 {
+            return Err("browser session fingerprint is invalid".into());
+        }
+        if expires_at_epoch <= 0 {
+            return Err("browser session expiry must be positive".into());
+        }
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "INSERT INTO browser_sessions (company_id,session_fingerprint,expires_at_epoch)
+                 VALUES ($1,$2,$3)
+                 ON CONFLICT(company_id,session_fingerprint) DO UPDATE
+                   SET expires_at_epoch=EXCLUDED.expires_at_epoch, revoked_at_epoch=NULL",
+                &[&company, &session_fingerprint.trim(), &expires_at_epoch],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn browser_session_active(
+        &self,
+        company_id: &str,
+        session_fingerprint: &str,
+        now_epoch: i64,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "SELECT expires_at_epoch,revoked_at_epoch
+                   FROM browser_sessions
+                  WHERE company_id=$1 AND session_fingerprint=$2",
+                &[&company, &session_fingerprint.trim()],
+            )
+            .await?;
+        Ok(row.is_some_and(|row| {
+            let expires: i64 = row.get(0);
+            let revoked: Option<i64> = row.get(1);
+            expires > now_epoch && revoked.is_none()
+        }))
+    }
+
+    pub async fn revoke_browser_session(
+        &self,
+        company_id: &str,
+        session_fingerprint: &str,
+        revoked_at_epoch: i64,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let updated = client
+            .execute(
+                "UPDATE browser_sessions
+                    SET revoked_at_epoch=$3
+                  WHERE company_id=$1
+                    AND session_fingerprint=$2
+                    AND revoked_at_epoch IS NULL",
+                &[&company, &session_fingerprint.trim(), &revoked_at_epoch],
+            )
+            .await?;
+        Ok(updated == 1)
     }
 
     pub async fn record_control_plane_audit(

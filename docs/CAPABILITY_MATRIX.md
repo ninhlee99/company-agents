@@ -224,6 +224,7 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Read-only audit feed:** `GET /api/control-plane/audit?limit=N` exposes recent company-scoped audit metadata to authenticated control-plane clients; the bearer token itself is never returned.
 - **Coarse auth scope:** `CONTROL_PLANE_READ_TOKEN` may authorize only `GET/HEAD` requests; `CONTROL_PLANE_TOKEN` remains the operator credential for mutating control-plane actions. This narrows blast radius but is not multi-user RBAC.
 - **Browser session:** `GET /auth/login` + `POST /auth/session` establish an 8-hour signed browser session when `CONTROL_PLANE_BROWSER_SECRET` is configured. Mutating HTML forms require a matching CSRF cookie/query token; `POST /auth/logout` clears both cookies. Browser sessions do not create per-user identity and remain shared operator sessions.
+- **Server-side browser revocation:** active browser sessions are registered with a SHA-256 cookie fingerprint and expiry in PostgreSQL; `POST /auth/logout` revokes that server-side record, and future requests with the old signed cookie are rejected even before cookie expiry.
 
 ## Model routing (shadow)
 

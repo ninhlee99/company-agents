@@ -3325,14 +3325,17 @@ fn verify_browser_session(
     })
 }
 
-fn control_plane_actor_id_for_cookie(cookie: &str) -> String {
+fn browser_session_fingerprint(cookie: &str) -> String {
     let digest = Sha256::digest(cookie.as_bytes());
-    let fingerprint: String = digest
+    digest
         .iter()
         .take(16)
         .map(|byte| format!("{byte:02x}"))
-        .collect();
-    format!("browser-session-sha256:{fingerprint}")
+        .collect()
+}
+
+fn control_plane_actor_id_for_cookie(cookie: &str) -> String {
+    format!("browser-session-sha256:{}", browser_session_fingerprint(cookie))
 }
 
 fn clear_cookie_headers(headers: &mut HeaderMap) {
@@ -3658,6 +3661,38 @@ async fn require_control_plane_auth(
     if let Some(cookie) = cookie_value(&request, "company_os_session") {
         if let Ok(secret) = browser_secret() {
             if let Some(session) = verify_browser_session(&state.company_id, &cookie, &secret) {
+                match state
+                    .store
+                    .browser_session_active(
+                        &state.company_id,
+                        &browser_session_fingerprint(&cookie),
+                        time::OffsetDateTime::now_utc().unix_timestamp(),
+                    )
+                    .await
+                {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        let actor_id = control_plane_actor_id_for_cookie(&cookie);
+                        mark_control_plane_denied(&state, false, started);
+                        record_control_plane_audit(
+                            &state,
+                            &actor_id,
+                            "operator-browser",
+                            &method,
+                            &path,
+                            "CONTROL_PLANE_BROWSER_SESSION",
+                            "DENIED",
+                            &request_id,
+                        )
+                        .await;
+                        return Err(StatusCode::UNAUTHORIZED);
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, "browser session revocation state unavailable");
+                        mark_control_plane_denied(&state, false, started);
+                        return Err(StatusCode::SERVICE_UNAVAILABLE);
+                    }
+                }
                 let csrf_cookie = cookie_value(&request, "company_os_csrf");
                 let csrf_header = request
                     .headers()
@@ -3815,6 +3850,16 @@ async fn browser_login(
     let secret = browser_secret()?;
     let csrf = uuid::Uuid::new_v4().to_string();
     let expires = time::OffsetDateTime::now_utc().unix_timestamp() + 8 * 60 * 60;
+    let session_cookie = sign_browser_session(&state.company_id, expires, &csrf, &secret)?;
+    state
+        .store
+        .register_browser_session(
+            &state.company_id,
+            &browser_session_fingerprint(&session_cookie),
+            expires,
+        )
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let mut response = Response::builder()
         .status(StatusCode::SEE_OTHER)
         .header(header::LOCATION, "/");
@@ -3843,9 +3888,22 @@ async fn browser_logout(
     request: Request,
 ) -> Result<Response, StatusCode> {
     let request_id = control_plane_request_id(&request);
-    let actor_id = cookie_value(&request, "company_os_session")
-        .map(|cookie| control_plane_actor_id_for_cookie(&cookie))
+    let session_cookie = cookie_value(&request, "company_os_session");
+    let actor_id = session_cookie
+        .as_deref()
+        .map(control_plane_actor_id_for_cookie)
         .unwrap_or_else(|| "anonymous".into());
+    if let Some(cookie) = session_cookie.as_deref() {
+        state
+            .store
+            .revoke_browser_session(
+                &state.company_id,
+                &browser_session_fingerprint(cookie),
+                time::OffsetDateTime::now_utc().unix_timestamp(),
+            )
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    }
     let mut headers = HeaderMap::new();
     clear_cookie_headers(&mut headers);
     record_control_plane_audit(
@@ -3997,6 +4055,15 @@ mod control_plane_audit_tests {
         assert_eq!(session.csrf, csrf);
         assert_eq!(session.expires_at_epoch, expires);
         assert!(verify_browser_session("other", &cookie, secret).is_none());
+    }
+
+    #[test]
+    fn browser_session_fingerprint_is_stable_and_non_secret() {
+        let first = browser_session_fingerprint("session-cookie-value");
+        let second = browser_session_fingerprint("session-cookie-value");
+        assert_eq!(first, second);
+        assert_eq!(first.len(), 32);
+        assert!(!first.contains("session-cookie-value"));
     }
 
     #[test]
