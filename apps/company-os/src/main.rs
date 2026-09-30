@@ -444,6 +444,35 @@ fn seed_company(company_id: String) -> CompanySnapshot {
     }
 }
 
+async fn run_ceo_exam(
+    state: &AppState,
+    exam_key: &str,
+    period_start_epoch: i64,
+    period_end_epoch: i64,
+) -> Result<company_store::CeoExamRecord, Box<dyn std::error::Error + Send + Sync>> {
+    let target_minor = configured_revenue_target_minor(&state.currency)?;
+    let command_center = state
+        .store
+        .ceo_command_center(&state.company_id, target_minor)
+        .await?;
+    let evaluations = state
+        .store
+        .agent_outcome_evaluations(&state.company_id, 7)
+        .await?;
+    let company_id = uuid::Uuid::parse_str(&state.company_id)?;
+    let report = company_command_center::run_ceo_exam(
+        company_id,
+        exam_key,
+        period_start_epoch,
+        period_end_epoch,
+        &command_center.input,
+        &command_center.summary,
+        &evaluations,
+    )
+    .map_err(|error| error.to_string())?;
+    state.store.persist_ceo_exam(&report).await
+}
+
 async fn run_cycle(
     state: &AppState,
     cycle_id: &str,
@@ -2057,6 +2086,20 @@ async fn fpa_variance_page(State(state): State<AppState>) -> Html<String> {
             Html(r#"<!doctype html><html><head><meta charset="utf-8"><title>FPA variance</title></head><body><h1>FPA variance unavailable</h1><p>Financial forecast or actual cash-flow evidence could not be loaded. Inspect operational logs.</p></body></html>"#.into())
         },
     }
+}
+
+async fn ceo_exam_latest_api(
+    State(state): State<AppState>,
+) -> Result<Json<Option<company_store::CeoExamRecord>>, StatusCode> {
+    state
+        .store
+        .latest_ceo_exam(&state.company_id)
+        .await
+        .map(Json)
+        .map_err(|error| {
+            tracing::warn!(%error, "CEO exam unavailable");
+            StatusCode::SERVICE_UNAVAILABLE
+        })
 }
 
 async fn ceo_command_center_api(
@@ -4306,6 +4349,15 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .ensure_recurring_job(&company_id, "agent_cycle", interval_secs as i64)
         .await?;
 
+    let ceo_exam_interval_secs = std::env::var("CEO_EXAM_SECONDS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value >= 900)
+        .unwrap_or(86_400);
+    store
+        .ensure_recurring_job(&company_id, "ceo_exam", ceo_exam_interval_secs as i64)
+        .await?;
+
     let background = state.clone();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_secs(15));
@@ -4315,6 +4367,40 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .store
                 .claim_due_job(&background.company_id, "agent_cycle")
                 .await;
+
+            let exam_claimed = background
+                .store
+                .claim_due_job(&background.company_id, "ceo_exam")
+                .await;
+
+            match exam_claimed {
+                Ok(Some((job_id, run_token))) => {
+                    let period_end = time::OffsetDateTime::now_utc().unix_timestamp();
+                    let period_start = period_end.saturating_sub(86_400);
+                    let exam_key = format!("scheduled:{run_token}");
+                    match run_ceo_exam(&background, &exam_key, period_start, period_end).await {
+                        Ok(_) => {
+                            if let Err(error) = background
+                                .store
+                                .complete_job(job_id, uuid::Uuid::new_v4())
+                                .await
+                            {
+                                eprintln!("CEO exam scheduler completion error: {error}");
+                            }
+                        }
+                        Err(error) => {
+                            eprintln!("CEO exam error: {error}");
+                            if let Err(release_error) =
+                                background.store.release_job_after_failure(job_id).await
+                            {
+                                eprintln!("CEO exam scheduler recovery error: {release_error}");
+                            }
+                        }
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => eprintln!("CEO exam scheduler claim error: {error}"),
+            }
 
             match claimed {
                 Ok(Some((job_id, run_token))) => {
@@ -4373,6 +4459,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/live/stop", post(live_stop_html))
         .route("/api/run", post(run_api))
         .route("/api/ceo/command-center", get(ceo_command_center_api))
+        .route("/api/ceo/exam/latest", get(ceo_exam_latest_api))
         .route("/api/fpa/forecast-variance", get(forecast_variance_api))
         .route("/api/agents", get(agents_api))
         .route("/api/agents/outcome-evidence", post(agent_outcome_evidence_api))
