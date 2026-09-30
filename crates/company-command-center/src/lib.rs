@@ -217,7 +217,10 @@ pub fn summarize(input: &CommandCenterInput) -> Result<CommandCenterSummary, Str
         });
     }
 
-    if alerts.is_empty() {
+    let has_attention = alerts
+        .iter()
+        .any(|alert| alert.kind == AlertKind::NeedsAttention);
+    if !has_attention {
         alerts.push(CommandCenterAlert {
             kind: AlertKind::Healthy,
             title: "Core controls healthy".into(),
@@ -411,6 +414,28 @@ mod tests {
     fn content_productivity_uses_same_seven_day_window() {
         let summary = summarize(&input()).unwrap();
         assert_eq!(summary.commission_7d_per_content_minor, Some(800));
+    }
+
+    #[test]
+    fn healthy_state_can_coexist_with_growth_opportunity() {
+        let mut value = input();
+        value.affiliate_variance_mtd_minor = 0;
+        value.growth_opportunities.push(GrowthOpportunityDigest {
+            title: "Test opportunity".into(),
+            score_bps: 7000,
+            confidence_bps: 8000,
+            status: "READY".into(),
+            ttfc_seconds: None,
+        });
+        let summary = summarize(&value).unwrap();
+        assert!(summary
+            .alerts
+            .iter()
+            .any(|alert| alert.kind == AlertKind::Healthy));
+        assert!(summary
+            .alerts
+            .iter()
+            .any(|alert| alert.kind == AlertKind::Opportunity));
     }
 
     #[test]
