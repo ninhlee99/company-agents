@@ -43,6 +43,7 @@ Durable media jobs, sandboxed FFmpeg, FFprobe QA and publishing approval contrac
 - Customer CRM identity/lifecycle, service proposals, sponsorships, invoices and a governed outbound email path using durable outbox delivery.
 - Invoice issuance/payment now posts deterministic Accounts Receivable/Cash/Revenue ledger entries.
 - Payment execution boundary: create intent → explicit approval → non-production mock execution with durable evidence/outbox only; simulated execution does not move funds or mark invoices paid.
+- Recurring CEO exam: daily durable PASS/REVIEW/UNKNOWN governance review over market/product/content/LIVE/finance/strategy/AI/operations using authoritative command-center and agent-outcome evidence.
 
 **Next product work:** broader verified revenue ingestion and external delivery evidence. Proposal/sponsorship status workflows and currency-scoped delivery reporting are implemented; growth/content producers now feed the unified event contract incrementally.
 
