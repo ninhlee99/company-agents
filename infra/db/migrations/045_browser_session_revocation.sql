@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS browser_sessions (
-  company_id UUID NOT NULL,
+  company_id UUID NOT NULL REFERENCES companies(id),
   session_fingerprint TEXT NOT NULL,
   expires_at_epoch BIGINT NOT NULL,
   revoked_at_epoch BIGINT,
