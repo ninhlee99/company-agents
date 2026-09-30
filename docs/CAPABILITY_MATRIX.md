@@ -44,6 +44,11 @@ This document intentionally separates implemented behavior from contracts, simul
 | Autonomous hiring/payroll execution | NOT achieved | Economic primitives and proposals exist; real external hiring/payroll actions remain gated. |
 | Autonomous company operation with no human | NOT achieved | The architecture is a controlled autonomy foundation. Real external credentials, platform adapters and production acceptance are still required. |
 
+
+## TikTok OAuth refresh durability
+
+- **Durable refresh lease:** enabled refresh workers use the existing `scheduled_jobs` lease, so concurrent Company OS instances claim at most one refresh job at a time. Refresh failures release the job for bounded retry; successful/no-op cycles advance the next run.
+
 ## Hard conclusion
 
 The repository is substantially beyond a toy multi-agent demo: the strongest implemented areas are deterministic governance, economic state, durable persistence, recovery-oriented workers, affiliate accounting, media processing and now commercial receivables/CRM.
