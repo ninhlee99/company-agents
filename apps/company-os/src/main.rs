@@ -1563,7 +1563,7 @@ async fn build_integration_readiness(
     let llm_provider = std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "gemini".into());
     let llm_provider = llm_provider.trim().to_ascii_lowercase();
     let (llm_configured, llm_authenticated, llm_status, llm_reason) = match llm_provider.as_str() {
-        "mock" => (true, false, "READY", "Deterministic mock provider is configured; no external authentication is involved."),
+        "mock" => (true, false, "SIMULATION_ONLY", "Deterministic mock provider is configured; no external authentication or reachability is implied."),
         "gemini" if std::env::var("GEMINI_API_KEY").ok().is_some_and(|v| !v.trim().is_empty()) => {
             (true, false, "CONFIGURED", "Gemini credentials are configured; external reachability is not verified here.")
         }
@@ -1581,7 +1581,7 @@ async fn build_integration_readiness(
         .unwrap_or("mock");
     let (affiliate_status, affiliate_configured, affiliate_reason) =
         match affiliate_provider.to_ascii_lowercase().as_str() {
-            "mock" => ("READY", true, "Deterministic mock affiliate provider is configured."),
+            "mock" => ("SIMULATION_ONLY", true, "Deterministic mock affiliate provider is configured; no external authentication or reachability is implied."),
             "awin" if std::env::var("AWIN_ACCESS_TOKEN").ok().is_some_and(|v| !v.trim().is_empty())
                 && std::env::var("AWIN_PUBLISHER_ID").ok().is_some_and(|v| !v.trim().is_empty()) =>
             {
