@@ -20,6 +20,7 @@ This document intentionally separates implemented behavior from contracts, simul
 | Unified event architecture | Implemented foundation | `company-domain` defines canonical event names and a versioned company event envelope with correlation/causation IDs, aggregate references, idempotency keys and validated payloads. `company-store` can persist the typed envelope idempotently through the durable outbox; existing producers are migrated incrementally. |
 | Web research / web-session relay | Environment-gated | Browser/web relay protocols and workers exist, but usable capability depends on configured relay/browser credentials. |
 | Affiliate product discovery | Environment-gated | Mock, Awin and TikTok Shop adapters exist; real data requires operator credentials/contracts. |
+| Competitor intelligence + content whitespace | Implemented foundation | Evidence-backed competitor observations and owned-content coverage can be evaluated deterministically into ranked whitespace gaps. The module excludes stale observations and never invents external competitor data. |
 | Affiliate attribution/reconciliation | Implemented + environment-gated | Click/conversion state and provider verification/accounting are durable; real provider verification requires provider data. |
 | Media production | Implemented | Media jobs run through isolated FFmpeg/FFprobe QA in the media worker. |
 | Publishing approval contract | Implemented | Publish intent, approval, lease, completion and revocation are durable and guarded. |
@@ -180,6 +181,9 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **No lifetime-vs-monthly comparison:** dashboard target progress uses only month-to-date observed revenue.
 
 ## Integration readiness
+
+- **Competitor whitespace:** `POST /api/growth/competitor-whitespace` accepts only caller-supplied observations with source/evidence/timestamp metadata plus owned-content coverage. Results are deterministic priority signals; they are not claims about unobserved competitors or platform-wide market demand.
+
 
 - **Control-plane request telemetry:** protected requests are correlated with `x-request-id`; auth/scope/CSRF denials increment dedicated counters and protected request latency is exposed as a low-cardinality gauge. No path/actor labels are exported to avoid cardinality and secret leakage.
 
