@@ -8511,14 +8511,7 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             .map(|row| {
                 let billed = parse_i128_numeric(&row.get::<_, String>(6))?;
                 let paid = parse_i128_numeric(&row.get::<_, String>(7))?;
-                let collection_rate_bps = if billed > 0 {
-                    paid.saturating_mul(10_000)
-                        .checked_div(billed)
-                        .unwrap_or(0)
-                        .clamp(0, 10_000) as i64
-                } else {
-                    0
-                };
+                let collection_rate_bps = collection_rate_bps(billed, paid);
                 let last_payment_epoch: Option<i64> = row.get(9);
                 let payment_recency_days = last_payment_epoch.map(|epoch| {
                     now_epoch.saturating_sub(epoch).max(0) / 86_400
@@ -10316,6 +10309,16 @@ fn sponsorship_delivery_ratio_bps(delivered:i128, committed:i128)->i64 {
     delivered.saturating_mul(10_000).checked_div(committed).unwrap_or(0).clamp(0,10_000) as i64
 }
 
+fn collection_rate_bps(billed: i128, paid: i128) -> i64 {
+    if billed <= 0 || paid <= 0 {
+        return 0;
+    }
+    paid.saturating_mul(10_000)
+        .checked_div(billed)
+        .unwrap_or(0)
+        .clamp(0, 10_000) as i64
+}
+
 fn payment_simulation_allowed(simulation_enabled: bool, production_environment: bool) -> bool {
     simulation_enabled && !production_environment
 }
@@ -10354,6 +10357,18 @@ mod commercial_report_tests {
         assert_eq!(sponsorship_delivery_ratio_bps(200,100),10_000);
     }
 }
+#[cfg(test)]
+mod customer_intelligence_tests {
+    use super::*;
+
+    #[test]
+    fn collection_rate_is_bounded_and_does_not_imply_ltv() {
+        assert_eq!(collection_rate_bps(0, 0), 0);
+        assert_eq!(collection_rate_bps(100, 50), 5_000);
+        assert_eq!(collection_rate_bps(100, 120), 10_000);
+    }
+}
+
 #[cfg(test)]
 mod numeric_parser_tests {
     use super::*;
