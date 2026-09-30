@@ -1529,7 +1529,11 @@ async fn tiktok_oauth_callback_api(
     State(state): State<AppState>,
     Query(query): Query<TikTokOAuthCallbackQuery>,
 ) -> Result<Html<String>, StatusCode> {
-    let returned_state = query.state.as_deref().filter(|value| !value.trim().is_empty()).ok_or(StatusCode::BAD_REQUEST)?;
+    let returned_state = query
+        .state
+        .as_deref()
+        .filter(|value| !value.trim().is_empty() && value.len() <= 256)
+        .ok_or(StatusCode::BAD_REQUEST)?;
     let config = company_tiktok_auth::OAuthConfig::from_env()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let now_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
