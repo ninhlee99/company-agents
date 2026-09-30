@@ -1355,16 +1355,16 @@ impl CompanyStore {
             company_learning::validate_evidence(&learning)
                 .map_err(|error| error.to_string())?;
 
-            let learning_id = Uuid::new_v4();
-            tx.execute(
+            let inserted = tx.query_opt(
                 "INSERT INTO learning_entries
                  (id,company_id,entry_key,source_type,source_id,kind,severity,hypothesis,context,
                   expected_outcome,actual_outcome,impact_minor,confidence_bps,root_cause,
                   corrective_action,reusable_rule,decision)
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
-                 ON CONFLICT(company_id,entry_key) DO NOTHING",
+                 ON CONFLICT(company_id,entry_key) DO NOTHING
+                 RETURNING id",
                 &[
-                    &learning_id,
+                    &Uuid::new_v4(),
                     &company,
                     &learning.entry_key,
                     &learning.source_type,
@@ -1384,6 +1384,16 @@ impl CompanyStore {
                 ],
             )
             .await?;
+            let learning_id = match inserted {
+                Some(row) => row.get(0),
+                None => tx
+                    .query_one(
+                        "SELECT id FROM learning_entries WHERE company_id=$1 AND entry_key=$2",
+                        &[&company, &learning.entry_key],
+                    )
+                    .await?
+                    .get(0),
+            };
 
             let outbox_key = format!("outbox:learning:{}", learning.entry_key);
             let payload = serde_json::json!({
