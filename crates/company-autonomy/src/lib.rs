@@ -270,12 +270,17 @@ pub fn assess(
             | CompanyStatus::Liquidation
             | CompanyStatus::Bankrupt
     ) {
+        let decision = if input.policy.max_level >= AutonomyLevel::Simulate
+            && input.simulation.is_some()
+        {
+            AutonomyDecision::SimulateOnly
+        } else if input.policy.max_level == AutonomyLevel::Observe {
+            AutonomyDecision::Observe
+        } else {
+            AutonomyDecision::Recommend
+        };
         return Ok(AutonomyAssessment {
-            decision: if input.simulation.is_some() {
-                AutonomyDecision::SimulateOnly
-            } else {
-                AutonomyDecision::Recommend
-            },
+            decision,
             ceiling: input.policy.max_level,
             required_level: AutonomyLevel::Recommend,
             reason: "financial distress caps autonomy at recommendation/simulation".into(),
@@ -315,6 +320,16 @@ pub fn assess(
             ceiling: input.policy.max_level,
             required_level: AutonomyLevel::Simulate,
             reason: "configured ceiling is simulation-only".into(),
+            simulation: input.simulation.clone(),
+        });
+    }
+
+    if input.policy.max_level < AutonomyLevel::LimitedAutonomy {
+        return Ok(AutonomyAssessment {
+            decision: AutonomyDecision::NeedsApproval,
+            ceiling: input.policy.max_level,
+            required_level: AutonomyLevel::HumanApprove,
+            reason: "configured ceiling does not permit autonomous execution".into(),
             simulation: input.simulation.clone(),
         });
     }
