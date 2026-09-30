@@ -2,6 +2,7 @@
 
 use async_trait::async_trait;
 use reqwest::{Client, StatusCode, Url};
+use crate::types::AgentRole;
 use serde_json::{json, Value};
 use uuid::Uuid;
 use std::{
@@ -37,9 +38,150 @@ impl fmt::Display for ModelError {
 
 impl std::error::Error for ModelError {}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelRoutingMode {
+    Off,
+    Shadow,
+}
+
+impl ModelRoutingMode {
+    pub fn from_env() -> Self {
+        match env::var("MODEL_ROUTER_MODE")
+            .unwrap_or_else(|_| "shadow".into())
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "off" | "disabled" => Self::Off,
+            _ => Self::Shadow,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelTaskClass {
+    Fast,
+    Standard,
+    Deep,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HardwareTier {
+    Small,
+    Medium,
+    Large,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelRequestMetadata {
+    pub agent: AgentRole,
+    pub system_bytes: usize,
+    pub user_bytes: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelRouteDecision {
+    pub task: ModelTaskClass,
+    pub hardware: HardwareTier,
+    pub recommended_provider: Option<String>,
+    pub applied: bool,
+}
+
+pub fn classify_model_task(
+    agent: AgentRole,
+    system_bytes: usize,
+    user_bytes: usize,
+) -> ModelTaskClass {
+    if system_bytes.max(user_bytes) >= 12_000 {
+        return ModelTaskClass::Deep;
+    }
+
+    match agent {
+        AgentRole::CEO | AgentRole::CFO | AgentRole::Analyst => ModelTaskClass::Deep,
+        AgentRole::Experiment => ModelTaskClass::Fast,
+        _ => ModelTaskClass::Standard,
+    }
+}
+
+pub fn hardware_tier_for_cores(cores: usize) -> HardwareTier {
+    match cores {
+        0..=2 => HardwareTier::Small,
+        3..=8 => HardwareTier::Medium,
+        _ => HardwareTier::Large,
+    }
+}
+
+fn detected_hardware_tier() -> HardwareTier {
+    std::thread::available_parallelism()
+        .map(|value| hardware_tier_for_cores(value.get()))
+        .unwrap_or(HardwareTier::Medium)
+}
+
+fn is_local_provider(name: &str) -> bool {
+    matches!(
+        name.trim().to_ascii_lowercase().as_str(),
+        "ollama" | "local" | "mock"
+    )
+}
+
+fn is_remote_api_provider(name: &str) -> bool {
+    matches!(
+        name.trim().to_ascii_lowercase().as_str(),
+        "gemini" | "openai" | "chatgpt" | "anthropic" | "claude"
+    )
+}
+
+fn recommended_provider(
+    providers: &[String],
+    task: ModelTaskClass,
+    hardware: HardwareTier,
+) -> Option<String> {
+    match task {
+        ModelTaskClass::Fast => providers
+            .iter()
+            .find(|name| is_local_provider(name))
+            .cloned(),
+        ModelTaskClass::Deep if hardware == HardwareTier::Small => providers
+            .iter()
+            .find(|name| is_remote_api_provider(name))
+            .cloned()
+            .or_else(|| providers.first().cloned()),
+        ModelTaskClass::Deep => providers
+            .iter()
+            .find(|name| !is_local_provider(name))
+            .cloned()
+            .or_else(|| providers.first().cloned()),
+        ModelTaskClass::Standard => providers.first().cloned(),
+    }
+}
+
+pub fn route_model_request(
+    providers: &[String],
+    metadata: &ModelRequestMetadata,
+    _mode: ModelRoutingMode,
+) -> ModelRouteDecision {
+    let task = classify_model_task(metadata.agent, metadata.system_bytes, metadata.user_bytes);
+    let hardware = detected_hardware_tier();
+    ModelRouteDecision {
+        task,
+        hardware,
+        recommended_provider: recommended_provider(providers, task, hardware),
+        applied: false,
+    }
+}
+
 #[async_trait]
 pub trait Model: Send + Sync {
     async fn propose_json(&self, system: &str, user: &str) -> Result<Value, ModelError>;
+
+    async fn propose_json_with_metadata(
+        &self,
+        system: &str,
+        user: &str,
+        _metadata: ModelRequestMetadata,
+    ) -> Result<Value, ModelError> {
+        self.propose_json(system, user).await
+    }
 }
 
 pub struct MockModel;
@@ -807,6 +949,43 @@ impl FallbackModel {
     }
 }
 
+pub struct RoutingModel {
+    inner: Arc<FallbackModel>,
+    mode: ModelRoutingMode,
+}
+
+impl RoutingModel {
+    pub fn new(inner: Arc<FallbackModel>, mode: ModelRoutingMode) -> Self {
+        Self { inner, mode }
+    }
+}
+
+#[async_trait]
+impl Model for RoutingModel {
+    async fn propose_json(&self, system: &str, user: &str) -> Result<Value, ModelError> {
+        self.inner.propose_json(system, user).await
+    }
+
+    async fn propose_json_with_metadata(
+        &self,
+        system: &str,
+        user: &str,
+        metadata: ModelRequestMetadata,
+    ) -> Result<Value, ModelError> {
+        let decision = route_model_request(&self.inner.provider_names(), &metadata, self.mode);
+        if self.mode == ModelRoutingMode::Shadow {
+            tracing::debug!(
+                task=?decision.task,
+                hardware=?decision.hardware,
+                recommended_provider=?decision.recommended_provider,
+                agent=?metadata.agent,
+                "model routing shadow decision"
+            );
+        }
+        self.inner.propose_json(system, user).await
+    }
+}
+
 #[async_trait]
 impl Model for FallbackModel {
     async fn propose_json(
@@ -906,15 +1085,77 @@ pub fn model_from_env() -> Box<dyn Model> {
         }
     }
 
-    match FallbackModel::new(providers) {
-        Ok(provider) => Box::new(provider),
-        Err(error) => Box::new(FailClosedModel::new(error.to_string())),
+    let fallback = match FallbackModel::new(providers) {
+        Ok(provider) => Arc::new(provider),
+        Err(error) => return Box::new(FailClosedModel::new(error.to_string())),
+    };
+
+    match ModelRoutingMode::from_env() {
+        ModelRoutingMode::Off => Box::new(fallback),
+        ModelRoutingMode::Shadow => {
+            Box::new(RoutingModel::new(fallback, ModelRoutingMode::Shadow))
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn routing_classifies_tasks_deterministically() {
+        assert_eq!(
+            classify_model_task(AgentRole::CEO, 100, 100),
+            ModelTaskClass::Deep
+        );
+        assert_eq!(
+            classify_model_task(AgentRole::Experiment, 100, 100),
+            ModelTaskClass::Fast
+        );
+        assert_eq!(
+            classify_model_task(AgentRole::Growth, 100, 100),
+            ModelTaskClass::Standard
+        );
+        assert_eq!(
+            classify_model_task(AgentRole::Growth, 13_000, 100),
+            ModelTaskClass::Deep
+        );
+    }
+
+    #[test]
+    fn hardware_tier_respects_core_count() {
+        assert_eq!(hardware_tier_for_cores(1), HardwareTier::Small);
+        assert_eq!(hardware_tier_for_cores(4), HardwareTier::Medium);
+        assert_eq!(hardware_tier_for_cores(16), HardwareTier::Large);
+    }
+
+    #[test]
+    fn routing_recommends_local_for_fast_work_when_available() {
+        let providers = vec!["gemini".into(), "ollama".into()];
+        let meta = ModelRequestMetadata {
+            agent: AgentRole::Experiment,
+            system_bytes: 100,
+            user_bytes: 100,
+        };
+        let decision = route_model_request(&providers, &meta, ModelRoutingMode::Shadow);
+        assert_eq!(decision.task, ModelTaskClass::Fast);
+        assert_eq!(decision.recommended_provider.as_deref(), Some("ollama"));
+        assert!(!decision.applied);
+    }
+
+    #[test]
+    fn routing_prefers_remote_for_deep_work_on_small_hardware() {
+        let providers = vec!["ollama".into(), "gemini".into(), "anthropic".into()];
+        let meta = ModelRequestMetadata {
+            agent: AgentRole::CEO,
+            system_bytes: 100,
+            user_bytes: 100,
+        };
+        let task = classify_model_task(meta.agent, meta.system_bytes, meta.user_bytes);
+        assert_eq!(task, ModelTaskClass::Deep);
+        let recommended = recommended_provider(&providers, task, HardwareTier::Small);
+        assert_eq!(recommended.as_deref(), Some("gemini"));
+    }
 
     #[tokio::test]
     async fn mock_model_is_available_without_external_services() {

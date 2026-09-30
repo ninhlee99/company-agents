@@ -40,7 +40,7 @@ This document intentionally separates implemented behavior from contracts, simul
 | Multi-tenant SaaS isolation | NOT achieved | The runtime is company-scoped by deployment configuration, not a full user/tenant authorization model. |
 | Observability | Implemented baseline | Health/readiness and Prometheus-style counters exist. Distributed tracing/load/chaos acceptance is still environment-dependent. |
 | Disaster recovery | Implemented baseline | Backup/restore drill automation exists; production-scale recovery evidence is still environment-dependent. |
-| Model evaluation / routing | Evidence capture implemented; routing gate remains | Per-cycle agent evaluation evidence, governance decisions, confidence, evidence count, cost, expected revenue and observed outcomes are persisted. A production benchmark matrix, complexity router and hardware-aware selection loop are still required. |
+| Model evaluation / routing | Evidence capture + shadow routing implemented | Per-cycle evaluation evidence is persisted. Shadow routing classifies task complexity, detects hardware tier and records a deterministic provider recommendation without changing actual provider selection. Production benchmark matrix and active routing are still gated. |
 | Autonomous hiring/payroll execution | NOT achieved | Economic primitives and proposals exist; real external hiring/payroll actions remain gated. |
 | Autonomous company operation with no human | NOT achieved | The architecture is a controlled autonomy foundation. Real external credentials, platform adapters and production acceptance are still required. |
 
@@ -160,6 +160,14 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Target separation:** the configured monthly target is planning input and is never substituted for observed revenue.
 - **Forecast boundary:** the monthly forecast is a deterministic calendar-day run-rate projection; its confidence field is time-coverage (elapsed-month) coverage, not a statistical guarantee.
 - **No lifetime-vs-monthly comparison:** dashboard target progress uses only month-to-date observed revenue.
+
+## Model routing (shadow)
+
+- **Deterministic task classification:** model calls are classified as Fast, Standard, or Deep from agent role and bounded prompt size.
+- **Hardware-aware recommendation:** local logical CPU count is mapped to Small/Medium/Large tiers.
+- **Provider recommendation:** Fast favors configured local/mock providers; Deep on Small hardware favors configured remote API providers.
+- **Safe rollout:** `MODEL_ROUTER_MODE=shadow` is advisory telemetry only. The existing provider/fallback order remains authoritative until benchmark and acceptance evidence justify active routing.
+- **Current boundary:** routing does not claim a quality, latency, or cost improvement; benchmark data is required before provider selection changes.
 
 ## Revenue Intelligence Graph
 
