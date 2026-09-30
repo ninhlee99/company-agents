@@ -40,7 +40,7 @@ This document intentionally separates implemented behavior from contracts, simul
 | Human approval / material side effects | Implemented | Material publishing and other sensitive actions are designed to remain explicitly gated. |
 | Control-plane authentication | Implemented baseline + audit + coarse scopes + browser session | Bearer token authentication is required by default for non-health endpoints, with constant-time comparison. Auth ALLOW/DENY decisions are persisted to a company-scoped append-only audit log. An optional read-only bearer token is limited to GET/HEAD; mutations still require the operator token. HTML control-plane sessions can use a signed HttpOnly cookie with SameSite=Strict and CSRF double-submit protection. |
 | Company-owned relational isolation | Implemented hardening | Commercial, CRM, procurement, payment, LIVE, creator and task relationships now use company-aware composite foreign keys; store-layer ownership checks fail early with explicit errors. Migration validation rejects pre-existing cross-company references rather than silently repairing them. |
-| Multi-user identity / RBAC / SSO | NOT achieved | Authentication is a shared control-plane token, not an operator identity system. |
+| Multi-user identity / RBAC / SSO | RBAC baseline; SSO not achieved | Optional named control-plane principals support `admin`, `operator`, and `read-only` scopes with fail-closed config validation, unique principal IDs/tokens and audited principal IDs. Credentials remain deployment configuration; directory/SSO-backed lifecycle and durable user identity are not implemented. |
 | Multi-tenant SaaS isolation | NOT achieved | The runtime is company-scoped by deployment configuration, not a full user/tenant authorization model. |
 | Observability | Implemented baseline + request correlation | Health/readiness and Prometheus-style counters exist. Protected control-plane requests now emit a bounded `x-request-id`, and Prometheus includes request count, auth-denial count, CSRF-denial count and last latency. Distributed tracing/load/chaos acceptance is still environment-dependent. |
 | Integration readiness | Implemented baseline | Authenticated control-plane clients can inspect deterministic readiness for LLM, affiliate, TikTok OAuth, LIVE, outbound email, browser session and compliance. Configured/authenticated/evidence-fresh remain separate signals; external reachability is not inferred. |
@@ -82,6 +82,8 @@ It should not be described as an AI company that can independently operate every
 
 
 ### Commercial lifecycle hardening
+
+- **Named control-plane principals:** `CONTROL_PLANE_PRINCIPALS_JSON` replaces the shared-token role map when configured. Principal IDs are audited; raw credentials are never written to audit metadata. `read-only` is limited to GET/HEAD; `operator` and `admin` cover current mutating control-plane APIs.
 
 - **Unified event contract:** `CompanyEventType` provides stable names for the P1 event set; `CompanyEventEnvelope` carries company, schema, aggregate, correlation/causation, idempotency and payload metadata. Store persistence keeps the existing durable outbox path.
 - **Experiment producer:** terminal experiment decisions now emit `EXPERIMENT_COMPLETED` transactionally with the experiment observation/status, revenue-graph lineage and learning record. The event payload contains only recorded experiment evidence and the deterministic terminal decision; `CONTINUE` emits no completion event.
