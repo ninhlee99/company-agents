@@ -10525,6 +10525,7 @@ mod publish_intent_completed_event_tests {
         assert_eq!(event.aggregate_id, Some(intent));
         assert_eq!(event.payload["external_reference"], "publish-99");
         assert_eq!(event.payload["status"], "SUCCEEDED");
+        assert_eq!(event.idempotency_key, "outbox:publish-completed:72:SUCCEEDED:publish-99");
     }
 }
 
