@@ -303,6 +303,37 @@ async fn enqueue_company_event_tx(
     Ok(inserted == 1)
 }
 
+fn content_published_event(
+    company: Uuid,
+    content: &company_content::ContentItem,
+    evidence_ref: &str,
+) -> Result<company_domain::CompanyEventEnvelope, company_domain::DomainError> {
+    let evidence_ref = evidence_ref.trim();
+    if evidence_ref.is_empty() {
+        return Err(company_domain::DomainError::Invariant(
+            "content publish events require evidence",
+        ));
+    }
+    company_domain::CompanyEventEnvelope::new(
+        company,
+        company_domain::CompanyEventType::ContentPublished,
+        "content",
+        Some(content.id),
+        time::OffsetDateTime::now_utc().unix_timestamp(),
+        content.id,
+        None,
+        format!("content-published:{}", content.id),
+        serde_json::json!({
+            "content_id": content.id,
+            "variant_key": content.variant.variant_key,
+            "product_ref": content.brief.product_ref,
+            "offer_ref": content.brief.offer_ref,
+            "status": "PUBLISHED",
+            "evidence_ref": evidence_ref,
+        }),
+    )
+}
+
 fn experiment_completed_event(
     company: Uuid,
     experiment_id: Uuid,
@@ -1519,28 +1550,32 @@ impl CompanyStore {
         evidence_ref: Option<&str>,
     ) -> Result<ContentRecord, Box<dyn std::error::Error + Send + Sync>> {
         let company = Uuid::parse_str(company_id)?;
-        let client = self.client.lock().await;
-        let row = client.query_opt(
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let row = tx.query_opt(
             "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
                     expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
                     success_threshold_bps,variant_key,hook,first_frame,emotion,pacing,scene_count,
                     text_density,voice_speed,product_placement,cta,comment_trigger,music_style,
                     visual_style,status,decision,created_at::text
                FROM content_items
-              WHERE company_id=$1 AND id=$2",
+              WHERE company_id=$1 AND id=$2
+              FOR UPDATE",
             &[&company, &content_id],
         ).await?.ok_or("content item not found")?;
         let current = parse_content_status(row.get::<_, String>(26))?;
         company_content::validate_status_transition(current, next, evidence_ref)
             .map_err(|error| error.to_string())?;
+
         let next_name = content_status_name(next);
-        client.execute(
+        tx.execute(
             "UPDATE content_items
                 SET status=$3, status_evidence_ref=$4
               WHERE company_id=$1 AND id=$2",
             &[&company, &content_id, &next_name, &evidence_ref],
         ).await?;
-        let refreshed = client.query_one(
+
+        let refreshed = tx.query_one(
             "SELECT id,company_id,hypothesis,audience,format,product_ref,offer_ref,disclosure_required,
                     expected_cost_minor::text,max_loss_minor::text,max_duration_seconds,success_metric,
                     success_threshold_bps,variant_key,hook,first_frame,emotion,pacing,scene_count,
@@ -1549,7 +1584,21 @@ impl CompanyStore {
                FROM content_items WHERE company_id=$1 AND id=$2",
             &[&company, &content_id],
         ).await?;
-        content_record_from_row(refreshed)
+        let record = content_record_from_row(refreshed)?;
+
+        if current != company_content::ContentStatus::Published
+            && next == company_content::ContentStatus::Published
+        {
+            let event = content_published_event(
+                company,
+                &record.item,
+                evidence_ref.unwrap_or_default(),
+            )?;
+            enqueue_company_event_tx(&tx, &event).await?;
+        }
+
+        tx.commit().await?;
+        Ok(record)
     }
 
     pub async fn record_content_observation(
@@ -10365,6 +10414,67 @@ mod customer_intelligence_tests {
         assert_eq!(collection_rate_bps(0, 0), 0);
         assert_eq!(collection_rate_bps(100, 50), 5_000);
         assert_eq!(collection_rate_bps(100, 120), 10_000);
+    }
+}
+
+#[cfg(test)]
+mod content_publish_event_tests {
+    use super::*;
+
+    fn item() -> company_content::ContentItem {
+        company_content::ContentItem {
+            id: Uuid::from_u128(7),
+            company_id: Uuid::from_u128(8),
+            brief: company_content::ContentBrief {
+                hypothesis: "proof improves conversion".into(),
+                audience: "buyers".into(),
+                format: company_content::ContentFormat::ShortVideo,
+                product_ref: Some("product-7".into()),
+                offer_ref: Some("offer-7".into()),
+                disclosure_required: true,
+                expected_cost_minor: 100,
+                max_loss_minor: 200,
+                max_duration_seconds: 30,
+                success_metric: company_content::SuccessMetric::ClickThroughRate,
+                success_threshold_bps: 500,
+            },
+            variant: company_content::CreativeVariant {
+                variant_key: "variant-7".into(),
+                hook: "Result first".into(),
+                first_frame: "Result".into(),
+                emotion: "curiosity".into(),
+                pacing: "fast".into(),
+                scene_count: 3,
+                text_density: "low".into(),
+                voice_speed: "1.0x".into(),
+                product_placement: "second-2".into(),
+                cta: "Open".into(),
+                comment_trigger: "Ask".into(),
+                music_style: "none".into(),
+                visual_style: "clean".into(),
+            },
+            status: company_content::ContentStatus::Published,
+            decision: None,
+        }
+    }
+
+    #[test]
+    fn published_event_contains_stable_lineage() {
+        let content = item();
+        let event = content_published_event(content.company_id, &content, "publish-proof-1").unwrap();
+        assert_eq!(event.event_type_name(), "CONTENT_PUBLISHED");
+        assert_eq!(event.aggregate_type, "content");
+        assert_eq!(event.aggregate_id, Some(content.id));
+        assert_eq!(event.correlation_id, content.id);
+        assert_eq!(event.idempotency_key, format!("content-published:{}", content.id));
+        assert_eq!(event.payload["evidence_ref"], "publish-proof-1");
+        assert_eq!(event.payload["variant_key"], "variant-7");
+    }
+
+    #[test]
+    fn published_event_rejects_missing_evidence() {
+        let content = item();
+        assert!(content_published_event(content.company_id, &content, "  ").is_err());
     }
 }
 
