@@ -651,7 +651,7 @@ fn render_ceo_command_center(
         company_command_center::RevenueTrend::Flat => "→ Flat",
     };
     let trend_delta = format!("{:.2}%", summary.revenue_trend_delta_bps as f64 / 100.0);
-    let target_progress = format!("{}%", summary.target_progress_bps / 100);
+    let target_progress = summary.target_progress_bps / 100;
 
     let mut attention = String::new();
     let mut opportunities = String::new();
