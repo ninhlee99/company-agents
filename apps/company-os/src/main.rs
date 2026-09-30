@@ -3584,7 +3584,6 @@ async fn require_control_plane_auth(
         return Ok(response);
     }
 
-    let method = request.method().as_str().to_owned();
     let provided = request
         .headers()
         .get(axum::http::header::AUTHORIZATION)
@@ -3719,7 +3718,7 @@ async fn require_control_plane_auth(
 
     let actor_id = format!("principal:{principal_id}");
 
-    let mut response = next.run(request).await;
+    let mut response = next.run(request).instrument(span.clone()).await;
     record_control_plane_audit(
         &state,
         &actor_id,
