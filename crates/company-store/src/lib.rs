@@ -8555,7 +8555,6 @@ async fn content_observation_by_key(
 }
 
 fn experiment_learning_entry(
-    company_id: Uuid,
     experiment_id: Uuid,
     spec: &company_experiments::ExperimentSpec,
     observation: &company_experiments::ExperimentObservation,
@@ -9015,7 +9014,6 @@ mod experiment_learning_tests {
     #[test]
     fn terminal_experiment_decision_becomes_evidence_backed_learning() {
         let entry = experiment_learning_entry(
-            Uuid::nil(),
             Uuid::from_u128(1),
             &spec(),
             &observation(),
@@ -9038,7 +9036,6 @@ mod experiment_learning_tests {
         value.treatment_observations = 100;
 
         let entry = experiment_learning_entry(
-            Uuid::nil(),
             Uuid::from_u128(1),
             &spec(),
             &value,
