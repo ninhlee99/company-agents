@@ -3428,7 +3428,7 @@ impl CompanyStore {
                     time::OffsetDateTime::now_utc().unix_timestamp(),
                     publish_completion_correlation_id(&format!("webhook:{event_key}")),
                     None,
-                    format!("tiktok-webhook:{event_key}"),
+                    format!("outbox:tiktok-webhook:{event_key}"),
                     serde_json::json!({
                         "source": "tiktok_webhook",
                         "event": event_name,
