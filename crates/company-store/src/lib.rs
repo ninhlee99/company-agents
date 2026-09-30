@@ -206,7 +206,6 @@ pub struct ContributionMarginMetrics {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CustomerIntelligenceMetric {
     pub customer_id: Uuid,
     pub customer_name: String,
@@ -8505,7 +8504,7 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
                   LIMIT $2",
                 &[&company, &limit],
             )
-            .await?;;
+            .await?;
 
         rows.into_iter()
             .map(|row| {
