@@ -3195,7 +3195,9 @@ impl CompanyStore {
                 .query_opt(
                     "SELECT 1
                        FROM business_units
-                      WHERE company_id=$1 AND id=$2
+                      WHERE company_id=$1
+                        AND id=$2
+                        AND lifecycle IN ('TESTING','GROWING','STABLE')
                       FOR SHARE",
                     &[&company, &unit_id],
                 )
