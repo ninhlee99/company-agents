@@ -3328,8 +3328,9 @@ impl CompanyStore {
                  emergency_stop_reason=EXCLUDED.emergency_stop_reason,
                  emergency_stop_actor=EXCLUDED.emergency_stop_actor,
                  emergency_stop_changed_at_epoch=CASE
-                    WHEN autonomy_control_state.emergency_stop_enabled
-                       IS DISTINCT FROM EXCLUDED.emergency_stop_enabled
+                    WHEN autonomy_control_state.emergency_stop_enabled IS DISTINCT FROM EXCLUDED.emergency_stop_enabled
+                      OR autonomy_control_state.emergency_stop_reason IS DISTINCT FROM EXCLUDED.emergency_stop_reason
+                      OR autonomy_control_state.emergency_stop_actor IS DISTINCT FROM EXCLUDED.emergency_stop_actor
                     THEN EXCLUDED.emergency_stop_changed_at_epoch
                     ELSE autonomy_control_state.emergency_stop_changed_at_epoch
                  END,
