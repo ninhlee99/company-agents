@@ -601,6 +601,38 @@ async fn index(
             contribution_margin.variable_cost_transaction_count
         )
     };
+    let budget_statuses = state
+        .store
+        .autonomy_budget_statuses(
+            &state.company_id,
+            time::OffsetDateTime::now_utc().unix_timestamp(),
+        )
+        .await
+        .unwrap_or_default();
+    let mut budget_status_html = String::new();
+    for status in &budget_statuses {
+        let (used, remaining, limit) = match status.kind {
+            company_safety_controls::BudgetKind::AdsSpend
+            | company_safety_controls::BudgetKind::AutonomousCapital => (
+                format_minor(status.used, &state.currency),
+                format_minor(status.remaining, &state.currency),
+                format_minor(status.daily_limit, &state.currency),
+            ),
+            _ => (
+                status.used.to_string(),
+                status.remaining.to_string(),
+                status.daily_limit.to_string(),
+            ),
+        };
+        budget_status_html.push_str(&format!(
+            r#"<div style="padding:7px 0;border-bottom:1px solid #26304a"><span class="muted">{}</span> · used {} / limit {} · remaining {}</div>"#,
+            status.kind.as_str(),
+            used,
+            limit,
+            remaining
+        ));
+    }
+
     let autonomy_policy = autonomy_policy_from_env();
     let persistent_controls = state.store.autonomy_controls(&state.company_id).await;
     let autonomy_stop = match (
@@ -1146,7 +1178,26 @@ async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, S
 
 async fn autonomy_controls_get_api(
     State(state): State<AppState>,
-) -> Result<Json<company_store::AutonomyControlRecord>, StatusCode> {
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let record = state
+        .store
+        .autonomy_controls(&state.company_id)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let budgets = state
+        .store
+        .autonomy_budget_statuses(
+            &state.company_id,
+            time::OffsetDateTime::now_utc().unix_timestamp(),
+        )
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    Ok(Json(serde_json::json!({
+        "controls": record.controls,
+        "updated_at": record.updated_at,
+        "budgets": budgets
+    })))
+}
     state
         .store
         .autonomy_controls(&state.company_id)
