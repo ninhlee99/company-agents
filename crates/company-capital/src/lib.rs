@@ -348,6 +348,14 @@ mod tests {
     }
 
     #[test]
+    fn stable_plan_id_produces_stable_plan() {
+        let id = Uuid::new_v4();
+        let a = plan_with_id(id, &policy(), &[candidate(1, 3_000, 200)]).unwrap();
+        let b = plan_with_id(id, &policy(), &[candidate(1, 3_000, 200)]).unwrap();
+        assert_eq!(a, b);
+    }
+
+    #[test]
     fn invalid_budget_above_cash_is_rejected() {
         let mut p = policy();
         p.discretionary_budget_minor = 8_000;
