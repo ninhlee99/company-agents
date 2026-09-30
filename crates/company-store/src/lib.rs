@@ -3168,16 +3168,6 @@ impl CompanyStore {
         }
         company_capital::validate_policy(policy).map_err(|error| error.to_string())?;
         let company = Uuid::parse_str(company_id)?;
-        let authoritative = self
-            .load_snapshot(company_id)
-            .await?
-            .ok_or("authoritative company snapshot is unavailable")?;
-        if policy.company_status != authoritative.status
-            || policy.cash_available_minor != authoritative.cash_minor.max(0)
-            || policy.runway_days != authoritative.runway_days.max(0)
-        {
-            return Err("capital policy does not match the authoritative company snapshot".into());
-        }
         let mut seen_candidate_ids = std::collections::HashSet::new();
         for candidate in candidates {
             company_capital::validate_candidate(candidate).map_err(|error| error.to_string())?;
@@ -3187,6 +3177,25 @@ impl CompanyStore {
         }
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
+
+        let authoritative = tx
+            .query_opt(
+                "SELECT state
+                   FROM company_state_snapshots
+                  WHERE company_id=$1
+                  FOR SHARE",
+                &[&company],
+            )
+            .await?
+            .ok_or("authoritative company snapshot is unavailable")?
+            .get::<_, serde_json::Value>(0);
+        let authoritative: CompanySnapshot = serde_json::from_value(authoritative)?;
+        if policy.company_status != authoritative.status
+            || policy.cash_available_minor != authoritative.cash_minor.max(0)
+            || policy.runway_days != authoritative.runway_days.max(0)
+        {
+            return Err("capital policy does not match the authoritative company snapshot".into());
+        }
 
         for candidate in candidates {
             let unit_id = Uuid::parse_str(&candidate.unit_id)
