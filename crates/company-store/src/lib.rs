@@ -3294,6 +3294,32 @@ impl CompanyStore {
         })
     }
 
+    pub async fn latest_capital_allocation_plan(
+        &self,
+        company_id: &str,
+    ) -> Result<Option<CapitalAllocationRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "SELECT plan_json, policy_json, created_at::text
+                   FROM capital_allocation_plans
+                  WHERE company_id=$1
+                  ORDER BY created_at DESC, id DESC
+                  LIMIT 1",
+                &[&company],
+            )
+            .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        Ok(Some(CapitalAllocationRecord {
+            plan: serde_json::from_value(row.get(0))?,
+            policy: serde_json::from_value(row.get(1))?,
+            created_at: row.get(2),
+        }))
+    }
+
     pub async fn portfolio_metrics(
         &self,
         company_id: &str,
