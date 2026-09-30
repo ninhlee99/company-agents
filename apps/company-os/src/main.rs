@@ -2406,6 +2406,27 @@ fn control_plane_request_id(request: &Request) -> String {
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
 }
 
+fn control_plane_auth_scope(
+    method: &str,
+    provided: Option<&str>,
+    operator_token: &str,
+    read_token: Option<&str>,
+) -> Option<&'static str> {
+    let provided = provided.filter(|value| !value.is_empty())?;
+
+    if bool::from(operator_token.as_bytes().ct_eq(provided.as_bytes())) {
+        return Some("operator");
+    }
+
+    if matches!(method, "GET" | "HEAD")
+        && read_token.is_some_and(|token| bool::from(token.as_bytes().ct_eq(provided.as_bytes())))
+    {
+        return Some("read-only");
+    }
+
+    None
+}
+
 fn control_plane_actor_id(token: Option<&str>) -> String {
     match token.filter(|value| !value.is_empty()) {
         Some(token) => {
@@ -2488,7 +2509,7 @@ async fn require_control_plane_auth(
         return Ok(next.run(request).await);
     }
 
-    let expected = match std::env::var("CONTROL_PLANE_TOKEN") {
+    let operator_token = match std::env::var("CONTROL_PLANE_TOKEN") {
         Ok(value) if !value.is_empty() => value,
         _ => {
             record_control_plane_audit(
@@ -2505,31 +2526,38 @@ async fn require_control_plane_auth(
             return Err(StatusCode::UNAUTHORIZED);
         }
     };
+    let read_token = std::env::var("CONTROL_PLANE_READ_TOKEN")
+        .ok()
+        .filter(|value| !value.is_empty());
 
-    let valid = provided
-        .map(|value| bool::from(expected.as_bytes().ct_eq(value.as_bytes())))
-        .unwrap_or(false);
-
-    if !valid {
-        record_control_plane_audit(
-            &state,
-            &actor_id,
-            "operator",
-            &method,
-            &path,
-            "CONTROL_PLANE_REQUEST",
-            "DENIED",
-            &request_id,
-        )
-        .await;
-        return Err(StatusCode::UNAUTHORIZED);
-    }
+    let role = match control_plane_auth_scope(
+        &method,
+        provided,
+        &operator_token,
+        read_token.as_deref(),
+    ) {
+        Some(role) => role,
+        None => {
+            record_control_plane_audit(
+                &state,
+                &actor_id,
+                "operator",
+                &method,
+                &path,
+                "CONTROL_PLANE_REQUEST",
+                "DENIED",
+                &request_id,
+            )
+            .await;
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+    };
 
     let response = next.run(request).await;
     record_control_plane_audit(
         &state,
         &actor_id,
-        "operator",
+        role,
         &method,
         &path,
         "CONTROL_PLANE_REQUEST",
@@ -2657,6 +2685,37 @@ mod control_plane_audit_tests {
     }
 
     #[test]
+    #[test]
+    fn read_only_scope_cannot_mutate() {
+        assert_eq!(
+            control_plane_auth_scope(
+                "GET",
+                Some("read-token"),
+                "operator-token",
+                Some("read-token")
+            ),
+            Some("read-only")
+        );
+        assert_eq!(
+            control_plane_auth_scope(
+                "POST",
+                Some("read-token"),
+                "operator-token",
+                Some("read-token")
+            ),
+            None
+        );
+        assert_eq!(
+            control_plane_auth_scope(
+                "POST",
+                Some("operator-token"),
+                "operator-token",
+                Some("read-token")
+            ),
+            Some("operator")
+        );
+    }
+
     fn request_id_uses_safe_header_or_generates_one() {
         let request = Request::builder()
             .uri("/api/run")
@@ -2846,6 +2905,11 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .map_err(|_| "CONTROL_PLANE_TOKEN is required unless CONTROL_PLANE_AUTH_DISABLED=true")?;
         if token.len() < 32 {
             return Err("CONTROL_PLANE_TOKEN must be at least 32 bytes".into());
+        }
+        if let Ok(read_token) = std::env::var("CONTROL_PLANE_READ_TOKEN") {
+            if !read_token.is_empty() && read_token.len() < 32 {
+                return Err("CONTROL_PLANE_READ_TOKEN must be at least 32 bytes".into());
+            }
         }
     }
 
