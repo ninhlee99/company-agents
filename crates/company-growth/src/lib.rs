@@ -156,16 +156,14 @@ pub fn match_creators_to_products(
                 && value.company_id == creator.company_id
         }) {
             let product_category = product.category.trim().to_ascii_lowercase();
-            let category_fit = if creator
+            let category_matches = creator
                 .specialty_categories
                 .iter()
-                .any(|category| category.trim().eq_ignore_ascii_case(&product_category))
-            {
-                10_000
-            } else {
-                2_500
-            };
-            let creator_fit = ((u64::from(category_fit) * 40
+                .any(|category| category.trim().eq_ignore_ascii_case(&product_category));
+            if !category_matches {
+                continue;
+            }
+            let creator_fit = ((10_000_u64 * 40
                 + u64::from(creator.audience_quality_bps) * 20
                 + u64::from(creator.engagement_bps) * 20
                 + u64::from(creator.click_through_bps) * 10
@@ -629,6 +627,37 @@ mod tests {
         )
         .unwrap();
         assert_eq!(matches, again);
+    }
+
+    #[test]
+    fn creator_product_matching_requires_specialty_category_alignment() {
+        let company_id = Uuid::new_v4();
+        let creator = CreatorIntelligence {
+            company_id,
+            creator_id: Uuid::new_v4(),
+            name: "Creator A".into(),
+            specialty_categories: vec!["desk".into()],
+            audience_quality_bps: 9_000,
+            engagement_bps: 9_000,
+            click_through_bps: 9_000,
+            conversion_bps: 9_000,
+            observed_at_epoch: 1_800_000_000,
+            evidence_ref: "creator-evidence".into(),
+        };
+        let unrelated = ProductMatchCandidate {
+            company_id,
+            product_id: "unrelated".into(),
+            category: "beauty".into(),
+            commission_rate_bps: Some(10_000),
+            rating_bps: Some(10_000),
+            refund_rate_bps: Some(0),
+            delivery_reliability_bps: Some(10_000),
+            in_stock: true,
+            observed_at_epoch: 1_800_000_050,
+            evidence_ref: "unrelated-evidence".into(),
+        };
+        let matches = match_creators_to_products(&[creator], &[unrelated], 1_800_000_100, 86_400, 10).unwrap();
+        assert!(matches.is_empty());
     }
 
     #[test]
