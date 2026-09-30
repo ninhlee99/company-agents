@@ -38,6 +38,7 @@ pub enum CompanyEventType {
     TikTokOAuthConnected,
     TikTokOAuthRevoked,
     PurchaseRequestApproved,
+    RevenueGraphEdgeRecorded,
     VendorDeliveryRecorded,
 }
 
@@ -72,6 +73,7 @@ impl CompanyEventType {
             Self::TikTokOAuthConnected => "TIKTOK_OAUTH_CONNECTED",
             Self::TikTokOAuthRevoked => "TIKTOK_OAUTH_REVOKED",
             Self::PurchaseRequestApproved => "PURCHASE_REQUEST_APPROVED",
+            Self::RevenueGraphEdgeRecorded => "REVENUE_GRAPH_EDGE_RECORDED",
             Self::VendorDeliveryRecorded => "VENDOR_DELIVERY_RECORDED",
             Self::LearningEntryRecorded => "LEARNING_ENTRY_RECORDED",
         }
@@ -595,6 +597,11 @@ mod tests {
     fn procurement_event_names_are_canonical() {
         assert_eq!(CompanyEventType::PurchaseRequestApproved.as_str(), "PURCHASE_REQUEST_APPROVED");
         assert_eq!(CompanyEventType::VendorDeliveryRecorded.as_str(), "VENDOR_DELIVERY_RECORDED");
+    }
+
+    #[test]
+    fn revenue_graph_event_name_is_canonical() {
+        assert_eq!(CompanyEventType::RevenueGraphEdgeRecorded.as_str(), "REVENUE_GRAPH_EDGE_RECORDED");
     }
 
     #[test]
