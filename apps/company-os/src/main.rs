@@ -3278,6 +3278,23 @@ mod control_plane_audit_tests {
     }
 
     #[test]
+    #[test]
+    fn readiness_renderer_keeps_state_dimensions_explicit() {
+        let html = render_integration_readiness(&[IntegrationReadiness {
+            key: "demo".into(),
+            status: "CONFIGURED".into(),
+            configured: true,
+            authenticated: false,
+            evidence_fresh: false,
+            reason: "Credential exists; external acceptance is not verified.".into(),
+        }]);
+        assert!(html.contains("CONFIGURED"));
+        assert!(html.contains("configured=true"));
+        assert!(html.contains("authenticated=false"));
+        assert!(html.contains("evidence_fresh=false"));
+        assert!(html.contains("external acceptance is not verified"));
+    }
+
     fn actor_id_is_a_non_secret_fingerprint() {
         let first = control_plane_actor_id(Some("token-value"));
         let second = control_plane_actor_id(Some("token-value"));
