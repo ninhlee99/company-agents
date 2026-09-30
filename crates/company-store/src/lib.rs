@@ -286,6 +286,37 @@ async fn enqueue_company_event_tx(
     Ok(inserted == 1)
 }
 
+fn content_published_event(
+    company: Uuid,
+    content: &company_content::ContentItem,
+    evidence_ref: &str,
+) -> Result<company_domain::CompanyEventEnvelope, company_domain::DomainError> {
+    let evidence_ref = evidence_ref.trim();
+    if evidence_ref.is_empty() {
+        return Err(company_domain::DomainError::Invariant(
+            "content publish events require evidence",
+        ));
+    }
+    company_domain::CompanyEventEnvelope::new(
+        company,
+        company_domain::CompanyEventType::ContentPublished,
+        "content",
+        Some(content.id),
+        time::OffsetDateTime::now_utc().unix_timestamp(),
+        content.id,
+        None,
+        format!("content-published:{}", content.id),
+        serde_json::json!({
+            "content_id": content.id,
+            "variant_key": content.variant.variant_key,
+            "product_ref": content.brief.product_ref,
+            "offer_ref": content.brief.offer_ref,
+            "status": "PUBLISHED",
+            "evidence_ref": evidence_ref,
+        }),
+    )
+}
+
 fn experiment_completed_event(
     company: Uuid,
     experiment_id: Uuid,
@@ -1541,23 +1572,10 @@ impl CompanyStore {
         if current != company_content::ContentStatus::Published
             && next == company_content::ContentStatus::Published
         {
-            let event = company_domain::CompanyEventEnvelope::new(
+            let event = content_published_event(
                 company,
-                company_domain::CompanyEventType::ContentPublished,
-                "content",
-                Some(content_id),
-                time::OffsetDateTime::now_utc().unix_timestamp(),
-                content_id,
-                None,
-                format!("content-published:{content_id}"),
-                serde_json::json!({
-                    "content_id": content_id,
-                    "variant_key": record.item.variant.variant_key,
-                    "product_ref": record.item.brief.product_ref,
-                    "offer_ref": record.item.brief.offer_ref,
-                    "status": content_status_name(next),
-                    "evidence_ref": evidence_ref,
-                }),
+                &record.item,
+                evidence_ref.unwrap_or_default(),
             )?;
             enqueue_company_event_tx(&tx, &event).await?;
         }
@@ -10274,14 +10292,60 @@ mod commercial_report_tests {
 mod content_publish_event_tests {
     use super::*;
 
+    fn item() -> company_content::ContentItem {
+        company_content::ContentItem {
+            id: Uuid::from_u128(7),
+            company_id: Uuid::from_u128(8),
+            brief: company_content::ContentBrief {
+                hypothesis: "proof improves conversion".into(),
+                audience: "buyers".into(),
+                format: company_content::ContentFormat::ShortVideo,
+                product_ref: Some("product-7".into()),
+                offer_ref: Some("offer-7".into()),
+                disclosure_required: true,
+                expected_cost_minor: 100,
+                max_loss_minor: 200,
+                max_duration_seconds: 30,
+                success_metric: company_content::SuccessMetric::ClickThroughRate,
+                success_threshold_bps: 500,
+            },
+            variant: company_content::CreativeVariant {
+                variant_key: "variant-7".into(),
+                hook: "Result first".into(),
+                first_frame: "Result".into(),
+                emotion: "curiosity".into(),
+                pacing: "fast".into(),
+                scene_count: 3,
+                text_density: "low".into(),
+                voice_speed: "1.0x".into(),
+                product_placement: "second-2".into(),
+                cta: "Open".into(),
+                comment_trigger: "Ask".into(),
+                music_style: "none".into(),
+                visual_style: "clean".into(),
+            },
+            status: company_content::ContentStatus::Published,
+            decision: None,
+        }
+    }
+
     #[test]
-    fn content_publish_event_is_bounded_to_published_transition() {
-        assert_ne!(
-            company_domain::CompanyEventType::ContentPublished.as_str(),
-            "CONTENT_PUBLISHED_WRONG"
-        );
-        let key = format!("content-published:{}", Uuid::from_u128(9));
-        assert_eq!(key.len(), "content-published:36".len());
+    fn published_event_contains_stable_lineage() {
+        let content = item();
+        let event = content_published_event(content.company_id, &content, "publish-proof-1").unwrap();
+        assert_eq!(event.event_type_name(), "CONTENT_PUBLISHED");
+        assert_eq!(event.aggregate_type, "content");
+        assert_eq!(event.aggregate_id, Some(content.id));
+        assert_eq!(event.correlation_id, content.id);
+        assert_eq!(event.idempotency_key, format!("content-published:{}", content.id));
+        assert_eq!(event.payload["evidence_ref"], "publish-proof-1");
+        assert_eq!(event.payload["variant_key"], "variant-7");
+    }
+
+    #[test]
+    fn published_event_rejects_missing_evidence() {
+        let content = item();
+        assert!(content_published_event(content.company_id, &content, "  ").is_err());
     }
 }
 
