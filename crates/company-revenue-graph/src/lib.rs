@@ -106,6 +106,16 @@ pub fn validate_edge(edge: &RevenueGraphEdge) -> Result<(), String> {
     require_text("from_ref", &edge.from_ref, MAX_REF_LEN)?;
     require_text("to_ref", &edge.to_ref, MAX_REF_LEN)?;
     require_text("relation", &edge.relation, MAX_RELATION_LEN)?;
+    let canonical_key = build_edge_key(
+        edge.from_type,
+        &edge.from_ref,
+        &edge.relation,
+        edge.to_type,
+        &edge.to_ref,
+    );
+    if edge.edge_key != canonical_key {
+        return Err("edge_key must match the canonical graph edge fields".into());
+    }
     require_text("evidence_ref", &edge.evidence_ref, MAX_EVIDENCE_LEN)?;
     require_text("source", &edge.source, MAX_SOURCE_LEN)?;
     if edge.from_ref == edge.to_ref && edge.from_type == edge.to_type {
@@ -205,6 +215,17 @@ mod tests {
             RevenueGraphEdge::deterministic_id(company, key),
             RevenueGraphEdge::deterministic_id(company, key)
         );
+    }
+
+    #[test]
+    fn edge_key_must_match_graph_fields() {
+        let mut value = edge();
+        value.edge_key = "ORDER:order-1:GENERATES:COMMISSION:other".into();
+        assert!(validate_edge(&value).is_err());
+
+        value = edge();
+        value.from_ref = " order-1 ".into();
+        assert!(validate_edge(&value).is_err());
     }
 
     #[test]
