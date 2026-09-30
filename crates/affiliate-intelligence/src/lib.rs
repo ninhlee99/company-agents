@@ -1322,6 +1322,18 @@ fn normalize_epoch(value: i64) -> Option<i64> {
     }
 }
 
+fn product_freshness_as_of_epoch(query: &ProductSearchQuery) -> Option<i64> {
+    if let Some(date) = query.as_of_date.as_deref() {
+        return time::OffsetDateTime::parse(
+            &format!("{date}T23:59:59Z"),
+            &time::format_description::well_known::Rfc3339,
+        )
+        .ok()
+        .map(|value| value.unix_timestamp());
+    }
+    Some(time::OffsetDateTime::now_utc().unix_timestamp())
+}
+
 fn product_freshness_ok(product: &Product, as_of_epoch: i64, max_age_seconds: i64) -> bool {
     let Some(updated_epoch) = product
         .source_updated_at
@@ -1338,6 +1350,14 @@ fn product_freshness_ok(product: &Product, as_of_epoch: i64, max_age_seconds: i6
 fn product_matches(product: &Product, query: &ProductSearchQuery) -> bool {
     if !valid_product_evidence(product) {
         return false;
+    }
+    if let Some(max_age_seconds) = query.max_product_age_seconds {
+        let Some(as_of_epoch) = product_freshness_as_of_epoch(query) else {
+            return false;
+        };
+        if !product_freshness_ok(product, as_of_epoch, max_age_seconds) {
+            return false;
+        }
     }
     if let Some(currency) = query.currency.as_deref() {
         if product.currency != currency {
@@ -2786,6 +2806,29 @@ mod tests {
             source: "test".into(),
             source_updated_at: None,
         }
+    }
+
+    #[test]
+    fn strict_freshness_uses_end_of_selected_as_of_date() {
+        let query = ProductSearchQuery {
+            as_of_date: Some("2026-09-30".into()),
+            max_product_age_seconds: Some(86_400),
+            ..ProductSearchQuery::default()
+        };
+        let as_of = product_freshness_as_of_epoch(&query).unwrap();
+        let product = product(
+            "same-day",
+            "Same Day Product",
+            refund_rate_bps: Some(500),
+            delivery_reliability_bps: Some(9_000),
+            commission_group: None,
+            commission_rate_bps: Some(2_000),
+            commission_fixed_minor: None,
+            commission_currency: None,
+            source: "test",
+            source_updated_at: Some("2026-09-30T12:00:00Z".into()),
+        );
+        assert!(product_freshness_ok(&product, as_of, 86_400));
     }
 
     #[test]
