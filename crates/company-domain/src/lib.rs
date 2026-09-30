@@ -31,6 +31,7 @@ pub enum CompanyEventType {
     LedgerTransactionCommitted,
     AutonomyAssessmentRecorded,
     AgentOutcomeEvidenceRecorded,
+    LearningEntryRecorded,
     OpportunityCreated,
 }
 
@@ -556,6 +557,14 @@ mod tests {
     fn event_serialization_uses_canonical_names() {
         let value = serde_json::to_value(CompanyEventType::ProductFound).unwrap();
         assert_eq!(value, serde_json::json!("PRODUCT_FOUND"));
+    }
+
+    #[test]
+    fn learning_entry_event_variant_matches_canonical_name() {
+        assert_eq!(
+            CompanyEventType::LearningEntryRecorded.as_str(),
+            "LEARNING_ENTRY_RECORDED"
+        );
     }
 
     #[test]
