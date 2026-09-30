@@ -578,6 +578,40 @@ body{{font-family:Inter,system-ui,-apple-system,sans-serif;max-width:1400px;marg
 table{{width:100%;border-collapse:collapse}}th,td{{text-align:left;padding:9px;border-bottom:1px solid #e5e5e5;font-size:14px}}
 button{{padding:10px 14px;border:0;border-radius:9px;background:linear-gradient(135deg,#8b5cf6,#6366f1);color:#fff;cursor:pointer;font-weight:700}}
 small,.muted{{color:#94a3b8}} code{{background:#f3f3f3;padding:2px 4px}}
+.section-kicker{{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#a78bfa;font-weight:800}}
+.cc-shell{{border:1px solid #33415f;border-radius:22px;padding:22px;margin:0 0 18px;background:linear-gradient(180deg,#111827,#0d1422);box-shadow:0 24px 80px #0006}}
+.cc-head{{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}}
+.cc-head h2{{margin:6px 0 8px;font-size:28px}}
+.cc-trend{{display:flex;flex-direction:column;align-items:flex-end;gap:4px;white-space:nowrap}}
+.cc-trend strong{{font-size:18px}}
+.cc-kpis{{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin:18px 0}}
+.cc-kpi{{padding:14px;border:1px solid #273550;border-radius:14px;background:#0c1320}}
+.cc-kpi span,.cc-mini-grid span{{display:block;font-size:12px;color:#94a3b8}}
+.cc-kpi strong{{display:block;font-size:20px;margin-top:5px}}
+.cc-kpi em{{display:block;font-size:12px;color:#94a3b8;font-style:normal;margin-top:4px}}
+.cc-body{{display:grid;grid-template-columns:1.25fr 1.25fr .8fr .9fr;gap:10px}}
+.cc-panel{{padding:16px;border:1px solid #273550;border-radius:14px;background:#0c1320;min-width:0}}
+.cc-panel h3,.cc-alerts h3{{margin:0 0 10px}}
+.cc-progress{{height:8px;border-radius:999px;background:#172033;overflow:hidden;margin:12px 0}}
+.cc-progress span,.cc-bar span{{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#8b5cf6,#22d3ee)}}
+.cc-chart{{display:grid;gap:7px;margin-top:14px}}
+.cc-day{{display:grid;grid-template-columns:78px 1fr 96px;gap:8px;align-items:center;font-size:12px}}
+.cc-day-label,.cc-day-value{{color:#cbd5e1}}
+.cc-day-value{{text-align:right}}
+.cc-bar{{height:7px;border-radius:999px;background:#172033;overflow:hidden}}
+.cc-mini-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}}
+.cc-mini-grid strong{{display:block;font-size:16px;margin-top:3px}}
+.cc-bigline{{display:flex;align-items:baseline;gap:8px;margin:8px 0 16px}}
+.cc-bigline strong{{font-size:27px}}
+.cc-bigline span{{font-size:12px;color:#94a3b8}}
+.cc-alerts{{display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:10px;margin-top:10px}}
+.cc-alerts>div{{padding:14px;border:1px solid #273550;border-radius:14px;background:#0c1320}}
+.cc-alert{{padding:10px 0;border-bottom:1px solid #273550}}
+.cc-alert:last-child{{border-bottom:0}}
+.cc-alert.attention strong{{color:#fbbf24}}
+.cc-alert.opportunity strong{{color:#67e8f9}}
+.cc-alert.healthy strong{{color:#86efac}}
+.cc-footer{{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #273550;font-size:12px;color:#94a3b8}}
 nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;text-decoration:none;padding:8px 10px;border-radius:8px}} nav a:hover{{background:#171e30;color:#fff}}
 @media(max-width:800px){{.grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}}} @media(max-width:520px){{.grid{{grid-template-columns:1fr}}}}
 </style></head><body>
