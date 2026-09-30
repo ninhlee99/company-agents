@@ -3556,6 +3556,7 @@ async fn require_control_plane_auth(
     let request_id = control_plane_request_id(&request);
     let trace_id = normalized_trace_id(&request, &request_id);
     let path = request.uri().path().to_owned();
+    let method = request.method().as_str().to_owned();
     let span = tracing::info_span!(
         "control_plane.request",
         %request_id,
