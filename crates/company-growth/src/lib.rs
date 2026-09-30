@@ -8,7 +8,6 @@ const MAX_TEXT: usize = 2_000;
 const MAX_KEY: usize = 256;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CompetitorObservation {
     pub company_id: Uuid,
     pub competitor_id: String,
