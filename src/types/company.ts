@@ -259,3 +259,104 @@ export interface CompanyKPIs {
     trend: 'up' | 'down' | 'stable';
   };
 }
+
+export interface CandidateProfile {
+  id: string;
+  name: string;
+  avatar: string;
+  role: string;
+  department: 'Leadership' | 'Growth' | 'Ops' | 'Sales' | 'Tech';
+  level: 'Senior' | 'Lead' | 'Principal Expert' | 'Director';
+  yearsExperience: number;
+  expectedSalaryMinor: number;
+  skills: { name: string; score: number }[]; // score 1-100
+  bio: string;
+  portfolio: { title: string; metric: string; description: string }[];
+  culturalFitScore: number; // 0-100
+  recommendedBy: string; // 'Recruiter AI'
+  status: 'Available' | 'Interviewing' | 'Hired' | 'Rejected';
+  interviewNotes?: string;
+  roiProjectionBps: number;
+}
+
+export interface OfficeActivityEvent {
+  id: string;
+  timestamp: string;
+  agentId: string;
+  agentName: string;
+  agentRole: string;
+  department: string;
+  actionType: 'CreateContent' | 'ComposeMusic' | 'RenderVideo' | 'TakePhotos' | 'AuditLedger' | 'RecruitTalent' | 'ExecutePayout' | 'OptimizeTraffic';
+  title: string;
+  detail: string;
+  impactMinor?: number; // revenue or cost delta
+  badgeColor?: string;
+}
+
+export interface CopywritingSpec {
+  headline: string;
+  hook3s: string;
+  retentionFormula: string;
+  bodyPainPoints: string[];
+  ctaText: string;
+  targetAudience: string;
+  complianceChecked: boolean;
+}
+
+export interface AudioTrackSpec {
+  title: string;
+  genre: 'Lo-Fi Chill' | 'Upbeat Commercial Pop' | 'Trap Tech Energy' | 'Ambient Focus' | 'Phonk Viral';
+  bpm: number;
+  mood: string;
+  voiceoverTone: 'Confident & Crisp' | 'Friendly & Enthusiastic' | 'Deep & Authoritative';
+  voiceSpeed: string;
+  loudnessLufs: number; // e.g. -14 LUFS
+}
+
+export interface VisualShotSpec {
+  shotIndex: number;
+  framing: 'Macro Detail Close-Up' | '45-Degree Desk Top-Down' | 'POV Handheld Showcase' | 'Side Split Comparison';
+  lighting: 'Studio Softbox Glow' | 'Cyberpunk Neon Accent' | 'Warm Natural Daylight';
+  imagePrompt: string;
+  durationSec: number;
+  textOverlay: string;
+}
+
+export interface FullCreativeProduction {
+  id: string;
+  campaignTitle: string;
+  niche: string;
+  projectedRevenueMinor: number;
+  costMinor: number;
+  copywriting: CopywritingSpec;
+  audioTrack: AudioTrackSpec;
+  visualShots: VisualShotSpec[];
+  renderSettings: {
+    resolution: string;
+    fps: number;
+    codec: string;
+    aspectRatio: string;
+  };
+  governorApproved: boolean;
+  publishedChannels: string[];
+  attributionEpc: string;
+}
+
+export interface CompanyPnL {
+  totalRevenueMinor: number;
+  grossMarginPercent: number;
+  operatingExpensesMinor: number;
+  netIncomeMinor: number;
+  monthlyRunRateMinor: number;
+  dividendsDeclaredMinor: number;
+  retainedEarningsMinor: number;
+}
+
+export interface AutonomousSettings {
+  isAutoPilotActive: boolean;
+  intervalSeconds: number; // e.g. 5s, 10s, 30s
+  autoHireWhenBacklogHigh: boolean;
+  autoReinvestProfitPct: number; // e.g. 25%
+  maxSpendPerAutoCycleMinor: number; // e.g. $500
+  lastTickTimestamp?: string;
+}

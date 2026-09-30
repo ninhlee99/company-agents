@@ -132,6 +132,7 @@ pub fn validate_edge(edge: &RevenueGraphEdge) -> Result<(), String> {
         Some(_) if edge.currency.as_deref().is_none_or(|value| value.len() != 3) => {
             return Err("currency is required with value_minor and must be 3 characters".into())
         }
+        Some(_) => {}
         None if edge.currency.is_some() => {
             return Err("currency is not allowed without value_minor".into())
         }

@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{env, sync::Arc, time::{Duration, Instant}};
+use tokio::sync::Mutex;
 use tokio_postgres::{types::ToSql, Client, NoTls};
 use uuid::Uuid;
 
@@ -20,7 +21,7 @@ const MAX_ERROR_BYTES: usize = 4096;
 
 #[derive(Clone)]
 struct AppState {
-    db: Arc<Client>,
+    db: Arc<Mutex<Client>>,
     api_token: String,
     worker_token: String,
     wait_timeout: Duration,
@@ -216,7 +217,7 @@ async fn generate(
     let job_id = Uuid::new_v4();
 
     {
-        let client = state.db.clone();
+        let client = state.db.lock().await;
         if let Some(row) = client
             .query_opt(
                 "SELECT id, status, output_json, expires_at <= now(), request_hash
@@ -252,7 +253,7 @@ async fn generate(
     }
 
     {
-        let client = state.db.clone();
+        let client = state.db.lock().await;
         let inserted = client
             .execute(
                 "INSERT INTO llm_web_relay_jobs
@@ -324,7 +325,7 @@ async fn wait_for_job(
 
     loop {
         let row = {
-            let client = state.db.lock().await.clone();
+            let client = state.db.lock().await;
             client
                 .query_opt(
                     "SELECT status, output_json
@@ -369,7 +370,7 @@ async fn claim(
 ) -> Result<Json<Option<WorkerJob>>, ApiError> {
     authorize(&headers, &state.worker_token)?;
 
-    let mut client = state.db.as_ref().clone();
+    let mut client = state.db.lock().await;
     let tx = client.transaction().await.map_err(|_| ApiError::Internal)?;
 
     tx.execute(
@@ -474,7 +475,7 @@ async fn complete(
     authorize(&headers, &state.worker_token)?;
     validate_output(&request.output)?;
 
-    let client = state.db.lock().await.clone();
+    let client = state.db.lock().await;
     let changed = client
         .execute(
             "UPDATE llm_web_relay_jobs
@@ -512,7 +513,7 @@ async fn fail(
         return Err(ApiError::BadRequest);
     }
 
-    let client = state.db.clone();
+    let client = state.db.lock().await;
     let changed = client
         .execute(
             "UPDATE llm_web_relay_jobs
@@ -556,7 +557,7 @@ async fn metrics(
 ) -> Result<Json<Metrics>, ApiError> {
     authorize(&headers, &state.api_token)?;
 
-    let client = state.db.lock().await.clone();
+    let client = state.db.lock().await;
     let row = client
         .query_one(
             "SELECT
@@ -670,7 +671,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     drop(client);
 
     let state = AppState {
-        db: Arc::new(connect(&database_url).await?),
+        db: Arc::new(Mutex::new(connect(&database_url).await?)),
         api_token,
         worker_token,
         wait_timeout: parse_duration_env("LLM_RELAY_WAIT_TIMEOUT_SECONDS", 55, 5, 90),

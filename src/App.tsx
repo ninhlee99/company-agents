@@ -1,12 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { CompanySnapshot, GovernedProposal, ExecutionReceipt, LedgerEntry, CustomAgent, CycleTrendPoint, AutoAuditReport, DepartmentBudgetPoint, SystemAlert, CompanyKPIs } from './types/company';
+import { 
+  CompanySnapshot, 
+  GovernedProposal, 
+  ExecutionReceipt, 
+  LedgerEntry, 
+  CustomAgent, 
+  CycleTrendPoint, 
+  AutoAuditReport, 
+  DepartmentBudgetPoint, 
+  SystemAlert, 
+  CompanyKPIs,
+  CandidateProfile,
+  OfficeActivityEvent,
+  CompanyPnL,
+  AutonomousSettings,
+  SkillTrainingCourse
+} from './types/company';
 import { Header } from './components/Header';
 import { BasicDashboard } from './components/BasicDashboard';
 import { ManageAgents } from './components/ManageAgents';
 import { ManageFinances } from './components/ManageFinances';
 import { AutonomousPipelineTab } from './components/AutonomousPipelineTab';
+import { MediaStudioTab } from './components/MediaStudioTab';
 import { AgentSkillTrainingModal } from './components/AgentSkillTrainingModal';
-import { SkillTrainingCourse } from './types/company';
 
 // Pro Mode Components
 import { ReviewTab } from './components/ReviewTab';
@@ -23,14 +39,15 @@ import {
   ShieldAlert, 
   RotateCw, 
   CheckCircle2,
-  AlertOctagon
+  AlertOctagon,
+  Video
 } from 'lucide-react';
 
 export default function App() {
   const [uiMode, setUiMode] = useState<'basic' | 'pro'>('basic');
   
   // Basic Nav Tabs
-  const [basicTab, setBasicTab] = useState<'dashboard' | 'agents' | 'finances' | 'pipeline'>('dashboard');
+  const [basicTab, setBasicTab] = useState<'dashboard' | 'agents' | 'studio' | 'pipeline' | 'finances'>('dashboard');
 
   // Pro Nav Tabs
   const [proTab, setProTab] = useState<'audit' | 'cycles' | 'war-room' | 'ledger' | 'chaos'>('audit');
@@ -76,6 +93,17 @@ export default function App() {
     { id: 'agent-experiment', name: 'Experimenter', role: 'Nghiên Cứu A/B Test', department: 'Growth', description: 'Thử nghiệm mẫu kịch bản và thị trường', salary_minor: 55000, tasksCompleted: 29, status: 'Active', hiredAtCycle: 1 },
   ]);
 
+  const [candidatePool, setCandidatePool] = useState<CandidateProfile[]>([]);
+  const [officeActivities, setOfficeActivities] = useState<OfficeActivityEvent[]>([]);
+  const [pnl, setPnl] = useState<CompanyPnL | undefined>(undefined);
+  const [autonomousSettings, setAutonomousSettings] = useState<AutonomousSettings>({
+    isAutoPilotActive: false,
+    intervalSeconds: 10,
+    autoHireWhenBacklogHigh: true,
+    autoReinvestProfitPct: 25,
+    maxSpendPerAutoCycleMinor: 50000,
+  });
+
   const [cycleHistory, setCycleHistory] = useState<CycleTrendPoint[]>([]);
   const [departmentBudgets, setDepartmentBudgets] = useState<DepartmentBudgetPoint[]>([]);
   const [auditReports, setAuditReports] = useState<AutoAuditReport[]>([]);
@@ -94,6 +122,18 @@ export default function App() {
         setEmployees(data.employees || []);
         if (data.customAgents && data.customAgents.length > 0) {
           setCustomAgents(data.customAgents);
+        }
+        if (data.candidatePool) {
+          setCandidatePool(data.candidatePool);
+        }
+        if (data.officeActivities) {
+          setOfficeActivities(data.officeActivities);
+        }
+        if (data.pnl) {
+          setPnl(data.pnl);
+        }
+        if (data.autonomousSettings) {
+          setAutonomousSettings(data.autonomousSettings);
         }
         if (data.cycleHistory) {
           setCycleHistory(data.cycleHistory);
@@ -120,9 +160,91 @@ export default function App() {
     loadState();
   }, []);
 
+  // 24/7 Auto-Pilot Background Loop Engine
+  useEffect(() => {
+    let interval: any = null;
+    if (autonomousSettings.isAutoPilotActive) {
+      interval = setInterval(async () => {
+        try {
+          const res = await fetch('/api/auto-pilot/tick', { method: 'POST' });
+          if (res.ok) {
+            const data = await res.json();
+            setSnapshot(data.snapshot);
+            if (data.pnl) setPnl(data.pnl);
+            if (data.autoHiredMessage) {
+              triggerToast(data.autoHiredMessage);
+            }
+            loadState();
+          }
+        } catch (e) {
+          console.warn('Auto-pilot tick note:', e);
+        }
+      }, (autonomousSettings.intervalSeconds || 10) * 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [autonomousSettings.isAutoPilotActive, autonomousSettings.intervalSeconds]);
+
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const handleToggleAutoPilot = async () => {
+    const nextState = !autonomousSettings.isAutoPilotActive;
+    try {
+      const res = await fetch('/api/auto-pilot/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isAutoPilotActive: nextState }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAutonomousSettings(data.settings);
+        triggerToast(nextState ? '⚡ Đã kích hoạt chế độ Auto-Pilot 24/7 (Tự kiếm tiền liên tục)!' : '⏸️ Đã tạm dừng Auto-Pilot.');
+      }
+    } catch (e) {
+      setAutonomousSettings(prev => ({ ...prev, isAutoPilotActive: nextState }));
+    }
+  };
+
+  const handleInterviewCandidate = async (candidateId: string) => {
+    try {
+      const res = await fetch('/api/candidates/interview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ candidateId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        loadState();
+        return data;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return null;
+  };
+
+  const handleHireCandidate = async (candidateId: string) => {
+    try {
+      const res = await fetch('/api/candidates/hire', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ candidateId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSnapshot(data.snapshot);
+        triggerToast(data.message);
+        loadState();
+        return data;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return { success: false };
   };
 
   const handleRunCycle = async () => {
@@ -402,6 +524,8 @@ export default function App() {
           uiMode={uiMode}
           setUiMode={setUiMode}
           hasGeminiKey={hasGeminiKey}
+          autonomousSettings={autonomousSettings}
+          onToggleAutoPilot={handleToggleAutoPilot}
         />
 
         {/* Clean Navigation Bar (Sticky with Header) */}
@@ -418,7 +542,7 @@ export default function App() {
                   }`}
                 >
                   <LayoutDashboard className="w-3.5 h-3.5" />
-                  <span>1. Dashboard</span>
+                  <span>1. Dashboard &amp; Live HQ</span>
                 </button>
 
                 <button
@@ -430,7 +554,19 @@ export default function App() {
                   }`}
                 >
                   <Users className="w-3.5 h-3.5" />
-                  <span>2. Nhân Sự &amp; Tuyển Dụng</span>
+                  <span>2. Nhân Sự &amp; Sàn Tuyển Dụng</span>
+                </button>
+
+                <button
+                  onClick={() => setBasicTab('studio')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                    basicTab === 'studio'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                >
+                  <Video className="w-3.5 h-3.5 text-pink-400" />
+                  <span>3. Xưởng Media 5-in-1</span>
                 </button>
 
                 <button
@@ -442,7 +578,7 @@ export default function App() {
                   }`}
                 >
                   <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                  <span>3. Dây Chuyền Bán Hàng</span>
+                  <span>4. Dây Chuyền Tự Động</span>
                 </button>
 
                 <button
@@ -454,7 +590,7 @@ export default function App() {
                   }`}
                 >
                   <Wallet className="w-3.5 h-3.5" />
-                  <span>4. Ví Tiền &amp; Thu Chi</span>
+                  <span>5. Ví Tiền &amp; Thu Chi</span>
                 </button>
               </div>
             ) : (
@@ -527,25 +663,36 @@ export default function App() {
                 auditReports={auditReports}
                 systemAlerts={systemAlerts}
                 agents={customAgents}
+                officeActivities={officeActivities}
+                pnl={pnl}
+                autonomousSettings={autonomousSettings}
                 onOpenTraining={handleOpenTraining}
                 onRunCycle={handleRunCycle}
                 isRunningCycle={isRunningCycle}
                 onOverride={handleOverride}
-                onNavigate={(view) => setBasicTab(view)}
+                onNavigate={(view) => setBasicTab(view as any)}
                 onTriggerAudit={handleTriggerAudit}
                 onResolveAlert={handleResolveAlert}
                 onTriggerAlert={handleTriggerAlert}
+                onToggleAutoPilot={handleToggleAutoPilot}
               />
             )}
             {basicTab === 'agents' && (
               <ManageAgents
                 snapshot={snapshot}
                 agents={customAgents}
+                candidates={candidatePool}
                 onHireAgent={handleHireAgent}
                 onToggleStatus={handleToggleAgentStatus}
                 onOpenTraining={handleOpenTraining}
-                onAutoRecruit={handleAutoRecruit}
-                onAutoTalentCycle={handleAutoTalentCycle}
+                onInterviewCandidate={handleInterviewCandidate}
+                onHireCandidate={handleHireCandidate}
+              />
+            )}
+            {basicTab === 'studio' && (
+              <MediaStudioTab
+                snapshot={snapshot}
+                onPublishToCycle={(title, cost) => handleRunPipeline(title)}
               />
             )}
             {basicTab === 'pipeline' && (

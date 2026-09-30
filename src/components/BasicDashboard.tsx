@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CompanySnapshot, GovernedProposal, CycleTrendPoint, AutoAuditReport, DepartmentBudgetPoint, SystemAlert, CompanyKPIs, CustomAgent } from '../types/company';
+import { CompanySnapshot, GovernedProposal, CycleTrendPoint, AutoAuditReport, DepartmentBudgetPoint, SystemAlert, CompanyKPIs, CustomAgent, OfficeActivityEvent, CompanyPnL, AutonomousSettings } from '../types/company';
 import { KPIOverview } from './KPIOverview';
 import { SystemAlertsLog } from './SystemAlertsLog';
 import { WorkloadHeatmap } from './WorkloadHeatmap';
@@ -20,7 +20,11 @@ import {
   CalendarCheck,
   Scale,
   PieChart,
-  X
+  X,
+  Play,
+  Zap,
+  Building,
+  DollarSign
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -44,6 +48,9 @@ interface BasicDashboardProps {
   systemAlerts?: SystemAlert[];
   kpis?: CompanyKPIs;
   agents?: CustomAgent[];
+  officeActivities?: OfficeActivityEvent[];
+  pnl?: CompanyPnL;
+  autonomousSettings?: AutonomousSettings;
   onOpenTraining?: (agentId?: string) => void;
   onRunCycle: () => void;
   isRunningCycle: boolean;
@@ -52,6 +59,7 @@ interface BasicDashboardProps {
   onTriggerAudit?: () => Promise<void>;
   onResolveAlert?: (alertId: string) => Promise<void>;
   onTriggerAlert?: (alertData: Partial<SystemAlert>) => Promise<void>;
+  onToggleAutoPilot?: () => void;
 }
 
 export const BasicDashboard: React.FC<BasicDashboardProps> = ({
@@ -63,6 +71,9 @@ export const BasicDashboard: React.FC<BasicDashboardProps> = ({
   systemAlerts,
   kpis,
   agents = [],
+  officeActivities = [],
+  pnl,
+  autonomousSettings,
   onOpenTraining,
   onRunCycle,
   isRunningCycle,
@@ -71,6 +82,7 @@ export const BasicDashboard: React.FC<BasicDashboardProps> = ({
   onTriggerAudit,
   onResolveAlert,
   onTriggerAlert,
+  onToggleAutoPilot,
 }) => {
   const [chartView, setChartView] = useState<'financial_trend' | 'department_budget'>('financial_trend');
   const [chartMetric, setChartMetric] = useState<'all' | 'revenue_expense' | 'cash'>('all');
@@ -239,17 +251,102 @@ export const BasicDashboard: React.FC<BasicDashboardProps> = ({
 
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span>Lợi Nhuận</span>
+            <span>Lợi Nhuận Ròng</span>
             <Sparkles className="w-4 h-4 text-purple-400" />
           </div>
           <div className={`text-xl font-bold font-mono mt-1 ${netMonthly >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
             {netMonthly >= 0 ? `+${formatMoney(netMonthly)}` : formatMoney(netMonthly)}
           </div>
           <div className="text-[11px] text-slate-400 mt-0.5">
-            {netMonthly >= 0 ? '🟢 Có lãi' : '🔴 Bù lỗ'}
+            {netMonthly >= 0 ? '🟢 Thặng dư vốn' : '🔴 Cần cắt giảm'}
           </div>
         </div>
       </div>
+
+      {/* CORPORATE P&L & DIVIDENDS STATEMENT CARD */}
+      {pnl && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 shadow-sm">
+          <div className="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2.5">
+            <div className="flex items-center gap-2">
+              <Building className="w-4 h-4 text-emerald-400" />
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                Báo Cáo Tài Chính Doanh Nghiệp (P&amp;L &amp; Dividends)
+              </h3>
+            </div>
+            <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+              Gross Margin: {pnl.grossMarginPercent}%
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+            <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800/80">
+              <span className="text-slate-500 text-[10px] block">Doanh Thu Gộp (Run-Rate)</span>
+              <span className="font-bold font-mono text-white mt-0.5 block">{formatMoney(pnl.monthlyRunRateMinor)}/năm</span>
+            </div>
+            <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800/80">
+              <span className="text-slate-500 text-[10px] block">Chi Phí Vận Hành (OpEx)</span>
+              <span className="font-bold font-mono text-rose-400 mt-0.5 block">{formatMoney(pnl.operatingExpensesMinor)}/th</span>
+            </div>
+            <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800/80">
+              <span className="text-slate-500 text-[10px] block">Cổ Tức Trả Chủ Sở Hữu (20%)</span>
+              <span className="font-bold font-mono text-cyan-400 mt-0.5 block">+{formatMoney(pnl.dividendsDeclaredMinor)}</span>
+            </div>
+            <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800/80">
+              <span className="text-slate-500 text-[10px] block">Lợi Nhuận Giữ Lại Tái Đầu Tư</span>
+              <span className="font-bold font-mono text-emerald-400 mt-0.5 block">{formatMoney(pnl.retainedEarningsMinor)}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VIRTUAL OFFICE LIVE ACTIVITY FEED */}
+      {officeActivities && officeActivities.length > 0 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 shadow-sm">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                <Activity className="w-4 h-4 text-cyan-400" />
+                Văn Phòng AI Thời Gian Thực (Live Office Stream)
+              </h3>
+            </div>
+            <span className="text-[10px] font-mono text-slate-400">
+              {officeActivities.length} sự kiện gần nhất
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+            {officeActivities.slice(0, 4).map((act) => (
+              <div
+                key={act.id}
+                className="p-3 rounded-lg bg-slate-950 border border-slate-800/80 text-xs space-y-1 hover:border-slate-700 transition-all"
+              >
+                <div className="flex items-center justify-between font-mono text-[10px]">
+                  <span className={`px-1.5 py-0.2 rounded border font-bold ${act.badgeColor || 'text-indigo-300 bg-indigo-500/10 border-indigo-500/20'}`}>
+                    {act.agentName} ({act.agentRole})
+                  </span>
+                  <span className="text-slate-500">
+                    {new Date(act.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  </span>
+                </div>
+                <div className="font-bold text-slate-200 text-[11px] pt-0.5">
+                  {act.title}
+                </div>
+                <div className="text-[11px] text-slate-400 leading-relaxed">
+                  {act.detail}
+                </div>
+                {act.impactMinor && act.impactMinor !== 0 && (
+                  <div className="text-[10px] font-mono font-bold pt-0.5">
+                    Tài chính: <span className={act.impactMinor > 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                      {act.impactMinor > 0 ? `+${formatMoney(act.impactMinor)}` : formatMoney(act.impactMinor)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* SYSTEM ALERTS LOG: HIGHLIGHTS CRITICAL COMPANY STATUS DISCOVERED BY GOVERNOR */}
       <SystemAlertsLog

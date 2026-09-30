@@ -346,7 +346,7 @@ pub async fn run(config: SimConfig) -> SimulationResult {
 
         let units = vec![
             company_organization::BusinessUnit {
-                id: business_units[0].into(),
+                id: business_units[0].0.into(),
                 name: "Owned Media".into(),
                 currency: config.currency.clone(),
                 cash_minor: cash.max(0),
@@ -357,7 +357,7 @@ pub async fn run(config: SimConfig) -> SimulationResult {
                 lifecycle: company_organization::BusinessUnitLifecycle::Growing,
             },
             company_organization::BusinessUnit {
-                id: business_units[1].into(),
+                id: business_units[1].0.into(),
                 name: "Affiliate Commerce".into(),
                 currency: config.currency.clone(),
                 cash_minor: cash.max(0),
@@ -368,7 +368,7 @@ pub async fn run(config: SimConfig) -> SimulationResult {
                 lifecycle: company_organization::BusinessUnitLifecycle::Growing,
             },
             company_organization::BusinessUnit {
-                id: business_units[2].into(),
+                id: business_units[2].0.into(),
                 name: "Services".into(),
                 currency: config.currency.clone(),
                 cash_minor: cash.max(0),

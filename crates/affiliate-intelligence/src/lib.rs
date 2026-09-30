@@ -501,7 +501,7 @@ impl TikTokShopProvider {
                 .map_err(|error| AffiliateError::Parse(error.to_string()))?;
             let code = value.get("code").and_then(|value| value.as_i64()).unwrap_or(-1);
             if code == 36009002 && attempt < 2 {
-                tokio::time::sleep(response_retry_delay(retry_after, attempt)).await;
+                tokio::time::sleep(response_retry_delay(retry_after.as_deref(), attempt)).await;
                 continue;
             }
             return Ok(value);
@@ -3076,7 +3076,7 @@ mod tests {
             "request_id": "req-2",
             "data": {}
         });
-        let error = parse_tiktok_search_response(&payload).unwrap_err();
+        let error = parse_tiktok_search_response(&payload, "adv-123").unwrap_err();
         assert!(error.to_string().contains("105005"));
         assert!(error.to_string().contains("Access denied"));
     }

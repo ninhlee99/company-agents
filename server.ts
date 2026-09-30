@@ -3,6 +3,10 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -150,6 +154,39 @@ export interface CompanySnapshot {
   currency: string;
 }
 
+export interface CandidateProfile {
+  id: string;
+  name: string;
+  avatar: string;
+  role: string;
+  department: 'Leadership' | 'Growth' | 'Ops' | 'Sales' | 'Tech';
+  level: 'Senior' | 'Lead' | 'Principal Expert' | 'Director';
+  yearsExperience: number;
+  expectedSalaryMinor: number;
+  skills: { name: string; score: number }[];
+  bio: string;
+  portfolio: { title: string; metric: string; description: string }[];
+  culturalFitScore: number;
+  recommendedBy: string;
+  status: 'Available' | 'Interviewing' | 'Hired' | 'Rejected';
+  interviewNotes?: string;
+  roiProjectionBps: number;
+}
+
+export interface OfficeActivityEvent {
+  id: string;
+  timestamp: string;
+  agentId: string;
+  agentName: string;
+  agentRole: string;
+  department: string;
+  actionType: 'CreateContent' | 'ComposeMusic' | 'RenderVideo' | 'TakePhotos' | 'AuditLedger' | 'RecruitTalent' | 'ExecutePayout' | 'OptimizeTraffic';
+  title: string;
+  detail: string;
+  impactMinor?: number;
+  badgeColor?: string;
+}
+
 // In-Memory Database
 const state: {
   snapshot: CompanySnapshot;
@@ -163,7 +200,7 @@ const state: {
     snapshotAfter: CompanySnapshot;
   }[];
   employees: { id: string; role: string; name: string; salary_minor: number; hiredAtCycle: number }[];
-  customAgents: { id: string; name: string; role: string; department: string; description: string; salary_minor: number; tasksCompleted: number; status: 'Active' | 'Paused'; hiredAtCycle: number }[];
+  customAgents: { id: string; name: string; role: string; department: string; description: string; salary_minor: number; tasksCompleted: number; status: 'Active' | 'Paused'; hiredAtCycle: number; skillLevel?: number; taskMultiplier?: number; trainedSkills?: string[]; trainingCount?: number }[];
   activeExperiments: { id: string; name: string; budget_minor: number; startCycle: number; status: string; roi_bps: number }[];
   auditReports: {
     id: string;
@@ -207,6 +244,17 @@ const state: {
     resolved: boolean;
     mitigationAction?: string;
   }[];
+  candidatePool: CandidateProfile[];
+  officeActivities: OfficeActivityEvent[];
+  creativeProductions: any[];
+  autonomousSettings: {
+    isAutoPilotActive: boolean;
+    intervalSeconds: number;
+    autoHireWhenBacklogHigh: boolean;
+    autoReinvestProfitPct: number;
+    maxSpendPerAutoCycleMinor: number;
+    lastTickTimestamp?: string;
+  };
 } = {
   snapshot: {
     status: 'Active',
@@ -456,7 +504,240 @@ const state: {
       mitigationAction: 'Duy trì đội ngũ 9 Agent cốt lõi và giao thêm tác vụ cho Content Specialist.',
     },
   ],
+  candidatePool: [
+    {
+      id: 'cand-1',
+      name: 'Elena Vance',
+      avatar: '✍️',
+      role: 'Senior Viral Copywriter',
+      department: 'Growth',
+      level: 'Senior',
+      yearsExperience: 8,
+      expectedSalaryMinor: 140000, // $1,400/mo
+      skills: [
+        { name: 'Hook 3s Retention', score: 96 },
+        { name: 'Direct-Response Storytelling', score: 94 },
+        { name: 'TikTok & Reels Algorithm Optimization', score: 92 },
+        { name: 'A/B Testing Headlines', score: 90 },
+      ],
+      bio: 'Cựu Senior Content Strategist tại Creative Syndicate, chuyên kịch bản video short-form tạo hơn 120M views và doanh số affiliate vượt $450k.',
+      portfolio: [
+        { title: 'Chiến dịch Bàn phím Công thái học', metric: '+340% CTR', description: 'Viết mẫu hook 3s đảo ngược logic, giữ chân 74% người xem qua 15s đầu.' },
+        { title: 'Series Phụ kiện Setup AI', metric: '$48,000 GMV', description: 'Bộ 10 kịch bản bán lẻ tự động đạt tỷ lệ chuyển đổi đơn hàng 4.2%.' },
+      ],
+      culturalFitScore: 95,
+      recommendedBy: 'Recruiter AI',
+      status: 'Available',
+      roiProjectionBps: 2850, // +28.5% ROI
+    },
+    {
+      id: 'cand-2',
+      name: 'Marcus Chen',
+      avatar: '🎵',
+      role: 'AI Music Producer & Audio Engineer',
+      department: 'Growth',
+      level: 'Lead',
+      yearsExperience: 7,
+      expectedSalaryMinor: 130000, // $1,300/mo
+      skills: [
+        { name: 'EBU R128 Loudness Normalization', score: 98 },
+        { name: 'Algorithmic Beat Pacing & Drops', score: 95 },
+        { name: 'AI Voiceover Synthesis & Mastering', score: 91 },
+        { name: 'Commercial Copyright Clearance', score: 97 },
+      ],
+      bio: 'Chuyên gia âm thanh thương mại, master âm thanh video đạt chuẩn EBU R128 (-14 LUFS), phối beat nhịp điệu kích thích cảm xúc mua hàng.',
+      portfolio: [
+        { title: 'Bộ beat bản quyền Lo-Fi Tech', metric: '68% Retention', description: 'Tăng thời gian xem trung bình của video lên 28.4 giây.' },
+        { title: 'Voiceover AI Đa ngôn ngữ', metric: '0% Bản quyền gậy', description: 'Hệ thống âm thanh độc quyền sạch 100% bản quyền âm nhạc thương mại.' },
+      ],
+      culturalFitScore: 92,
+      recommendedBy: 'Recruiter AI',
+      status: 'Available',
+      roiProjectionBps: 2400,
+    },
+    {
+      id: 'cand-3',
+      name: 'Liam Rossi',
+      avatar: '🎬',
+      role: 'Motion Video Director & Editor',
+      department: 'Growth',
+      level: 'Principal Expert',
+      yearsExperience: 9,
+      expectedSalaryMinor: 160000, // $1,600/mo
+      skills: [
+        { name: 'Automated FFmpeg Workflow Engine', score: 99 },
+        { name: 'High-Retention Dynamic Transitions', score: 96 },
+        { name: 'Visual Hierarchy & Subtitles Styling', score: 94 },
+        { name: 'Color Grading (Cinematic & Clean)', score: 93 },
+      ],
+      bio: 'Đạo diễn kỹ thuật dựng video short-form tự động, tối ưu pipeline render 1080x1920 60fps giảm 70% thời gian xử lý GPU.',
+      portfolio: [
+        { title: 'Tối ưu hóa Pipeline Render FFmpeg', metric: 'Render 1.2s/video', description: 'Xây dựng preset h264/yuv420p mượt mà trên mọi dòng điện thoại di động.' },
+        { title: 'Mẫu Motion Graphic Dynamic CTA', metric: '+22% Clicks', description: 'Thiết kế hiệu ứng chỉ tay và voucher pop-up độc quyền.' },
+      ],
+      culturalFitScore: 96,
+      recommendedBy: 'Recruiter AI',
+      status: 'Available',
+      roiProjectionBps: 3100,
+    },
+    {
+      id: 'cand-4',
+      name: 'Chloe Nguyen',
+      avatar: '📸',
+      role: 'Prompt Photographer & Visual Director',
+      department: 'Growth',
+      level: 'Senior',
+      yearsExperience: 6,
+      expectedSalaryMinor: 125000, // $1,250/mo
+      skills: [
+        { name: 'Product Hero Shot Composition', score: 96 },
+        { name: 'Midjourney/Flux Lighting Direction', score: 95 },
+        { name: 'High-CTR Thumbnail Design', score: 97 },
+        { name: 'Color Psychology in E-Commerce', score: 91 },
+      ],
+      bio: 'Giám đốc nghệ thuật hình ảnh sản phẩm, chuyên tạo ảnh bìa thumbnail có độ tương phản cao và visual moodboard nâng tầm giá trị sản phẩm.',
+      portfolio: [
+        { title: 'Thư viện Visual Studio 3D Bàn làm việc', metric: '+41% CTR', description: 'Bộ 40 góc chụp sản phẩm chuẩn công nghệ tối giản hiện đại.' },
+        { title: 'Hệ thống Thumbnail A/B Test Tự động', metric: '6.8% CTR Trung bình', description: 'Tối ưu ảnh bìa tăng gấp đôi lượt click tự nhiên.' },
+      ],
+      culturalFitScore: 94,
+      recommendedBy: 'Recruiter AI',
+      status: 'Available',
+      roiProjectionBps: 2600,
+    },
+    {
+      id: 'cand-5',
+      name: 'Ryan Koo',
+      avatar: '📈',
+      role: 'Affiliate & Performance Growth Lead',
+      department: 'Growth',
+      level: 'Lead',
+      yearsExperience: 8,
+      expectedSalaryMinor: 155000, // $1,550/mo
+      skills: [
+        { name: 'EPC & Funnel Attribution Analytics', score: 97 },
+        { name: 'Awin / TikTok Shop / Amazon Sourcing', score: 98 },
+        { name: 'Automated Commission Arbitrage', score: 94 },
+        { name: 'Creator Syndicate Partnerships', score: 90 },
+      ],
+      bio: 'Chuyên gia săn deal hoa hồng cao, từng điều hành danh mục tiếp thị liên kết sinh lợi nhuận ròng $60k/tháng với chỉ số ROAS 4.8x.',
+      portfolio: [
+        { title: 'Quét Deal Hoa hồng Độc quyền 25%', metric: '$18,400 Hoa hồng', description: 'Đàm phán tỷ lệ chiết khấu cao hơn 7% so với mặt bằng chung của sàn.' },
+      ],
+      culturalFitScore: 93,
+      recommendedBy: 'Recruiter AI',
+      status: 'Available',
+      roiProjectionBps: 3400,
+    },
+    {
+      id: 'cand-6',
+      name: 'Sophia Alvarez',
+      avatar: '⚖️',
+      role: 'Legal & AI Compliance Officer',
+      department: 'Leadership',
+      level: 'Director',
+      yearsExperience: 10,
+      expectedSalaryMinor: 170000, // $1,700/mo
+      skills: [
+        { name: 'FTC Commercial Disclosure Law', score: 99 },
+        { name: 'IP & Copyright Protection Policy', score: 98 },
+        { name: 'Platform Term of Service Risk Audit', score: 97 },
+        { name: 'Smart Contract & Treasury Safeguards', score: 95 },
+      ],
+      bio: 'Chuyên gia pháp chế công nghệ và bảo vệ thương hiệu số, ngăn chặn mọi rủi ro vi phạm bản quyền và chính sách quảng cáo sàn thương mại.',
+      portfolio: [
+        { title: 'Bộ quy chuẩn FTC Auto-Disclosure', metric: '100% An toàn', description: 'Bảo vệ kênh khỏi mọi đợt quét chính sách và khóa tài khoản tiếp thị.' },
+      ],
+      culturalFitScore: 98,
+      recommendedBy: 'Governor AI',
+      status: 'Available',
+      roiProjectionBps: 2200,
+    },
+  ],
+  officeActivities: [
+    {
+      id: 'act-init-1',
+      timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
+      agentId: 'agent-content',
+      agentName: 'Content Lead',
+      agentRole: 'Sáng Tạo Nội Dung',
+      department: 'Growth',
+      actionType: 'CreateContent',
+      title: 'Soạn thảo kịch bản video viral 4 phân cảnh',
+      detail: 'Hoàn tất kịch bản ngách "Bàn Phím Công Thái Học AI" với hook 3 giây giữ chân 74% người xem.',
+      impactMinor: 45000,
+      badgeColor: 'text-pink-400 bg-pink-500/10 border-pink-500/20',
+    },
+    {
+      id: 'act-init-2',
+      timestamp: new Date(Date.now() - 3600000 * 1.5).toISOString(),
+      agentId: 'agent-coo',
+      agentName: 'COO',
+      agentRole: 'Giám Đốc Vận Hành',
+      department: 'Ops',
+      actionType: 'RenderVideo',
+      title: 'Render hoàn tất video 1080x1920 60fps qua FFmpeg Engine',
+      detail: 'Chuẩn hóa âm thanh đạt chuẩn EBU R128 (-14 LUFS) và nén định dạng yuv420p siêu mượt.',
+      impactMinor: -15000,
+      badgeColor: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
+    },
+    {
+      id: 'act-init-3',
+      timestamp: new Date(Date.now() - 3600000 * 1).toISOString(),
+      agentId: 'agent-growth',
+      agentName: 'Growth Lead',
+      agentRole: 'Kinh Doanh & Traffic',
+      department: 'Growth',
+      actionType: 'ExecutePayout',
+      title: 'Thu nhận hoa hồng TikTok Shop & Awin thành công',
+      detail: 'Đối soát 24 đơn hàng thành công qua link affiliate, tự động nộp +$780.00 vào ví kho bạc.',
+      impactMinor: 78000,
+      badgeColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+    },
+    {
+      id: 'act-init-4',
+      timestamp: new Date(Date.now() - 3600000 * 0.5).toISOString(),
+      agentId: 'agent-gov',
+      agentName: 'Governor AI',
+      agentRole: 'Hiến Pháp & Quỹ Tiền',
+      department: 'Leadership',
+      actionType: 'AuditLedger',
+      title: 'Kiểm toán Fiduciary và bảo vệ an toàn Runway 440 ngày',
+      detail: 'Xác nhận tỷ lệ thặng dư ngân sách đạt chuẩn và phê duyệt tái đầu tư 20% lợi nhuận.',
+      impactMinor: 0,
+      badgeColor: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
+    },
+  ],
+  creativeProductions: [],
+  autonomousSettings: {
+    isAutoPilotActive: false,
+    intervalSeconds: 10,
+    autoHireWhenBacklogHigh: true,
+    autoReinvestProfitPct: 25,
+    maxSpendPerAutoCycleMinor: 50000, // $500 max spend
+  },
 };
+
+// Memory optimization helper: Keeps arrays capped to prevent memory bloat (< 40MB RAM footprint)
+function trimMemoryState() {
+  if (state.ledger.length > 100) state.ledger = state.ledger.slice(0, 100);
+  if (state.receipts.length > 100) state.receipts = state.receipts.slice(0, 100);
+  if (state.officeActivities.length > 60) state.officeActivities = state.officeActivities.slice(0, 60);
+  if (state.communicationStream.length > 60) state.communicationStream = state.communicationStream.slice(0, 60);
+  if (state.creativeProductions.length > 40) state.creativeProductions = state.creativeProductions.slice(0, 40);
+}
+
+// Log a real-world office activity
+function logOfficeActivity(event: Omit<OfficeActivityEvent, 'id' | 'timestamp'>) {
+  const newActivity: OfficeActivityEvent = {
+    id: `act-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 5)}`,
+    timestamp: new Date().toISOString(),
+    ...event,
+  };
+  state.officeActivities.unshift(newActivity);
+  trimMemoryState();
+  return newActivity;
+}
 
 function recalculateCompanyHealth() {
   const netBurn = Math.max(0, state.snapshot.expenses_minor - state.snapshot.revenue_minor);
@@ -1050,8 +1331,31 @@ function generateAutoAuditReport(milestoneCycle: number) {
   return report;
 }
 
+// P&L Statement Calculator
+function calculatePnL(): any {
+  const totalRevenueMinor = state.snapshot.revenue_minor;
+  const cogsMinor = Math.round(totalRevenueMinor * 0.18); // cloud inference & asset licensing
+  const grossProfitMinor = totalRevenueMinor - cogsMinor;
+  const grossMarginPercent = totalRevenueMinor > 0 ? Math.round((grossProfitMinor / totalRevenueMinor) * 1000) / 10 : 0;
+  const operatingExpensesMinor = state.snapshot.expenses_minor;
+  const netIncomeMinor = grossProfitMinor - operatingExpensesMinor;
+  const dividendsDeclaredMinor = Math.max(0, Math.round(netIncomeMinor * 0.2));
+  const retainedEarningsMinor = Math.max(0, netIncomeMinor - dividendsDeclaredMinor);
+
+  return {
+    totalRevenueMinor,
+    grossMarginPercent,
+    operatingExpensesMinor,
+    netIncomeMinor,
+    monthlyRunRateMinor: totalRevenueMinor * 12,
+    dividendsDeclaredMinor,
+    retainedEarningsMinor,
+  };
+}
+
 // REST Endpoints
 app.get('/api/state', (req, res) => {
+  trimMemoryState();
   res.json({
     dataMode: SIMULATED_DATA_MODE,
     evidenceMode: 'synthetic_fixture',
@@ -1062,15 +1366,448 @@ app.get('/api/state', (req, res) => {
     receipts: state.receipts.slice(0, 50),
     employees: state.employees,
     customAgents: state.customAgents,
+    candidatePool: state.candidatePool,
+    officeActivities: state.officeActivities.slice(0, 40),
+    creativeProductions: state.creativeProductions.slice(0, 20),
+    autonomousSettings: state.autonomousSettings,
+    pnl: calculatePnL(),
     activeExperiments: state.activeExperiments,
     recentCycles: state.cycles.slice(-5),
     cycleHistory: getCycleTrendHistory(),
     departmentBudgets: getDepartmentBudgetHistory(),
-    communicationStream: state.communicationStream,
+    communicationStream: state.communicationStream.slice(0, 40),
     systemAlerts: state.systemAlerts,
     auditReports: state.auditReports,
     hasGeminiKey: Boolean(apiKey && apiKey !== 'MY_GEMINI_API_KEY'),
   });
+});
+
+app.get('/api/office-activities', (req, res) => {
+  res.json({ activities: state.officeActivities.slice(0, 50) });
+});
+
+app.get('/api/candidates', (req, res) => {
+  res.json({ candidates: state.candidatePool });
+});
+
+// AI Candidate Interview Simulator
+app.post('/api/candidates/interview', async (req, res) => {
+  const { candidateId } = req.body;
+  const candidate = state.candidatePool.find(c => c.id === candidateId);
+  if (!candidate) {
+    return res.status(404).json({ success: false, reason: 'Candidate not found' });
+  }
+
+  candidate.status = 'Interviewing';
+
+  let evaluation = {
+    technicalScore: 94,
+    portfolioScore: 96,
+    cultureScore: 95,
+    governorVerdict: 'Approve Recommendation',
+    summary: `${candidate.name} sở hữu kinh nghiệm thực chiến vượt trội (${candidate.yearsExperience} năm) với các chỉ số ROI chứng minh rõ ràng. Phù hợp hoàn hảo với vai trò ${candidate.role}.`,
+    negotiatedSalaryMinor: candidate.expectedSalaryMinor,
+  };
+
+  if (ai) {
+    try {
+      const prompt = `You are the Recruiter AI & Governor AI of an Autonomous Media Corporation.
+Candidate to interview:
+- Name: ${candidate.name}
+- Role: ${candidate.role}
+- Experience: ${candidate.yearsExperience} years
+- Bio: ${candidate.bio}
+- Expected Salary: $${(candidate.expectedSalaryMinor / 100).toFixed(2)}/mo
+
+Evaluate this candidate for senior expertise and calculate an interview score out of 100.
+Return STRICT JSON:
+{
+  "technicalScore": 95,
+  "portfolioScore": 94,
+  "cultureScore": 96,
+  "governorVerdict": "Approve Recommendation",
+  "summary": "1-2 sentence assessment in Vietnamese",
+  "negotiatedSalaryMinor": ${candidate.expectedSalaryMinor}
+}`;
+      const resp = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+        config: { responseMimeType: 'application/json', temperature: 0.4 },
+      });
+      const parsed = JSON.parse(resp.text || '{}');
+      if (parsed.technicalScore) evaluation = parsed;
+    } catch (e) {
+      console.warn('AI interview evaluation fallback:', e);
+    }
+  }
+
+  candidate.interviewNotes = evaluation.summary;
+
+  logOfficeActivity({
+    agentId: 'agent-recruiter',
+    agentName: 'Recruiter AI',
+    agentRole: 'Tuyển Dụng',
+    department: 'Ops',
+    actionType: 'RecruitTalent',
+    title: `Phỏng vấn chuyên sâu 3 vòng ứng viên ${candidate.name} (${candidate.role})`,
+    detail: `Điểm chuyên môn: ${evaluation.technicalScore}/100. Kết quả: ${evaluation.governorVerdict}. Ghi chú: ${evaluation.summary}`,
+    badgeColor: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
+  });
+
+  res.json({ success: true, candidate, evaluation });
+});
+
+// Autonomous / Manual Candidate Hiring
+app.post('/api/candidates/hire', (req, res) => {
+  const { candidateId } = req.body;
+  const candidate = state.candidatePool.find(c => c.id === candidateId);
+  if (!candidate) {
+    return res.status(404).json({ success: false, reason: 'Candidate not found' });
+  }
+
+  if (state.snapshot.runway_days < 45 && state.snapshot.cash_minor < 2000000) {
+    return res.status(400).json({
+      success: false,
+      reason: `Governor Veto: Runway hiện tại (${state.snapshot.runway_days} ngày) dưới ngưỡng an toàn 45 ngày. Đóng băng tuyển dụng!`,
+    });
+  }
+
+  candidate.status = 'Hired';
+
+  // Add to customAgents
+  const newAgent = {
+    id: `agent-${candidate.id}`,
+    name: candidate.name,
+    role: candidate.role,
+    department: candidate.department,
+    description: candidate.bio,
+    salary_minor: candidate.expectedSalaryMinor,
+    tasksCompleted: 0,
+    status: 'Active' as const,
+    hiredAtCycle: state.snapshot.cycle_count,
+    skillLevel: candidate.level === 'Principal Expert' ? 4 : candidate.level === 'Director' ? 5 : 3,
+    taskMultiplier: candidate.level === 'Principal Expert' ? 1.75 : 1.5,
+    trainedSkills: candidate.skills.map(s => s.name),
+    trainingCount: 1,
+  };
+
+  state.customAgents.push(newAgent);
+
+  state.employees.push({
+    id: newAgent.id,
+    name: newAgent.name,
+    role: newAgent.role,
+    salary_minor: newAgent.salary_minor,
+    hiredAtCycle: state.snapshot.cycle_count,
+  });
+
+  state.snapshot.expenses_minor += newAgent.salary_minor;
+  state.snapshot.capacity += 10;
+  state.snapshot.backlog = Math.max(0, state.snapshot.backlog - 4);
+
+  // Book Double-Entry Accounting for Onboarding
+  state.ledger.unshift({
+    id: `tx-hire-${Date.now().toString(36)}`,
+    timestamp: new Date().toISOString(),
+    description: `Tuyển Dụng Nhân Tài Cao Cấp: ${newAgent.name} (${newAgent.role})`,
+    debitAccount: 'Chi Phí Phát Triển Đội Ngũ Chuyên Gia',
+    creditAccount: 'Cash & Cash Equivalents',
+    amount_minor: Math.min(newAgent.salary_minor, 35000),
+    cycle: state.snapshot.cycle_count,
+  });
+
+  // Log Office Event
+  logOfficeActivity({
+    agentId: 'agent-gov',
+    agentName: 'Governor AI',
+    agentRole: 'Hiến Pháp & Quỹ Tiền',
+    department: 'Leadership',
+    actionType: 'RecruitTalent',
+    title: `Chính thức gia nhập: ${candidate.name} giữ chức ${candidate.role} (${candidate.level})`,
+    detail: `Tăng công suất xử lý toàn công ty thêm +10 slots. Dự phóng cải thiện ROI +${(candidate.roiProjectionBps / 100).toFixed(1)}%.`,
+    impactMinor: -Math.min(newAgent.salary_minor, 35000),
+    badgeColor: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
+  });
+
+  recalculateCompanyHealth();
+
+  res.json({
+    success: true,
+    candidate,
+    agent: newAgent,
+    snapshot: state.snapshot,
+    message: `Đã tuyển dụng thành công ${candidate.name} vào vị trí ${candidate.role}!`,
+  });
+});
+
+// Autonomous Auto-Pilot Tick (Self-running continuous revenue and production engine)
+app.post('/api/auto-pilot/tick', async (req, res) => {
+  const cycle = state.snapshot.cycle_count + 1;
+  state.snapshot.cycle_count = cycle;
+  state.autonomousSettings.lastTickTimestamp = new Date().toISOString();
+
+  // 1. Autonomous Revenue Generation from active campaigns
+  const revBase = Math.floor(Math.random() * 65000 + 45000); // +$450 - $1,100
+  state.snapshot.cash_minor += revBase;
+  state.snapshot.revenue_minor += Math.floor(revBase * 0.8);
+  state.snapshot.content_revenue_minor += revBase;
+  state.snapshot.conversion_bps = Math.min(650, state.snapshot.conversion_bps + Math.floor(Math.random() * 4 + 1));
+  state.snapshot.audience_growth_bps = Math.min(450, state.snapshot.audience_growth_bps + Math.floor(Math.random() * 5 + 1));
+
+  // 2. Book double-entry revenue
+  state.ledger.unshift({
+    id: `tx-auto-rev-${Date.now().toString(36)}`,
+    timestamp: new Date().toISOString(),
+    description: `Auto-Pilot: Doanh thu đối soát bán hàng tự động & hoa hồng TikTok Shop`,
+    debitAccount: 'Cash & Cash Equivalents',
+    creditAccount: 'Affiliate Media Revenue (Automated)',
+    amount_minor: revBase,
+    cycle,
+  });
+
+  // 3. Auto-hire if backlog is high and autoHire is enabled
+  let autoHiredMessage = null;
+  if (state.autonomousSettings.autoHireWhenBacklogHigh && state.snapshot.backlog > 14 && state.snapshot.runway_days > 90) {
+    const availableCand = state.candidatePool.find(c => c.status === 'Available');
+    if (availableCand) {
+      availableCand.status = 'Hired';
+      const autoAgent = {
+        id: `agent-${availableCand.id}`,
+        name: availableCand.name,
+        role: availableCand.role,
+        department: availableCand.department,
+        description: availableCand.bio,
+        salary_minor: availableCand.expectedSalaryMinor,
+        tasksCompleted: 1,
+        status: 'Active' as const,
+        hiredAtCycle: cycle,
+        skillLevel: 3,
+        taskMultiplier: 1.5,
+      };
+      state.customAgents.push(autoAgent);
+      state.snapshot.capacity += 8;
+      state.snapshot.backlog = Math.max(2, state.snapshot.backlog - 6);
+      autoHiredMessage = `Đã tự động tuyển dụng ${availableCand.name} (${availableCand.role}) để giải tỏa nghẽn hàng đợi!`;
+
+      logOfficeActivity({
+        agentId: 'agent-recruiter',
+        agentName: 'Recruiter AI',
+        agentRole: 'Tuyển Dụng',
+        department: 'Ops',
+        actionType: 'RecruitTalent',
+        title: `Auto-Hire: Tự động tuyển dụng ${availableCand.name}`,
+        detail: `Hàng đợi backlog tăng cao. Tự động giải phóng áp lực vận hành bằng nhân sự ${availableCand.role}.`,
+        badgeColor: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
+      });
+    }
+  }
+
+  // 4. Record Office Events
+  logOfficeActivity({
+    agentId: 'agent-growth',
+    agentName: 'Growth Lead',
+    agentRole: 'Kinh Doanh & Traffic',
+    department: 'Growth',
+    actionType: 'ExecutePayout',
+    title: `Auto-Pilot Tick: Tự động thu về +$${(revBase / 100).toFixed(2)} doanh thu`,
+    detail: `Hệ thống tự động phát hành nội dung đa nền tảng, ghi nhận +${(Math.random() * 12 + 8).toFixed(0)} đơn hàng thành công.`,
+    impactMinor: revBase,
+    badgeColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+  });
+
+  // 5. Auto-Audit every 10 cycles
+  let latestAuditReport = null;
+  if (cycle % 10 === 0) {
+    latestAuditReport = generateAutoAuditReport(cycle);
+  }
+
+  recalculateCompanyHealth();
+  trimMemoryState();
+
+  res.json({
+    success: true,
+    cycle,
+    revenueGainedMinor: revBase,
+    autoHiredMessage,
+    snapshot: state.snapshot,
+    auditReport: latestAuditReport,
+    pnl: calculatePnL(),
+  });
+});
+
+app.post('/api/auto-pilot/settings', (req, res) => {
+  const { isAutoPilotActive, intervalSeconds, autoHireWhenBacklogHigh, autoReinvestProfitPct } = req.body;
+  if (typeof isAutoPilotActive === 'boolean') state.autonomousSettings.isAutoPilotActive = isAutoPilotActive;
+  if (typeof intervalSeconds === 'number') state.autonomousSettings.intervalSeconds = intervalSeconds;
+  if (typeof autoHireWhenBacklogHigh === 'boolean') state.autonomousSettings.autoHireWhenBacklogHigh = autoHireWhenBacklogHigh;
+  if (typeof autoReinvestProfitPct === 'number') state.autonomousSettings.autoReinvestProfitPct = autoReinvestProfitPct;
+
+  res.json({ success: true, settings: state.autonomousSettings });
+});
+
+// Full Multi-Role Creative Production Suite Generator (Copywriter + Music + Photo + Video + Producer)
+app.post('/api/generate-creative-suite', async (req, res) => {
+  const { niche, productCategory } = req.body;
+  const category = productCategory || niche || 'AI Smart Workspace & Desk Setup Gadgets';
+
+  let production = {
+    id: `prod-${Date.now().toString(36)}`,
+    campaignTitle: `3 Món Đồ Công Nghệ AI Giúp Tôi Tiết Kiệm 14 Tiếng Mỗi Tuần`,
+    niche: category,
+    projectedRevenueMinor: 145000, // $1,450 projected
+    costMinor: 15000, // $150 render/creation cost
+    copywriting: {
+      headline: `Bí Quyết Tăng 300% Năng Suất Làm Việc Với 3 Phụ Kiện AI Này`,
+      hook3s: `Đừng mua thêm bàn phím cơ nữa nếu bạn chưa biết 3 món đồ AI này vừa ra mắt trong tháng.`,
+      retentionFormula: `Mở đầu phản trực giác ➔ Khơi gợi nỗi đau mất thời gian ➔ Trình diễn giải pháp AI ➔ Tặng coupon giảm 25% độc quyền`,
+      bodyPainPoints: [
+        `Ghi chép cuộc họp thủ công mất hàng giờ mỗi tuần`,
+        `Dây nhợ lộn xộn làm giảm tập trung và thẩm mỹ góc làm việc`,
+        `Không bảo mật dữ liệu cục bộ khi dùng các công cụ đám mây`,
+      ],
+      ctaText: `Bấm ngay vào link bio và nhập mã AGENTSOS để nhận voucher độc quyền 25% trước khi hết slot.`,
+      targetAudience: `Dân văn phòng, lập trình viên, content creator, người yêu công nghệ (22-38 tuổi)`,
+      complianceChecked: true,
+    },
+    audioTrack: {
+      title: `Cyberpunk Lo-Fi Productivity Beats (128 BPM)`,
+      genre: 'Lo-Fi Chill' as const,
+      bpm: 128,
+      mood: 'Tập trung cao độ, hiện đại, kích thích hành động',
+      voiceoverTone: 'Confident & Crisp' as const,
+      voiceSpeed: '1.1x (Nhịp điệu nhanh giữ chân người nghe)',
+      loudnessLufs: -14.0,
+    },
+    visualShots: [
+      {
+        shotIndex: 1,
+        framing: 'Macro Detail Close-Up' as const,
+        lighting: 'Studio Softbox Glow' as const,
+        imagePrompt: 'Macro 8k photo of ultra-minimalist glowing AI desk hub with sleek aluminum texture, modern clean desk setup, cinematic depth of field',
+        durationSec: 3,
+        textOverlay: '🔥 3 MÓN ĐỒ AI ĐỔI ĐỜI GÓC SETUP',
+      },
+      {
+        shotIndex: 2,
+        framing: '45-Degree Desk Top-Down' as const,
+        lighting: 'Cyberpunk Neon Accent' as const,
+        imagePrompt: 'Top-down desk view showing AI smart Pebble mouse transcribing meeting notes automatically to tablet screen, tidy setup',
+        durationSec: 12,
+        textOverlay: '1. Chuột AI tự động tóm tắt cuộc họp',
+      },
+      {
+        shotIndex: 3,
+        framing: 'Side Split Comparison' as const,
+        lighting: 'Studio Softbox Glow' as const,
+        imagePrompt: 'Split screen comparing chaotic messy notebook vs crystal-clear AI dashboard summarizer on ultra-wide monitor',
+        durationSec: 15,
+        textOverlay: '2. Hub USB-C chạy Local LLM bảo mật 100%',
+      },
+      {
+        shotIndex: 4,
+        framing: 'POV Handheld Showcase' as const,
+        lighting: 'Warm Natural Daylight' as const,
+        imagePrompt: 'POV hand holding phone showing exclusive discount badge code AGENTSOS with glowing TikTok Shop button',
+        durationSec: 10,
+        textOverlay: '🎁 MÃ GIẢM 25%: AGENTSOS (LINK BIO)',
+      },
+    ],
+    renderSettings: {
+      resolution: '1080x1920 (Vertical 9:16)',
+      fps: 60,
+      codec: 'libx264 / yuv420p (+faststart web-optimized)',
+      aspectRatio: '9:16',
+    },
+    governorApproved: true,
+    publishedChannels: ['TikTok Shop', 'YouTube Shorts', 'Instagram Reels', 'Facebook Video'],
+    attributionEpc: '$0.84 / Click',
+  };
+
+  if (ai) {
+    try {
+      const prompt = `You are the Multi-Disciplinary Media Studio of an AI Media Enterprise.
+Generate a comprehensive production package for: "${category}".
+Roles involved:
+- Senior Copywriter (Viral Hook 3s, Retention, Pain points, CTA)
+- Music Producer (Beat genre, BPM, Voiceover tone, -14 LUFS)
+- Prompt Photographer (Camera framing, lighting, 4 visual shots with image prompts)
+- Video Editor & Director (FFmpeg specs, duration, text overlays)
+- Compliance Officer (FTC verification, EPC projection)
+
+Return STRICT JSON matching the schema:
+{
+  "campaignTitle": "Title in Vietnamese",
+  "projectedRevenueMinor": 150000,
+  "costMinor": 15000,
+  "copywriting": {
+    "headline": "...",
+    "hook3s": "...",
+    "retentionFormula": "...",
+    "bodyPainPoints": ["...", "..."],
+    "ctaText": "...",
+    "targetAudience": "...",
+    "complianceChecked": true
+  },
+  "audioTrack": {
+    "title": "...",
+    "genre": "Lo-Fi Chill",
+    "bpm": 128,
+    "mood": "...",
+    "voiceoverTone": "Confident & Crisp",
+    "voiceSpeed": "1.1x",
+    "loudnessLufs": -14.0
+  },
+  "visualShots": [
+    { "shotIndex": 1, "framing": "Macro Detail Close-Up", "lighting": "Studio Softbox Glow", "imagePrompt": "...", "durationSec": 3, "textOverlay": "..." },
+    { "shotIndex": 2, "framing": "45-Degree Desk Top-Down", "lighting": "Cyberpunk Neon Accent", "imagePrompt": "...", "durationSec": 12, "textOverlay": "..." },
+    { "shotIndex": 3, "framing": "Side Split Comparison", "lighting": "Studio Softbox Glow", "imagePrompt": "...", "durationSec": 15, "textOverlay": "..." },
+    { "shotIndex": 4, "framing": "POV Handheld Showcase", "lighting": "Warm Natural Daylight", "imagePrompt": "...", "durationSec": 10, "textOverlay": "..." }
+  ],
+  "renderSettings": {
+    "resolution": "1080x1920 (Vertical 9:16)",
+    "fps": 60,
+    "codec": "libx264 / yuv420p (+faststart web-optimized)",
+    "aspectRatio": "9:16"
+  },
+  "governorApproved": true,
+  "publishedChannels": ["TikTok Shop", "YouTube Shorts", "Instagram Reels"],
+  "attributionEpc": "$0.88 / Click"
+}`;
+      const resp = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+        config: { responseMimeType: 'application/json', temperature: 0.5 },
+      });
+      const parsed = JSON.parse(resp.text || '{}');
+      if (parsed.campaignTitle) {
+        production = {
+          ...production,
+          ...parsed,
+          id: `prod-${Date.now().toString(36)}`,
+          niche: category,
+        };
+      }
+    } catch (e) {
+      console.warn('Creative suite generation fallback:', e);
+    }
+  }
+
+  state.creativeProductions.unshift(production);
+  trimMemoryState();
+
+  logOfficeActivity({
+    agentId: 'agent-content',
+    agentName: 'Content Studio',
+    agentRole: 'Sáng Tạo Toàn Diện',
+    department: 'Growth',
+    actionType: 'CreateContent',
+    title: `Sản xuất trọn gói kịch bản + âm nhạc + visual: "${production.campaignTitle}"`,
+    detail: `Kịch bản đạt chuẩn hook 3s; Âm nhạc ${production.audioTrack.genre} ${production.audioTrack.bpm} BPM (-14 LUFS); 4 góc chụp hình ảnh; Render FFmpeg 60fps.`,
+    impactMinor: -production.costMinor,
+    badgeColor: 'text-pink-400 bg-pink-500/10 border-pink-500/20',
+  });
+
+  res.json({ success: true, production });
 });
 
 app.get('/api/system-alerts', (req, res) => {

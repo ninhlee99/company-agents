@@ -647,6 +647,7 @@ mod tests {
         let approval = ApprovalAuthority::new(vec![1_u8; 32]).unwrap();
         let publisher = TikTokPublisher {
             access_token: Some("test".into()),
+            access_token_provider: None,
             api_base: "https://example.invalid".into(),
             client: reqwest::Client::new(),
             approval,
@@ -678,6 +679,7 @@ mod tests {
         let approval = ApprovalAuthority::new(vec![1_u8; 32]).unwrap();
         let publisher = TikTokPublisher {
             access_token: Some("test".into()),
+            access_token_provider: None,
             api_base: "https://example.invalid".into(),
             client: reqwest::Client::new(),
             approval,

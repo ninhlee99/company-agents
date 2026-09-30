@@ -250,7 +250,7 @@ impl TikTokOAuthClient {
             .await
             .map_err(|error| AuthError::Transport(error.to_string()))?;
         let status = response.status();
-        let bytes = bounded_body(response).await?;
+        let bytes = bounded_body_async(response).await?;
         if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
             return Err(AuthError::Unauthorized);
         }
@@ -261,7 +261,7 @@ impl TikTokOAuthClient {
         let value: serde_json::Value = serde_json::from_slice(&bytes)
             .map_err(|error| AuthError::Provider(format!("invalid token response: {error}")))?;
         if !status.is_success() {
-            return Err(provider_error(status, &bytes));
+            return Err(provider_error(status, &bytes, &[self.config.client_secret.as_str()]));
         }
         if value.get("error").and_then(|v| v.as_str()).is_some_and(|v| v != "ok" && v != "null") {
             let detail: TokenErrorResponse = serde_json::from_value(value)

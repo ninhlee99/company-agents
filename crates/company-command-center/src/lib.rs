@@ -32,7 +32,7 @@ pub struct ContentFunnel {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LivePulse {
     pub sessions_30d: i64,
-    pub gift_count_30d: i128,
+    pub gift_count_30d: i64,
     pub gift_value_30d_minor: i128,
 }
 

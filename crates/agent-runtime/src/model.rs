@@ -1206,12 +1206,8 @@ pub fn model_from_env() -> Box<dyn Model> {
         Err(error) => return Box::new(FailClosedModel::new(error.to_string())),
     };
 
-    match ModelRoutingMode::from_env() {
-        ModelRoutingMode::Off => Box::new(fallback),
-        ModelRoutingMode::Shadow => {
-            Box::new(RoutingModel::new(fallback, ModelRoutingMode::Shadow))
-        }
-    }
+    let mode = ModelRoutingMode::from_env();
+    Box::new(RoutingModel::new(fallback, mode))
 }
 
 #[cfg(test)]

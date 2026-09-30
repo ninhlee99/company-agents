@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CompanySnapshot, CustomAgent, AgentTaskItem } from '../types/company';
+import { CompanySnapshot, CustomAgent, AgentTaskItem, CandidateProfile } from '../types/company';
 import { 
   Users, 
   Plus, 
@@ -26,8 +26,13 @@ import {
   Bot,
   ToggleLeft,
   ToggleRight,
+  BrainCircuit,
+  Briefcase,
+  UserCheck,
+  Star,
+  FileCheck2,
   ShieldCheck,
-  BrainCircuit
+  RotateCw
 } from 'lucide-react';
 import { AgentCompetencyMatrixModal } from './AgentCompetencyMatrixModal';
 import {
@@ -44,27 +49,40 @@ import {
 interface ManageAgentsProps {
   snapshot: CompanySnapshot;
   agents: CustomAgent[];
+  candidates?: CandidateProfile[];
   onHireAgent: (data: { name: string; role: string; department: 'Leadership' | 'Growth' | 'Ops' | 'Sales' | 'Tech'; description: string; salary_minor: number }) => Promise<{ success: boolean; reason?: string }>;
   onToggleStatus: (agentId: string) => void;
   onOpenTraining?: (agentId?: string) => void;
   onAutoRecruit?: (thresholdMinor?: number) => Promise<{ success: boolean; reason?: string }>;
   onAutoTalentCycle?: (options: { autoRecruit: boolean; autoTrain: boolean; cashSafetyThreshold: number }) => Promise<{ success: boolean; message: string; actionsTaken: boolean }>;
+  onInterviewCandidate?: (candidateId: string) => Promise<any>;
+  onHireCandidate?: (candidateId: string) => Promise<any>;
 }
 
 export const ManageAgents: React.FC<ManageAgentsProps> = ({
   snapshot,
   agents,
+  candidates = [],
   onHireAgent,
   onToggleStatus,
   onOpenTraining,
   onAutoRecruit,
   onAutoTalentCycle,
+  onInterviewCandidate,
+  onHireCandidate,
 }) => {
+  const [mainView, setMainView] = useState<'roster' | 'talent_market'>('roster');
   const [filter, setFilter] = useState<'All' | 'Leadership' | 'Growth' | 'Ops'>('All');
   const [showHireModal, setShowHireModal] = useState(false);
   const [showCompetencyMatrix, setShowCompetencyMatrix] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [hireError, setHireError] = useState<string | null>(null);
+
+  // Candidate Interview Modal State
+  const [interviewingCandidate, setInterviewingCandidate] = useState<CandidateProfile | null>(null);
+  const [interviewResult, setInterviewResult] = useState<any>(null);
+  const [isInterviewing, setIsInterviewing] = useState(false);
+  const [hireSuccessNotice, setHireSuccessNotice] = useState<string | null>(null);
 
   // Form State
   const [name, setName] = useState('');
@@ -109,6 +127,42 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
         message: res.reason || 'Không thể tự động tuyển dụng lúc này.',
         type: 'warning',
       });
+    }
+  };
+
+  const handleStartInterview = async (candidate: CandidateProfile) => {
+    setInterviewingCandidate(candidate);
+    setIsInterviewing(true);
+    setInterviewResult(null);
+
+    if (onInterviewCandidate) {
+      const res = await onInterviewCandidate(candidate.id);
+      if (res && res.evaluation) {
+        setInterviewResult(res.evaluation);
+      }
+    } else {
+      setTimeout(() => {
+        setInterviewResult({
+          technicalScore: 96,
+          portfolioScore: 94,
+          cultureScore: 95,
+          governorVerdict: 'Approve Recommendation',
+          summary: `${candidate.name} sở hữu kỹ năng chuyên sâu cấp độ Senior/Lead với kinh nghiệm ${candidate.yearsExperience} năm. Đạt chuẩn gia nhập bộ máy tự trị.`,
+          negotiatedSalaryMinor: candidate.expectedSalaryMinor,
+        });
+      }, 800);
+    }
+    setIsInterviewing(false);
+  };
+
+  const handleConfirmHireCandidate = async (candidate: CandidateProfile) => {
+    if (onHireCandidate) {
+      const res = await onHireCandidate(candidate.id);
+      if (res && res.success) {
+        setHireSuccessNotice(`Đã tuyển dụng thành công ${candidate.name} (${candidate.role})!`);
+        setTimeout(() => setHireSuccessNotice(null), 4000);
+        setInterviewingCandidate(null);
+      }
     }
   };
 
@@ -366,11 +420,46 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
           {/* Hire Button */}
           <button
             onClick={() => setShowHireModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-all shrink-0"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-all shrink-0 active:scale-95"
           >
-            <Plus className="w-3.5 h-3.5" /> Tuyển Thêm AI
+            <Plus className="w-3.5 h-3.5" /> Tuyển Agent Mới
           </button>
         </div>
+      </div>
+
+      {/* Top View Switcher */}
+      <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
+        <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
+          <button
+            onClick={() => setMainView('roster')}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg font-bold transition-all ${
+              mainView === 'roster'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            <span>Đội Ngũ Hiện Tại ({agents.length} Nhân Sự)</span>
+          </button>
+          <button
+            onClick={() => setMainView('talent_market')}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg font-bold transition-all ${
+              mainView === 'talent_market'
+                ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Briefcase className="w-4 h-4 text-pink-300" />
+            <span>Sàn Tuyển Dụng Nhân Tài ({candidates.length} Chuyên Gia Senior)</span>
+          </button>
+        </div>
+
+        {hireSuccessNotice && (
+          <div className="px-3 py-1.5 rounded-lg bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-xs flex items-center gap-1.5 animate-fadeIn">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            {hireSuccessNotice}
+          </div>
+        )}
       </div>
 
       {/* AUTO-RECRUIT CONTROLLER CARD */}
@@ -519,6 +608,250 @@ export const ManageAgents: React.FC<ManageAgentsProps> = ({
           </div>
         )}
       </div>
+
+      {mainView === 'talent_market' ? (
+        /* TALENT SCOUTING & RECRUITMENT MARKET */
+        <div className="space-y-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-2 shadow-sm">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Briefcase className="w-5 h-5 text-pink-400" />
+                Sàn Tuyển Chọn Chuyên Gia Cấp Cao (Senior Talent Pool)
+              </h3>
+              <span className="text-xs font-mono text-emerald-300 bg-emerald-500/20 px-2.5 py-1 rounded-full border border-emerald-500/30 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                Được Thẩm Định Bởi Governor AI
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Các chuyên gia AI độc lập cấp Senior &amp; Lead sẵn sàng bổ sung năng lực chuyên sâu vào bộ máy doanh nghiệp. 
+              Bạn có thể kích hoạt quy trình Phỏng Vấn AI 3 Vòng (Technical, Portfolio, ROI) trước khi quyết định ký hợp đồng.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {candidates.map((cand) => {
+              const isHired = agents.some((a) => a.name === cand.name || a.id.includes(cand.id));
+              return (
+                <div
+                  key={cand.id}
+                  className={`bg-slate-900 border rounded-xl p-5 space-y-4 shadow-md transition-all ${
+                    isHired
+                      ? 'border-emerald-500/40 bg-slate-900/60 opacity-80'
+                      : 'border-slate-800 hover:border-indigo-500/50'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center text-2xl shadow-inner">
+                        {cand.avatar}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-white text-sm">{cand.name}</h4>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                            cand.level === 'Principal Expert'
+                              ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                              : cand.level === 'Director'
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                              : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                          }`}>
+                            {cand.level}
+                          </span>
+                        </div>
+                        <span className="text-xs text-slate-400 block mt-0.5">{cand.role}</span>
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <span className="text-[10px] uppercase font-mono text-slate-500 block">Lương Kỳ Vọng</span>
+                      <span className="text-emerald-400 font-mono font-bold text-sm">
+                        ${(cand.expectedSalaryMinor / 100).toLocaleString()}/th
+                      </span>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-slate-300 leading-relaxed bg-slate-950/60 p-3 rounded-lg border border-slate-800/80">
+                    {cand.bio}
+                  </p>
+
+                  {/* Skills Grid */}
+                  <div className="space-y-1.5">
+                    <span className="text-[10px] uppercase font-mono text-slate-500 block">Kỹ Năng &amp; Điểm Chuyên Môn:</span>
+                    <div className="grid grid-cols-2 gap-2">
+                      {cand.skills.map((skill, idx) => (
+                        <div key={idx} className="p-2 rounded bg-slate-950 border border-slate-800/80 text-[11px] flex items-center justify-between">
+                          <span className="text-slate-400 truncate pr-1">{skill.name}</span>
+                          <span className="font-mono font-bold text-cyan-400">{skill.score}/100</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Track Record & ROI */}
+                  <div className="p-2.5 rounded-lg bg-indigo-950/20 border border-indigo-500/30 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5 text-indigo-300">
+                      <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
+                      <span>Kinh nghiệm: <strong>{cand.yearsExperience} năm</strong></span>
+                    </div>
+                    <div className="text-emerald-400 font-mono font-bold">
+                      Dự phóng ROI: +{(cand.roiProjectionBps / 100).toFixed(1)}%
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
+                    {isHired ? (
+                      <div className="w-full py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold flex items-center justify-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4" /> Đã Gia Nhập Công Ty
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => handleStartInterview(cand)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all border border-slate-700"
+                        >
+                          <FileCheck2 className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>Phỏng Vấn AI</span>
+                        </button>
+                        <button
+                          onClick={() => handleConfirmHireCandidate(cand)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold transition-all shadow-md active:scale-95"
+                        >
+                          <UserCheck className="w-3.5 h-3.5" />
+                          <span>Tuyển Ngay</span>
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        /* ROSTER VIEW */
+        <>
+          {/* Top Header */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
+            <div className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-indigo-400" />
+              <div>
+                <h2 className="text-base font-bold text-white">Đội Ngũ Nhân Sự AI ({agents.length} vị trí)</h2>
+                <p className="text-xs text-slate-400">Theo dõi tỷ lệ Hiệu Suất / Tiền Lương và lịch sử công việc từng người</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              {/* Filter */}
+              <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+                {(['All', 'Leadership', 'Growth', 'Ops'] as const).map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => setFilter(cat)}
+                    className={`px-2.5 py-1 rounded-md font-semibold transition-all ${
+                      filter === cat ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {cat === 'All' ? 'Tất cả' : cat === 'Leadership' ? 'Ban Giám Đốc' : cat === 'Growth' ? 'Kinh Doanh' : 'Vận Hành'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Training Button */}
+              {onOpenTraining && (
+                <button
+                  onClick={() => onOpenTraining()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md transition-all shrink-0 active:scale-95"
+                >
+                  <GraduationCap className="w-3.5 h-3.5 text-yellow-300" /> Đào Tạo Kỹ Năng
+                </button>
+              )}
+
+              {/* Hire Button */}
+              <button
+                onClick={() => setShowHireModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-all shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5" /> Tuyển Thêm AI
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* AI INTERVIEW SIMULATOR MODAL */}
+      {interviewingCandidate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative">
+            <button
+              onClick={() => setInterviewingCandidate(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center text-2xl">
+                {interviewingCandidate.avatar}
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Hội Đồng Đánh Giá: {interviewingCandidate.name}</h3>
+                <span className="text-xs text-slate-400 font-mono">{interviewingCandidate.role} • {interviewingCandidate.yearsExperience} năm kinh nghiệm</span>
+              </div>
+            </div>
+
+            {isInterviewing ? (
+              <div className="py-8 text-center space-y-3">
+                <RotateCw className="w-8 h-8 text-indigo-400 animate-spin mx-auto" />
+                <p className="text-xs text-slate-300">Governor AI và Recruiter AI đang tiến hành thẩm định chuyên môn 3 vòng...</p>
+              </div>
+            ) : interviewResult ? (
+              <div className="space-y-4 text-xs">
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 text-center">
+                    <span className="text-[10px] text-slate-500 block">Kỹ Thuật</span>
+                    <span className="text-base font-bold text-cyan-400 mt-1 block">{interviewResult.technicalScore}/100</span>
+                  </div>
+                  <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 text-center">
+                    <span className="text-[10px] text-slate-500 block">Portfolio</span>
+                    <span className="text-base font-bold text-purple-400 mt-1 block">{interviewResult.portfolioScore}/100</span>
+                  </div>
+                  <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 text-center">
+                    <span className="text-[10px] text-slate-500 block">Văn Hóa/ROI</span>
+                    <span className="text-base font-bold text-emerald-400 mt-1 block">{interviewResult.cultureScore}/100</span>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-lg bg-indigo-950/30 border border-indigo-500/30 text-indigo-200 leading-relaxed">
+                  <strong className="text-indigo-400 block mb-1">Đánh Giá Từ Governor AI:</strong>
+                  {interviewResult.summary}
+                </div>
+
+                <div className="flex items-center justify-between p-3 rounded-lg bg-slate-950 border border-slate-800 font-mono">
+                  <span className="text-slate-400">Lương Chốt Dự Kiến:</span>
+                  <span className="text-emerald-400 font-bold">${(interviewResult.negotiatedSalaryMinor / 100).toLocaleString()}/th</span>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    onClick={() => setInterviewingCandidate(null)}
+                    className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs"
+                  >
+                    Đóng
+                  </button>
+                  <button
+                    onClick={() => handleConfirmHireCandidate(interviewingCandidate)}
+                    className="px-5 py-2 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-md active:scale-95"
+                  >
+                    Ký Hợp Đồng &amp; Tuyển Dụng Ngay
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
 
       {/* DEPARTMENTAL PERFORMANCE REPORT (TASKS COMPLETED VS SALARY COST: HIGH-PERFORMERS VS OVERPAID) */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3.5 shadow-sm">
