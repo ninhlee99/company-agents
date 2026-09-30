@@ -100,7 +100,7 @@ pub struct CommandCenterSummary {
     pub revenue_trend: RevenueTrend,
     pub revenue_trend_delta_bps: i32,
     pub revenue_mtd_per_active_employee_minor: Option<i128>,
-    pub revenue_mtd_per_content_transaction_minor: Option<i128>,
+    pub commission_7d_per_content_minor: Option<i128>,
     pub alerts: Vec<CommandCenterAlert>,
 }
 
@@ -129,12 +129,14 @@ pub fn summarize(input: &CommandCenterInput) -> Result<CommandCenterSummary, Str
         .checked_sub(0)
         .filter(|count| *count > 0)
         .and_then(|count| input.revenue_mtd_minor.checked_div(i128::from(count)));
-    let revenue_mtd_per_content_transaction_minor = input
+    let commission_7d_per_content_minor = input
         .content
         .content_count_7d
         .checked_sub(0)
         .filter(|count| *count > 0)
-        .and_then(|count| input.revenue_mtd_minor.checked_div(i128::from(count)));
+        .and_then(|count| {
+            input.content.commission_7d_minor.checked_div(i128::from(count))
+        });
 
     let mut alerts = Vec::new();
     if input.cash_minor <= 0 || input.runway_days < 15 {
@@ -231,7 +233,7 @@ pub fn summarize(input: &CommandCenterInput) -> Result<CommandCenterSummary, Str
         revenue_trend,
         revenue_trend_delta_bps,
         revenue_mtd_per_active_employee_minor,
-        revenue_mtd_per_content_transaction_minor,
+        commission_7d_per_content_minor,
         alerts,
     })
 }
@@ -340,6 +342,12 @@ mod tests {
             .alerts
             .iter()
             .any(|alert| alert.kind == AlertKind::NeedsAttention));
+    }
+
+    #[test]
+    fn content_productivity_uses_same_seven_day_window() {
+        let summary = summarize(&input()).unwrap();
+        assert_eq!(summary.commission_7d_per_content_minor, Some(800));
     }
 
     #[test]
