@@ -3621,6 +3621,28 @@ fn control_plane_auth_principal(
     control_plane_auth_principal_from(company_id, method, provided, &principals)
 }
 
+fn control_plane_action_allowed(role: &str, method: &str, path: &str) -> bool {
+    if matches!(method, "GET" | "HEAD" | "OPTIONS") {
+        return true;
+    }
+    if !matches!(role, "admin" | "operator" | "operator-browser") {
+        return false;
+    }
+    let admin_only = [
+        ("POST", "/api/autonomy/controls"),
+        ("POST", "/api/autonomy/budget/consume"),
+        ("POST", "/api/compliance/policies"),
+        ("POST", "/api/procurement/requests/approve"),
+        ("POST", "/api/payments/execution/approve"),
+        ("POST", "/api/tiktok/oauth/revoke"),
+    ];
+    if admin_only.iter().any(|(expected_method, expected_path)| {
+        method == *expected_method && path == *expected_path
+    }) {
+        return role == "admin";
+    }
+    true
+}
 fn control_plane_auth_scope(
     method: &str,
     provided: Option<&str>,
@@ -3798,6 +3820,21 @@ async fn require_control_plane_auth(
 
                 let actor_id = control_plane_actor_id_for_cookie(&cookie);
                 if csrf_valid {
+                    if !control_plane_action_allowed("operator-browser", &method, &path) {
+                        mark_control_plane_denied(&state, true, started);
+                        record_control_plane_audit(
+                            &state,
+                            &actor_id,
+                            "operator-browser",
+                            &method,
+                            &path,
+                            "CONTROL_PLANE_AUTHZ",
+                            "DENIED",
+                            &request_id,
+                        )
+                        .await;
+                        return Err(StatusCode::FORBIDDEN);
+                    }
                     let mut response = next.run(request).instrument(span.clone()).await;
                     record_control_plane_audit(
                         &state,
@@ -3872,6 +3909,22 @@ async fn require_control_plane_auth(
     };
 
     let actor_id = format!("principal:{principal_id}");
+
+    if !control_plane_action_allowed(role, &method, &path) {
+        mark_control_plane_denied(&state, false, started);
+        record_control_plane_audit(
+            &state,
+            &actor_id,
+            role,
+            &method,
+            &path,
+            "CONTROL_PLANE_AUTHZ",
+            "DENIED",
+            &request_id,
+        )
+        .await;
+        return Err(StatusCode::FORBIDDEN);
+    }
 
     let mut response = next.run(request).instrument(span.clone()).await;
     record_control_plane_audit(
@@ -4292,6 +4345,15 @@ mod control_plane_audit_tests {
         );
     }
 
+    #[test]
+    fn role_based_authorization_blocks_sensitive_actions_for_operators() {
+        assert!(control_plane_action_allowed("admin", "POST", "/api/autonomy/controls"));
+        assert!(!control_plane_action_allowed("operator", "POST", "/api/autonomy/controls"));
+        assert!(!control_plane_action_allowed("operator-browser", "POST", "/api/payments/execution/approve"));
+        assert!(control_plane_action_allowed("operator", "POST", "/api/customers"));
+        assert!(control_plane_action_allowed("read-only", "GET", "/api/control-plane/audit"));
+        assert!(!control_plane_action_allowed("read-only", "POST", "/api/customers"));
+    }
     #[test]
     fn traceparent_is_normalized_or_falls_back_to_request_id_hash() {
         let request = Request::builder()
