@@ -1,0 +1,1 @@
+{"name":"@company-agents/api","version":"0.1.0","private":true,"type":"module","scripts":{"dev":"node src/index.js"},"dependencies":{"@company-agents/domain":"workspace:*"}}

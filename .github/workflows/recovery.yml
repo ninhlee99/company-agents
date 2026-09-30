@@ -1,0 +1,52 @@
+name: Recovery Drill
+
+on:
+  schedule:
+    - cron: "17 3 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-recovery:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: company_agents
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d company_agents"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+      - name: Initialize schema
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/company_agents
+        run: |
+          for file in infra/db/migrations/*.sql; do
+            PGPASSWORD=postgres psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$file"
+          done
+      - name: Seed recovery fixture
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/company_agents
+        run: |
+          PGPASSWORD=postgres psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO companies (id, name, status, base_currency)
+          VALUES ('00000000-0000-0000-0000-000000000001', 'Recovery Drill', 'ACTIVE', 'USD')
+          ON CONFLICT (id) DO NOTHING;
+          SQL
+      - name: Backup and restore
+        run: |
+          PGPASSWORD=postgres createdb -h 127.0.0.1 -U postgres company_agents_drill
+          SOURCE_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/company_agents           DRILL_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/company_agents_drill             bash scripts/postgres_backup_restore_drill.sh
