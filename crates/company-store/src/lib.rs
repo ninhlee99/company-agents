@@ -4958,6 +4958,51 @@ async fn existing_compliance_check(
     compliance_check_from_row(row, input)
 }
 
+fn agent_outcome_evidence_from_row(
+    row: tokio_postgres::Row,
+    company_id: Uuid,
+    decision_journal_id: i64,
+) -> Result<AgentOutcomeEvidenceRecord, Box<dyn std::error::Error + Send + Sync>> {
+    Ok(AgentOutcomeEvidenceRecord {
+        id: row.get(0),
+        company_id,
+        decision_journal_id,
+        agent_name: row.get(1),
+        action: row.get(2),
+        evidence_ref: row.get(3),
+        observed_revenue_delta_minor: parse_i128_numeric(&row.get::<_, String>(4))?,
+        observed_contribution_margin_delta_minor: parse_i128_numeric(
+            &row.get::<_, String>(5),
+        )?,
+        observed_at_epoch: row.get(6),
+        created_at: row.get(7),
+    })
+}
+
+fn agent_evaluation_from_row(
+    row: tokio_postgres::Row,
+) -> Result<company_agent_evaluation::AgentEvaluation, Box<dyn std::error::Error + Send + Sync>> {
+    let input = company_agent_evaluation::AgentEvaluationInput {
+        agent_name: row.get(0),
+        proposal_count: row.get(1),
+        approved_count: row.get(2),
+        rejected_count: row.get(3),
+        revision_count: row.get(4),
+        escalated_count: row.get(5),
+        executed_count: row.get(6),
+        deferred_count: row.get(7),
+        observed_spend_minor: parse_i128_numeric(&row.get::<_, String>(8))?,
+        projected_revenue_minor: parse_i128_numeric(&row.get::<_, String>(9))?,
+        outcome_evidence_count: row.get(10),
+        observed_revenue_delta_minor: parse_i128_numeric(&row.get::<_, String>(11))?,
+        observed_contribution_margin_delta_minor: parse_i128_numeric(
+            &row.get::<_, String>(12),
+        )?,
+    };
+    company_agent_evaluation::evaluate(&input)
+        .map_err(|error| error.into())
+}
+
 fn metric_bps(numerator: i64, denominator: i64) -> Result<u32, Box<dyn std::error::Error + Send + Sync>> {
     if numerator < 0 || denominator < 0 {
         return Err("command center rate inputs cannot be negative".into());
