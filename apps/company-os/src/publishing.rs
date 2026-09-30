@@ -1,10 +1,11 @@
 #![forbid(unsafe_code)]
 
+use async_trait::async_trait;
 use axum::{body::Bytes, extract::State, http::{HeaderMap, StatusCode}, Json};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use social_publishing::{verify_tiktok_webhook_signature, ApprovalAuthority, CreatorInfo, TikTokPublisher, VideoPublishRequest};
-use std::{path::{Path, PathBuf}};
+use social_publishing::{verify_tiktok_webhook_signature, ApprovalAuthority, CreatorInfo, TikTokAccessTokenProvider, TikTokPublisher, VideoPublishRequest};
+use std::{path::{Path, PathBuf}, sync::Arc};
 use tokio::{fs::File, io::AsyncReadExt};
 use url::Url;
 
@@ -63,9 +64,97 @@ fn approval_authority() -> Result<ApprovalAuthority, String> {
     ApprovalAuthority::new(secret.into_bytes()).map_err(|e| e.to_string())
 }
 
-fn publisher() -> Result<TikTokPublisher, String> {
+fn publisher_from_env() -> Result<TikTokPublisher, String> {
     let approval = approval_authority()?;
     TikTokPublisher::from_env(approval).map_err(|e| e.to_string())
+}
+
+#[derive(Clone)]
+struct StoreTikTokAccessTokenProvider {
+    store: Arc<company_store::CompanyStore>,
+    oauth: company_tiktok_auth::TikTokOAuthClient,
+    cipher: company_tiktok_auth::TokenCipher,
+    company_id: String,
+}
+
+#[async_trait]
+impl TikTokAccessTokenProvider for StoreTikTokAccessTokenProvider {
+    async fn access_token(&self) -> Result<String, social_publishing::PublishError> {
+        let now = time::OffsetDateTime::now_utc().unix_timestamp();
+        let material = self
+            .store
+            .tiktok_oauth_token_material(&self.company_id, &self.cipher)
+            .await
+            .map_err(|error| social_publishing::PublishError::Provider(error.to_string()))?
+            .ok_or(social_publishing::PublishError::Unauthorized)?;
+
+        if material.refresh_token_expires_at_epoch <= now {
+            let _ = self
+                .store
+                .mark_tiktok_reauth_required(&self.company_id, "TikTok refresh token has expired")
+                .await;
+            return Err(social_publishing::PublishError::Unauthorized);
+        }
+
+        if material.access_token_expires_at_epoch > now + 600 {
+            return Ok(material.access_token);
+        }
+
+        match self.oauth.refresh(&material.refresh_token).await {
+            Ok(token) => {
+                let access_token = token.access_token.clone();
+                self.store
+                    .save_tiktok_token_set(&self.company_id, &token, &self.cipher)
+                    .await
+                    .map_err(|error| social_publishing::PublishError::Provider(error.to_string()))?;
+                Ok(access_token)
+            }
+            Err(error) => {
+                let message = error.to_string();
+                let _ = self
+                    .store
+                    .mark_tiktok_reauth_required(&self.company_id, &message)
+                    .await;
+                Err(map_tiktok_auth_error(error))
+            }
+        }
+    }
+}
+
+fn map_tiktok_auth_error(
+    error: company_tiktok_auth::AuthError,
+) -> social_publishing::PublishError {
+    match error {
+        company_tiktok_auth::AuthError::Unauthorized => social_publishing::PublishError::Unauthorized,
+        company_tiktok_auth::AuthError::RateLimited => social_publishing::PublishError::RateLimited,
+        other => social_publishing::PublishError::Provider(other.to_string()),
+    }
+}
+
+async fn publisher(state: &crate::AppState) -> Result<TikTokPublisher, String> {
+    let approval = approval_authority()?;
+    let oauth_enabled = std::env::var("TIKTOK_OAUTH_ENABLED")
+        .ok()
+        .is_some_and(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"));
+    if oauth_enabled {
+        let config = company_tiktok_auth::OAuthConfig::from_env().map_err(|e| e.to_string())?;
+        let cipher = company_tiktok_auth::TokenCipher::from_env().map_err(|e| e.to_string())?;
+        let oauth = company_tiktok_auth::TikTokOAuthClient::new(config.clone()).map_err(|e| e.to_string())?;
+        let provider = Arc::new(StoreTikTokAccessTokenProvider {
+            store: state.store.clone(),
+            oauth,
+            cipher,
+            company_id: state.company_id.clone(),
+        });
+        return TikTokPublisher::from_access_token_provider(
+            provider,
+            approval,
+            std::env::var("TIKTOK_CONTENT_API_BASE")
+                .unwrap_or_else(|_| "https://open.tiktokapis.com".into()),
+        )
+        .map_err(|e| e.to_string());
+    }
+    publisher_from_env()
 }
 
 fn file_path(media_uri: &str) -> Result<PathBuf, String> {
