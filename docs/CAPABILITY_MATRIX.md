@@ -17,6 +17,7 @@ This document intentionally separates implemented behavior from contracts, simul
 | Double-entry ledger | Implemented | Ledger transactions/entries are immutable and database validation enforces balance/company/currency invariants. |
 | Scheduler | Implemented | Database leases and replay-safe run tokens are used for recurring cycles. |
 | Outbox | Implemented | Durable events have leases, bounded retries and signed HTTPS webhook delivery. |
+| Unified event architecture | Implemented foundation | `company-domain` defines canonical event names and a versioned company event envelope with correlation/causation IDs, aggregate references, idempotency keys and validated payloads. `company-store` can persist the typed envelope idempotently through the durable outbox; existing producers are migrated incrementally. |
 | Web research / web-session relay | Environment-gated | Browser/web relay protocols and workers exist, but usable capability depends on configured relay/browser credentials. |
 | Affiliate product discovery | Environment-gated | Mock, Awin and TikTok Shop adapters exist; real data requires operator credentials/contracts. |
 | Affiliate attribution/reconciliation | Implemented + environment-gated | Click/conversion state and provider verification/accounting are durable; real provider verification requires provider data. |
@@ -68,6 +69,9 @@ It should not be described as an AI company that can independently operate every
 
 
 ### Commercial lifecycle hardening
+
+- **Unified event contract:** `CompanyEventType` provides stable names for the P1 event set; `CompanyEventEnvelope` carries company, schema, aggregate, correlation/causation, idempotency and payload metadata. Store persistence keeps the existing durable outbox path and does not claim every producer has already migrated.
+
 
 The commercial control plane now exposes a read-only pipeline view plus deterministic proposal and sponsorship transitions. Sponsorship delivery is bounded by the contracted value and emits durable outbox events. These APIs do not execute external contracts or payment settlement; those remain provider/reconciliation boundaries.
 
