@@ -59,6 +59,89 @@ async fn connect_store() -> Option<CompanyStore> {
     Some(store)
 }
 
+
+#[tokio::test]
+async fn ceo_exam_persistence_is_idempotent() {
+    let Some(store) = connect_store().await else {
+        return;
+    };
+
+    let company_id = uuid::Uuid::new_v4();
+    store.ensure_company(&company_id.to_string(), "CEO Exam Test", "USD").await.unwrap();
+
+    let input = company_command_center::CommandCenterInput {
+        cash_minor: 100_000,
+        revenue_mtd_minor: 50_000,
+        revenue_last_30d_minor: 70_000,
+        revenue_lifetime_minor: 250_000,
+        revenue_target_minor: 100_000,
+        revenue_transaction_count: 10,
+        contribution_margin_mtd_minor: Some(20_000),
+        unclassified_expense_entry_count: 0,
+        affiliate_reported_commission_mtd_minor: 1_000,
+        affiliate_attributed_commission_mtd_minor: 1_000,
+        affiliate_payout_mtd_minor: 1_000,
+        affiliate_variance_mtd_minor: 0,
+        affiliate_orders_mtd: 5,
+        affiliate_net_order_value_mtd_minor: 20_000,
+        runway_days: 60,
+        active_employee_count: 2,
+        payroll_due_count: 0,
+        content: company_command_center::ContentFunnel {
+            views_7d: 1_000,
+            clicks_7d: 100,
+            conversions_7d: 10,
+            spend_7d_minor: 500,
+            commission_7d_minor: 1_000,
+            contribution_margin_7d_minor: 500,
+            content_count_7d: 2,
+            ctr_bps: 1_000,
+            cvr_bps: 1_000,
+            commission_rpm_minor: 1_000,
+        },
+        live: company_command_center::LivePulse {
+            sessions_30d: 2,
+            gift_count_30d: 10,
+            gift_value_30d_minor: 200,
+        },
+        compliance: company_command_center::CompliancePulse {
+            policy_ready: true,
+            allowed_24h: 5,
+            review_24h: 0,
+            blocked_24h: 0,
+            unknown_24h: 0,
+        },
+        growth_opportunities: Vec::new(),
+        daily_revenue: (0..7)
+            .map(|day| company_command_center::DailyRevenuePoint {
+                day: day.to_string(),
+                revenue_minor: 1_000 + i128::from(day) * 100,
+            })
+            .collect(),
+    };
+    let summary = company_command_center::summarize(&input).unwrap();
+    let report = company_command_center::run_ceo_exam(
+        company_id,
+        "scheduled:test-run",
+        1_800_000_000 - 86_400,
+        1_800_000_000,
+        &input,
+        &summary,
+        &[],
+    )
+    .unwrap();
+
+    let first = store.persist_ceo_exam(&report).await.unwrap();
+    let second = store.persist_ceo_exam(&report).await.unwrap();
+    assert_eq!(first.id, second.id);
+    assert_eq!(first.evidence_hash, second.evidence_hash);
+    assert_eq!(first.report, second.report);
+
+    let latest = store.latest_ceo_exam(&company_id.to_string()).await.unwrap().unwrap();
+    assert_eq!(latest.id, first.id);
+}
+
+
 #[tokio::test]
 async fn payment_execution_intent_is_idempotent_approval_gated_and_non_accounting() {
     let Some(store) = connect_store().await else { return; };
