@@ -1,0 +1,11 @@
+[package]
+name = "company-autonomy"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+agent-runtime = { path = "../agent-runtime" }
+company-execution = { path = "../company-execution" }
+economic-core = { path = "../economic-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
