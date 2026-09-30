@@ -262,6 +262,12 @@ struct AdsDecisionRequest {
     max_results: usize,
 }
 
+#[derive(Debug, Deserialize)]
+struct KillGateRequest {
+    company_id: uuid::Uuid,
+    input: company_growth::KillGateInput,
+}
+
 
 
 
@@ -2593,6 +2599,18 @@ async fn ads_decisions_api(
     .map_err(|_| StatusCode::BAD_REQUEST)
 }
 
+async fn kill_gate_api(
+    State(state): State<AppState>,
+    Json(request): Json<KillGateRequest>,
+) -> Result<Json<company_growth::KillGateDecision>, StatusCode> {
+    if request.company_id != state.company_id.parse().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    company_growth::evaluate_kill_gate(&request.input)
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
 async fn creator_product_matches_api(
     State(state): State<AppState>,
     Json(request): Json<CreatorProductMatchingRequest>,
@@ -4605,6 +4623,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/growth/competitor-whitespace", post(competitor_whitespace_api))
         .route("/api/growth/creator-product-matches", post(creator_product_matches_api))
         .route("/api/growth/ads/decisions", post(ads_decisions_api))
+        .route("/api/growth/kill-gate", post(kill_gate_api))
         .route("/api/revenue-graph/edges", post(revenue_graph_edge_api))
         .route("/api/revenue-graph/summary", get(revenue_graph_summary_api))
         .route("/api/revenue-graph/lineage", get(revenue_graph_lineage_api))
