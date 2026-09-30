@@ -501,9 +501,30 @@ async fn index(
     Query(query): Query<LiveUiQuery>,
 ) -> Html<String> {
     let company = state.company.read().await.clone();
-    let workforce = state.store.list_employees(&state.company_id).await.unwrap_or_default();
-    let business_units = state.store.list_business_units(&state.company_id).await.unwrap_or_default();
-    let payroll_due = state.store.payroll_due(&state.company_id, 100).await.unwrap_or_default();
+    let (workforce, workforce_available) =
+        match state.store.list_employees(&state.company_id).await {
+            Ok(value) => (value, true),
+            Err(error) => {
+                tracing::warn!(%error, "workforce dashboard data unavailable");
+                (Vec::new(), false)
+            }
+        };
+    let (business_units, business_units_available) =
+        match state.store.list_business_units(&state.company_id).await {
+            Ok(value) => (value, true),
+            Err(error) => {
+                tracing::warn!(%error, "business-unit dashboard data unavailable");
+                (Vec::new(), false)
+            }
+        };
+    let (payroll_due, payroll_available) =
+        match state.store.payroll_due(&state.company_id, 100).await {
+            Ok(value) => (value, true),
+            Err(error) => {
+                tracing::warn!(%error, "payroll dashboard data unavailable");
+                (Vec::new(), false)
+            }
+        };
     let latest = state.latest.read().await;
     let latest_cycle = state.latest_cycle.read().await;
     let mut rows = String::new();
@@ -539,63 +560,76 @@ async fn index(
 
     let target_minor = configured_revenue_target_minor(&state.currency)
         .unwrap_or_else(|_| if state.currency.eq_ignore_ascii_case("VND") { 50_000_000 } else { 500_000 });
-    let revenue_periods = state
-        .store
-        .revenue_period_metrics(&state.company_id)
-        .await
-        .unwrap_or_else(|error| {
-            tracing::warn!(%error, "revenue period metrics unavailable");
-            company_store::RevenuePeriodMetrics {
-                month_to_date_minor: 0,
-                last_30_days_minor: 0,
-                lifetime_minor: 0,
-                forecast_month_minor: 0,
-                run_rate_month_minor: 0,
-                forecast_confidence_bps: 0,
-                revenue_transaction_count: 0,
+    let (revenue_periods, revenue_periods_available) =
+        match state.store.revenue_period_metrics(&state.company_id).await {
+            Ok(value) => (value, true),
+            Err(error) => {
+                tracing::warn!(%error, "revenue period metrics unavailable");
+                (
+                    company_store::RevenuePeriodMetrics {
+                        month_to_date_minor: 0,
+                        last_30_days_minor: 0,
+                        lifetime_minor: 0,
+                        forecast_month_minor: 0,
+                        run_rate_month_minor: 0,
+                        forecast_confidence_bps: 0,
+                        revenue_transaction_count: 0,
+                    },
+                    false,
+                )
             }
-        });
-    let contribution_margin = state
-        .store
-        .contribution_margin_metrics(&state.company_id)
-        .await
-        .unwrap_or_else(|error| {
-            tracing::warn!(%error, "contribution margin metrics unavailable");
-            company_store::ContributionMarginMetrics {
-                month_to_date_revenue_minor: 0,
-                month_to_date_variable_cost_minor: 0,
-                month_to_date_contribution_margin_minor: None,
-                platform_fees_minor: 0,
-                affiliate_commission_minor: 0,
-                refunds_cancellations_minor: 0,
-                production_ai_cost_minor: 0,
-                ad_spend_minor: 0,
-                operating_cost_minor: 0,
-                cash_minor: 0,
-                unclassified_expense_minor: 0,
-                unclassified_expense_entry_count: 0,
-                variable_cost_transaction_count: 0,
+        };
+    let (contribution_margin, contribution_margin_available) =
+        match state.store.contribution_margin_metrics(&state.company_id).await {
+            Ok(value) => (value, true),
+            Err(error) => {
+                tracing::warn!(%error, "contribution margin metrics unavailable");
+                (
+                    company_store::ContributionMarginMetrics {
+                        month_to_date_revenue_minor: 0,
+                        month_to_date_variable_cost_minor: 0,
+                        month_to_date_contribution_margin_minor: None,
+                        platform_fees_minor: 0,
+                        affiliate_commission_minor: 0,
+                        refunds_cancellations_minor: 0,
+                        production_ai_cost_minor: 0,
+                        ad_spend_minor: 0,
+                        operating_cost_minor: 0,
+                        cash_minor: 0,
+                        unclassified_expense_minor: 0,
+                        unclassified_expense_entry_count: 0,
+                        variable_cost_transaction_count: 0,
+                    },
+                    false,
+                )
             }
-        });
-    let affiliate_reconciliation = state
-        .store
-        .affiliate_reconciliation_metrics(&state.company_id)
-        .await
-        .unwrap_or_else(|error| {
-            tracing::warn!(%error, "affiliate reconciliation metrics unavailable");
-            company_store::AffiliateReconciliationMetrics {
-                reported_commission_mtd_minor: 0,
-                attributed_commission_mtd_minor: 0,
-                recorded_payout_mtd_minor: 0,
-                variance_mtd_minor: 0,
-                reported_attributed_variance_mtd_minor: 0,
-                attributed_paid_variance_mtd_minor: 0,
-                reported_paid_variance_mtd_minor: 0,
-                conversion_count_mtd: 0,
-                verified_conversion_count_mtd: 0,
-                partial_or_rejected_count_mtd: 0,
+        };
+    let (affiliate_reconciliation, affiliate_reconciliation_available) =
+        match state
+            .store
+            .affiliate_reconciliation_metrics(&state.company_id)
+            .await
+        {
+            Ok(value) => (value, true),
+            Err(error) => {
+                tracing::warn!(%error, "affiliate reconciliation metrics unavailable");
+                (
+                    company_store::AffiliateReconciliationMetrics {
+                        reported_commission_mtd_minor: 0,
+                        attributed_commission_mtd_minor: 0,
+                        recorded_payout_mtd_minor: 0,
+                        variance_mtd_minor: 0,
+                        reported_attributed_variance_mtd_minor: 0,
+                        attributed_paid_variance_mtd_minor: 0,
+                        reported_paid_variance_mtd_minor: 0,
+                        conversion_count_mtd: 0,
+                        verified_conversion_count_mtd: 0,
+                        partial_or_rejected_count_mtd: 0,
+                    },
+                    false,
+                )
             }
-        });
+        };
     let mut growth_data_available = true;
     let growth_opportunities = match state
         .store
@@ -700,27 +734,113 @@ async fn index(
         }
     };
 
-    let contribution_margin_label = contribution_margin
-        .month_to_date_contribution_margin_minor
-        .map(|value| format_minor(value, &state.currency))
-        .unwrap_or_else(|| "Incomplete".into());
-    let contribution_margin_detail = format!(
-        "variable cost {} · fixed operating cost {} · cash {} · unclassified {} across {} entries",
-        format_minor(contribution_margin.month_to_date_variable_cost_minor, &state.currency),
-        format_minor(contribution_margin.operating_cost_minor, &state.currency),
-        format_minor(contribution_margin.cash_minor, &state.currency),
-        format_minor(contribution_margin.unclassified_expense_minor, &state.currency),
-        contribution_margin.unclassified_expense_entry_count
-    );
-    let budget_statuses = state
+    let revenue_mtd_label = if revenue_periods_available {
+        format_minor(revenue_periods.month_to_date_minor, &state.currency)
+    } else {
+        "Unavailable".into()
+    };
+    let revenue_count_label = if revenue_periods_available {
+        revenue_periods.revenue_transaction_count.to_string()
+    } else {
+        "Unavailable".into()
+    };
+    let revenue_forecast_label = if revenue_periods_available {
+        format_minor(revenue_periods.forecast_month_minor, &state.currency)
+    } else {
+        "Unavailable".into()
+    };
+    let revenue_confidence_label = if revenue_periods_available {
+        format!("{:.2}%", revenue_periods.forecast_confidence_bps as f64 / 100.0)
+    } else {
+        "Unavailable".into()
+    };
+    let revenue_run_rate_label = if revenue_periods_available {
+        format_minor(revenue_periods.run_rate_month_minor, &state.currency)
+    } else {
+        "Unavailable".into()
+    };
+    let revenue_last_30d_label = if revenue_periods_available {
+        format_minor(revenue_periods.last_30_days_minor, &state.currency)
+    } else {
+        "Unavailable".into()
+    };
+
+    let contribution_margin_label = if !contribution_margin_available {
+        "Unavailable".into()
+    } else {
+        contribution_margin
+            .month_to_date_contribution_margin_minor
+            .map(|value| format_minor(value, &state.currency))
+            .unwrap_or_else(|| "Incomplete".into())
+    };
+    let contribution_margin_detail = if contribution_margin_available {
+        format!(
+            "variable cost {} · fixed operating cost {} · cash {} · unclassified {} across {} entries",
+            format_minor(contribution_margin.month_to_date_variable_cost_minor, &state.currency),
+            format_minor(contribution_margin.operating_cost_minor, &state.currency),
+            format_minor(contribution_margin.cash_minor, &state.currency),
+            format_minor(contribution_margin.unclassified_expense_minor, &state.currency),
+            contribution_margin.unclassified_expense_entry_count
+        )
+    } else {
+        "Contribution-margin evidence is unavailable.".into()
+    };
+
+    let cm_platform_fees_label = if contribution_margin_available {
+        format_minor(contribution_margin.platform_fees_minor, &state.currency)
+    } else { "Unavailable".into() };
+    let cm_affiliate_label = if contribution_margin_available {
+        format_minor(contribution_margin.affiliate_commission_minor, &state.currency)
+    } else { "Unavailable".into() };
+    let cm_refunds_label = if contribution_margin_available {
+        format_minor(contribution_margin.refunds_cancellations_minor, &state.currency)
+    } else { "Unavailable".into() };
+    let cm_production_label = if contribution_margin_available {
+        format_minor(contribution_margin.production_ai_cost_minor, &state.currency)
+    } else { "Unavailable".into() };
+    let cm_ads_label = if contribution_margin_available {
+        format_minor(contribution_margin.ad_spend_minor, &state.currency)
+    } else { "Unavailable".into() };
+
+    let affiliate_variance_label = if affiliate_reconciliation_available {
+        format_minor(affiliate_reconciliation.variance_mtd_minor, &state.currency)
+    } else { "Unavailable".into() };
+    let affiliate_reported_label = if affiliate_reconciliation_available {
+        format_minor(affiliate_reconciliation.reported_commission_mtd_minor, &state.currency)
+    } else { "Unavailable".into() };
+    let affiliate_attributed_label = if affiliate_reconciliation_available {
+        format_minor(affiliate_reconciliation.attributed_commission_mtd_minor, &state.currency)
+    } else { "Unavailable".into() };
+    let affiliate_paid_label = if affiliate_reconciliation_available {
+        format_minor(affiliate_reconciliation.recorded_payout_mtd_minor, &state.currency)
+    } else { "Unavailable".into() };
+    let affiliate_reported_attributed_label = if affiliate_reconciliation_available {
+        format_minor(affiliate_reconciliation.reported_attributed_variance_mtd_minor, &state.currency)
+    } else { "Unavailable".into() };
+    let affiliate_attributed_paid_label = if affiliate_reconciliation_available {
+        format_minor(affiliate_reconciliation.attributed_paid_variance_mtd_minor, &state.currency)
+    } else { "Unavailable".into() };
+    let affiliate_reported_paid_label = if affiliate_reconciliation_available {
+        format_minor(affiliate_reconciliation.reported_paid_variance_mtd_minor, &state.currency)
+    } else { "Unavailable".into() };
+    let (budget_statuses, budget_statuses_available) = match state
         .store
         .autonomy_budget_statuses(
             &state.company_id,
             time::OffsetDateTime::now_utc().unix_timestamp(),
         )
         .await
-        .unwrap_or_default();
+    {
+        Ok(value) => (value, true),
+        Err(error) => {
+            tracing::warn!(%error, "autonomy budget statuses unavailable");
+            (Vec::new(), false)
+        }
+    };
     let mut budget_status_html = String::new();
+    if !budget_statuses_available {
+        budget_status_html.push_str(r#"<p class="muted">Autonomy budget evidence is unavailable. No budget headroom is inferred.</p>"#);
+    }
     for status in &budget_statuses {
         let (used, remaining, limit) = match status.kind {
             company_safety_controls::BudgetKind::AdsSpend
@@ -846,18 +966,41 @@ async fn index(
         _ => r#"<section class="autonomy-shell"><div class="section-kicker">Autonomy ladder</div><h2>Policy unavailable</h2><p class="muted">Autonomy policy cannot be loaded safely, so no autonomous execution ceiling is advertised.</p></section>"#.into(),
     };
 
-    let target_pct = if revenue_periods.month_to_date_minor > 0 {
-        ((revenue_periods.month_to_date_minor as f64 / target_minor as f64) * 100.0).round().min(999.0) as u64
+    let target_pct = if revenue_periods_available && revenue_periods.month_to_date_minor > 0 {
+        ((revenue_periods.month_to_date_minor as f64 / target_minor as f64) * 100.0)
+            .round()
+            .min(999.0) as u64
     } else {
         0
+    };
+    let target_pct_label = if revenue_periods_available {
+        format!("{target_pct}% of planning target · MTD evidence")
+    } else {
+        "Planning target progress unavailable · MTD evidence unavailable".into()
     };
     let capacity_pct = if company.capacity > 0 {
         ((company.backlog.max(0) as f64 / company.capacity as f64) * 100.0).round().min(999.0) as u64
     } else { 0 };
     let agent_count = latest.len();
-    let active_staff = workforce.iter().filter(|e| matches!(e.status, company_organization::EmployeeStatus::Active)).count();
-    let due_payroll_count = payroll_due.len();
-    let business_unit_count = business_units.len();
+    let active_staff_label = if workforce_available {
+        workforce
+            .iter()
+            .filter(|e| matches!(e.status, company_organization::EmployeeStatus::Active))
+            .count()
+            .to_string()
+    } else {
+        "Unavailable".into()
+    };
+    let due_payroll_label = if payroll_available {
+        payroll_due.len().to_string()
+    } else {
+        "Unavailable".into()
+    };
+    let business_unit_label = if business_units_available {
+        business_units.len().to_string()
+    } else {
+        "Unavailable".into()
+    };
     let cycle_state = if latest_cycle.is_some() { "active" } else { "waiting" };
 
     let executed = latest_cycle
@@ -971,27 +1114,27 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 @media(max-width:520px){{.grid{{grid-template-columns:1fr}}.cc-kpis{{grid-template-columns:1fr 1fr}}.cc-body{{grid-template-columns:1fr}}.autonomy-steps{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
 </style></head><body>
 <header><h1>Veridara AI</h1><small>Autonomous Company OS · {}</small></header>
-<nav><a href="/auth/login">Browser sign-in</a><a href="/api/integrations/readiness">Integrations</a><form method="post" action="/auth/logout" style="display:inline"><button type="submit">Sign out</button></form><a href="/">Overview</a><a href="/api/ceo/command-center">Revenue JSON</a><a href="/api/capital/plan">Capital plan</a><a href="/api/autonomy/controls">Safety controls</a><a href="/api/autonomy/policy">Autonomy policy</a><a href="/api/agents">Agents</a><a href="/api/agents/evaluation">Agent outcomes</a><a href="/api/control-plane/audit">Audit log</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Journal</a></nav>
-{}
-{}
-{}
+<nav><a href="/auth/login">Browser sign-in</a><a href="#integrations">Integrations</a><form method="post" action="/auth/logout" style="display:inline"><button type="submit">Sign out</button></form><a href="/">Overview</a><a href="#revenue-command-center">Revenue command center</a><a href="#capital">Capital planning</a><a href="#safety">Safety controls</a><a href="#autonomy">Autonomy policy</a><a href="#agent-outcomes">Agent outcomes</a><a href="#revenue-graph">Revenue graph</a><a href="#growth">Growth pipeline</a><a href="#tiktok">TikTok LIVE</a><a href="#compliance">Policy intelligence</a></nav>
+<div id="revenue-command-center">{}</div>
+<div id="agent-outcomes">{}</div>
+<div id="autonomy">{}</div>
 <div class="grid">
 <div class="card"><small>Cash</small><div class="metric">{}</div></div>
 <div class="card"><small>Revenue MTD</small><div class="metric">{}</div><small>Ledger evidence: {} revenue transactions</small></div>
-<div class="card"><small>Monthly target</small><div class="metric">{}</div><div class="progress"><span style="width:{}%"></span></div><small>{}% of planning target · MTD only</small></div>
-<div class="card"><small>Revenue forecast</small><div class="metric">{}</div><small>calendar-day run-rate · confidence coverage: {}%</small></div>
-<div class="card"><small>30d run-rate</small><div class="metric">{}</div><small>last 30d scaled to a month · MTD: {}</small></div>
+<div class="card"><small>Monthly target</small><div class="metric">{}</div><div class="progress"><span style="width:{}%"></span></div><small>{}</small></div>
+<div class="card"><small>Revenue forecast</small><div class="metric">{}</div><small>calendar-day run-rate · confidence coverage: {}</small></div>
+<div class="card"><small>Last 30 days</small><div class="metric">{}</div><small>Monthly run-rate (30d scaled): {}</small></div>
 <div class="card"><small>Runway</small><div class="metric">{} days</div></div>
 </div>
 <div class="card"><small>Contribution margin MTD</small><div class="metric">{}</div><small>{}</small><div class="muted" style="margin-top:8px">platform {} · affiliate commission {} · refunds/cancellations {} · production/AI {} · ads {}</div></div>
 <div class="card"><small>Affiliate reconciliation MTD</small><div class="metric">{}</div><small>reported · attributed · paid: {} · {} · {}</small><div class="muted" style="margin-top:8px">reported-attributed {} · attributed-paid {} · reported-paid {}</div></div>
-<div class="card"><h2>Growth pipeline</h2><p class="muted">Evidence-backed trend signals become scored opportunities before any content plan is created.</p>{}</div>
-{}
-<div class="card"><h2>Capital allocation</h2><p class="muted">Expected contribution, downside, speed, reversibility and evidence are evaluated before any capital movement.</p>{}</div>
-{}
-{}
-{}
-<div class="card"><h2>Policy intelligence</h2><p class="muted">External content/LIVE side effects require a matching versioned policy snapshot and evidence.</p>{}</div>
+<div id="growth" class="card"><h2>Growth pipeline</h2><p class="muted">Evidence-backed trend signals become scored opportunities before any content plan is created.</p>{}</div>
+<div id="revenue-graph">{}</div>
+<div id="capital" class="card"><h2>Capital allocation</h2><p class="muted">Expected contribution, downside, speed, reversibility and evidence are evaluated before any capital movement.</p>{}</div>
+<div id="safety">{}</div>
+<div id="tiktok">{}</div>
+<div id="integrations">{}</div>
+<div id="compliance" class="card"><h2>Policy intelligence</h2><p class="muted">External content/LIVE side effects require a matching versioned policy snapshot and evidence.</p>{}</div>
 <div class="grid"><div class="card"><small>Status</small><div class="metric">{:?}</div></div><div class="card"><small>Agent cycle</small><div class="metric">{}</div></div><div class="card"><small>Backlog / capacity</small><div class="metric">{}%</div></div><div class="card"><small>Agent results</small><div class="metric">{}</div></div></div>
 <div class="grid"><div class="card"><small>Active workforce</small><div class="metric">{}</div></div><div class="card"><small>Payroll due</small><div class="metric">{}</div></div><div class="card"><small>Business units</small><div class="metric">{}</div></div><div class="card"><small>Operating loop</small><div class="metric">observe → act → learn</div></div></div>
 <div class="card"><h2>Operate</h2>
@@ -1005,49 +1148,48 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <small>Example: <code>/api/affiliate/search?category=electronics&amp;min_commission_bps=1500&amp;require_coupon=true</code></small>
 </div>
 <script>
-(() => {
+(() => {{{{
   const csrf = document.cookie
     .split('; ')
     .find(row => row.startsWith('company_os_csrf='))
     ?.split('=')[1];
   if (!csrf) return;
-  for (const form of document.querySelectorAll('form[method="post"]')) {
+  for (const form of document.querySelectorAll('form[method="post"]')) {{
     const action = form.getAttribute('action');
     if (!action || action.startsWith('/auth/session')) continue;
     const url = new URL(action, window.location.origin);
     url.searchParams.set('csrf', csrf);
     form.setAttribute('action', url.pathname + url.search + url.hash);
-  }
-})();
-</script></body></html>"#,
+  }}
+}}}})();</script></body></html>"#,
         state.company_id.clone(),
         command_center_html,
         agent_evaluation_html,
         autonomy_html,
         format_minor(company.cash_minor, &state.currency),
-        format_minor(revenue_periods.month_to_date_minor, &state.currency),
-        revenue_periods.revenue_transaction_count,
+        revenue_mtd_label,
+        revenue_count_label,
         format_minor(target_minor, &state.currency),
         target_pct,
-        target_pct,
-        format_minor(revenue_periods.forecast_month_minor, &state.currency),
-        revenue_periods.forecast_confidence_bps as f64 / 100.0,
-        format_minor(revenue_periods.run_rate_month_minor, &state.currency),
-        format_minor(revenue_periods.month_to_date_minor, &state.currency),
+        target_pct_label,
+        revenue_forecast_label,
+        revenue_confidence_label,
+        revenue_last_30d_label,
+        revenue_run_rate_label,
         contribution_margin_label,
         contribution_margin_detail,
-        format_minor(contribution_margin.platform_fees_minor, &state.currency),
-        format_minor(contribution_margin.affiliate_commission_minor, &state.currency),
-        format_minor(contribution_margin.refunds_cancellations_minor, &state.currency),
-        format_minor(contribution_margin.production_ai_cost_minor, &state.currency),
-        format_minor(contribution_margin.ad_spend_minor, &state.currency),
-        format_minor(affiliate_reconciliation.variance_mtd_minor, &state.currency),
-        format_minor(affiliate_reconciliation.reported_commission_mtd_minor, &state.currency),
-        format_minor(affiliate_reconciliation.attributed_commission_mtd_minor, &state.currency),
-        format_minor(affiliate_reconciliation.recorded_payout_mtd_minor, &state.currency),
-        format_minor(affiliate_reconciliation.reported_attributed_variance_mtd_minor, &state.currency),
-        format_minor(affiliate_reconciliation.attributed_paid_variance_mtd_minor, &state.currency),
-        format_minor(affiliate_reconciliation.reported_paid_variance_mtd_minor, &state.currency),
+        cm_platform_fees_label,
+        cm_affiliate_label,
+        cm_refunds_label,
+        cm_production_label,
+        cm_ads_label,
+        affiliate_variance_label,
+        affiliate_reported_label,
+        affiliate_attributed_label,
+        affiliate_paid_label,
+        affiliate_reported_attributed_label,
+        affiliate_attributed_paid_label,
+        affiliate_reported_paid_label,
         growth_html,
         revenue_graph_html,
         capital_plan_html,
@@ -1060,9 +1202,9 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         cycle_state,
         capacity_pct,
         agent_count,
-        active_staff,
-        due_payroll_count,
-        business_unit_count,
+        active_staff_label,
+        due_payroll_label,
+        business_unit_label,
         rows,
         live_feedback(&query),
     ))
