@@ -39,6 +39,7 @@ This document intentionally separates implemented behavior from contracts, simul
 | Multi-user identity / RBAC / SSO | NOT achieved | Authentication is a shared control-plane token, not an operator identity system. |
 | Multi-tenant SaaS isolation | NOT achieved | The runtime is company-scoped by deployment configuration, not a full user/tenant authorization model. |
 | Observability | Implemented baseline | Health/readiness and Prometheus-style counters exist. Distributed tracing/load/chaos acceptance is still environment-dependent. |
+| Integration readiness | Implemented baseline | Authenticated control-plane clients can inspect deterministic readiness for LLM, affiliate, TikTok OAuth, LIVE, outbound email, browser session and compliance. Configured/authenticated/evidence-fresh remain separate signals; external reachability is not inferred. |
 | Disaster recovery | Implemented baseline | Backup/restore drill automation exists; production-scale recovery evidence is still environment-dependent. |
 | Model evaluation / routing | Evidence capture + shadow routing + benchmark harness | Per-cycle evaluation evidence is persisted. Shadow routing classifies task complexity, detects hardware tier and records a deterministic provider recommendation without changing actual provider selection. A CLI benchmark matrix now measures per-provider latency, success and JSON-object validity across Fast/Standard/Deep cases; active routing remains gated pending target-environment quality/cost/failure evidence. |
 | Autonomous hiring/payroll execution | NOT achieved | Economic primitives and proposals exist; real external hiring/payroll actions remain gated. |
@@ -172,6 +173,11 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Target separation:** the configured monthly target is planning input and is never substituted for observed revenue.
 - **Forecast boundary:** the monthly forecast is a deterministic calendar-day run-rate projection; its confidence field is time-coverage (elapsed-month) coverage, not a statistical guarantee.
 - **No lifetime-vs-monthly comparison:** dashboard target progress uses only month-to-date observed revenue.
+
+## Integration readiness
+
+- **Readiness API:** `GET /api/integrations/readiness` returns explicit `READY`, `CONFIGURED`, `NOT_CONFIGURED`, `ACTION_REQUIRED`, `GATED`, or `UNAVAILABLE` states.
+- **Evidence boundary:** configuration and stored authentication are reported separately from provider reachability or business-outcome acceptance; no external success is inferred from environment variables alone.
 
 ## Control-plane audit
 

@@ -86,6 +86,16 @@ struct AppState {
     live_stream: Option<Arc<LiveStreamController>>,
 }
 
+#[derive(Debug, Serialize, Clone)]
+struct IntegrationReadiness {
+    key: String,
+    status: String,
+    configured: bool,
+    authenticated: bool,
+    evidence_fresh: bool,
+    reason: String,
+}
+
 #[derive(Debug, Serialize)]
 struct CycleResponse {
     snapshot: CompanySnapshot,
@@ -838,6 +848,8 @@ async fn index(
         }
     };
 
+    let integration_readiness_html = render_integration_readiness(&build_integration_readiness(&state).await);
+
     Html(format!(
         r#"<!doctype html>
 <html lang="en"><head>
@@ -904,7 +916,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 @media(max-width:520px){{.grid{{grid-template-columns:1fr}}.cc-kpis{{grid-template-columns:1fr 1fr}}.cc-body{{grid-template-columns:1fr}}.autonomy-steps{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
 </style></head><body>
 <header><h1>Veridara AI</h1><small>Autonomous Company OS · {}</small></header>
-<nav><a href="/auth/login">Browser sign-in</a><form method="post" action="/auth/logout" style="display:inline"><button type="submit">Sign out</button></form><a href="/">Overview</a><a href="/api/ceo/command-center">Revenue JSON</a><a href="/api/capital/plan">Capital plan</a><a href="/api/autonomy/controls">Safety controls</a><a href="/api/autonomy/policy">Autonomy policy</a><a href="/api/agents">Agents</a><a href="/api/agents/evaluation">Agent outcomes</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Audit</a></nav>
+<nav><a href="/auth/login">Browser sign-in</a><a href="/api/integrations/readiness">Integrations</a><form method="post" action="/auth/logout" style="display:inline"><button type="submit">Sign out</button></form><a href="/">Overview</a><a href="/api/ceo/command-center">Revenue JSON</a><a href="/api/capital/plan">Capital plan</a><a href="/api/autonomy/controls">Safety controls</a><a href="/api/autonomy/policy">Autonomy policy</a><a href="/api/agents">Agents</a><a href="/api/agents/evaluation">Agent outcomes</a><a href="/api/control-plane/audit">Audit log</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Journal</a></nav>
 {}
 {}
 {}
@@ -921,6 +933,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <div class="card"><h2>Growth pipeline</h2><p class="muted">Evidence-backed trend signals become scored opportunities before any content plan is created.</p>{}</div>
 {}
 <div class="card"><h2>Capital allocation</h2><p class="muted">Expected contribution, downside, speed, reversibility and evidence are evaluated before any capital movement.</p>{}</div>
+{}
 {}
 {}
 <div class="card"><h2>Policy intelligence</h2><p class="muted">External content/LIVE side effects require a matching versioned policy snapshot and evidence.</p>{}</div>
@@ -985,6 +998,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         capital_plan_html,
         safety_controls_html,
         tiktok_oauth_html,
+        integration_readiness_html,
         compliance_html,
         company.runway_days,
         company.status,
@@ -1288,6 +1302,233 @@ async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, S
             });
             StatusCode::INTERNAL_SERVER_ERROR
         })
+}
+
+async fn build_integration_readiness(
+    state: &AppState,
+) -> Vec<IntegrationReadiness> {
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+
+    let llm_provider = std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "gemini".into());
+    let llm_provider = llm_provider.trim().to_ascii_lowercase();
+    let (llm_configured, llm_authenticated, llm_status, llm_reason) = match llm_provider.as_str() {
+        "mock" => (true, true, "READY", "Deterministic mock provider is configured."),
+        "gemini" if std::env::var("GEMINI_API_KEY").ok().is_some_and(|v| !v.trim().is_empty()) => {
+            (true, false, "CONFIGURED", "Gemini credentials are configured; external reachability is not verified here.")
+        }
+        "ollama" => (true, false, "CONFIGURED", "Ollama provider configuration is selected; endpoint reachability is not verified here."),
+        _ => (false, false, "NOT_CONFIGURED", "The selected LLM provider is unsupported or missing required configuration."),
+    };
+
+    let affiliate_provider = std::env::var("AFFILIATE_PROVIDER")
+        .or_else(|_| std::env::var("AFFILIATE_PROVIDERS"))
+        .unwrap_or_else(|_| "mock".into());
+    let affiliate_provider = affiliate_provider
+        .split(',')
+        .map(str::trim)
+        .find(|value| !value.is_empty())
+        .unwrap_or("mock");
+    let (affiliate_status, affiliate_configured, affiliate_reason) =
+        match affiliate_provider.to_ascii_lowercase().as_str() {
+            "mock" => ("READY", true, "Deterministic mock affiliate provider is configured."),
+            "awin" if std::env::var("AWIN_ACCESS_TOKEN").ok().is_some_and(|v| !v.trim().is_empty())
+                && std::env::var("AWIN_PUBLISHER_ID").ok().is_some_and(|v| !v.trim().is_empty()) =>
+            {
+                ("CONFIGURED", true, "Awin credentials are configured; external feed verification is not asserted here.")
+            }
+            "tiktok" | "tiktok_shop" | "tiktok-shop"
+                if std::env::var("TTS_APP_KEY").ok().is_some_and(|v| !v.trim().is_empty())
+                    && std::env::var("TTS_APP_SECRET").ok().is_some_and(|v| !v.trim().is_empty()) =>
+            {
+                ("CONFIGURED", true, "TikTok Shop credentials are configured; external feed verification is not asserted here.")
+            }
+            _ => ("NOT_CONFIGURED", false, "Selected affiliate provider lacks the required credentials."),
+        };
+
+    let tiktok = match state.store.tiktok_oauth_status(&state.company_id).await {
+        Ok(Some(connection)) if connection.status == "ACTIVE" && connection.access_token_expires_at_epoch > now => IntegrationReadiness {
+            key: "tiktok_oauth".into(),
+            status: "READY".into(),
+            configured: true,
+            authenticated: true,
+            evidence_fresh: true,
+            reason: "Stored TikTok OAuth connection is active and its access token has not expired.".into(),
+        },
+        Ok(Some(connection)) if connection.status == "ACTIVE" => IntegrationReadiness {
+            key: "tiktok_oauth".into(),
+            status: "ACTION_REQUIRED".into(),
+            configured: true,
+            authenticated: false,
+            evidence_fresh: false,
+            reason: "Stored TikTok OAuth connection is active but its access token has expired.".into(),
+        },
+        Ok(Some(connection)) => IntegrationReadiness {
+            key: "tiktok_oauth".into(),
+            status: "ACTION_REQUIRED".into(),
+            configured: true,
+            authenticated: false,
+            evidence_fresh: false,
+            reason: connection.last_error.unwrap_or_else(|| "TikTok OAuth connection is not active.".into()),
+        },
+        Ok(None) => IntegrationReadiness {
+            key: "tiktok_oauth".into(),
+            status: "NOT_CONFIGURED".into(),
+            configured: false,
+            authenticated: false,
+            evidence_fresh: false,
+            reason: "No TikTok OAuth connection is stored.".into(),
+        },
+        Err(error) => IntegrationReadiness {
+            key: "tiktok_oauth".into(),
+            status: "UNAVAILABLE".into(),
+            configured: false,
+            authenticated: false,
+            evidence_fresh: false,
+            reason: format!("TikTok OAuth status could not be loaded: {error}"),
+        },
+    };
+
+    let live_enabled = parse_bool_env("TIKTOK_LIVE_ENABLED", false);
+    let live_publisher_configured = std::env::var("TIKTOK_LIVE_STREAM_DESTINATION")
+        .ok()
+        .is_some_and(|v| !v.trim().is_empty());
+    let live_approved = parse_bool_env("TIKTOK_LIVE_PUBLISH_APPROVED", false);
+    let live = IntegrationReadiness {
+        key: "tiktok_live".into(),
+        status: if !live_enabled {
+            "GATED".into()
+        } else if live_publisher_configured && live_approved {
+            "CONFIGURED".into()
+        } else {
+            "ACTION_REQUIRED".into()
+        },
+        configured: live_enabled && live_publisher_configured,
+        authenticated: false,
+        evidence_fresh: false,
+        reason: if !live_enabled {
+            "LIVE engine is disabled by configuration.".into()
+        } else if live_publisher_configured && live_approved {
+            "Publisher destination and publish approval flag are present; external account transport is still not verified.".into()
+        } else {
+            "LIVE is enabled but destination and/or publish approval evidence is incomplete.".into()
+        },
+    };
+
+    let email_configured = std::env::var("RESEND_API_KEY")
+        .ok()
+        .is_some_and(|v| !v.trim().is_empty())
+        && std::env::var("RESEND_FROM")
+            .ok()
+            .is_some_and(|v| !v.trim().is_empty());
+    let browser_session = std::env::var("CONTROL_PLANE_BROWSER_SECRET")
+        .ok()
+        .is_some_and(|v| v.len() >= 32);
+
+    let compliance = match state.store.compliance_status(&state.company_id).await {
+        Ok(value) => {
+            let active = value
+                .get("latest_policy")
+                .and_then(|policy| policy.get("active"))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            let evidence = value
+                .get("latest_policy")
+                .and_then(|policy| policy.get("evidence_hash"))
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|v| !v.is_empty());
+            IntegrationReadiness {
+                key: "compliance_policy".into(),
+                status: if active && evidence { "READY" } else { "GATED" }.into(),
+                configured: value.get("latest_policy").is_some(),
+                authenticated: active,
+                evidence_fresh: evidence,
+                reason: if active && evidence {
+                    "An active versioned policy snapshot with evidence is available.".into()
+                } else {
+                    "No active verified policy snapshot is available; external side effects remain gated.".into()
+                },
+            }
+        }
+        Err(error) => IntegrationReadiness {
+            key: "compliance_policy".into(),
+            status: "UNAVAILABLE".into(),
+            configured: false,
+            authenticated: false,
+            evidence_fresh: false,
+            reason: format!("Policy status could not be loaded: {error}"),
+        },
+    };
+
+    vec![
+        IntegrationReadiness {
+            key: "llm".into(),
+            status: llm_status.into(),
+            configured: llm_configured,
+            authenticated: llm_authenticated,
+            evidence_fresh: false,
+            reason: llm_reason.into(),
+        },
+        IntegrationReadiness {
+            key: "affiliate".into(),
+            status: affiliate_status.into(),
+            configured: affiliate_configured,
+            authenticated: affiliate_configured && affiliate_provider.eq_ignore_ascii_case("mock"),
+            evidence_fresh: false,
+            reason: affiliate_reason.into(),
+        },
+        tiktok,
+        live,
+        IntegrationReadiness {
+            key: "outbound_email".into(),
+            status: if email_configured { "CONFIGURED" } else { "NOT_CONFIGURED" }.into(),
+            configured: email_configured,
+            authenticated: false,
+            evidence_fresh: false,
+            reason: if email_configured {
+                "Resend sender/key are configured; delivery acceptance is not verified here.".into()
+            } else {
+                "Resend API key and sender are not both configured.".into()
+            },
+        },
+        IntegrationReadiness {
+            key: "browser_session".into(),
+            status: if browser_session { "READY" } else { "NOT_CONFIGURED" }.into(),
+            configured: browser_session,
+            authenticated: browser_session,
+            evidence_fresh: false,
+            reason: if browser_session {
+                "Browser session signing secret is configured.".into()
+            } else {
+                "CONTROL_PLANE_BROWSER_SECRET is not configured; bearer API auth remains available.".into()
+            },
+        },
+        compliance,
+    ]
+}
+
+fn render_integration_readiness(items: &[IntegrationReadiness]) -> String {
+    let mut rows = String::new();
+    for item in items {
+        rows.push_str(&format!(
+            r#"<div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #26304a"><div><strong>{}</strong><div class="muted">{}</div></div><div style="text-align:right"><strong>{}</strong><div class="muted">configured={} · authenticated={} · evidence_fresh={}</div></div></div>"#,
+            escape_html(&item.key),
+            escape_html(&item.reason),
+            escape_html(&item.status),
+            item.configured,
+            item.authenticated,
+            item.evidence_fresh
+        ));
+    }
+    format!(
+        r#"<div class="card"><h2>Integration readiness</h2><p class="muted">Configured, authenticated and evidence-fresh are separate states. No missing evidence is represented as success or zero.</p>{}<p><a href="/api/integrations/readiness">View readiness JSON</a></p></div>"#,
+        rows
+    )
+}
+
+async fn integrations_readiness_api(
+    State(state): State<AppState>,
+) -> Json<Vec<IntegrationReadiness>> {
+    Json(build_integration_readiness(&state).await)
 }
 
 async fn control_plane_audit_api(
@@ -3041,6 +3282,22 @@ mod control_plane_audit_tests {
     }
 
     #[test]
+    fn readiness_renderer_keeps_state_dimensions_explicit() {
+        let html = render_integration_readiness(&[IntegrationReadiness {
+            key: "demo".into(),
+            status: "CONFIGURED".into(),
+            configured: true,
+            authenticated: false,
+            evidence_fresh: false,
+            reason: "Credential exists; external acceptance is not verified.".into(),
+        }]);
+        assert!(html.contains("CONFIGURED"));
+        assert!(html.contains("configured=true"));
+        assert!(html.contains("authenticated=false"));
+        assert!(html.contains("evidence_fresh=false"));
+        assert!(html.contains("external acceptance is not verified"));
+    }
+
     fn actor_id_is_a_non_secret_fingerprint() {
         let first = control_plane_actor_id(Some("token-value"));
         let second = control_plane_actor_id(Some("token-value"));
@@ -3293,6 +3550,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/agents/outcome-evidence", post(agent_outcome_evidence_api))
         .route("/api/agents/evaluation", get(agent_outcome_evaluations_api))
         .route("/api/control-plane/audit", get(control_plane_audit_api))
+        .route("/api/integrations/readiness", get(integrations_readiness_api))
         .route("/api/autonomy/policy", get(autonomy_policy_api))
         .route("/api/autonomy/controls", get(autonomy_controls_get_api).post(autonomy_controls_set_api))
         .route("/api/autonomy/budget/consume", post(autonomy_budget_consume_api))
