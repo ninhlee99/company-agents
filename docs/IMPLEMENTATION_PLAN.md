@@ -24,7 +24,7 @@
 - Capability matrix, context envelope, proposal validation, Tool Registry, durable memory and rate limits.
 - Durable scheduler/journal/outbox and operational CI/recovery gates.
 
-**Next acceptance work:** extend restart smoke into target-topology load/chaos runs and distributed tracing acceptance.
+**Next acceptance work:** extend restart smoke into target-topology load/chaos runs and, where infrastructure exists, export spans to an external tracing backend.
 
 ## Phase 4 — Agents
 **Status: implemented and safety-tested**
