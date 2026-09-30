@@ -8447,6 +8447,18 @@ fn parse_rfc3339_epoch(value: &str) -> Result<i64, Box<dyn std::error::Error + S
     .unix_timestamp())
 }
 
+fn hashed_graph_ref(prefix: &str, value: &str) -> String {
+    let digest = Sha256::digest(value.as_bytes());
+    format!(
+        "{}:sha256:{}",
+        prefix,
+        digest
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    )
+}
+
 fn graph_source(value: &str) -> Result<&str, Box<dyn std::error::Error + Send + Sync>> {
     let value = value.trim();
     if value.is_empty() {
