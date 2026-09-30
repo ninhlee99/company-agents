@@ -220,7 +220,7 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 
 ## Control-plane audit
 
-- **Control-plane audit:** authenticated/denied requests are durably recorded with company, coarse operator role, method/path, outcome, request ID, and non-secret bearer-token fingerprint. The system still does not provide multi-user identity, RBAC, or SSO.
+- **Control-plane audit:** authenticated/denied requests are durably recorded with company, coarse operator role, method/path, outcome, request ID, and non-secret bearer-token fingerprint. The system provides named principal RBAC as a deployment-scoped baseline; durable user identity, directory lifecycle and SSO are still not implemented.
 - **Read-only audit feed:** `GET /api/control-plane/audit?limit=N` exposes recent company-scoped audit metadata to authenticated control-plane clients; the bearer token itself is never returned.
 - **Coarse auth scope:** `CONTROL_PLANE_READ_TOKEN` may authorize only `GET/HEAD` requests; `CONTROL_PLANE_TOKEN` remains the operator credential for mutating control-plane actions. This narrows blast radius but is not multi-user RBAC.
 - **Browser session:** `GET /auth/login` + `POST /auth/session` establish an 8-hour signed browser session when `CONTROL_PLANE_BROWSER_SECRET` is configured. Mutating HTML forms require a matching CSRF cookie/query token; `POST /auth/logout` clears both cookies. Browser sessions do not create per-user identity and remain shared operator sessions.
