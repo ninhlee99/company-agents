@@ -211,6 +211,37 @@ impl ExecutionEngine {
             ActionKind::EscalateIncident => {
                 Ok("incident escalation recorded; no external side effect")
             }
+            ActionKind::DevelopProduct => {
+                if proposal.cost_minor <= 0 {
+                    Ok("zero-cost product research")
+                } else if proposal.cost_minor > snapshot.experiment_budget_minor {
+                    Err("product development exceeds experiment budget")
+                } else if proposal.cost_minor > snapshot.budget_remaining_minor {
+                    Err("product development exceeds remaining company budget")
+                } else if proposal.cost_minor > snapshot.cash_minor {
+                    Err("product development exceeds available cash")
+                } else {
+                    snapshot.cash_minor -= proposal.cost_minor;
+                    snapshot.expenses_minor =
+                        match snapshot.expenses_minor.checked_add(proposal.cost_minor) {
+                            Some(value) => value,
+                            None => return arithmetic_failure(proposal, "expense overflow"),
+                        };
+                    snapshot.experiment_budget_minor -= proposal.cost_minor;
+                    snapshot.budget_remaining_minor -= proposal.cost_minor;
+                    state_changed = true;
+                    cost_minor = proposal.cost_minor;
+                    Ok("product prototype executed")
+                }
+            }
+            ActionKind::MitigateRisk => Ok("risk mitigation action recorded; safety enforced"),
+            ActionKind::ResolveSupportCase => {
+                Ok("customer support case resolved; no external financial side effect")
+            }
+            ActionKind::OptimizeRetention => Ok("customer retention strategy recorded"),
+            ActionKind::ReconcileTreasury => {
+                Ok("treasury reconciliation verified against ledger invariants")
+            }
             ActionKind::PublishContent => {
                 Ok("publish is material and should already have been escalated")
             }

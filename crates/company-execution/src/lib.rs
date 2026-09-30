@@ -329,14 +329,67 @@ pub fn apply_approved(
         }
         ActionKind::ResearchOpportunity
         | ActionKind::ProduceReport
-        | ActionKind::EscalateIncident => Ok((
+        | ActionKind::EscalateIncident
+        | ActionKind::MitigateRisk
+        | ActionKind::ResolveSupportCase
+        | ActionKind::OptimizeRetention
+        | ActionKind::ReconcileTreasury => Ok((
             next,
             receipt_for(
                 proposal,
                 ExecutionStatus::Noop,
-                "informational action recorded; no mutable economic state",
+                "informational/risk action recorded; no mutable economic state",
             ),
         )),
+        ActionKind::DevelopProduct => {
+            if proposal.cost_minor == 0 {
+                return Ok((
+                    next,
+                    receipt_for(
+                        proposal,
+                        ExecutionStatus::Noop,
+                        "zero-cost product research is a no-op",
+                    ),
+                ));
+            }
+            if proposal.cost_minor > snapshot.experiment_budget_minor {
+                return Ok((
+                    next,
+                    receipt_for(
+                        proposal,
+                        ExecutionStatus::Rejected,
+                        "product development cost exceeds experiment budget",
+                    ),
+                ));
+            }
+            next.cash_minor = snapshot
+                .cash_minor
+                .checked_sub(proposal.cost_minor)
+                .ok_or(ExecutionError::Overflow)?;
+            next.expenses_minor = snapshot
+                .expenses_minor
+                .checked_add(proposal.cost_minor)
+                .ok_or(ExecutionError::Overflow)?;
+            next.assets_minor = snapshot
+                .assets_minor
+                .checked_sub(proposal.cost_minor)
+                .ok_or(ExecutionError::Overflow)?;
+            next.experiment_budget_minor = snapshot
+                .experiment_budget_minor
+                .checked_sub(proposal.cost_minor)
+                .ok_or(ExecutionError::Overflow)?;
+            if next.cash_minor == 0 {
+                next.status = CompanyStatus::Emergency;
+            }
+            Ok((
+                next,
+                receipt_for(
+                    proposal,
+                    ExecutionStatus::Executed,
+                    "bounded product prototype spend executed",
+                ),
+            ))
+        }
         ActionKind::PublishContent | ActionKind::ProposeHire => Ok((
             next,
             receipt_for(
@@ -353,15 +406,18 @@ pub fn apply_approved(
 
 fn action_tool(action: ActionKind) -> Tool {
     match action {
-        ActionKind::CreateExperiment => Tool::CreateExperiment,
+        ActionKind::CreateExperiment | ActionKind::DevelopProduct => Tool::CreateExperiment,
         ActionKind::AllocateExperimentBudget => Tool::AllocateExperimentBudget,
         ActionKind::ReduceBudget => Tool::ReduceBudget,
         ActionKind::RebalanceOperations => Tool::RebalanceOperations,
-        ActionKind::ResearchOpportunity => Tool::ResearchOpportunity,
+        ActionKind::ResearchOpportunity | ActionKind::OptimizeRetention => Tool::ResearchOpportunity,
         ActionKind::PublishContent => Tool::PublishContent,
         ActionKind::ProposeHire => Tool::ProposeHire,
-        ActionKind::ProduceReport => Tool::ProduceReport,
-        ActionKind::EscalateIncident => Tool::ProduceReport,
+        ActionKind::ProduceReport
+        | ActionKind::EscalateIncident
+        | ActionKind::MitigateRisk
+        | ActionKind::ResolveSupportCase
+        | ActionKind::ReconcileTreasury => Tool::ProduceReport,
         ActionKind::None => Tool::ReadCompany,
     }
 }

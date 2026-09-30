@@ -49,6 +49,11 @@ impl ToolRegistry {
             crate::types::ActionKind::ProduceReport => Some(Tool::ProduceReport),
             crate::types::ActionKind::PublishContent => Some(Tool::PublishContent),
             crate::types::ActionKind::EscalateIncident => Some(Tool::EscalateIncident),
+            crate::types::ActionKind::MitigateRisk => Some(Tool::EscalateIncident),
+            crate::types::ActionKind::DevelopProduct => Some(Tool::CreateExperiment),
+            crate::types::ActionKind::ResolveSupportCase => Some(Tool::ProduceReport),
+            crate::types::ActionKind::OptimizeRetention => Some(Tool::ResearchOpportunity),
+            crate::types::ActionKind::ReconcileTreasury => Some(Tool::ProduceReport),
             crate::types::ActionKind::None => None,
         }
     }
@@ -76,6 +81,15 @@ impl ToolRegistry {
                 Tool::ReadCompany
                     | Tool::ReadMetrics
                     | Tool::RebalanceOperations
+                    | Tool::ProduceReport
+                    | Tool::EscalateIncident
+            ),
+            AgentRole::ProductLead => matches!(
+                tool,
+                Tool::ReadCompany
+                    | Tool::ReadMetrics
+                    | Tool::ResearchOpportunity
+                    | Tool::CreateExperiment
                     | Tool::ProduceReport
                     | Tool::EscalateIncident
             ),
@@ -111,6 +125,28 @@ impl ToolRegistry {
                     | Tool::ResearchOpportunity
                     | Tool::CreateExperiment
                     | Tool::ProduceReport
+            ),
+            AgentRole::RiskOfficer => matches!(
+                tool,
+                Tool::ReadCompany
+                    | Tool::ReadMetrics
+                    | Tool::ProduceReport
+                    | Tool::EscalateIncident
+            ),
+            AgentRole::CustomerSuccess => matches!(
+                tool,
+                Tool::ReadCompany
+                    | Tool::ReadMetrics
+                    | Tool::ProduceReport
+                    | Tool::EscalateIncident
+            ),
+            AgentRole::TreasuryOfficer => matches!(
+                tool,
+                Tool::ReadCompany
+                    | Tool::ReadMetrics
+                    | Tool::ProduceReport
+                    | Tool::ReduceBudget
+                    | Tool::EscalateIncident
             ),
         }
     }

@@ -89,6 +89,13 @@ fn action_allowed_in_context(agent: AgentRole, action: ActionKind, ctx: &AgentCo
                 && ctx.company.content_revenue_minor >= ctx.company.content_cost_minor
                 && ctx.company.experiment_budget_minor > 0
         }
+        (AgentRole::ProductLead, ActionKind::DevelopProduct) => {
+            !matches!(ctx.company.status, Warning | CostControl | Distress | Emergency | Liquidation | Bankrupt)
+                && ctx.company.experiment_budget_minor > 0
+        }
+        (AgentRole::CustomerSuccess, ActionKind::OptimizeRetention) => {
+            ctx.company.budget_remaining_minor > 0
+        }
         (AgentRole::Experiment, ActionKind::CreateExperiment) => {
             matches!(ctx.company.status, Active | Growth)
                 && ctx.company.experiment_budget_minor > 0
@@ -189,7 +196,7 @@ fn enforce_context(mut proposal: Proposal, ctx: &AgentContext) -> Proposal {
 
     let fallback = match proposal.agent {
         AgentRole::CEO | AgentRole::CFO => ActionKind::ReduceBudget,
-        AgentRole::Recruiter | AgentRole::Analyst => ActionKind::ProduceReport,
+        AgentRole::Recruiter | AgentRole::Analyst | AgentRole::CustomerSuccess => ActionKind::ProduceReport,
         AgentRole::COO => {
             if ctx.company.backlog > ctx.company.capacity {
                 ActionKind::RebalanceOperations
@@ -197,9 +204,11 @@ fn enforce_context(mut proposal: Proposal, ctx: &AgentContext) -> Proposal {
                 ActionKind::ProduceReport
             }
         }
-        AgentRole::Growth | AgentRole::Content | AgentRole::Experiment => {
+        AgentRole::Growth | AgentRole::Content | AgentRole::Experiment | AgentRole::ProductLead => {
             ActionKind::ResearchOpportunity
         }
+        AgentRole::RiskOfficer => ActionKind::MitigateRisk,
+        AgentRole::TreasuryOfficer => ActionKind::ReconcileTreasury,
         AgentRole::Governor => ActionKind::EscalateIncident,
     };
 
@@ -526,15 +535,119 @@ define_agent!(
     }
 );
 
+define_agent!(
+    ProductLeadAgent,
+    AgentRole::ProductLead,
+    Permission::Propose,
+    "product_lead",
+    |ctx: &AgentContext| {
+        let budget = ctx.company.experiment_budget_minor.min(200);
+        if budget > 0 {
+            base_proposal(
+                AgentRole::ProductLead,
+                ActionKind::DevelopProduct,
+                ctx,
+                "prototype high-margin digital product",
+                budget,
+                budget.saturating_mul(4),
+                RiskTier::Medium,
+                proposal_confidence(0.75),
+                "explore scalable digital product whitespace",
+                true,
+            )
+        } else {
+            base_proposal(
+                AgentRole::ProductLead,
+                ActionKind::ResearchOpportunity,
+                ctx,
+                "research user demand and feature gaps",
+                0,
+                0,
+                RiskTier::Low,
+                proposal_confidence(0.90),
+                "analyze user feedback and market opportunities",
+                true,
+            )
+        }
+    }
+);
+
+define_agent!(
+    RiskOfficerAgent,
+    AgentRole::RiskOfficer,
+    Permission::Propose,
+    "risk_officer",
+    |ctx: &AgentContext| {
+        base_proposal(
+            AgentRole::RiskOfficer,
+            ActionKind::MitigateRisk,
+            ctx,
+            "audit compliance, copyright and live stream safety",
+            0,
+            0,
+            RiskTier::Low,
+            proposal_confidence(0.99),
+            "continuous safety monitoring and fraud prevention",
+            true,
+        )
+    }
+);
+
+define_agent!(
+    CustomerSuccessAgent,
+    AgentRole::CustomerSuccess,
+    Permission::Propose,
+    "customer_success",
+    |ctx: &AgentContext| {
+        base_proposal(
+            AgentRole::CustomerSuccess,
+            ActionKind::ResolveSupportCase,
+            ctx,
+            "resolve customer support cases and optimize retention",
+            0,
+            0,
+            RiskTier::Low,
+            proposal_confidence(0.95),
+            "maximize customer lifetime value and satisfaction",
+            true,
+        )
+    }
+);
+
+define_agent!(
+    TreasuryOfficerAgent,
+    AgentRole::TreasuryOfficer,
+    Permission::Propose,
+    "treasury_officer",
+    |ctx: &AgentContext| {
+        base_proposal(
+            AgentRole::TreasuryOfficer,
+            ActionKind::ReconcileTreasury,
+            ctx,
+            "reconcile ledger transactions and automated tax obligations",
+            0,
+            0,
+            RiskTier::Low,
+            proposal_confidence(0.98),
+            "ensure double-entry ledger integrity and liquidity adequacy",
+            true,
+        )
+    }
+);
+
 pub fn executive_agents() -> Vec<Arc<dyn Agent>> {
     vec![
         Arc::new(CeoAgent),
         Arc::new(CfoAgent),
         Arc::new(CooAgent),
+        Arc::new(ProductLeadAgent),
         Arc::new(GrowthAgent),
         Arc::new(ContentAgent),
         Arc::new(RecruiterAgent),
         Arc::new(AnalystAgent),
         Arc::new(ExperimentAgent),
+        Arc::new(RiskOfficerAgent),
+        Arc::new(CustomerSuccessAgent),
+        Arc::new(TreasuryOfficerAgent),
     ]
 }

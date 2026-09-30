@@ -15,6 +15,40 @@ pub enum ContentFormat {
     Carousel,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PlatformDistribution {
+    TikTok,
+    YouTubeShorts,
+    InstagramReels,
+    FacebookReels,
+    OmniChannel,
+}
+
+impl PlatformDistribution {
+    pub const ALL: [Self; 5] = [
+        Self::TikTok,
+        Self::YouTubeShorts,
+        Self::InstagramReels,
+        Self::FacebookReels,
+        Self::OmniChannel,
+    ];
+
+    pub fn max_title_chars(self) -> usize {
+        match self {
+            Self::TikTok => 2_200,
+            Self::YouTubeShorts => 100,
+            Self::InstagramReels => 2_200,
+            Self::FacebookReels => 2_000,
+            Self::OmniChannel => 100, // Safe lowest common denominator for cross-posting
+        }
+    }
+
+    pub fn is_multi_platform(self) -> bool {
+        matches!(self, Self::OmniChannel)
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SuccessMetric {
     Views,
@@ -420,5 +454,14 @@ mod tests {
         let encoded = serde_json::to_string(&item).unwrap();
         let decoded: ContentItem = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded, item);
+    }
+
+    #[test]
+    fn platform_distribution_bounds_are_respected() {
+        assert_eq!(PlatformDistribution::TikTok.max_title_chars(), 2_200);
+        assert_eq!(PlatformDistribution::YouTubeShorts.max_title_chars(), 100);
+        assert_eq!(PlatformDistribution::OmniChannel.max_title_chars(), 100);
+        assert!(PlatformDistribution::OmniChannel.is_multi_platform());
+        assert!(!PlatformDistribution::TikTok.is_multi_platform());
     }
 }

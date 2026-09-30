@@ -64,6 +64,140 @@ pub struct PortfolioMetrics {
     pub burn_minor: i128,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum DepartmentType {
+    Executive,
+    ProductAndInnovation,
+    GrowthAndMarketing,
+    CreativeAndMedia,
+    CommercialAndSales,
+    RiskAndCompliance,
+    CustomerSuccess,
+    TreasuryAndFinance,
+    OperationsAndTech,
+}
+
+impl DepartmentType {
+    pub const ALL: [Self; 9] = [
+        Self::Executive,
+        Self::ProductAndInnovation,
+        Self::GrowthAndMarketing,
+        Self::CreativeAndMedia,
+        Self::CommercialAndSales,
+        Self::RiskAndCompliance,
+        Self::CustomerSuccess,
+        Self::TreasuryAndFinance,
+        Self::OperationsAndTech,
+    ];
+
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Executive => "EXEC",
+            Self::ProductAndInnovation => "PROD",
+            Self::GrowthAndMarketing => "GROWTH",
+            Self::CreativeAndMedia => "CREATIVE",
+            Self::CommercialAndSales => "COMMERCIAL",
+            Self::RiskAndCompliance => "RISK",
+            Self::CustomerSuccess => "CS",
+            Self::TreasuryAndFinance => "TREASURY",
+            Self::OperationsAndTech => "OPS",
+        }
+    }
+
+    pub fn default_lead_role(self) -> &'static str {
+        match self {
+            Self::Executive => "CEO",
+            Self::ProductAndInnovation => "CPO",
+            Self::GrowthAndMarketing => "Growth Lead",
+            Self::CreativeAndMedia => "Creative Director",
+            Self::CommercialAndSales => "Head of Sales",
+            Self::RiskAndCompliance => "Chief Risk Officer",
+            Self::CustomerSuccess => "Head of Customer Success",
+            Self::TreasuryAndFinance => "CFO",
+            Self::OperationsAndTech => "COO",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Department {
+    pub id: String,
+    pub name: String,
+    pub department_type: DepartmentType,
+    pub lead_role: String,
+    pub monthly_budget_minor: i128,
+    pub currency: String,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CompanyOrganizationStructure {
+    pub company_id: String,
+    pub company_name: String,
+    pub departments: Vec<Department>,
+    pub default_currency: String,
+}
+
+impl CompanyOrganizationStructure {
+    pub fn standard_autonomous_template(company_id: &str, company_name: &str, currency: &str) -> Self {
+        let departments = DepartmentType::ALL
+            .iter()
+            .map(|&dept_type| Department {
+                id: format!("dept-{}", dept_type.code().to_lowercase()),
+                name: format!("{:?} Department", dept_type),
+                department_type: dept_type,
+                lead_role: dept_type.default_lead_role().into(),
+                monthly_budget_minor: 0,
+                currency: currency.into(),
+                active: true,
+            })
+            .collect();
+
+        Self {
+            company_id: company_id.into(),
+            company_name: company_name.into(),
+            departments,
+            default_currency: currency.into(),
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), OrganizationError> {
+        if self.company_id.trim().is_empty() || self.company_name.trim().is_empty() {
+            return Err(OrganizationError::InvalidValue(
+                "company_id and company_name are required".into(),
+            ));
+        }
+        if self.default_currency.len() != 3 || !self.default_currency.bytes().all(|b| b.is_ascii_uppercase()) {
+            return Err(OrganizationError::InvalidValue(
+                "default currency must be uppercase 3-letter code".into(),
+            ));
+        }
+        for dept in &self.departments {
+            if dept.id.trim().is_empty() || dept.name.trim().is_empty() || dept.lead_role.trim().is_empty() {
+                return Err(OrganizationError::InvalidValue(
+                    "department id, name, and lead_role are required".into(),
+                ));
+            }
+            if dept.monthly_budget_minor < 0 {
+                return Err(OrganizationError::InvalidValue(
+                    "department monthly budget cannot be negative".into(),
+                ));
+            }
+            if dept.currency != self.default_currency {
+                return Err(OrganizationError::InvalidValue(
+                    "department currency must match organization currency".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn department_by_type(&self, dept_type: DepartmentType) -> Option<&Department> {
+        self.departments.iter().find(|d| d.department_type == dept_type && d.active)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OrganizationError {
     InvalidValue(String),
@@ -247,5 +381,19 @@ mod tests {
     fn negative_economics_are_rejected() {
         assert!(contribution_margin(-1, 0).is_err());
         assert!(contribution_margin(1, -1).is_err());
+    }
+
+    #[test]
+    fn standard_autonomous_template_is_valid() {
+        let org = CompanyOrganizationStructure::standard_autonomous_template(
+            "org-1",
+            "Autonomous Agents Inc",
+            "USD",
+        );
+        assert_eq!(org.departments.len(), 9);
+        assert!(org.validate().is_ok());
+        assert!(org.department_by_type(DepartmentType::ProductAndInnovation).is_some());
+        assert!(org.department_by_type(DepartmentType::RiskAndCompliance).is_some());
+        assert!(org.department_by_type(DepartmentType::CustomerSuccess).is_some());
     }
 }

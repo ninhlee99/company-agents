@@ -2,8 +2,8 @@ use crate::{
     agent::{Agent, AgentContext},
     model::{MockModel, Model, ModelError},
     roles::{
-        AnalystAgent, CeoAgent, CfoAgent, ContentAgent, CooAgent, ExperimentAgent, GrowthAgent,
-        RecruiterAgent,
+        executive_agents, AnalystAgent, CeoAgent, CfoAgent, ContentAgent, CooAgent,
+        ExperimentAgent, GrowthAgent, RecruiterAgent,
     },
     runtime::AgentRuntime,
     types::{
@@ -45,16 +45,7 @@ async fn every_operating_agent_has_a_valid_contract() {
         memory: Vec::new(),
     };
     let model: Arc<dyn Model> = Arc::new(MockModel);
-    let agents: Vec<Arc<dyn Agent>> = vec![
-        Arc::new(CeoAgent),
-        Arc::new(CfoAgent),
-        Arc::new(CooAgent),
-        Arc::new(GrowthAgent),
-        Arc::new(ContentAgent),
-        Arc::new(RecruiterAgent),
-        Arc::new(AnalystAgent),
-        Arc::new(ExperimentAgent),
-    ];
+    let agents: Vec<Arc<dyn Agent>> = executive_agents();
 
     let roles: Vec<AgentRole> = agents.iter().map(|a| a.role()).collect();
     assert_eq!(
@@ -63,11 +54,15 @@ async fn every_operating_agent_has_a_valid_contract() {
             AgentRole::CEO,
             AgentRole::CFO,
             AgentRole::COO,
+            AgentRole::ProductLead,
             AgentRole::Growth,
             AgentRole::Content,
             AgentRole::Recruiter,
             AgentRole::Analyst,
-            AgentRole::Experiment
+            AgentRole::Experiment,
+            AgentRole::RiskOfficer,
+            AgentRole::CustomerSuccess,
+            AgentRole::TreasuryOfficer,
         ]
     );
 
@@ -100,7 +95,7 @@ async fn model_outage_fails_closed() {
     let results = runtime
         .run_all_with_timeout(healthy_company(), std::time::Duration::from_secs(1))
         .await;
-    assert_eq!(results.len(), 8);
+    assert_eq!(results.len(), executive_agents().len());
     for result in results {
         assert_eq!(result.proposal.action, ActionKind::EscalateIncident);
         assert_eq!(
@@ -136,7 +131,7 @@ async fn stress_256_cycles_remain_bounded_and_deterministic() {
 
     for _ in 0..256 {
         let results = runtime.run_all(company.clone()).await;
-        assert_eq!(results.len(), 8);
+        assert_eq!(results.len(), executive_agents().len());
         for result in results {
             assert!(matches!(
                 result.governance.unwrap().decision,
@@ -186,7 +181,7 @@ async fn slow_model_times_out_and_fails_closed() {
         .run_all_with_timeout(healthy_company(), std::time::Duration::from_millis(10))
         .await;
 
-    assert_eq!(results.len(), 8);
+    assert_eq!(results.len(), executive_agents().len());
     for result in results {
         assert_eq!(result.proposal.action, ActionKind::EscalateIncident);
         assert_eq!(
@@ -223,8 +218,8 @@ async fn malicious_model_cannot_change_authority_or_safe_envelope() {
     let results = runtime.run_all(company.clone()).await;
     let baseline_results = baseline.run_all(company).await;
 
-    assert_eq!(results.len(), 8);
-    assert_eq!(baseline_results.len(), 8);
+    assert_eq!(results.len(), executive_agents().len());
+    assert_eq!(baseline_results.len(), executive_agents().len());
 
     for (result, base) in results.into_iter().zip(baseline_results.into_iter()) {
         assert_eq!(result.agent, base.agent);

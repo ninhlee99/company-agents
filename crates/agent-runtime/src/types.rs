@@ -7,24 +7,32 @@ pub enum AgentRole {
     CEO,
     CFO,
     COO,
+    ProductLead,
     Growth,
     Content,
     Recruiter,
     Analyst,
     Experiment,
+    RiskOfficer,
+    CustomerSuccess,
+    TreasuryOfficer,
 }
 
 impl AgentRole {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 13] = [
         Self::Governor,
         Self::CEO,
         Self::CFO,
         Self::COO,
+        Self::ProductLead,
         Self::Growth,
         Self::Content,
         Self::Recruiter,
         Self::Analyst,
         Self::Experiment,
+        Self::RiskOfficer,
+        Self::CustomerSuccess,
+        Self::TreasuryOfficer,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -33,11 +41,15 @@ impl AgentRole {
             Self::CEO => "CEO",
             Self::CFO => "CFO",
             Self::COO => "COO",
+            Self::ProductLead => "ProductLead",
             Self::Growth => "Growth",
             Self::Content => "Content",
             Self::Recruiter => "Recruiter",
             Self::Analyst => "Analyst",
             Self::Experiment => "Experiment",
+            Self::RiskOfficer => "RiskOfficer",
+            Self::CustomerSuccess => "CustomerSuccess",
+            Self::TreasuryOfficer => "TreasuryOfficer",
         }
     }
 
@@ -57,6 +69,13 @@ impl AgentRole {
             ],
             Self::COO => &[
                 ActionKind::RebalanceOperations,
+                ActionKind::ProduceReport,
+                ActionKind::EscalateIncident,
+            ],
+            Self::ProductLead => &[
+                ActionKind::DevelopProduct,
+                ActionKind::ResearchOpportunity,
+                ActionKind::CreateExperiment,
                 ActionKind::ProduceReport,
                 ActionKind::EscalateIncident,
             ],
@@ -82,6 +101,23 @@ impl AgentRole {
             Self::Experiment => &[
                 ActionKind::CreateExperiment,
                 ActionKind::ResearchOpportunity,
+                ActionKind::ProduceReport,
+                ActionKind::EscalateIncident,
+            ],
+            Self::RiskOfficer => &[
+                ActionKind::MitigateRisk,
+                ActionKind::ProduceReport,
+                ActionKind::EscalateIncident,
+            ],
+            Self::CustomerSuccess => &[
+                ActionKind::ResolveSupportCase,
+                ActionKind::OptimizeRetention,
+                ActionKind::ProduceReport,
+                ActionKind::EscalateIncident,
+            ],
+            Self::TreasuryOfficer => &[
+                ActionKind::ReconcileTreasury,
+                ActionKind::ReduceBudget,
                 ActionKind::ProduceReport,
                 ActionKind::EscalateIncident,
             ],
@@ -113,6 +149,11 @@ pub enum ActionKind {
     ProposeHire,
     ProduceReport,
     EscalateIncident,
+    MitigateRisk,
+    DevelopProduct,
+    ResolveSupportCase,
+    OptimizeRetention,
+    ReconcileTreasury,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -217,6 +258,11 @@ impl ActionKind {
             "proposehire" | "propose_hire" => Some(Self::ProposeHire),
             "producereport" | "produce_report" => Some(Self::ProduceReport),
             "escalateincident" | "escalate_incident" => Some(Self::EscalateIncident),
+            "mitigaterisk" | "mitigate_risk" => Some(Self::MitigateRisk),
+            "developproduct" | "develop_product" => Some(Self::DevelopProduct),
+            "resolvesupportcase" | "resolve_support_case" => Some(Self::ResolveSupportCase),
+            "optimizeretention" | "optimize_retention" => Some(Self::OptimizeRetention),
+            "reconciletreasury" | "reconcile_treasury" => Some(Self::ReconcileTreasury),
             "none" => Some(Self::None),
             _ => None,
         }
@@ -224,15 +270,20 @@ impl ActionKind {
 
     pub fn max_cost_minor(self) -> i128 {
         match self {
-            Self::CreateExperiment | Self::AllocateExperimentBudget | Self::ResearchOpportunity => {
-                500
-            }
+            Self::CreateExperiment
+            | Self::AllocateExperimentBudget
+            | Self::ResearchOpportunity
+            | Self::DevelopProduct => 500,
+            Self::OptimizeRetention => 200,
             Self::ProposeHire => 1_000,
             Self::PublishContent
             | Self::ProduceReport
             | Self::ReduceBudget
             | Self::RebalanceOperations
             | Self::EscalateIncident
+            | Self::MitigateRisk
+            | Self::ResolveSupportCase
+            | Self::ReconcileTreasury
             | Self::None => 0,
         }
     }
@@ -243,11 +294,16 @@ impl ActionKind {
             Self::AllocateExperimentBudget
             | Self::CreateExperiment
             | Self::ResearchOpportunity
-            | Self::PublishContent => RiskTier::Medium,
+            | Self::PublishContent
+            | Self::DevelopProduct => RiskTier::Medium,
             Self::ReduceBudget
             | Self::RebalanceOperations
             | Self::ProduceReport
             | Self::EscalateIncident
+            | Self::MitigateRisk
+            | Self::ResolveSupportCase
+            | Self::OptimizeRetention
+            | Self::ReconcileTreasury
             | Self::None => RiskTier::Low,
         }
     }

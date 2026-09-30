@@ -101,6 +101,59 @@ pub fn validate_evidence(entry: &LearningEntry) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LearningSynthesis {
+    pub total_entries: usize,
+    pub successes: usize,
+    pub failures: usize,
+    pub near_misses: usize,
+    pub total_impact_minor: i128,
+    pub reusable_rules: Vec<String>,
+    pub high_confidence_rules_count: usize,
+}
+
+pub fn synthesize_learnings(entries: &[LearningEntry]) -> Result<LearningSynthesis, String> {
+    let mut successes = 0;
+    let mut failures = 0;
+    let mut near_misses = 0;
+    let mut total_impact = 0_i128;
+    let mut reusable_rules = Vec::new();
+    let mut high_confidence_rules_count = 0;
+
+    for entry in entries {
+        validate(entry)?;
+        match entry.kind {
+            LearningKind::Success => successes += 1,
+            LearningKind::Failure => failures += 1,
+            LearningKind::NearMiss => near_misses += 1,
+            LearningKind::Learning => {}
+        }
+        total_impact = total_impact
+            .checked_add(entry.impact_minor)
+            .ok_or_else(|| "impact overflow during learning synthesis".to_string())?;
+
+        if !entry.reusable_rule.trim().is_empty() {
+            reusable_rules.push(entry.reusable_rule.clone());
+            if entry.confidence_bps >= 8_000 {
+                high_confidence_rules_count += 1;
+            }
+        }
+    }
+
+    reusable_rules.sort();
+    reusable_rules.dedup();
+
+    Ok(LearningSynthesis {
+        total_entries: entries.len(),
+        successes,
+        failures,
+        near_misses,
+        total_impact_minor: total_impact,
+        reusable_rules,
+        high_confidence_rules_count,
+    })
+}
+
 impl fmt::Display for LearningDecision {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self)
@@ -163,5 +216,26 @@ mod tests {
         let encoded = serde_json::to_string(&value).unwrap();
         let decoded: LearningEntry = serde_json::from_str(&encoded).unwrap();
         assert_eq!(value, decoded);
+    }
+
+    #[test]
+    fn synthesize_learnings_aggregates_evidence_cleanly() {
+        let mut success = entry();
+        success.entry_key = "exp-2:variant-b".into();
+        success.kind = LearningKind::Success;
+        success.severity = FailureSeverity::None;
+        success.impact_minor = 300_000;
+        success.confidence_bps = 9_000;
+        success.reusable_rule = "Use proof-first hook".into();
+
+        let entries = vec![entry(), success];
+        let synthesis = synthesize_learnings(&entries).unwrap();
+
+        assert_eq!(synthesis.total_entries, 2);
+        assert_eq!(synthesis.failures, 1);
+        assert_eq!(synthesis.successes, 1);
+        assert_eq!(synthesis.total_impact_minor, 180_000);
+        assert_eq!(synthesis.high_confidence_rules_count, 2);
+        assert_eq!(synthesis.reusable_rules.len(), 2);
     }
 }
