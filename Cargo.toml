@@ -24,7 +24,8 @@ members = [
   "crates/company-content",
   "crates/company-growth",
   "crates/company-live-attention",
-  "crates/company-compliance"
+  "crates/company-compliance",
+  "crates/company-command-center"
 ]
 
 [profile.release]
