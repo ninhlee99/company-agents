@@ -7,7 +7,7 @@
 - Transactional cycle execution, scheduler leases, replay-safe run tokens and durable outbox delivery.
 - Automated CI and weekly PostgreSQL recovery drill are now part of the release gates.
 
-- Unified event architecture foundation: canonical event names, versioned envelope, correlation/causation metadata and idempotent outbox persistence are implemented; producer migration remains incremental.
+- Unified event architecture foundation: canonical event names, versioned envelope, correlation/causation metadata and idempotent outbox persistence are implemented. The terminal experiment producer now emits `EXPERIMENT_COMPLETED` transactionally; remaining producers migrate incrementally.
 
 ## Phase 2 — Simulator
 **Status: implemented baseline**
