@@ -37,7 +37,8 @@ export default function App() {
 
   const [isRunningCycle, setIsRunningCycle] = useState(false);
   const [hasGeminiKey, setHasGeminiKey] = useState(false);
-  const [dataMode, setDataMode] = useState<'SIMULATION' | 'UNKNOWN'>('SIMULATION');
+  const [dataMode, setDataMode] = useState<'SIMULATION' | 'UNKNOWN'>('UNKNOWN');
+  const [simulatedMutationsEnabled, setSimulatedMutationsEnabled] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const [snapshot, setSnapshot] = useState<CompanySnapshot>({
@@ -108,6 +109,7 @@ export default function App() {
         }
         setHasGeminiKey(data.hasGeminiKey);
         setDataMode(data.dataMode === 'SIMULATION' ? 'SIMULATION' : 'UNKNOWN');
+        setSimulatedMutationsEnabled(data.simulatedMutationsEnabled === true);
       }
     } catch (err) {
       console.warn('Backend load note:', err);
@@ -387,7 +389,7 @@ export default function App() {
       {dataMode === 'SIMULATION' && (
         <div className="bg-amber-950/90 border-b border-amber-500/40 px-4 py-2.5 text-center text-[11px] font-semibold text-amber-200">
           CHẾ ĐỘ MÔ PHỎNG — cash, revenue, ROI, audit, workforce và pipeline outcome trên UI này là dữ liệu synthetic.
-          Đây không phải sổ cái thật và không chứng minh tiền đã kiếm được hay đã nhận từ nền tảng.
+          Đây không phải sổ cái thật và không chứng minh tiền đã kiếm được hay đã nhận từ nền tảng. {simulatedMutationsEnabled ? 'Simulated mutations đang bật theo cấu hình non-production.' : 'Thay đổi mô phỏng đang bị khóa mặc định.'}
         </div>
       )}
 
