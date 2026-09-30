@@ -262,10 +262,6 @@ fn validate_input(input: &CommandCenterInput) -> Result<(), String> {
         ("content.spend_7d_minor", input.content.spend_7d_minor),
         ("content.commission_7d_minor", input.content.commission_7d_minor),
         (
-            "content.contribution_margin_7d_minor",
-            input.content.contribution_margin_7d_minor,
-        ),
-        (
             "live.gift_value_30d_minor",
             input.live.gift_value_30d_minor,
         ),
