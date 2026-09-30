@@ -35,6 +35,8 @@ pub enum CompanyEventType {
     OpportunityCreated,
     AutonomyControlsChanged,
     AutonomyBudgetConsumed,
+    TikTokOAuthConnected,
+    TikTokOAuthRevoked,
 }
 
 impl CompanyEventType {
@@ -65,6 +67,8 @@ impl CompanyEventType {
             Self::OpportunityCreated => "OPPORTUNITY_CREATED",
             Self::AutonomyControlsChanged => "AUTONOMY_CONTROLS_CHANGED",
             Self::AutonomyBudgetConsumed => "AUTONOMY_BUDGET_CONSUMED",
+            Self::TikTokOAuthConnected => "TIKTOK_OAUTH_CONNECTED",
+            Self::TikTokOAuthRevoked => "TIKTOK_OAUTH_REVOKED",
             Self::LearningEntryRecorded => "LEARNING_ENTRY_RECORDED",
         }
     }
@@ -575,6 +579,12 @@ mod tests {
     fn autonomy_event_names_are_canonical() {
         assert_eq!(CompanyEventType::AutonomyControlsChanged.as_str(), "AUTONOMY_CONTROLS_CHANGED");
         assert_eq!(CompanyEventType::AutonomyBudgetConsumed.as_str(), "AUTONOMY_BUDGET_CONSUMED");
+    }
+
+    #[test]
+    fn tiktok_oauth_event_names_are_canonical() {
+        assert_eq!(CompanyEventType::TikTokOAuthConnected.as_str(), "TIKTOK_OAUTH_CONNECTED");
+        assert_eq!(CompanyEventType::TikTokOAuthRevoked.as_str(), "TIKTOK_OAUTH_REVOKED");
     }
 
     #[test]
