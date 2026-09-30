@@ -80,6 +80,9 @@ pub struct ProductSearchQuery {
     pub in_stock_only: bool,
     pub max_results: usize,
     pub as_of_date: Option<String>,
+    /// Optional strict freshness window for product source evidence.
+    /// Products without valid RFC3339/epoch source timestamps are excluded when set.
+    pub max_product_age_seconds: Option<i64>,
 }
 
 impl Default for ProductSearchQuery {
@@ -98,6 +101,7 @@ impl Default for ProductSearchQuery {
             in_stock_only: true,
             max_results: 20,
             as_of_date: None,
+            max_product_age_seconds: None,
         }
     }
 }
@@ -795,6 +799,23 @@ fn parse_tiktok_search_response(
             .filter(|value| value.starts_with("https://"))
             .map(ToOwned::to_owned);
 
+        let source_updated_at = [
+            "update_time",
+            "updated_at",
+            "last_updated",
+            "update_timestamp",
+        ]
+        .iter()
+        .find_map(|key| item.get(*key))
+        .and_then(|value| {
+            value.as_str().and_then(source_updated_epoch).or_else(|| {
+                value
+                    .as_i64()
+                    .and_then(normalize_epoch)
+            })
+        })
+        .and_then(format_unix_rfc3339);
+
         let savings_bps = old_price_minor
             .filter(|old| *old > price_minor && *old > 0)
             .and_then(|old| {
@@ -833,7 +854,7 @@ fn parse_tiktok_search_response(
             commission_fixed_minor,
             commission_currency,
             source: "tiktok_shop_open_collaboration".into(),
-            source_updated_at: None,
+            source_updated_at,
         });
     }
 
@@ -1262,7 +1283,56 @@ fn validate_query(query: &ProductSearchQuery) -> Result<(), AffiliateError> {
             ));
         }
     }
+    if let Some(max_age) = query.max_product_age_seconds {
+        if !(60..=31_536_000).contains(&max_age) {
+            return Err(AffiliateError::InvalidQuery(
+                "max_product_age_seconds must be between 60 and 31536000".into(),
+            ));
+        }
+    }
     Ok(())
+}
+
+fn source_updated_epoch(value: &str) -> Option<i64> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(epoch) = trimmed.parse::<i64>() {
+        return normalize_epoch(epoch);
+    }
+    time::OffsetDateTime::parse(
+        trimmed,
+        &time::format_description::well_known::Rfc3339,
+    )
+    .ok()
+    .map(|value| value.unix_timestamp())
+}
+
+fn normalize_epoch(value: i64) -> Option<i64> {
+    if value <= 0 {
+        return None;
+    }
+    // Unix seconds for realistic contemporary dates are far below 1e11.
+    // Values above that are treated as Unix milliseconds.
+    if value > 100_000_000_000 {
+        value.checked_div(1_000)
+    } else {
+        Some(value)
+    }
+}
+
+fn product_freshness_ok(product: &Product, as_of_epoch: i64, max_age_seconds: i64) -> bool {
+    let Some(updated_epoch) = product
+        .source_updated_at
+        .as_deref()
+        .and_then(source_updated_epoch)
+    else {
+        return false;
+    };
+    updated_epoch > 0
+        && updated_epoch <= as_of_epoch
+        && as_of_epoch.saturating_sub(updated_epoch) <= max_age_seconds
 }
 
 fn product_matches(product: &Product, query: &ProductSearchQuery) -> bool {
@@ -2716,6 +2786,78 @@ mod tests {
             source: "test".into(),
             source_updated_at: None,
         }
+    }
+
+    #[test]
+    fn source_timestamp_parser_supports_seconds_milliseconds_and_rfc3339() {
+        assert_eq!(source_updated_epoch("1790726400"), Some(1_790_726_400));
+        assert_eq!(
+            source_updated_epoch("1790726400000"),
+            Some(1_790_726_400)
+        );
+        assert_eq!(
+            source_updated_epoch("2026-09-30T00:00:00Z"),
+            Some(1_790_726_400)
+        );
+        assert_eq!(source_updated_epoch("0"), None);
+        assert_eq!(source_updated_epoch("not-a-timestamp"), None);
+    }
+
+    #[test]
+    fn product_freshness_requires_valid_timestamp_when_strict() {
+        let mut value = product(
+            "fresh",
+            "Fresh Product",
+            refund_rate_bps: Some(500),
+            delivery_reliability_bps: Some(9_000),
+            commission_group: None,
+            commission_rate_bps: Some(2_000),
+            commission_fixed_minor: None,
+            commission_currency: None,
+            source: "test",
+            source_updated_at: Some("2026-09-30T00:00:00Z".into()),
+        );
+        assert!(product_freshness_ok(&value, 1_790_726_400, 86_400 * 7));
+
+        value.source_updated_at = Some("2026-09-20T00:00:00Z".into());
+        assert!(!product_freshness_ok(&value, 1_790_726_400, 86_400 * 7));
+        value.source_updated_at = None;
+        assert!(!product_freshness_ok(&value, 1_790_726_400, 86_400 * 7));
+        value.source_updated_at = Some("not-a-timestamp".into());
+        assert!(!product_freshness_ok(&value, 1_790_726_400, 86_400 * 7));
+    }
+
+    #[test]
+    fn strict_product_freshness_excludes_stale_candidates() {
+        let fresh = product(
+            "fresh",
+            "Fresh Product",
+            refund_rate_bps: Some(500),
+            delivery_reliability_bps: Some(9_000),
+            commission_group: None,
+            commission_rate_bps: Some(2_000),
+            commission_fixed_minor: None,
+            commission_currency: None,
+            source: "test",
+            source_updated_at: Some("2026-09-29T00:00:00Z".into()),
+        );
+        let stale = product(
+            "stale",
+            "Stale Product",
+            refund_rate_bps: Some(500),
+            delivery_reliability_bps: Some(9_000),
+            commission_group: None,
+            commission_rate_bps: Some(2_000),
+            commission_fixed_minor: None,
+            commission_currency: None,
+            source: "test",
+            source_updated_at: Some("2026-09-01T00:00:00Z".into()),
+        );
+        let mut query = ProductSearchQuery::default();
+        query.max_product_age_seconds = Some(86_400 * 2);
+        let ranked = rank_products(&[fresh, stale], &[], &query);
+        assert_eq!(ranked.len(), 1);
+        assert_eq!(ranked[0].product.id, "fresh");
     }
 
     #[test]
