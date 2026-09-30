@@ -3757,6 +3757,271 @@ impl CompanyStore {
         Ok(decision)
     }
 
+    pub async fn create_tiktok_oauth_state(
+        &self,
+        company_id: &str,
+        state_hash: &str,
+        redirect_uri: &str,
+        scopes: &str,
+        expires_at_epoch: i64,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        if state_hash.trim().is_empty() || state_hash.len() > 256 {
+            return Err("TikTok OAuth state hash is invalid".into());
+        }
+        if redirect_uri.trim().is_empty() || redirect_uri.len() > 2048 {
+            return Err("TikTok OAuth redirect URI is invalid".into());
+        }
+        if scopes.trim().is_empty() || scopes.len() > 4096 {
+            return Err("TikTok OAuth scopes are invalid".into());
+        }
+        if expires_at_epoch <= 0 {
+            return Err("TikTok OAuth state expiry is invalid".into());
+        }
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "DELETE FROM tiktok_oauth_states
+                  WHERE company_id=$1 AND expires_at_epoch < $2",
+                &[&company, &expires_at_epoch],
+            )
+            .await?;
+        client
+            .execute(
+                "INSERT INTO tiktok_oauth_states
+                 (id,company_id,state_hash,redirect_uri,scopes,expires_at_epoch)
+                 VALUES ($1,$2,$3,$4,$5,$6)
+                 ON CONFLICT(company_id,state_hash) DO UPDATE
+                 SET redirect_uri=EXCLUDED.redirect_uri,
+                     scopes=EXCLUDED.scopes,
+                     expires_at_epoch=EXCLUDED.expires_at_epoch",
+                &[
+                    &Uuid::new_v4(),
+                    &company,
+                    &state_hash.trim(),
+                    &redirect_uri.trim(),
+                    &scopes.trim(),
+                    &expires_at_epoch,
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn consume_tiktok_oauth_state(
+        &self,
+        company_id: &str,
+        state_hash: &str,
+        now_epoch: i64,
+    ) -> Result<Option<(String, String)>, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        if state_hash.trim().is_empty() || now_epoch <= 0 {
+            return Err("TikTok OAuth state identity/time is invalid".into());
+        }
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "DELETE FROM tiktok_oauth_states
+                  WHERE company_id=$1
+                    AND state_hash=$2
+                    AND expires_at_epoch >= $3
+                  RETURNING redirect_uri,scopes",
+                &[&company, &state_hash.trim(), &now_epoch],
+            )
+            .await?;
+        Ok(row.map(|value| (value.get(0), value.get(1))))
+    }
+
+    pub async fn save_tiktok_token_set(
+        &self,
+        company_id: &str,
+        token: &company_tiktok_auth::TokenSet,
+        cipher: &company_tiktok_auth::TokenCipher,
+    ) -> Result<TikTokConnectionRecord, Box<dyn std::error::Error + Send + Sync>> {
+        token.validate().map_err(|error| error.to_string())?;
+        let company = Uuid::parse_str(company_id)?;
+        let now_epoch: i64 = time::OffsetDateTime::now_utc().unix_timestamp();
+        let access_expires_at_epoch = token.access_expires_at(now_epoch).map_err(|error| error.to_string())?;
+        let refresh_expires_at_epoch = token.refresh_expires_at(now_epoch).map_err(|error| error.to_string())?;
+        let encrypted_access_token = cipher.encrypt(company, &token.access_token).map_err(|error| error.to_string())?;
+        let encrypted_refresh_token = cipher.encrypt(company, &token.refresh_token).map_err(|error| error.to_string())?;
+
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        tx.execute(
+            "INSERT INTO tiktok_oauth_connections
+             (company_id,open_id,encrypted_access_token,encrypted_refresh_token,
+              access_token_expires_at_epoch,refresh_token_expires_at_epoch,
+              scopes,token_type,status,last_error,updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'ACTIVE',NULL,now())
+             ON CONFLICT(company_id) DO UPDATE
+             SET open_id=EXCLUDED.open_id,
+                 encrypted_access_token=EXCLUDED.encrypted_access_token,
+                 encrypted_refresh_token=EXCLUDED.encrypted_refresh_token,
+                 access_token_expires_at_epoch=EXCLUDED.access_token_expires_at_epoch,
+                 refresh_token_expires_at_epoch=EXCLUDED.refresh_token_expires_at_epoch,
+                 scopes=EXCLUDED.scopes,
+                 token_type=EXCLUDED.token_type,
+                 status='ACTIVE',
+                 last_error=NULL,
+                 updated_at=now()",
+            &[
+                &company,
+                &token.open_id,
+                &encrypted_access_token,
+                &encrypted_refresh_token,
+                &access_expires_at_epoch,
+                &refresh_expires_at_epoch,
+                &token.scope,
+                &token.token_type,
+            ],
+        )
+        .await?;
+
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'TIKTOK_OAUTH_CONNECTED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[
+                &company,
+                &token.open_id,
+                &format!("outbox:tiktok-oauth:connected:{}:{}", company, access_expires_at_epoch),
+                &serde_json::json!({
+                    "open_id": token.open_id,
+                    "scopes": token.scope,
+                    "access_token_expires_at_epoch": access_expires_at_epoch,
+                    "refresh_token_expires_at_epoch": refresh_expires_at_epoch
+                }),
+            ],
+        )
+        .await?;
+
+        tx.execute(
+            "INSERT INTO audit_log
+             (company_id,actor_type,actor_id,action,resource_type,resource_id,decision,metadata)
+             VALUES ($1,'SYSTEM','tiktok-oauth','TIKTOK_OAUTH_CONNECTED','TIKTOK_CONNECTION',$2,'ACTIVE',$3)",
+            &[
+                &company,
+                &token.open_id,
+                &serde_json::json!({
+                    "scopes": token.scope,
+                    "access_token_expires_at_epoch": access_expires_at_epoch,
+                    "refresh_token_expires_at_epoch": refresh_expires_at_epoch
+                }),
+            ],
+        )
+        .await?;
+
+        let row = tx
+            .query_one(
+                "SELECT open_id,scopes,token_type,access_token_expires_at_epoch,
+                        refresh_token_expires_at_epoch,status,last_error,updated_at::text
+                   FROM tiktok_oauth_connections
+                  WHERE company_id=$1",
+                &[&company],
+            )
+            .await?;
+        let record = tiktok_connection_from_row(company, &row)?;
+        tx.commit().await?;
+        Ok(record)
+    }
+
+    pub async fn tiktok_oauth_status(
+        &self,
+        company_id: &str,
+    ) -> Result<Option<TikTokConnectionRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "SELECT open_id,scopes,token_type,access_token_expires_at_epoch,
+                        refresh_token_expires_at_epoch,status,last_error,updated_at::text
+                   FROM tiktok_oauth_connections
+                  WHERE company_id=$1",
+                &[&company],
+            )
+            .await?;
+        row.map(|value| tiktok_connection_from_row(company, &value)).transpose()
+    }
+
+    pub async fn tiktok_oauth_token_material(
+        &self,
+        company_id: &str,
+        cipher: &company_tiktok_auth::TokenCipher,
+    ) -> Result<Option<TikTokTokenMaterial>, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "SELECT open_id,encrypted_access_token,encrypted_refresh_token,
+                        access_token_expires_at_epoch,refresh_token_expires_at_epoch,
+                        scopes,token_type,status
+                   FROM tiktok_oauth_connections
+                  WHERE company_id=$1",
+                &[&company],
+            )
+            .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let status: String = row.get(7);
+        if status != "ACTIVE" {
+            return Ok(None);
+        }
+        let access_encrypted: String = row.get(1);
+        let refresh_encrypted: String = row.get(2);
+        Ok(Some(TikTokTokenMaterial {
+            company_id: company,
+            open_id: row.get(0),
+            access_token: cipher.decrypt(company, &access_encrypted).map_err(|error| error.to_string())?,
+            refresh_token: cipher.decrypt(company, &refresh_encrypted).map_err(|error| error.to_string())?,
+            access_token_expires_at_epoch: row.get(3),
+            refresh_token_expires_at_epoch: row.get(4),
+            scopes: row.get(5),
+            token_type: row.get(6),
+        }))
+    }
+
+    pub async fn mark_tiktok_reauth_required(
+        &self,
+        company_id: &str,
+        error: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let error = error.trim();
+        if error.is_empty() || error.len() > 2048 {
+            return Err("TikTok reauth error is invalid".into());
+        }
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "UPDATE tiktok_oauth_connections
+                    SET status='REAUTH_REQUIRED',last_error=$2,updated_at=now()
+                  WHERE company_id=$1",
+                &[&company, &error],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn mark_tiktok_revoked(
+        &self,
+        company_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "UPDATE tiktok_oauth_connections
+                    SET status='REVOKED',last_error=NULL,updated_at=now()
+                  WHERE company_id=$1",
+                &[&company],
+            )
+            .await?;
+        Ok(())
+    }
+
     pub async fn create_capital_allocation_plan(
         &self,
         company_id: &str,
