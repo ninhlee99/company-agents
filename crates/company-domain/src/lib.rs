@@ -113,7 +113,6 @@ impl CompanyEventEnvelope {
     }
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CreatorStatus {
     Testing,
