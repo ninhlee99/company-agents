@@ -16,11 +16,11 @@ function simulatedMutationsEnabled(): boolean {
 }
 
 function rejectSimulatedMutation(req: express.Request, res: express.Response, next: express.NextFunction) {
+  res.setHeader('X-Company-Data-Mode', SIMULATED_DATA_MODE);
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || simulatedMutationsEnabled()) {
     return next();
   }
 
-  res.setHeader('X-Company-Data-Mode', SIMULATED_DATA_MODE);
   return res.status(503).json({
     success: false,
     error: 'simulated_actions_disabled',
@@ -1046,6 +1046,9 @@ function generateAutoAuditReport(milestoneCycle: number) {
 // REST Endpoints
 app.get('/api/state', (req, res) => {
   res.json({
+    dataMode: SIMULATED_DATA_MODE,
+    simulatedMutationsEnabled: simulatedMutationsEnabled(),
+    truthBoundary: 'Synthetic in-memory state only; values are not evidence of real cash, revenue, orders, inventory, payouts, or provider success.',
     snapshot: state.snapshot,
     ledger: state.ledger.slice(0, 50),
     receipts: state.receipts.slice(0, 50),
