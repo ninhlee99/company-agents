@@ -8938,23 +8938,27 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             .ok_or("persisted growth trend not found")?;
 
         if inserted_trend.is_some() {
-            tx.execute(
-                "INSERT INTO outbox_events
-                 (company_id,event_type,aggregate_id,idempotency_key,payload)
-                 VALUES ($1,'TREND_DETECTED',$2,$3,$4)
-                 ON CONFLICT(company_id,idempotency_key) DO NOTHING",
-                &[
-                    &company,
-                    &trend.id,
-                    &format!("outbox:growth-trend:{}", trend.id),
-                    &serde_json::json!({
-                        "trend_id": trend.id,
-                        "trend_key": trend.signal.trend_key,
-                        "score_bps": trend.score_bps,
-                        "decision": growth_trend_decision_name(trend.decision)
-                    }),
-                ],
-            ).await?;
+            let event = company_domain::CompanyEventEnvelope::new(
+                company,
+                company_domain::CompanyEventType::TrendDetected,
+                "growth_trend",
+                Some(trend.id),
+                trend.signal.observed_at_epoch,
+                trend.id,
+                None,
+                format!("outbox:growth-trend:{}", trend.id),
+                serde_json::json!({
+                    "trend_id": trend.id,
+                    "trend_key": trend.signal.trend_key,
+                    "topic": trend.signal.topic,
+                    "source": trend.signal.source,
+                    "evidence_ref": trend.signal.evidence_ref,
+                    "confidence_bps": trend.signal.confidence_bps,
+                    "score_bps": trend.score_bps,
+                    "decision": growth_trend_decision_name(trend.decision)
+                }),
+            )?;
+            enqueue_company_event_tx(&tx, &event).await?;
         }
 
         let opportunity = if trend.decision == company_growth::TrendDecision::Pursue {
@@ -10414,6 +10418,62 @@ mod customer_intelligence_tests {
         assert_eq!(collection_rate_bps(0, 0), 0);
         assert_eq!(collection_rate_bps(100, 50), 5_000);
         assert_eq!(collection_rate_bps(100, 120), 10_000);
+    }
+}
+
+#[cfg(test)]
+mod trend_detected_event_tests {
+    use super::*;
+
+    fn signal() -> company_growth::TrendSignal {
+        company_growth::TrendSignal {
+            trend_key: "trend-1".into(),
+            company_id: Uuid::from_u128(8),
+            topic: "proof-first hooks".into(),
+            source: "analytics".into(),
+            evidence_ref: "evidence-1".into(),
+            observed_at_epoch: 1_800_000_000,
+            velocity_bps: 7_000,
+            audience_fit_bps: 8_000,
+            product_fit_bps: 7_500,
+            contentability_bps: 9_000,
+            competition_bps: 2_000,
+            confidence_bps: 8_500,
+            product_ref: Some("product-1".into()),
+            offer_ref: Some("offer-1".into()),
+            content_format: company_content::ContentFormat::ShortVideo,
+            max_budget_minor: 1000,
+            max_loss_minor: 500,
+            max_duration_seconds: 300,
+            success_metric: company_content::SuccessMetric::ClickThroughRate,
+            success_threshold_bps: 500,
+            policy_evidence_ref: "policy-1".into(),
+        }
+    }
+
+    #[test]
+    fn trend_event_uses_canonical_identity_and_evidence() {
+        let signal = signal();
+        let trend_id = Uuid::from_u128(9);
+        let event = company_domain::CompanyEventEnvelope::new(
+            signal.company_id,
+            company_domain::CompanyEventType::TrendDetected,
+            "growth_trend",
+            Some(trend_id),
+            signal.observed_at_epoch,
+            trend_id,
+            None,
+            format!("outbox:growth-trend:{}", trend_id),
+            serde_json::json!({
+                "trend_key": signal.trend_key,
+                "evidence_ref": signal.evidence_ref,
+                "score_bps": 7000
+            }),
+        ).unwrap();
+        assert_eq!(event.event_type_name(), "TREND_DETECTED");
+        assert_eq!(event.aggregate_id, Some(trend_id));
+        assert_eq!(event.correlation_id, trend_id);
+        assert_eq!(event.payload["evidence_ref"], "evidence-1");
     }
 }
 
