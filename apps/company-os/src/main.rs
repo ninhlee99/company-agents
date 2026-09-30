@@ -3865,7 +3865,6 @@ mod control_plane_audit_tests {
     }
 
     #[test]
-    #[test]
     fn fpa_variance_renderer_marks_missing_actual_unavailable() {
         let html = render_fpa_variance_html(&[company_store::ForecastVarianceRecord {
             forecast_id: uuid::Uuid::nil(),
@@ -3882,6 +3881,7 @@ mod control_plane_audit_tests {
         assert!(!html.contains("<td>0</td>"));
     }
 
+    #[test]
     fn readiness_renderer_keeps_state_dimensions_explicit() {
         let html = render_integration_readiness(&[IntegrationReadiness {
             key: "demo".into(),
@@ -3898,6 +3898,7 @@ mod control_plane_audit_tests {
         assert!(html.contains("external acceptance is not verified"));
     }
 
+    #[test]
     fn actor_id_is_a_non_secret_fingerprint() {
         let first = control_plane_actor_id(Some("token-value"));
         let second = control_plane_actor_id(Some("token-value"));
@@ -3995,6 +3996,7 @@ mod control_plane_audit_tests {
         );
     }
 
+    #[test]
     fn request_id_uses_safe_header_or_generates_one() {
         let request = Request::builder()
             .uri("/api/run")
