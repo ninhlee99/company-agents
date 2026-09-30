@@ -78,7 +78,7 @@ Business-unit and portfolio economics exist. Automated capital allocation and sh
 **Status: gated**
 Recurring autonomous operation is technically scaffolded, but unsupervised external side effects remain blocked until the production acceptance standard is satisfied.
 
+- Product freshness foundation: affiliate product ranking can apply a strict source-evidence age window and exclude stale, future-dated, missing or malformed product timestamps.
+
 ## Release rule
 Do not advance a phase until its previous phase passes tests and operational acceptance criteria.
-
-- Product freshness foundation: affiliate product ranking can apply a strict source-evidence age window and exclude stale, future-dated, missing or malformed product timestamps.
