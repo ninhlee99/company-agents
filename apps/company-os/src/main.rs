@@ -2410,7 +2410,8 @@ fn control_plane_actor_id(token: Option<&str>) -> String {
     match token.filter(|value| !value.is_empty()) {
         Some(token) => {
             let digest = Sha256::digest(token.as_bytes());
-            format!("bearer-sha256:{}", &hex::encode(digest)[..32])
+            let fingerprint: String = digest.iter().take(16).map(|byte| format!("{byte:02x}")).collect();
+            format!("bearer-sha256:{fingerprint}")
         }
         None => "anonymous".into(),
     }
