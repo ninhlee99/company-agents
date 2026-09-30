@@ -1193,10 +1193,16 @@ async fn autonomy_controls_get_api(
         )
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let env_stop = autonomy_emergency_stop_from_env()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let effective_emergency_stop = env_stop || record.controls.emergency_stop.enabled;
     Ok(Json(serde_json::json!({
+        "company_id": state.company_id,
         "controls": record.controls,
         "updated_at": record.updated_at,
-        "budgets": budgets
+        "effective_emergency_stop": effective_emergency_stop,
+        "budgets": budgets,
+        "identity_boundary": "actor is audit metadata; operator identity is the control-plane bearer token"
     })))
 }
 
