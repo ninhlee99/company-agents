@@ -356,11 +356,11 @@ export default function App() {
         setSnapshot(data.snapshot);
         triggerToast(`Simulation hoàn tất: synthetic outcome +${((data.simulatedRevenueGainMinor ?? 0) / 100).toFixed(2)} — không phải revenue thực tế.`);
         loadState();
-        return { success: true, steps: data.steps, revenueGainMinor: data.revenueGainMinor };
+        return { success: true, steps: data.steps, simulatedRevenueGainMinor: data.simulatedRevenueGainMinor };
       }
-      return { success: false, steps: [], revenueGainMinor: 0 };
+      return { success: false, steps: [], simulatedRevenueGainMinor: 0 };
     } catch (err) {
-      return { success: false, steps: [], revenueGainMinor: 0 };
+      return { success: false, steps: [], simulatedRevenueGainMinor: 0 };
     }
   };
 
