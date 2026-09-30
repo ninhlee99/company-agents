@@ -8463,31 +8463,49 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
                         c.name,
                         c.status,
                         i.currency,
-                        COUNT(i.id)::bigint,
-                        COUNT(i.id) FILTER (WHERE i.paid_minor > 0)::bigint,
-                        COALESCE(SUM(i.subtotal_minor),0)::text,
-                        COALESCE(SUM(i.paid_minor),0)::text,
-                        COALESCE(SUM(i.subtotal_minor-i.paid_minor)
-                            FILTER (WHERE i.status IN ('ISSUED','PARTIALLY_PAID')),0)::text,
-                        MAX(ip.occurred_at_epoch),
-                        COUNT(sc.id) FILTER (WHERE sc.status IN ('OPEN','ACKNOWLEDGED','IN_PROGRESS','WAITING_CUSTOMER'))::bigint
+                        i.invoice_count,
+                        i.invoices_with_payment_count,
+                        i.observed_billed_minor,
+                        i.observed_paid_minor,
+                        i.outstanding_minor,
+                        (
+                            SELECT MAX(ip.occurred_at_epoch)
+                              FROM invoice_payments ip
+                              JOIN invoices i2 ON i2.id=ip.invoice_id
+                             WHERE i2.company_id=c.company_id
+                               AND i2.customer_id=c.id
+                               AND i2.currency=i.currency
+                        ) AS last_payment_epoch,
+                        (
+                            SELECT COUNT(*)
+                              FROM support_cases sc
+                             WHERE sc.company_id=c.company_id
+                               AND sc.customer_id=c.id
+                               AND sc.status IN ('OPEN','ACKNOWLEDGED','IN_PROGRESS','WAITING_CUSTOMER')
+                        )::bigint AS open_support_case_count
                    FROM customers c
-                   JOIN invoices i
-                     ON i.company_id=c.company_id
-                    AND i.customer_id=c.id
-                   LEFT JOIN invoice_payments ip
-                     ON ip.invoice_id=i.id
-                    AND i.company_id=$1
-                   LEFT JOIN support_cases sc
-                     ON sc.company_id=c.company_id
-                    AND sc.customer_id=c.id
+                   JOIN LATERAL (
+                       SELECT i.currency,
+                              COUNT(*)::bigint AS invoice_count,
+                              COUNT(*) FILTER (WHERE i.paid_minor > 0)::bigint AS invoices_with_payment_count,
+                              COALESCE(SUM(i.subtotal_minor),0)::text AS observed_billed_minor,
+                              COALESCE(SUM(i.paid_minor),0)::text AS observed_paid_minor,
+                              COALESCE(
+                                  SUM(i.subtotal_minor-i.paid_minor)
+                                    FILTER (WHERE i.status IN ('ISSUED','PARTIALLY_PAID')),
+                                  0
+                              )::text AS outstanding_minor
+                         FROM invoices i
+                        WHERE i.company_id=c.company_id
+                          AND i.customer_id=c.id
+                        GROUP BY i.currency
+                   ) i ON TRUE
                   WHERE c.company_id=$1
-                  GROUP BY c.id,c.name,c.status,i.currency
-                  ORDER BY COALESCE(SUM(i.paid_minor),0) DESC,c.id,i.currency
+                  ORDER BY i.observed_paid_minor DESC,c.id,i.currency
                   LIMIT $2",
                 &[&company, &limit],
             )
-            .await?;
+            .await?;;
 
         rows.into_iter()
             .map(|row| {
