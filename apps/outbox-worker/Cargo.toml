@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 company-store = { path = "../../crates/company-store" }
+company-safety-controls = { path = "../../crates/company-safety-controls" }
 commercial-sales = { path = "../../crates/commercial-sales" }
 hex = "0.4"
 hmac = "0.12"
