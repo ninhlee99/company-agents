@@ -3458,9 +3458,9 @@ impl CompanyStore {
         Ok(controls.budgets.limit(kind).saturating_sub(used).max(0))
     }
 
-    pub async fn consume_autonomy_budget(
-        &self,
-        company_id: &str,
+    async fn consume_autonomy_budget_tx(
+        tx: &tokio_postgres::Transaction<'_>,
+        company: Uuid,
         kind: company_safety_controls::BudgetKind,
         amount: i128,
         idempotency_key: &str,
@@ -3472,12 +3472,8 @@ impl CompanyStore {
         if amount <= 0 {
             return Err("autonomy budget amount must be positive".into());
         }
-        let company = Uuid::parse_str(company_id)?;
         let period = company_safety_controls::period_start_epoch(now_epoch)
             .map_err(|error| error.to_string())?;
-        let mut client = self.client.lock().await;
-        let tx = client.transaction().await?;
-
         tx.execute(
             "INSERT INTO autonomy_control_state
              (company_id, emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
@@ -3499,38 +3495,36 @@ impl CompanyStore {
             )
             .await?
         {
-            let used = tx
-                .query_one(
+            let replay_period: i64 = row.get(0);
+            let requested = parse_i128_numeric(&row.get::<_, String>(1))?;
+            let used_after = parse_i128_numeric(
+                &tx.query_one(
                     "SELECT used::text
                        FROM autonomy_budget_usage
                       WHERE company_id=$1 AND budget_kind=$2 AND period_start_epoch=$3",
-                    &[&company, &kind.as_str(), &row.get::<_, i64>(0)],
+                    &[&company, &kind.as_str(), &replay_period],
                 )
                 .await?
-                .get::<_, String>(0);
-            let used_after = parse_i128_numeric(&used)?;
-            let requested = parse_i128_numeric(&row.get::<_, String>(1))?;
-            let period_start_epoch = row.get::<_, i64>(0);
-            let controls = load_safety_controls_for_tx(&tx, company).await?;
+                .get::<_, String>(0),
+            )?;
+            let controls = load_safety_controls_for_tx(tx, company).await?;
             let daily_limit = controls.budgets.limit(kind);
             let used_before = used_after
                 .checked_sub(requested)
                 .ok_or("autonomy budget replay accounting underflow")?;
-            let decision = company_safety_controls::BudgetDecision {
+            return Ok(company_safety_controls::BudgetDecision {
                 kind,
-                period_start_epoch,
+                period_start_epoch: replay_period,
                 daily_limit,
                 used_before,
                 requested,
                 remaining_after: daily_limit.saturating_sub(used_after).max(0),
                 allowed: true,
                 reason: "idempotent replay: consumption already recorded".into(),
-            };
-            tx.commit().await?;
-            return Ok(decision);
+            });
         }
 
-        let controls = load_safety_controls_for_tx(&tx, company).await?;
+        let controls = load_safety_controls_for_tx(tx, company).await?;
         tx.execute(
             "INSERT INTO autonomy_budget_usage
              (company_id,budget_kind,period_start_epoch,used)
@@ -3539,14 +3533,16 @@ impl CompanyStore {
             &[&company, &kind.as_str(), &period],
         )
         .await?;
-        let used: i128 = parse_i128_numeric(
+        let used = parse_i128_numeric(
             &tx.query_one(
                 "SELECT used::text
                    FROM autonomy_budget_usage
                   WHERE company_id=$1 AND budget_kind=$2 AND period_start_epoch=$3
                   FOR UPDATE",
                 &[&company, &kind.as_str(), &period],
-            ).await?.get::<_, String>(0)
+            )
+            .await?
+            .get::<_, String>(0),
         )?;
 
         let decision = company_safety_controls::decide_budget(
@@ -3555,9 +3551,9 @@ impl CompanyStore {
             now_epoch,
             used,
             amount,
-        ).map_err(|error| error.to_string())?;
+        )
+        .map_err(|error| error.to_string())?;
         if !decision.allowed {
-            tx.rollback().await?;
             return Ok(decision);
         }
 
@@ -3595,6 +3591,30 @@ impl CompanyStore {
                     "used_after": next_used
                 }),
             ],
+        )
+        .await?;
+
+        Ok(decision)
+    }
+
+    pub async fn consume_autonomy_budget(
+        &self,
+        company_id: &str,
+        kind: company_safety_controls::BudgetKind,
+        amount: i128,
+        idempotency_key: &str,
+        now_epoch: i64,
+    ) -> Result<company_safety_controls::BudgetDecision, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let decision = Self::consume_autonomy_budget_tx(
+            &tx,
+            company,
+            kind,
+            amount,
+            idempotency_key,
+            now_epoch,
         )
         .await?;
         tx.commit().await?;
