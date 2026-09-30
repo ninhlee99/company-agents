@@ -8516,11 +8516,7 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
                     committed_sponsorship_minor: committed,
                     delivered_sponsorship_minor: delivered,
                     completed_sponsorship_count: row.get(9),
-                    sponsorship_delivery_bps: if committed > 0 {
-                        (delivered.saturating_mul(10_000) / committed) as i64
-                    } else {
-                        0
-                    },
+                    sponsorship_delivery_bps: sponsorship_delivery_ratio_bps(delivered, committed),
                     invoice_count: row.get(10),
                     issued_invoice_minor: parse_i128_numeric(&row.get::<_, String>(11))?,
                     paid_invoice_minor: parse_i128_numeric(&row.get::<_, String>(12))?,
@@ -10209,6 +10205,17 @@ fn content_record_from_row(
     company_content::validate_item(&item).map_err(|error| error.to_string())?;
     Ok(ContentRecord { item, created_at: row.get(28) })
 }
+fn sponsorship_delivery_ratio_bps(delivered: i128, committed: i128) -> i64 {
+    if delivered <= 0 || committed <= 0 {
+        return 0;
+    }
+    delivered
+        .saturating_mul(10_000)
+        .checked_div(committed)
+        .unwrap_or(0)
+        .clamp(0, 10_000) as i64
+}
+
 fn payment_simulation_allowed(simulation_enabled: bool, production_environment: bool) -> bool {
     simulation_enabled && !production_environment
 }
@@ -10234,6 +10241,19 @@ fn parse_i128_numeric(
     trimmed
         .parse::<i128>()
         .map_err(|error| format!("invalid integer numeric value: {error}").into())
+}
+
+#[cfg(test)]
+mod commercial_report_tests {
+    use super::*;
+
+    #[test]
+    fn sponsorship_delivery_ratio_is_bounded() {
+        assert_eq!(sponsorship_delivery_ratio_bps(0, 100), 0);
+        assert_eq!(sponsorship_delivery_ratio_bps(50, 100), 5_000);
+        assert_eq!(sponsorship_delivery_ratio_bps(100, 100), 10_000);
+        assert_eq!(sponsorship_delivery_ratio_bps(200, 100), 10_000);
+    }
 }
 
 #[cfg(test)]
