@@ -1767,7 +1767,7 @@ impl CompanyStore {
             enqueue_company_event_tx(&tx, &completed_event).await?;
 
             let learning_event = company_domain::CompanyEventEnvelope::new(
-                observation.company_id.parse()?,
+                observation.company_id,
                 company_domain::CompanyEventType::LearningEntryRecorded,
                 "learning_entry",
                 Some(learning_id),
