@@ -4122,6 +4122,31 @@ mod control_plane_audit_tests {
     }
 
     #[test]
+    fn traceparent_is_normalized_or_falls_back_to_request_id_hash() {
+        let request = Request::builder()
+            .uri("/api/run")
+            .header(
+                "traceparent",
+                "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+            )
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(
+            normalized_trace_id(&request, "req-123"),
+            "4bf92f3577b34da6a3ce929d0e0e4736"
+        );
+
+        let request = Request::builder()
+            .uri("/api/run")
+            .header("traceparent", "invalid")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let fallback = normalized_trace_id(&request, "req-123");
+        assert_eq!(fallback.len(), 32);
+        assert!(fallback.chars().all(|value| value.is_ascii_hexdigit()));
+    }
+
+    #[test]
     fn request_id_uses_safe_header_or_generates_one() {
         let request = Request::builder()
             .uri("/api/run")
