@@ -3339,6 +3339,24 @@ impl CompanyStore {
             )
             .await?;
 
+        let previous_json = previous
+            .as_ref()
+            .map(|row| {
+                serde_json::json!({
+                    "emergency_stop_enabled": row.get::<_, bool>(0),
+                    "emergency_stop_reason": row.get::<_, Option<String>>(1),
+                    "emergency_stop_actor": row.get::<_, String>(2),
+                    "budgets": {
+                        "content_publish_daily": row.get::<_, String>(3),
+                        "ads_spend_daily_minor": row.get::<_, String>(4),
+                        "live_minutes_daily": row.get::<_, String>(5),
+                        "outbound_messages_daily": row.get::<_, String>(6),
+                        "autonomous_capital_daily_minor": row.get::<_, String>(7)
+                    }
+                })
+            })
+            .unwrap_or(serde_json::Value::Null);
+
         tx.execute(
             "INSERT INTO autonomy_control_state
              (company_id, emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
@@ -3398,6 +3416,28 @@ impl CompanyStore {
             )
             .await?;
         }
+
+        tx.execute(
+            "INSERT INTO audit_log
+             (company_id, actor_type, actor_id, action, resource_type, resource_id, decision, metadata)
+             VALUES ($1,'CONTROL_PLANE',$2,'AUTONOMY_CONTROLS_CHANGED','AUTONOMY_CONTROL',$3,$4,$5)",
+            &[
+                &company,
+                &actor.trim(),
+                &company.to_string(),
+                &if emergency_stop_enabled { "EMERGENCY_STOP_ON" } else { "EMERGENCY_STOP_OFF" },
+                &serde_json::json!({
+                    "previous": previous_json,
+                    "current": {
+                        "emergency_stop_enabled": emergency_stop_enabled,
+                        "emergency_stop_reason": emergency_stop_reason,
+                        "actor": actor.trim(),
+                        "budgets": budgets
+                    }
+                }),
+            ],
+        )
+        .await?;
 
         let row = tx
             .query_one(
