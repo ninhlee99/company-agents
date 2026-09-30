@@ -1105,6 +1105,68 @@ async fn ceo_command_center_api(
         })
 }
 
+fn autonomy_policy_from_env() -> Result<company_autonomy::AutonomyPolicy, String> {
+    let max_level = parse_autonomy_level(
+        &std::env::var("AUTONOMY_MAX_LEVEL").unwrap_or_else(|_| "SIMULATE".into()),
+    )?;
+    let min_confidence_bps = std::env::var("AUTONOMY_MIN_CONFIDENCE_BPS")
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .unwrap_or(8_500);
+    let min_evidence_count = std::env::var("AUTONOMY_MIN_EVIDENCE_COUNT")
+        .ok()
+        .and_then(|value| value.parse::<u8>().ok())
+        .unwrap_or(2);
+    let max_limited_cost_minor = std::env::var("AUTONOMY_MAX_LIMITED_COST_MINOR")
+        .ok()
+        .and_then(|value| value.parse::<i128>().ok())
+        .unwrap_or(250);
+    let min_runway_days = std::env::var("AUTONOMY_MIN_RUNWAY_DAYS")
+        .ok()
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(30);
+    let allow_strategic = parse_bool_env("AUTONOMY_ALLOW_STRATEGIC", false);
+    company_autonomy::policy_with(
+        max_level,
+        min_confidence_bps,
+        min_evidence_count,
+        max_limited_cost_minor,
+        min_runway_days,
+        allow_strategic,
+    )
+}
+
+fn parse_autonomy_level(value: &str) -> Result<company_autonomy::AutonomyLevel, String> {
+    match value.trim().to_ascii_uppercase().as_str() {
+        "OBSERVE" => Ok(company_autonomy::AutonomyLevel::Observe),
+        "RECOMMEND" => Ok(company_autonomy::AutonomyLevel::Recommend),
+        "SIMULATE" => Ok(company_autonomy::AutonomyLevel::Simulate),
+        "HUMAN_APPROVE" | "HUMAN-APPROVE" => Ok(company_autonomy::AutonomyLevel::HumanApprove),
+        "LIMITED_AUTONOMY" | "LIMITED" => Ok(company_autonomy::AutonomyLevel::LimitedAutonomy),
+        "STRATEGIC_AUTONOMY" | "STRATEGIC" => Ok(company_autonomy::AutonomyLevel::StrategicAutonomy),
+        _ => Err("invalid AUTONOMY_MAX_LEVEL".into()),
+    }
+}
+
+fn parse_bool_env(name: &str, default: bool) -> bool {
+    std::env::var(name)
+        .ok()
+        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(default)
+}
+
+fn autonomy_emergency_stop_from_env() -> Result<bool, String> {
+    let raw = std::env::var("AUTONOMY_EMERGENCY_STOP").unwrap_or_else(|_| "false".into());
+    let normalized = raw.trim().to_ascii_lowercase();
+    if matches!(normalized.as_str(), "1" | "true" | "yes" | "on") {
+        Ok(true)
+    } else if matches!(normalized.as_str(), "0" | "false" | "no" | "off") {
+        Ok(false)
+    } else {
+        Err("AUTONOMY_EMERGENCY_STOP must be boolean".into())
+    }
+}
+
 fn configured_revenue_target_minor(currency: &str) -> Result<i128, StatusCode> {
     if let Some(value) = std::env::var("MONTHLY_REVENUE_TARGET_MINOR")
         .ok()
