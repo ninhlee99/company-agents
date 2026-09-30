@@ -1644,47 +1644,6 @@ async fn latest_capital_plan_api(
         })
 }
 
-async fn create_capital_plan_api(
-    State(state): State<AppState>,
-    Json(request): Json<CapitalAllocationRequest>,
-) -> Result<Json<company_store::CapitalAllocationRecord>, StatusCode> {
-    let snapshot = state.company.read().await.clone();
-    let mut policy = request.policy;
-    policy.company_status = snapshot.status;
-    policy.cash_available_minor = snapshot.cash_minor.max(0);
-    policy.runway_days = snapshot.runway_days.max(0);
-    policy.emergency_stop = policy.emergency_stop || autonomy_emergency_stop_from_env().unwrap_or(true);
-
-    state
-        .store
-        .create_capital_allocation_plan(
-            &state.company_id,
-            &request.plan_key,
-            &policy,
-            &request.candidates,
-        )
-        .await
-        .map(Json)
-        .map_err(|error| {
-            tracing::warn!(%error, "capital allocation plan rejected");
-            StatusCode::BAD_REQUEST
-        })
-}
-
-async fn latest_capital_plan_api(
-    State(state): State<AppState>,
-) -> Result<Json<Option<company_store::CapitalAllocationRecord>>, StatusCode> {
-    state
-        .store
-        .latest_capital_allocation_plan(&state.company_id)
-        .await
-        .map(Json)
-        .map_err(|error| {
-            tracing::warn!(%error, "capital allocation plan unavailable");
-            StatusCode::SERVICE_UNAVAILABLE
-        })
-}
-
 async fn business_units_api(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<company_organization::BusinessUnit>>, StatusCode> {
