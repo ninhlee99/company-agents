@@ -284,6 +284,13 @@ struct CapitalAllocationRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct ProfitCockpitRequest {
+    budget_minor: i128,
+    policy: company_capital::CapitalPolicy,
+    candidates: Vec<company_capital::CapitalCandidate>,
+}
+
+#[derive(Debug, Deserialize)]
 struct ContentObservationRequest {
     observation: company_content::ContentObservation,
 }
@@ -2978,6 +2985,66 @@ async fn create_capital_plan_api(
         })
 }
 
+async fn profit_cockpit_api(
+    State(state): State<AppState>,
+    Json(request): Json<ProfitCockpitRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if request.budget_minor <= 0 {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let snapshot = state.company.read().await.clone();
+    let mut policy = request.policy;
+    policy.company_status = snapshot.status;
+    policy.cash_available_minor = snapshot.cash_minor.max(0);
+    policy.runway_days = snapshot.runway_days.max(0);
+
+    let env_stop = autonomy_emergency_stop_from_env().unwrap_or(true);
+    let controls = state
+        .store
+        .autonomy_controls(&state.company_id)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    policy.emergency_stop =
+        policy.emergency_stop || env_stop || controls.controls.emergency_stop.enabled;
+
+    let now_epoch = time::OffsetDateTime::now_utc().unix_timestamp();
+    let capital_remaining = state
+        .store
+        .autonomy_budget_remaining(
+            &state.company_id,
+            company_safety_controls::BudgetKind::AutonomousCapital,
+            now_epoch,
+        )
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    policy.discretionary_budget_minor = policy
+        .discretionary_budget_minor
+        .min(capital_remaining)
+        .min(request.budget_minor);
+
+    let plan = company_capital::plan_with_id(
+        uuid::Uuid::new_v4(),
+        &policy,
+        &request.candidates,
+    )
+    .map_err(|error| {
+        tracing::warn!(%error, "profit cockpit decision support rejected");
+        StatusCode::BAD_REQUEST
+    })?;
+
+    Ok(Json(serde_json::json!({
+        "currency": state.currency.clone(),
+        "requested_budget_minor": request.budget_minor,
+        "plan": plan,
+        "decision_support_only": true,
+        "cash_moved": false,
+        "external_action_executed": false,
+        "disclaimer": "This is evidence-backed decision support. It does not authorize spend, move cash, execute ads, publish content, or settle payments."
+    })))
+}
+
 async fn latest_capital_plan_api(
     State(state): State<AppState>,
 ) -> Result<Json<Option<company_store::CapitalAllocationRecord>>, StatusCode> {
@@ -4463,6 +4530,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/growth/opportunities", get(growth_opportunities_api))
         .route("/api/growth/content", post(growth_content_api))
         .route("/api/capital/plan", get(latest_capital_plan_api).post(create_capital_plan_api))
+        .route("/api/capital/profit-cockpit", post(profit_cockpit_api))
         .route("/api/compliance/policies", post(policy_snapshot_api))
         .route("/api/compliance/checks", post(compliance_check_api))
         .route("/api/compliance/status", get(compliance_status_api))
