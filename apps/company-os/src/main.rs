@@ -3393,6 +3393,7 @@ fn normalized_trace_id(request: &Request, request_id: &str) -> String {
                 return None;
             }
             if version.len() == 2
+                && !version.eq_ignore_ascii_case("ff")
                 && trace_id.len() == 32
                 && span_id.len() == 16
                 && flags.len() == 2
@@ -4186,6 +4187,21 @@ mod control_plane_audit_tests {
             extra_segment_fallback,
             "4bf92f3577b34da6a3ce929d0e0e4736"
         );
+        assert_eq!(extra_segment_fallback.len(), 32);
+
+        let request = Request::builder()
+            .uri("/api/run")
+            .header(
+                "traceparent",
+                "ff-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+            )
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let version_ff_fallback = normalized_trace_id(&request, "req-ff");
+        assert_ne!(version_ff_fallback, "4bf92f3577b34da6a3ce929d0e0e4736");
+        assert_eq!(version_ff_fallback.len(), 32);
+        assert!(version_ff_fallback.chars().all(|value| value.is_ascii_hexdigit()));
+
         assert_eq!(fallback.len(), 32);
         assert!(fallback.chars().all(|value| value.is_ascii_hexdigit()));
     }
