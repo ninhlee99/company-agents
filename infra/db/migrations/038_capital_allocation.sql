@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS capital_allocation_plans (
   id uuid PRIMARY KEY,
   company_id uuid NOT NULL REFERENCES companies(id),
   plan_key text NOT NULL,
+  inputs_hash text NOT NULL CHECK (inputs_hash LIKE 'sha256:%'),
   policy_json jsonb NOT NULL,
   total_capital_minor numeric(39,0) NOT NULL CHECK (total_capital_minor >= 0),
   planned_capital_minor numeric(39,0) NOT NULL CHECK (planned_capital_minor >= 0),
