@@ -173,7 +173,7 @@ export const BasicDashboard: React.FC<BasicDashboardProps> = ({
                 Kỳ #{snapshot.cycle_count}
               </span>
             </div>
-            <p className="text-xs text-slate-400">9 vị trí AI tự động điều phối và tạo doanh thu</p>
+            <p className="text-xs text-slate-400">9 vị trí AI trong dữ liệu mô phỏng; không phải doanh thu thực</p>
           </div>
         </div>
 
