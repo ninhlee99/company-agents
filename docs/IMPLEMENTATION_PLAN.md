@@ -45,6 +45,8 @@ Durable media jobs, sandboxed FFmpeg, FFprobe QA and publishing approval contrac
 
 **Next product work:** proposal/sponsorship status workflows, richer delivery/reporting and broader verified revenue ingestion.
 
+- Competitor intelligence foundation: evidence-backed observations and owned-content coverage can be scored deterministically into content whitespace gaps.
+
 ## Phase 7 — Human Organization
 **Status: core economics implemented**
 - Hiring governance, employees, payroll obligations, accrual/payment accounting and business-unit economics.

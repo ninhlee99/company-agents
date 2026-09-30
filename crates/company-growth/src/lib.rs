@@ -8,6 +8,147 @@ const MAX_TEXT: usize = 2_000;
 const MAX_KEY: usize = 256;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CompetitorObservation {
+    pub company_id: Uuid,
+    pub competitor_id: String,
+    pub content_key: String,
+    pub topic: String,
+    pub source: String,
+    pub evidence_ref: String,
+    pub observed_at_epoch: i64,
+    pub audience_signal_bps: u32,
+    pub engagement_signal_bps: u32,
+    pub offer_presence_bps: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OwnedContentCoverage {
+    pub company_id: Uuid,
+    pub topic: String,
+    pub coverage_bps: u32,
+    pub evidence_ref: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContentWhitespaceGap {
+    pub topic: String,
+    pub competitor_demand_bps: u32,
+    pub owned_coverage_bps: u32,
+    pub whitespace_bps: u32,
+    pub priority_bps: u32,
+    pub evidence_refs: Vec<String>,
+    pub reason: String,
+}
+
+pub fn evaluate_content_whitespace(
+    observations: &[CompetitorObservation],
+    owned_coverage: &[OwnedContentCoverage],
+    as_of_epoch: i64,
+    max_age_seconds: i64,
+) -> Result<Vec<ContentWhitespaceGap>, String> {
+    if as_of_epoch <= 0 {
+        return Err("whitespace as_of_epoch must be positive".into());
+    }
+    if !(60..=31_536_000).contains(&max_age_seconds) {
+        return Err("whitespace max_age_seconds is outside safe bounds".into());
+    }
+    for observation in observations {
+        if observation.company_id == Uuid::nil()
+            || observation.observed_at_epoch <= 0
+            || observation.observed_at_epoch > as_of_epoch
+        {
+            return Err("competitor observation has invalid company/time scope".into());
+        }
+        for (name, value) in [
+            ("audience_signal_bps", observation.audience_signal_bps),
+            ("engagement_signal_bps", observation.engagement_signal_bps),
+            ("offer_presence_bps", observation.offer_presence_bps),
+        ] {
+            if value > 10_000 {
+                return Err(format!("{name} must be between 0 and 10000 bps"));
+            }
+        }
+        require_text("competitor_id", &observation.competitor_id, MAX_KEY)?;
+        require_text("content_key", &observation.content_key, MAX_KEY)?;
+        require_text("topic", &observation.topic, MAX_TEXT)?;
+        require_text("source", &observation.source, 256)?;
+        require_text("evidence_ref", &observation.evidence_ref, 256)?;
+        if as_of_epoch.saturating_sub(observation.observed_at_epoch) > max_age_seconds {
+            continue;
+        }
+    }
+    for coverage in owned_coverage {
+        if coverage.company_id == Uuid::nil() {
+            return Err("owned coverage company_id is required".into());
+        }
+        require_text("coverage.topic", &coverage.topic, MAX_TEXT)?;
+        require_text("coverage.evidence_ref", &coverage.evidence_ref, 256)?;
+        if coverage.coverage_bps > 10_000 {
+            return Err("coverage_bps must be between 0 and 10000 bps".into());
+        }
+    }
+
+    let mut topics: std::collections::BTreeMap<String, (Vec<u32>, Vec<String>)> =
+        std::collections::BTreeMap::new();
+    for observation in observations {
+        if as_of_epoch.saturating_sub(observation.observed_at_epoch) > max_age_seconds {
+            continue;
+        }
+        let demand = (
+            u64::from(observation.audience_signal_bps) * 50
+                + u64::from(observation.engagement_signal_bps) * 30
+                + u64::from(observation.offer_presence_bps) * 20
+        ) / 100;
+        let entry = topics
+            .entry(observation.topic.trim().to_ascii_lowercase())
+            .or_insert_with(|| (Vec::new(), Vec::new()));
+        entry.0.push(demand as u32);
+        entry.1.push(observation.evidence_ref.clone());
+    }
+
+    let mut gaps = Vec::new();
+    for (topic, (signals, mut evidence_refs)) in topics {
+        let competitor_demand_bps =
+            (signals.iter().map(|value| u64::from(*value)).sum::<u64>() / signals.len() as u64)
+                as u32;
+        let owned_coverage_bps = owned_coverage
+            .iter()
+            .filter(|coverage| coverage.topic.trim().eq_ignore_ascii_case(&topic))
+            .map(|coverage| coverage.coverage_bps)
+            .max()
+            .unwrap_or(0);
+        let whitespace_bps = competitor_demand_bps.saturating_sub(owned_coverage_bps);
+        let priority_bps =
+            ((u64::from(competitor_demand_bps) * 60 + u64::from(whitespace_bps) * 40) / 100) as u32;
+        if whitespace_bps == 0 {
+            continue;
+        }
+        for coverage in owned_coverage
+            .iter()
+            .filter(|coverage| coverage.topic.trim().eq_ignore_ascii_case(&topic))
+        {
+            evidence_refs.push(coverage.evidence_ref.clone());
+        }
+        evidence_refs.sort();
+        evidence_refs.dedup();
+        gaps.push(ContentWhitespaceGap {
+            topic: topic.clone(),
+            competitor_demand_bps,
+            owned_coverage_bps,
+            whitespace_bps,
+            priority_bps,
+            evidence_refs,
+            reason: format!(
+                "Competitor evidence indicates demand at {} bps while owned-content coverage is {} bps.",
+                competitor_demand_bps, owned_coverage_bps
+            ),
+        });
+    }
+
+    gaps.sort_by(|a, b| b.priority_bps.cmp(&a.priority_bps).then_with(|| a.topic.cmp(&b.topic)));
+    Ok(gaps)
+}
+
 pub struct TrendSignal {
     pub company_id: Uuid,
     pub trend_key: String,
@@ -259,6 +400,97 @@ mod tests {
             success_threshold_bps: 500,
             policy_evidence_ref: "policy-2026-09".into(),
         }
+    }
+
+    #[test]
+    fn whitespace_is_deterministic_and_evidence_backed() {
+        let company_id = Uuid::new_v4();
+        let observations = vec![
+            CompetitorObservation {
+                company_id,
+                competitor_id: "competitor-a".into(),
+                content_key: "a-1".into(),
+                topic: "standing desk".into(),
+                source: "verified-competitor-feed".into(),
+                evidence_ref: "comp-a-1".into(),
+                observed_at_epoch: 1_800_000_000,
+                audience_signal_bps: 9_000,
+                engagement_signal_bps: 8_000,
+                offer_presence_bps: 7_000,
+            },
+            CompetitorObservation {
+                company_id,
+                competitor_id: "competitor-b".into(),
+                content_key: "b-1".into(),
+                topic: "standing desk".into(),
+                source: "verified-competitor-feed".into(),
+                evidence_ref: "comp-b-1".into(),
+                observed_at_epoch: 1_800_000_100,
+                audience_signal_bps: 8_000,
+                engagement_signal_bps: 7_000,
+                offer_presence_bps: 9_000,
+            },
+        ];
+        let owned = vec![OwnedContentCoverage {
+            company_id,
+            topic: "standing desk".into(),
+            coverage_bps: 2_000,
+            evidence_ref: "owned-coverage-1".into(),
+        }];
+        let gaps = evaluate_content_whitespace(&observations, &owned, 1_800_000_200, 86_400).unwrap();
+        assert_eq!(gaps.len(), 1);
+        assert!(gaps[0].whitespace_bps > 0);
+        assert!(gaps[0].priority_bps >= gaps[0].whitespace_bps);
+        assert_eq!(gaps[0].evidence_refs, vec!["comp-a-1", "comp-b-1", "owned-coverage-1"]);
+    }
+
+    #[test]
+    fn owned_coverage_requires_company_identity() {
+        let observation_company = Uuid::new_v4();
+        let coverage = OwnedContentCoverage {
+            company_id: Uuid::nil(),
+            topic: "standing desk".into(),
+            coverage_bps: 1_000,
+            evidence_ref: "owned-1".into(),
+        };
+        let observation = CompetitorObservation {
+            company_id: observation_company,
+            competitor_id: "competitor-a".into(),
+            content_key: "a-1".into(),
+            topic: "standing desk".into(),
+            source: "verified-competitor-feed".into(),
+            evidence_ref: "comp-a-1".into(),
+            observed_at_epoch: 1_800_000_000,
+            audience_signal_bps: 9_000,
+            engagement_signal_bps: 9_000,
+            offer_presence_bps: 9_000,
+        };
+        assert!(evaluate_content_whitespace(
+            &[observation],
+            &[coverage],
+            1_800_000_100,
+            86_400
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn stale_competitor_evidence_is_excluded() {
+        let company_id = Uuid::new_v4();
+        let observation = CompetitorObservation {
+            company_id,
+            competitor_id: "competitor-a".into(),
+            content_key: "a-1".into(),
+            topic: "old topic".into(),
+            source: "verified-competitor-feed".into(),
+            evidence_ref: "comp-a-1".into(),
+            observed_at_epoch: 1_000,
+            audience_signal_bps: 9_000,
+            engagement_signal_bps: 9_000,
+            offer_presence_bps: 9_000,
+        };
+        let gaps = evaluate_content_whitespace(&[observation], &[], 10_000, 60).unwrap();
+        assert!(gaps.is_empty());
     }
 
     #[test]
