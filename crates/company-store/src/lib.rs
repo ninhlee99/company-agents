@@ -20,6 +20,9 @@ pub struct RevenuePeriodMetrics {
     pub month_to_date_minor: i128,
     pub last_30_days_minor: i128,
     pub lifetime_minor: i128,
+    pub forecast_month_minor: i128,
+    pub run_rate_month_minor: i128,
+    pub forecast_confidence_bps: u32,
     pub revenue_transaction_count: i64,
 }
 
@@ -1009,10 +1012,29 @@ impl CompanyStore {
             )
             .await?;
 
+        let month_to_date_minor = parse_i128_numeric(&row.get::<_, String>(0))?;
+        let last_30_days_minor = parse_i128_numeric(&row.get::<_, String>(1))?;
+        let lifetime_minor = parse_i128_numeric(&row.get::<_, String>(2))?;
+        let now = time::OffsetDateTime::now_utc();
+        let days_in_month = now.date().month().length(now.year()) as i128;
+        let elapsed_days = now.day() as i128;
+        let forecast_month_minor = month_to_date_minor
+            .saturating_mul(days_in_month)
+            .checked_div(elapsed_days)
+            .unwrap_or(month_to_date_minor);
+        let run_rate_month_minor = last_30_days_minor
+            .saturating_mul(days_in_month)
+            .checked_div(30)
+            .unwrap_or(last_30_days_minor);
+        let forecast_confidence_bps = ((elapsed_days * 10_000) / days_in_month).min(10_000) as u32;
+
         Ok(RevenuePeriodMetrics {
-            month_to_date_minor: parse_i128_numeric(&row.get::<_, String>(0))?,
-            last_30_days_minor: parse_i128_numeric(&row.get::<_, String>(1))?,
-            lifetime_minor: parse_i128_numeric(&row.get::<_, String>(2))?,
+            month_to_date_minor,
+            last_30_days_minor,
+            lifetime_minor,
+            forecast_month_minor,
+            run_rate_month_minor,
+            forecast_confidence_bps,
             revenue_transaction_count: row.get(3),
         })
     }
