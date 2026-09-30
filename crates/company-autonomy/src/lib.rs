@@ -582,6 +582,27 @@ mod tests {
     }
 
     #[test]
+    fn human_approve_ceiling_never_executes_autonomously() {
+        let input = AutonomyGateInput {
+            emergency_stop: false,
+            company_status: CompanyStatus::Growth,
+            action: ActionKind::CreateExperiment,
+            cost_minor: 50,
+            risk: RiskTier::Medium,
+            confidence_bps: 9_000,
+            evidence_count: 5,
+            reversible: true,
+            external_side_effect: false,
+            policy: AutonomyPolicy {
+                max_level: AutonomyLevel::HumanApprove,
+                ..AutonomyPolicy::default()
+            },
+            simulation: Some(simulation()),
+        };
+        assert_eq!(assess(&input).unwrap().decision, AutonomyDecision::NeedsApproval);
+    }
+
+    #[test]
     fn limited_autonomy_requires_strong_gates() {
         let input = AutonomyGateInput {
             emergency_stop: false,
