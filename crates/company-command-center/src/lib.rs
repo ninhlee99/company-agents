@@ -360,6 +360,7 @@ pub struct CeoExamDomainResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CeoExamReport {
+    pub company_id: uuid::Uuid,
     pub exam_key: String,
     pub period_start_epoch: i64,
     pub period_end_epoch: i64,
@@ -371,6 +372,7 @@ pub struct CeoExamReport {
 }
 
 pub fn run_ceo_exam(
+    company_id: uuid::Uuid,
     exam_key: impl Into<String>,
     period_start_epoch: i64,
     period_end_epoch: i64,
@@ -378,6 +380,9 @@ pub fn run_ceo_exam(
     summary: &CommandCenterSummary,
     agent_evaluations: &[company_agent_evaluation::AgentEvaluation],
 ) -> Result<CeoExamReport, String> {
+    if company_id == uuid::Uuid::nil() {
+        return Err("CEO exam company_id is required".into());
+    }
     if period_start_epoch <= 0 || period_end_epoch <= period_start_epoch {
         return Err("CEO exam period must be positive and ordered".into());
     }
@@ -424,6 +429,7 @@ pub fn run_ceo_exam(
         .collect();
 
     Ok(CeoExamReport {
+        company_id,
         exam_key: exam_key.into(),
         period_start_epoch,
         period_end_epoch,
@@ -790,6 +796,89 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn ceo_exam_marks_missing_evidence_unknown_instead_of_zero() {
+        let value = input();
+        let summary = summarize(&value).unwrap();
+        let report = run_ceo_exam(
+            uuid::Uuid::new_v4(),
+            "test-exam",
+            1_800_000_000 - 86_400,
+            1_800_000_000,
+            &value,
+            &summary,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(report.domains.len(), 8);
+        assert_eq!(
+            report.domains.iter().find(|d| d.domain == CeoExamDomain::Ai).unwrap().status,
+            CeoExamStatus::Unknown
+        );
+        assert_eq!(report.domains.iter().filter(|d| d.status == CeoExamStatus::Unknown).count(), 1);
+        assert_eq!(report.overall_status, CeoExamStatus::Unknown);
+    }
+
+    #[test]
+    fn ceo_exam_flags_finance_and_compliance_exceptions() {
+        let mut value = input();
+        value.cash_minor = 0;
+        value.contribution_margin_mtd_minor = Some(-1);
+        value.affiliate_variance_mtd_minor = 100;
+        value.compliance.policy_ready = false;
+        let summary = summarize(&value).unwrap();
+        let report = run_ceo_exam(
+            uuid::Uuid::new_v4(),
+            "risk-exam",
+            1_800_000_000 - 86_400,
+            1_800_000_000,
+            &value,
+            &summary,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            report.domains.iter().find(|d| d.domain == CeoExamDomain::Finance).unwrap().status,
+            CeoExamStatus::Review
+        );
+        assert!(report.critical_findings.len() >= 2);
+    }
+
+    #[test]
+    fn ceo_exam_ai_domain_passes_with_full_outcome_evidence() {
+        let value = input();
+        let summary = summarize(&value).unwrap();
+        let eval = company_agent_evaluation::evaluate(&company_agent_evaluation::AgentEvaluationInput {
+            agent_name: "Growth".into(),
+            proposal_count: 10,
+            approved_count: 8,
+            rejected_count: 1,
+            revision_count: 1,
+            escalated_count: 0,
+            executed_count: 6,
+            deferred_count: 2,
+            observed_spend_minor: 1_000,
+            projected_revenue_minor: 2_000,
+            outcome_evidence_count: 6,
+            observed_revenue_delta_minor: 1_500,
+            observed_contribution_margin_delta_minor: 700,
+        }).unwrap();
+        let report = run_ceo_exam(
+            uuid::Uuid::new_v4(),
+            "ai-exam",
+            1_800_000_000 - 86_400,
+            1_800_000_000,
+            &value,
+            &summary,
+            &[eval],
+        )
+        .unwrap();
+        assert_eq!(
+            report.domains.iter().find(|d| d.domain == CeoExamDomain::Ai).unwrap().status,
+            CeoExamStatus::Pass
+        );
     }
 
     #[test]
