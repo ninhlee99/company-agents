@@ -308,6 +308,11 @@ fn autonomy_controls_correlation_id(company: Uuid, idempotency_key: &str) -> Uui
     Uuid::from_bytes(digest[..16].try_into().expect("sha256 digest is at least 16 bytes"))
 }
 
+fn sponsorship_event_correlation_id(company: Uuid, identity: &str) -> Uuid {
+    let digest = Sha256::digest(format!("sponsorship:{company}:{identity}").as_bytes());
+    Uuid::from_bytes(digest[..16].try_into().expect("sha256 digest is at least 16 bytes"))
+}
+
 fn revenue_graph_event_correlation_id(company: Uuid, edge_key: &str) -> Uuid {
     let digest = Sha256::digest(format!("revenue-graph:{company}:{edge_key}").as_bytes());
     Uuid::from_bytes(digest[..16].try_into().expect("sha256 digest is at least 16 bytes"))
@@ -9059,18 +9064,23 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
               WHERE company_id=$1 AND id=$2",
             &[&company, &sponsorship, &resolved],
         ).await?;
-        tx.execute(
-            "INSERT INTO outbox_events
-             (company_id,event_type,aggregate_id,idempotency_key,payload)
-             VALUES ($1,'SPONSORSHIP_STATUS_CHANGED',$2,$3,$4)
-             ON CONFLICT (company_id,idempotency_key) DO NOTHING",
-            &[
-                &company,
-                &sponsorship,
-                &format!("outbox:sponsorship-status:{}:{}", sponsorship, resolved),
-                &serde_json::json!({"sponsorship_id": sponsorship, "from": current, "to": resolved})
-            ],
-        ).await?;
+        let status_key = format!("outbox:sponsorship-status:{}:{}", sponsorship, resolved);
+        let status_event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::SponsorshipStatusChanged,
+            "sponsorship",
+            Some(sponsorship),
+            time::OffsetDateTime::now_utc().unix_timestamp(),
+            sponsorship_event_correlation_id(company, &status_key),
+            None,
+            status_key,
+            serde_json::json!({
+                "sponsorship_id": sponsorship,
+                "from": current,
+                "to": resolved
+            }),
+        )?;
+        enqueue_company_event_tx(&tx, &status_event).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -9110,23 +9120,24 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
               WHERE company_id=$1 AND id=$2",
             &[&company, &sponsorship, &next_delivered.to_string(), &next_status],
         ).await?;
-        tx.execute(
-            "INSERT INTO outbox_events
-             (company_id,event_type,aggregate_id,idempotency_key,payload)
-             VALUES ($1,'SPONSORSHIP_DELIVERY_RECORDED',$2,$3,$4)
-             ON CONFLICT (company_id,idempotency_key) DO NOTHING",
-            &[
-                &company,
-                &sponsorship,
-                &format!("outbox:sponsorship-delivery:{}:{}", sponsorship, next_delivered),
-                &serde_json::json!({
-                    "sponsorship_id": sponsorship,
-                    "delivered_minor": delivered_minor,
-                    "total_delivered_minor": next_delivered,
-                    "status": next_status
-                })
-            ],
-        ).await?;
+        let delivery_key = format!("outbox:sponsorship-delivery:{}:{}", sponsorship, next_delivered);
+        let delivery_event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::SponsorshipDeliveryRecorded,
+            "sponsorship",
+            Some(sponsorship),
+            time::OffsetDateTime::now_utc().unix_timestamp(),
+            sponsorship_event_correlation_id(company, &delivery_key),
+            None,
+            delivery_key,
+            serde_json::json!({
+                "sponsorship_id": sponsorship,
+                "delivered_minor": delivered_minor,
+                "total_delivered_minor": next_delivered,
+                "status": next_status
+            }),
+        )?;
+        enqueue_company_event_tx(&tx, &delivery_event).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -10656,6 +10667,62 @@ fn parse_i128_numeric(
     trimmed
         .parse::<i128>()
         .map_err(|error| format!("invalid integer numeric value: {error}").into())
+}
+
+#[cfg(test)]
+mod sponsorship_event_tests {
+    use super::*;
+
+    #[test]
+    fn sponsorship_status_event_preserves_transition_evidence() {
+        let company = Uuid::from_u128(701);
+        let sponsorship = Uuid::from_u128(702);
+        let key = "outbox:sponsorship-status:702:DELIVERING";
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::SponsorshipStatusChanged,
+            "sponsorship",
+            Some(sponsorship),
+            1_800_000_400,
+            sponsorship_event_correlation_id(company, key),
+            None,
+            key,
+            serde_json::json!({
+                "sponsorship_id": sponsorship,
+                "from": "CONTRACTED",
+                "to": "DELIVERING"
+            }),
+        ).unwrap();
+        assert_eq!(event.event_type_name(), "SPONSORSHIP_STATUS_CHANGED");
+        assert_eq!(event.aggregate_id, Some(sponsorship));
+        assert_eq!(event.payload["from"], "CONTRACTED");
+        assert_eq!(event.payload["to"], "DELIVERING");
+    }
+
+    #[test]
+    fn sponsorship_delivery_event_preserves_bounded_value() {
+        let company = Uuid::from_u128(703);
+        let sponsorship = Uuid::from_u128(704);
+        let key = "outbox:sponsorship-delivery:704:500";
+        let event = company_domain::CompanyEventEnvelope::new(
+            company,
+            company_domain::CompanyEventType::SponsorshipDeliveryRecorded,
+            "sponsorship",
+            Some(sponsorship),
+            1_800_000_401,
+            sponsorship_event_correlation_id(company, key),
+            None,
+            key,
+            serde_json::json!({
+                "sponsorship_id": sponsorship,
+                "delivered_minor": 200,
+                "total_delivered_minor": 500,
+                "status": "DELIVERING"
+            }),
+        ).unwrap();
+        assert_eq!(event.event_type_name(), "SPONSORSHIP_DELIVERY_RECORDED");
+        assert_eq!(event.payload["total_delivered_minor"], 500);
+    }
 }
 
 #[cfg(test)]
