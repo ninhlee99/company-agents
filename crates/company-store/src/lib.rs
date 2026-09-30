@@ -3994,7 +3994,8 @@ impl CompanyStore {
             return Err("TikTok reauth error is invalid".into());
         }
         let client = self.client.lock().await;
-        client
+        let mut tx = client; 
+        let changed = tx
             .execute(
                 "UPDATE tiktok_oauth_connections
                     SET status='REAUTH_REQUIRED',last_error=$2,updated_at=now()
@@ -4002,6 +4003,19 @@ impl CompanyStore {
                 &[&company, &error],
             )
             .await?;
+        if changed == 1 {
+            tx.execute(
+                "INSERT INTO audit_log
+                 (company_id,actor_type,actor_id,action,resource_type,resource_id,decision,metadata)
+                 VALUES ($1,'SYSTEM','tiktok-oauth','TIKTOK_OAUTH_REAUTH_REQUIRED','TIKTOK_CONNECTION',$2,'REAUTH_REQUIRED',$3)",
+                &[
+                    &company,
+                    &company.to_string(),
+                    &serde_json::json!({"error": error}),
+                ],
+            )
+            .await?;
+        }
         Ok(())
     }
 
