@@ -466,7 +466,6 @@ impl CompanyStore {
         edge: &company_revenue_graph::RevenueGraphEdge,
     ) -> Result<company_revenue_graph::RevenueGraphEdge, Box<dyn std::error::Error + Send + Sync>> {
         company_revenue_graph::validate_edge(edge).map_err(|error| error.to_string())?;
-        let company = edge.company_id;
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
         let stored = record_revenue_graph_edge_tx(&tx, edge).await?;
