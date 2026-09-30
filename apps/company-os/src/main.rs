@@ -3691,7 +3691,6 @@ mod control_plane_audit_tests {
     }
 
     #[test]
-    #[test]
     fn named_principal_config_validates_and_scopes_roles() {
         let raw = r#"[{"id":"alice","role":"admin","token":"admin-secret"},{"id":"bob","role":"operator","token":"operator-secret"},{"id":"carol","role":"read-only","token":"reader-secret"}]"#;
         let principals = parse_control_plane_principals(raw).unwrap();
@@ -3726,6 +3725,37 @@ mod control_plane_audit_tests {
         assert!(parse_control_plane_principals(r#"[{"id":"x","role":"operator","token":"secret"},{"id":"y","role":"admin","token":"secret"}]"#).is_err());
     }
 
+
+    #[test]
+    fn legacy_read_only_scope_cannot_mutate() {
+        assert_eq!(
+            control_plane_auth_scope(
+                "GET",
+                Some("read-token"),
+                "operator-token",
+                Some("read-token")
+            ),
+            Some("read-only")
+        );
+        assert_eq!(
+            control_plane_auth_scope(
+                "POST",
+                Some("read-token"),
+                "operator-token",
+                Some("read-token")
+            ),
+            None
+        );
+        assert_eq!(
+            control_plane_auth_scope(
+                "POST",
+                Some("operator-token"),
+                "operator-token",
+                Some("read-token")
+            ),
+            Some("operator")
+        );
+    }
 
     fn request_id_uses_safe_header_or_generates_one() {
         let request = Request::builder()
