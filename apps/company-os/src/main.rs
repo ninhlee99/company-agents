@@ -713,6 +713,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         state.company_id.clone(),
         command_center_html,
         agent_evaluation_html,
+        autonomy_html,
         format_minor(company.cash_minor, &state.currency),
         format_minor(revenue_periods.month_to_date_minor, &state.currency),
         revenue_periods.revenue_transaction_count,
