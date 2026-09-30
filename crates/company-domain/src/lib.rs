@@ -29,6 +29,7 @@ pub enum CompanyEventType {
     PublishIntentCompleted,
     PublishIntentApproved,
     LedgerTransactionCommitted,
+    AutonomyAssessmentRecorded,
 }
 
 impl CompanyEventType {
@@ -54,6 +55,7 @@ impl CompanyEventType {
             Self::PublishIntentCompleted => "PUBLISH_INTENT_COMPLETED",
             Self::PublishIntentApproved => "PUBLISH_INTENT_APPROVED",
             Self::LedgerTransactionCommitted => "LEDGER_TRANSACTION_COMMITTED",
+            Self::AutonomyAssessmentRecorded => "AUTONOMY_ASSESSMENT_RECORDED",
         }
     }
 }
