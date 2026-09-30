@@ -3123,7 +3123,7 @@ fn parse_control_plane_principals(raw: &str) -> Result<Vec<ControlPlanePrincipal
     if principals.is_empty() {
         return Err("CONTROL_PLANE_PRINCIPALS_JSON must contain at least one principal".into());
     }
-    for principal in &principals {
+    for (index, principal) in principals.iter().enumerate() {
         if principal.id.trim().is_empty() || principal.id.len() > 128 {
             return Err("control-plane principal id must be 1..128 bytes".into());
         }
@@ -3132,6 +3132,12 @@ fn parse_control_plane_principals(raw: &str) -> Result<Vec<ControlPlanePrincipal
         }
         if !matches!(principal.role.as_str(), "admin" | "operator" | "read-only") {
             return Err(format!("control-plane principal {} has unsupported role", principal.id));
+        }
+        if principals[..index]
+            .iter()
+            .any(|previous| previous.id == principal.id || previous.token == principal.token)
+        {
+            return Err("control-plane principals must have unique ids and tokens".into());
         }
     }
     Ok(principals)
