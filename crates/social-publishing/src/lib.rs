@@ -16,6 +16,11 @@ use tokio::{fs::File, io::AsyncReadExt, sync::Mutex, time::sleep};
 
 type HmacSha256 = Hmac<Sha256>;
 
+#[async_trait::async_trait]
+pub trait TikTokAccessTokenProvider: Send + Sync {
+    async fn access_token(&self) -> Result<String, PublishError>;
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApprovalReceipt {
     pub scope: String,
