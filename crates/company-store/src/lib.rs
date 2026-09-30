@@ -95,6 +95,12 @@ pub struct GrowthOpportunityRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AutonomyControlRecord {
+    pub controls: company_safety_controls::SafetyControls,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CapitalAllocationRecord {
     pub plan: company_capital::CapitalAllocationPlan,
     pub policy: company_capital::CapitalPolicy,
@@ -3159,6 +3165,294 @@ impl CompanyStore {
                 })
             })
             .collect()
+    }
+
+    pub async fn autonomy_controls(
+        &self,
+        company_id: &str,
+    ) -> Result<AutonomyControlRecord, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let now_epoch: i64 = tx
+            .query_one("SELECT EXTRACT(EPOCH FROM now())::bigint", &[])
+            .await?
+            .get(0);
+        tx.execute(
+            "INSERT INTO autonomy_control_state
+             (company_id, emergency_stop_enabled, emergency_stop_reason,
+              emergency_stop_actor, emergency_stop_changed_at_epoch,
+              content_publish_daily, ads_spend_daily_minor, live_minutes_daily,
+              outbound_messages_daily, autonomous_capital_daily_minor, updated_at_epoch)
+             VALUES ($1,false,NULL,'system-default',$2,10,0,60,100,0,$2)
+             ON CONFLICT(company_id) DO NOTHING",
+            &[&company, &now_epoch],
+        )
+        .await?;
+        let row = tx
+            .query_one(
+                "SELECT emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
+                        emergency_stop_changed_at_epoch, content_publish_daily::text,
+                        ads_spend_daily_minor::text, live_minutes_daily::text,
+                        outbound_messages_daily::text, autonomous_capital_daily_minor::text,
+                        updated_at_epoch, updated_at::text
+                   FROM autonomy_control_state
+                  WHERE company_id=$1",
+                &[&company],
+            )
+            .await?;
+        let controls = safety_controls_from_row(&row, company)?;
+        tx.commit().await?;
+        Ok(AutonomyControlRecord {
+            controls,
+            created_at: row.get(11),
+        })
+    }
+
+    pub async fn set_autonomy_controls(
+        &self,
+        company_id: &str,
+        emergency_stop_enabled: bool,
+        emergency_stop_reason: Option<&str>,
+        actor: &str,
+        budgets: &company_safety_controls::AutonomyBudgets,
+    ) -> Result<AutonomyControlRecord, Box<dyn std::error::Error + Send + Sync>> {
+        if actor.trim().is_empty() || actor.len() > 256 {
+            return Err("autonomy control actor is invalid".into());
+        }
+        budgets.validate().map_err(|error| error.to_string())?;
+        if emergency_stop_enabled
+            && emergency_stop_reason.map(str::trim).filter(|v| !v.is_empty()).is_none()
+        {
+            return Err("enabled emergency stop requires a reason".into());
+        }
+        if let Some(reason) = emergency_stop_reason {
+            if reason.trim().is_empty() || reason.len() > 1_024 {
+                return Err("autonomy control reason is invalid".into());
+            }
+        }
+
+        let company = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let now_epoch: i64 = tx
+            .query_one("SELECT EXTRACT(EPOCH FROM now())::bigint", &[])
+            .await?
+            .get(0);
+
+        let previous = tx
+            .query_opt(
+                "SELECT emergency_stop_enabled
+                   FROM autonomy_control_state
+                  WHERE company_id=$1
+                  FOR UPDATE",
+                &[&company],
+            )
+            .await?
+            .map(|row| row.get::<_, bool>(0));
+
+        tx.execute(
+            "INSERT INTO autonomy_control_state
+             (company_id, emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
+              emergency_stop_changed_at_epoch, content_publish_daily, ads_spend_daily_minor,
+              live_minutes_daily, outbound_messages_daily, autonomous_capital_daily_minor,
+              updated_at_epoch)
+             VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8::numeric,$9::numeric,$10::numeric,$5)
+             ON CONFLICT(company_id) DO UPDATE
+             SET emergency_stop_enabled=EXCLUDED.emergency_stop_enabled,
+                 emergency_stop_reason=EXCLUDED.emergency_stop_reason,
+                 emergency_stop_actor=EXCLUDED.emergency_stop_actor,
+                 emergency_stop_changed_at_epoch=CASE
+                    WHEN autonomy_control_state.emergency_stop_enabled
+                       IS DISTINCT FROM EXCLUDED.emergency_stop_enabled
+                    THEN EXCLUDED.emergency_stop_changed_at_epoch
+                    ELSE autonomy_control_state.emergency_stop_changed_at_epoch
+                 END,
+                 content_publish_daily=EXCLUDED.content_publish_daily,
+                 ads_spend_daily_minor=EXCLUDED.ads_spend_daily_minor,
+                 live_minutes_daily=EXCLUDED.live_minutes_daily,
+                 outbound_messages_daily=EXCLUDED.outbound_messages_daily,
+                 autonomous_capital_daily_minor=EXCLUDED.autonomous_capital_daily_minor,
+                 updated_at_epoch=EXCLUDED.updated_at_epoch",
+            &[
+                &company,
+                &emergency_stop_enabled,
+                &emergency_stop_reason,
+                &actor.trim(),
+                &now_epoch,
+                &budgets.content_publish_daily.to_string(),
+                &budgets.ads_spend_daily_minor.to_string(),
+                &budgets.live_minutes_daily.to_string(),
+                &budgets.outbound_messages_daily.to_string(),
+                &budgets.autonomous_capital_daily_minor.to_string(),
+            ],
+        )
+        .await?;
+
+        if previous != Some(emergency_stop_enabled)
+            || previous.is_some()
+        {
+            tx.execute(
+                "INSERT INTO outbox_events
+                 (company_id,event_type,aggregate_id,idempotency_key,payload)
+                 VALUES ($1,'AUTONOMY_CONTROLS_CHANGED',$2,$3,$4)
+                 ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+                &[
+                    &company,
+                    &company,
+                    &format!("outbox:autonomy-controls:{company}:{now_epoch}"),
+                    &serde_json::json!({
+                        "emergency_stop_enabled": emergency_stop_enabled,
+                        "actor": actor.trim(),
+                        "reason": emergency_stop_reason,
+                        "budgets": budgets
+                    }),
+                ],
+            )
+            .await?;
+        }
+
+        let row = tx
+            .query_one(
+                "SELECT emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
+                        emergency_stop_changed_at_epoch, content_publish_daily::text,
+                        ads_spend_daily_minor::text, live_minutes_daily::text,
+                        outbound_messages_daily::text, autonomous_capital_daily_minor::text,
+                        updated_at_epoch, updated_at::text
+                   FROM autonomy_control_state
+                  WHERE company_id=$1",
+                &[&company],
+            )
+            .await?;
+        let controls = safety_controls_from_row(&row, company)?;
+        let created_at: String = row.get(11);
+        tx.commit().await?;
+        Ok(AutonomyControlRecord { controls, created_at })
+    }
+
+    pub async fn consume_autonomy_budget(
+        &self,
+        company_id: &str,
+        kind: company_safety_controls::BudgetKind,
+        amount: i128,
+        idempotency_key: &str,
+        now_epoch: i64,
+    ) -> Result<company_safety_controls::BudgetDecision, Box<dyn std::error::Error + Send + Sync>> {
+        if idempotency_key.trim().is_empty() || idempotency_key.len() > 256 {
+            return Err("autonomy budget idempotency key is invalid".into());
+        }
+        if amount <= 0 {
+            return Err("autonomy budget amount must be positive".into());
+        }
+        let company = Uuid::parse_str(company_id)?;
+        let period = company_safety_controls::period_start_epoch(now_epoch)
+            .map_err(|error| error.to_string())?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        if let Some(row) = tx
+            .query_opt(
+                "SELECT period_start_epoch, amount::text
+                   FROM autonomy_budget_consumptions
+                  WHERE company_id=$1 AND budget_kind=$2 AND idempotency_key=$3",
+                &[&company, &kind.as_str(), &idempotency_key],
+            )
+            .await?
+        {
+            let used = tx
+                .query_one(
+                    "SELECT used::text
+                       FROM autonomy_budget_usage
+                      WHERE company_id=$1 AND budget_kind=$2 AND period_start_epoch=$3",
+                    &[&company, &kind.as_str(), &row.get::<_, i64>(0)],
+                )
+                .await?
+                .get::<_, String>(0);
+            let used_before = parse_i128_numeric(&used)?;
+            let requested = parse_i128_numeric(&row.get::<_, String>(1))?;
+            let controls = load_safety_controls_for_tx(&tx, company).await?;
+            let mut decision = company_safety_controls::decide_budget(
+                &controls,
+                kind,
+                now_epoch,
+                used_before.saturating_sub(requested),
+                requested,
+            )
+            .map_err(|error| error.to_string())?;
+            decision.reason = format!("idempotent replay: {}", decision.reason);
+            tx.commit().await?;
+            return Ok(decision);
+        }
+
+        let controls = load_safety_controls_for_tx(&tx, company).await?;
+        tx.execute(
+            "INSERT INTO autonomy_budget_usage
+             (company_id,budget_kind,period_start_epoch,used)
+             VALUES ($1,$2,$3,0)
+             ON CONFLICT(company_id,budget_kind,period_start_epoch) DO NOTHING",
+            &[&company, &kind.as_str(), &period],
+        )
+        .await?;
+        let used: i128 = parse_i128_numeric(
+            &tx.query_one(
+                "SELECT used::text
+                   FROM autonomy_budget_usage
+                  WHERE company_id=$1 AND budget_kind=$2 AND period_start_epoch=$3
+                  FOR UPDATE",
+                &[&company, &kind.as_str(), &period],
+            ).await?.get::<_, String>(0)
+        )?;
+
+        let decision = company_safety_controls::decide_budget(
+            &controls,
+            kind,
+            now_epoch,
+            used,
+            amount,
+        ).map_err(|error| error.to_string())?;
+        if !decision.allowed {
+            tx.rollback().await?;
+            return Ok(decision);
+        }
+
+        let next_used = used
+            .checked_add(amount)
+            .ok_or("autonomy budget usage overflow")?;
+        tx.execute(
+            "UPDATE autonomy_budget_usage
+                SET used=$4::numeric, updated_at=now()
+              WHERE company_id=$1 AND budget_kind=$2 AND period_start_epoch=$3",
+            &[&company, &kind.as_str(), &period, &next_used.to_string()],
+        )
+        .await?;
+        tx.execute(
+            "INSERT INTO autonomy_budget_consumptions
+             (company_id,budget_kind,period_start_epoch,amount,idempotency_key)
+             VALUES ($1,$2,$3,$4::numeric,$5)",
+            &[&company, &kind.as_str(), &period, &amount.to_string(), &idempotency_key],
+        )
+        .await?;
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'AUTONOMY_BUDGET_CONSUMED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[
+                &company,
+                &company,
+                &format!("outbox:autonomy-budget:{kind:?}:{company}:{idempotency_key}"),
+                &serde_json::json!({
+                    "kind": kind.as_str(),
+                    "amount": amount,
+                    "period_start_epoch": period,
+                    "used_before": used,
+                    "used_after": next_used
+                }),
+            ],
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(decision)
     }
 
     pub async fn create_capital_allocation_plan(
