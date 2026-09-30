@@ -3064,6 +3064,17 @@ async fn commercial_delivery_report_api(
     state.store.commercial_delivery_report(&state.company_id).await.map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
+async fn customer_intelligence_api(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<company_store::CustomerIntelligenceMetric>>, StatusCode> {
+    state
+        .store
+        .customer_intelligence(&state.company_id, 200)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 async fn commercial_pipeline_api(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
@@ -4304,6 +4315,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/commercial/proposals", post(service_proposal_api))
         .route("/api/commercial/pipeline", get(commercial_pipeline_api))
         .route("/api/commercial/report", get(commercial_delivery_report_api))
+        .route("/api/customers/intelligence", get(customer_intelligence_api))
         .route("/api/commercial/proposals/transition", post(proposal_transition_api))
         .route("/api/commercial/sponsorships/transition", post(sponsorship_transition_api))
         .route("/api/commercial/sponsorships/delivery", post(sponsorship_delivery_api))
