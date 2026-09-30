@@ -1345,7 +1345,6 @@ impl CompanyStore {
 
         if !matches!(decision, company_experiments::ExperimentDecision::Continue) {
             let learning = experiment_learning_entry(
-                company,
                 experiment_id,
                 &spec,
                 observation,
