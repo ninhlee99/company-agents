@@ -93,6 +93,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test -p company-store -- --nocapture
 
+  production-restart-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run production-like restart/chaos smoke
+        run: bash scripts/production_restart_smoke.sh
+      - name: Collect compose diagnostics on failure
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs --no-color company-os postgres outbox-worker || true
+
   browser-bridge:
     runs-on: ubuntu-latest
     steps:
