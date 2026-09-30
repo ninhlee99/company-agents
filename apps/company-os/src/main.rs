@@ -347,6 +347,26 @@ struct AffiliateSearchParams {
 #[derive(Debug, Deserialize)] struct InvoiceIssueRequest { invoice_id: uuid::Uuid }
 #[derive(Debug, Deserialize)] struct PaymentReconciliationEvidenceRequest { invoice_id: uuid::Uuid, provider: String, provider_event_id: String, external_ref: Option<String>, amount_minor: i128, currency: String, observed_at_epoch: i64, evidence_hash: String }
 #[derive(Debug, Deserialize)] struct InvoicePaymentRequest { invoice_id: uuid::Uuid, payment_id: uuid::Uuid, amount_minor: i128, occurred_at_epoch: i64, external_ref: Option<String> }
+#[derive(Debug, Deserialize)]
+struct PaymentExecutionIntentRequest {
+    invoice_id: uuid::Uuid,
+    amount_minor: i128,
+    currency: String,
+    provider: String,
+    payment_method_ref: String,
+    idempotency_key: String,
+}
+#[derive(Debug, Deserialize)]
+struct PaymentExecutionApprovalRequest {
+    intent_id: uuid::Uuid,
+    approved_by: String,
+    approval_reference: String,
+    approved_at_epoch: i64,
+}
+#[derive(Debug, Deserialize)]
+struct PaymentExecutionRunRequest {
+    intent_id: uuid::Uuid,
+}
 #[derive(Debug, Deserialize)] struct ProposalTransitionRequest { proposal_id: uuid::Uuid, status: commercial_sales::ProposalStatus }
 #[derive(Debug, Deserialize)] struct SponsorshipTransitionRequest { sponsorship_id: uuid::Uuid, status: String }
 #[derive(Debug, Deserialize)] struct SponsorshipDeliveryRequest { sponsorship_id: uuid::Uuid, delivered_minor: i128 }
@@ -1635,6 +1655,8 @@ async fn build_integration_readiness(
         && std::env::var("RESEND_FROM")
             .ok()
             .is_some_and(|v| !v.trim().is_empty());
+    let payment_execution_simulation = parse_bool_env("PAYMENT_EXECUTION_SIMULATION", false);
+
     let browser_session = std::env::var("CONTROL_PLANE_BROWSER_SECRET")
         .ok()
         .is_some_and(|v| v.len() >= 32);
@@ -1687,12 +1709,29 @@ async fn build_integration_readiness(
             key: "affiliate".into(),
             status: affiliate_status.into(),
             configured: affiliate_configured,
-            authenticated: affiliate_configured && affiliate_provider.eq_ignore_ascii_case("mock"),
+            authenticated: false,
             evidence_fresh: false,
             reason: affiliate_reason.into(),
         },
         tiktok,
         live,
+        IntegrationReadiness {
+            key: "payment_execution".into(),
+            status: if payment_execution_simulation {
+                "SIMULATION_ONLY"
+            } else {
+                "GATED"
+            }
+            .into(),
+            configured: payment_execution_simulation,
+            authenticated: false,
+            evidence_fresh: false,
+            reason: if payment_execution_simulation {
+                "Only provider=mock is executable in this boundary; no external funds move and invoice accounting remains unchanged.".into()
+            } else {
+                "Payment execution is gated. Enable PAYMENT_EXECUTION_SIMULATION only for non-production acceptance; real settlement adapters are not enabled.".into()
+            },
+        },
         IntegrationReadiness {
             key: "outbound_email".into(),
             status: if email_configured { "CONFIGURED" } else { "NOT_CONFIGURED" }.into(),
@@ -2953,6 +2992,71 @@ async fn invoice_payment_api(State(state): State<AppState>, Json(req): Json<Invo
 }
 
 
+async fn payment_execution_intent_api(
+    State(state): State<AppState>,
+    Json(req): Json<PaymentExecutionIntentRequest>,
+) -> Result<Json<company_store::PaymentExecutionIntentRecord>, StatusCode> {
+    state
+        .store
+        .create_payment_execution_intent(
+            &state.company_id,
+            &req.invoice_id.to_string(),
+            req.amount_minor,
+            &req.currency,
+            &req.provider,
+            &req.payment_method_ref,
+            &req.idempotency_key,
+        )
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn payment_execution_approve_api(
+    State(state): State<AppState>,
+    Json(req): Json<PaymentExecutionApprovalRequest>,
+) -> Result<Json<company_store::PaymentExecutionIntentRecord>, StatusCode> {
+    state
+        .store
+        .approve_payment_execution_intent(
+            &state.company_id,
+            &req.intent_id.to_string(),
+            &req.approved_by,
+            &req.approval_reference,
+            req.approved_at_epoch,
+        )
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn payment_execution_run_api(
+    State(state): State<AppState>,
+    Json(req): Json<PaymentExecutionRunRequest>,
+) -> Result<Json<company_store::PaymentExecutionIntentRecord>, StatusCode> {
+    state
+        .store
+        .execute_payment_execution_intent(
+            &state.company_id,
+            &req.intent_id.to_string(),
+        )
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::PRECONDITION_FAILED)
+}
+
+async fn payment_execution_get_api(
+    State(state): State<AppState>,
+    Path(intent_id): Path<uuid::Uuid>,
+) -> Result<Json<company_store::PaymentExecutionIntentRecord>, StatusCode> {
+    state
+        .store
+        .payment_execution_record(&state.company_id, &intent_id.to_string())
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::NOT_FOUND)
+}
+
 async fn payment_reconciliation_evidence_api(
     State(state): State<AppState>,
     Json(req): Json<PaymentReconciliationEvidenceRequest>,
@@ -3909,6 +4013,10 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/commercial/invoices/issue", post(invoice_issue_api))
         .route("/api/commercial/invoice-payments", post(invoice_payment_api))
         .route("/api/commercial/payments/reconcile", post(payment_reconciliation_evidence_api))
+        .route("/api/payments/execution/intents", post(payment_execution_intent_api))
+        .route("/api/payments/execution/approve", post(payment_execution_approve_api))
+        .route("/api/payments/execution/run", post(payment_execution_run_api))
+        .route("/api/payments/execution/:intent_id", get(payment_execution_get_api))
         .route("/api/business-units", get(business_units_api))
         .route("/api/portfolio/metrics", get(portfolio_metrics_api))
         .route("/api/journal", get(journal_api))
