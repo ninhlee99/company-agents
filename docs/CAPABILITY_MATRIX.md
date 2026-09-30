@@ -147,6 +147,13 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Publishing integration:** when `TIKTOK_OAUTH_ENABLED=true`, Content Posting API calls fetch the current token from the durable store and refresh it when near expiry; the legacy env-token path remains available when OAuth mode is disabled.
 - **External prerequisites:** the TikTok developer app still needs the requested scopes, consent and an exact registered HTTPS redirect URI; Content Posting API production/public posting remains subject to TikTok's app approval/audit rules.
 
+## Revenue Period Truth
+
+- **Period semantics:** `RevenuePeriodMetrics` keeps month-to-date revenue, trailing-30-day revenue, lifetime revenue, a calendar-day monthly forecast, and a trailing-30-day monthly run-rate as separate values.
+- **Target separation:** the configured monthly target is planning input and is never substituted for observed revenue.
+- **Forecast boundary:** the monthly forecast is a deterministic calendar-day run-rate projection; its confidence field is time-coverage (elapsed-month) coverage, not a statistical guarantee.
+- **No lifetime-vs-monthly comparison:** dashboard target progress uses only month-to-date observed revenue.
+
 ## Revenue Intelligence Graph
 
 - **Evidence-backed lineage:** immutable, company-scoped edges can connect content, hooks, audience, traffic, orders, products, commissions, experiments, decisions, trends and cash settlement with evidence references and confidence.
