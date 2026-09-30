@@ -8,4 +8,5 @@ name = "company_experiments"
 path = "src/lib.rs"
 
 [dependencies]
+company-kill-engine = { path = "../company-kill-engine" }
 serde = { version = "1", features = ["derive"] }
