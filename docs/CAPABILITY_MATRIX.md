@@ -147,6 +147,14 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Publishing integration:** when `TIKTOK_OAUTH_ENABLED=true`, Content Posting API calls fetch the current token from the durable store and refresh it when near expiry; the legacy env-token path remains available when OAuth mode is disabled.
 - **External prerequisites:** the TikTok developer app still needs the requested scopes, consent and an exact registered HTTPS redirect URI; Content Posting API production/public posting remains subject to TikTok's app approval/audit rules.
 
+## Revenue Intelligence Graph
+
+- **Evidence-backed lineage:** immutable, company-scoped edges can connect content, hooks, audience, traffic, orders, products, commissions, experiments, decisions, trends and cash settlement with evidence references and confidence.
+- **Operational reads:** Company OS exposes graph summary and bounded forward lineage queries; graph data is visible as unavailable rather than silently treated as zero.
+- **Automatic write points:** affiliate click/conversion/verification/payout, growth-created content, and experiment decisions can create graph edges transactionally with idempotent identity.
+- **Integrity controls:** deterministic edge IDs, company-scoped uniqueness, evidence requirements, bounded numeric values and append-only triggers prevent silent mutation.
+- **Current boundary:** the graph does not invent missing campaign/creator data and does not retroactively backfill historical records; existing events must be replayed through authenticated/imported source boundaries to populate lineage.
+
 ## Trend → Opportunity → Content loop
 
 - **Evidence-gated trend ingestion:** trend signals require a source, evidence reference, timestamp, normalized scoring inputs, confidence and policy evidence before they can enter the growth loop.
