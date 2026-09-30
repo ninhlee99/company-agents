@@ -123,6 +123,14 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Current boundary:** no automatic policy scraping is claimed. Operators or a verified policy watcher must supply the policy snapshot and evidence; changing platform rules do not silently become trusted.
 
 ## Trend → Opportunity → Content loop
+## Agent outcome evaluation
+
+- **Outcome evidence ledger:** one immutable, company-scoped evidence record can be attached to an executed, Governor-approved decision journal entry; it carries an evidence reference plus observed revenue and contribution-margin deltas.
+- **Deterministic agent scorecards:** the evaluation layer reports proposal/approval/execution counts, observed spend, projected revenue, evidence coverage, projected return and observed return without assigning revenue to agents from timing or correlation alone.
+- **Evidence states:** `InsufficientEvidence`, `PartialEvidence`, and `Evaluated` describe evidence coverage; they are not an autonomous ranking of agents.
+- **APIs:** `POST /api/agents/outcome-evidence` records explicit outcome evidence and `GET /api/agents/evaluation` returns the last-30-day scorecards by default.
+- **Current boundary:** no automatic causal attribution from content, LIVE, affiliate or ledger revenue to an agent is claimed; a verified system must explicitly attach the outcome evidence to a decision.
+
 ## CEO Revenue Command Center
 
 - **Ledger-backed executive view:** combines authoritative MTD/30d/lifetime revenue, contribution margin evidence, affiliate reconciliation, affiliate orders/net order value, content funnel, LIVE gift pulse, policy readiness, growth opportunities and cash/runway in one read model.
