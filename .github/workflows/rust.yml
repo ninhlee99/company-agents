@@ -42,6 +42,7 @@ jobs:
           - company-live-attention
           - company-compliance
           - company-command-center
+          - company-agent-evaluation
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

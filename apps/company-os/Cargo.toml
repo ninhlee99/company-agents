@@ -15,6 +15,7 @@ company-growth = { path = "../../crates/company-growth" }
 company-live-attention = { path = "../../crates/company-live-attention" }
 company-compliance = { path = "../../crates/company-compliance" }
 company-command-center = { path = "../../crates/company-command-center" }
+company-agent-evaluation = { path = "../../crates/company-agent-evaluation" }
 commercial-sales = { path = "../../crates/commercial-sales" }
 social-publishing = { path = "../../crates/social-publishing" }
 tiktok-live-streaming = { path = "../../crates/tiktok-live-streaming" }

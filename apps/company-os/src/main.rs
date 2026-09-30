@@ -154,10 +154,24 @@ struct ContentObservationRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct AgentOutcomeEvidenceRequest {
+    decision_journal_id: i64,
+    evidence_ref: String,
+    observed_revenue_delta_minor: i128,
+    observed_contribution_margin_delta_minor: i128,
+    observed_at_epoch: i64,
+}
+
+#[derive(Debug, Deserialize)]
 struct ContentStatusTransitionRequest {
     content_id: uuid::Uuid,
     next: company_content::ContentStatus,
     evidence_ref: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct AgentEvaluationQuery {
+    days: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -564,6 +578,21 @@ async fn index(
         }
     };
 
+    let agent_evaluation_html = match state
+        .store
+        .agent_outcome_evaluations(&state.company_id, 30)
+        .await
+    {
+        Ok(evaluations) if evaluations.is_empty() => {
+            r#"<div class="card"><div class="section-kicker">Agent outcome evaluation</div><h2>Waiting for outcome evidence</h2><p class="muted">The company has not yet recorded enough executed decisions with explicit business-outcome evidence to evaluate agents.</p></div>"#.into()
+        }
+        Ok(evaluations) => render_agent_evaluations(&evaluations, &state.currency),
+        Err(error) => {
+            tracing::warn!(%error, "agent outcome evaluation unavailable");
+            r#"<div class="card"><div class="section-kicker">Agent outcome evaluation</div><h2>Evidence unavailable</h2><p class="muted">Agent scorecards are unavailable right now. Missing evaluation data is not being treated as failure.</p></div>"#.into()
+        }
+    };
+
     Html(format!(
         r#"<!doctype html>
 <html lang="en"><head>
@@ -612,13 +641,21 @@ small,.muted{{color:#94a3b8}} code{{background:#f3f3f3;padding:2px 4px}}
 .cc-alert.opportunity strong{{color:#67e8f9}}
 .cc-alert.healthy strong{{color:#86efac}}
 .cc-footer{{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #273550;font-size:12px;color:#94a3b8}}
+.evaluation-table{{width:100%;border-collapse:collapse}}
+.evaluation-table th,.evaluation-table td{{padding:10px 8px;border-bottom:1px solid #273550;text-align:left;font-size:13px;vertical-align:top}}
+.evaluation-table th{{color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:.08em}}
+.evaluation-status{{font-weight:800}}
+.evaluation-status.insufficient{{color:#fbbf24}}
+.evaluation-status.partial{{color:#67e8f9}}
+.evaluation-status.evaluated{{color:#86efac}}
 nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;text-decoration:none;padding:8px 10px;border-radius:8px}} nav a:hover{{background:#171e30;color:#fff}}
 @media(max-width:1050px){{.cc-kpis{{grid-template-columns:repeat(3,minmax(0,1fr))}}.cc-body{{grid-template-columns:repeat(2,minmax(0,1fr))}}.cc-alerts{{grid-template-columns:1fr}}}}
 @media(max-width:800px){{.grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}.cc-head{{flex-direction:column}}.cc-trend{{align-items:flex-start}}}}
 @media(max-width:520px){{.grid{{grid-template-columns:1fr}}.cc-kpis{{grid-template-columns:1fr 1fr}}.cc-body{{grid-template-columns:1fr}}}}
 </style></head><body>
 <header><h1>Veridara AI</h1><small>Autonomous Company OS · {}</small></header>
-<nav><a href="/">Overview</a><a href="/api/ceo/command-center">Revenue JSON</a><a href="/api/agents">Agents</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Audit</a></nav>
+<nav><a href="/">Overview</a><a href="/api/ceo/command-center">Revenue JSON</a><a href="/api/agents">Agents</a><a href="/api/agents/evaluation">Agent outcomes</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Audit</a></nav>
+{}
 {}
 <div class="grid">
 <div class="card"><small>Cash</small><div class="metric">{}</div></div>
@@ -645,6 +682,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 </body></html>"#,
         state.company_id.clone(),
         command_center_html,
+        agent_evaluation_html,
         format_minor(company.cash_minor, &state.currency),
         format_minor(revenue_periods.month_to_date_minor, &state.currency),
         revenue_periods.revenue_transaction_count,
@@ -819,6 +857,64 @@ fn render_ceo_command_center(
     )
 }
 
+fn render_agent_evaluations(
+    evaluations: &[company_agent_evaluation::AgentEvaluation],
+    currency: &str,
+) -> String {
+    let mut rows = String::new();
+    for evaluation in evaluations {
+        let status = match evaluation.status {
+            company_agent_evaluation::EvaluationStatus::InsufficientEvidence => {
+                ("Insufficient evidence", "insufficient")
+            }
+            company_agent_evaluation::EvaluationStatus::PartialEvidence => {
+                ("Partial evidence", "partial")
+            }
+            company_agent_evaluation::EvaluationStatus::Evaluated => {
+                ("Evaluated", "evaluated")
+            }
+        };
+        let observed_revenue = evaluation
+            .observed_revenue_delta_minor
+            .map(|value| format_minor(value, currency))
+            .unwrap_or_else(|| "n/a".into());
+        let observed_margin = evaluation
+            .observed_contribution_margin_delta_minor
+            .map(|value| format_minor(value, currency))
+            .unwrap_or_else(|| "n/a".into());
+        let projected_return = evaluation
+            .projected_return_bps
+            .map(|value| format!("{:.2}%", value as f64 / 100.0))
+            .unwrap_or_else(|| "n/a".into());
+        let observed_return = evaluation
+            .observed_return_bps
+            .map(|value| format!("{:.2}%", value as f64 / 100.0))
+            .unwrap_or_else(|| "n/a".into());
+        rows.push_str(&format!(
+            r#"<tr><td><strong>{}</strong></td><td>{}</td><td>{}</td><td>{}</td><td>{:.0}%</td><td>{:.0}%</td><td>{:.0}%</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td class="evaluation-status {}">{}</td></tr>"#,
+            escape_html(&evaluation.agent_name),
+            evaluation.proposal_count,
+            evaluation.approved_count,
+            evaluation.executed_count,
+            evaluation.approval_rate_bps as f64 / 100.0,
+            evaluation.execution_realization_bps as f64 / 100.0,
+            evaluation.outcome_evidence_coverage_bps as f64 / 100.0,
+            format_minor(evaluation.observed_spend_minor, currency),
+            projected_return,
+            observed_revenue,
+            observed_return,
+            observed_margin,
+            status.1,
+            status.0
+        ));
+    }
+
+    format!(
+        r#"<div class="card"><div class="section-kicker">Agent outcome evaluation</div><h2>Business outcomes, not output volume</h2><p class="muted">Last 30 days · approval rate is descriptive; outcome evidence coverage shows how much executed work has a direct evidence trail.</p><div style="overflow:auto"><table class="evaluation-table"><tr><th>Agent</th><th>Proposals</th><th>Approved</th><th>Executed</th><th>Approval</th><th>Execution / approval</th><th>Outcome evidence</th><th>Spend</th><th>Projected return</th><th>Observed revenue Δ</th><th>Observed return</th><th>Observed CM Δ</th><th>Status</th></tr>{}</table></div><p class="muted">Projected return is proposal expectation. Observed revenue and contribution-margin deltas are shown only when explicitly evidenced against an executed decision; they are not inferred from timing alone.</p></div>"#,
+        rows
+    )
+}
+
 #[derive(Debug, Deserialize)]
 struct LiveControlForm {
     mode: Option<String>,
@@ -904,6 +1000,38 @@ async fn run_api(State(state): State<AppState>) -> Result<Json<CycleResponse>, S
             });
             StatusCode::INTERNAL_SERVER_ERROR
         })
+}
+
+async fn agent_outcome_evidence_api(
+    State(state): State<AppState>,
+    Json(request): Json<AgentOutcomeEvidenceRequest>,
+) -> Result<Json<company_store::AgentOutcomeEvidenceRecord>, StatusCode> {
+    state
+        .store
+        .record_agent_outcome_evidence(
+            &state.company_id,
+            request.decision_journal_id,
+            &request.evidence_ref,
+            request.observed_revenue_delta_minor,
+            request.observed_contribution_margin_delta_minor,
+            request.observed_at_epoch,
+        )
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn agent_outcome_evaluations_api(
+    State(state): State<AppState>,
+    Query(query): Query<AgentEvaluationQuery>,
+) -> Result<Json<Vec<company_agent_evaluation::AgentEvaluation>>, StatusCode> {
+    let days = query.days.unwrap_or(30);
+    state
+        .store
+        .agent_outcome_evaluations(&state.company_id, days)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 async fn ceo_command_center_api(
@@ -1720,6 +1848,8 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/run", post(run_api))
         .route("/api/ceo/command-center", get(ceo_command_center_api))
         .route("/api/agents", get(agents_api))
+        .route("/api/agents/outcome-evidence", post(agent_outcome_evidence_api))
+        .route("/api/agents/evaluation", get(agent_outcome_evaluations_api))
         .route("/api/content/items", get(content_list_api).post(content_create_api))
         .route("/api/content/observations", post(content_observation_api))
         .route("/api/content/status", post(content_status_transition_api))
