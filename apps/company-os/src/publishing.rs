@@ -281,7 +281,7 @@ pub async fn execute_tiktok(
         return Err(fail_message(error));
     }
 
-    let publisher = publisher().map_err(fail_message)?;
+    let publisher = publisher(&state).await.map_err(fail_message)?;
     let creator = publisher.query_creator_info().await.map_err(|e| fail_message(e))?;
 
     let publish_request = VideoPublishRequest {
@@ -385,7 +385,7 @@ pub async fn tiktok_status(
     if request.publish_id.trim().is_empty() {
         return Err(fail_message("publish_id is required"));
     }
-    let publisher = publisher().map_err(fail_message)?;
+    let publisher = publisher(&state).await.map_err(fail_message)?;
     let provider_status = publisher.fetch_status(&request.publish_id).await.map_err(|e| fail_message(e))?;
 
     let terminal = matches!(provider_status.as_str(), "PUBLISH_COMPLETE" | "FAILED");
