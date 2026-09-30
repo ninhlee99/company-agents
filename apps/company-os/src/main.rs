@@ -2504,6 +2504,8 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         live_stream,
     };
 
+    spawn_tiktok_refresh_worker(state.clone());
+
     let interval_secs = std::env::var("AGENT_CYCLE_SECONDS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
