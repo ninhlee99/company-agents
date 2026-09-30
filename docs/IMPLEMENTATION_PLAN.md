@@ -44,7 +44,7 @@ Durable media jobs, sandboxed FFmpeg, FFprobe QA and publishing approval contrac
 - Invoice issuance/payment now posts deterministic Accounts Receivable/Cash/Revenue ledger entries.
 - Payment execution boundary: create intent → explicit approval → non-production mock execution with durable evidence/outbox only; simulated execution does not move funds or mark invoices paid.
 
-**Next product work:** proposal/sponsorship status workflows, richer delivery/reporting and broader verified revenue ingestion.
+**Next product work:** broader verified revenue ingestion and external delivery evidence. Proposal/sponsorship status workflows and currency-scoped delivery reporting are implemented.
 
 - Competitor intelligence foundation: evidence-backed observations and owned-content coverage can be scored deterministically into content whitespace gaps.
 

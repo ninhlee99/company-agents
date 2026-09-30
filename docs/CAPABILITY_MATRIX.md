@@ -83,6 +83,10 @@ It should not be described as an AI company that can independently operate every
 - Autonomous external publishing, messaging and payment initiation: **Publishing adapter + reconciliation implemented for TikTok; messaging and payment initiation not achieved**
 
 
+### Commercial delivery reporting
+
+- **Read-only report:** `/api/commercial/report` returns currency-scoped proposal, sponsorship-delivery and invoice collection metrics with explicit outstanding/overdue amounts. No future revenue is inferred from pipeline state.
+
 ### Commercial lifecycle hardening
 
 - **Forecast-vs-actual cash flow:** `GET /api/fpa/forecast-variance` and `/fpa/variance` read the newest ACTIVE forecast and match the latest same-period cash-flow observation. Missing actual evidence remains `Unavailable`; variance is `actual net cash flow − forecast net cash flow` and is never treated as a forecast or guaranteed outcome.
