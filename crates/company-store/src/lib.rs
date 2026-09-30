@@ -5697,7 +5697,7 @@ impl CompanyStore {
                 10_000,
                 &format!("affiliate:payout:{}", payout_id),
                 "affiliate-payout-ledger",
-                occurred.timestamp(),
+                occurred.unix_timestamp(),
             ),
         )
         .await?;
