@@ -23,6 +23,7 @@ pub enum CompanyEventType {
     OutOfStock,
     RefundSpike,
     ExperimentCompleted,
+    AffiliatePayoutSettled,
 }
 
 impl CompanyEventType {
@@ -42,6 +43,7 @@ impl CompanyEventType {
             Self::OutOfStock => "OUT_OF_STOCK",
             Self::RefundSpike => "REFUND_SPIKE",
             Self::ExperimentCompleted => "EXPERIMENT_COMPLETED",
+            Self::AffiliatePayoutSettled => "AFFILIATE_PAYOUT_SETTLED",
         }
     }
 }
