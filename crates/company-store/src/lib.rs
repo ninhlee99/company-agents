@@ -7846,11 +7846,23 @@ impl agent_runtime::agent::AgentStateProvider for CompanyStore {
             .iter()
             .filter_map(|name| std::env::var(name).ok())
             .any(|value| value.trim().eq_ignore_ascii_case("production"));
+        let simulation_enabled = parse_bool_env("PAYMENT_EXECUTION_SIMULATION", false);
 
-        if !payment_simulation_allowed(
-            parse_bool_env("PAYMENT_EXECUTION_SIMULATION", false),
-            production_environment,
-        ) {
+        self.execute_payment_execution_intent_with_gate(
+            company_id,
+            intent_id,
+            payment_simulation_allowed(simulation_enabled, production_environment),
+        )
+        .await
+    }
+
+    async fn execute_payment_execution_intent_with_gate(
+        &self,
+        company_id: &str,
+        intent_id: &str,
+        simulation_allowed: bool,
+    ) -> Result<PaymentExecutionIntentRecord, Box<dyn std::error::Error + Send + Sync>> {
+        if !simulation_allowed {
             return Err(
                 "simulated payment execution is disabled in production; enable PAYMENT_EXECUTION_SIMULATION only in a non-production acceptance environment"
                     .into(),
