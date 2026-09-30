@@ -549,13 +549,23 @@ async fn index(
         (Ok(policy), Ok(emergency_stop)) => {
             let ceiling = policy.max_level.as_str();
             let stop_label = if emergency_stop { "EMERGENCY STOP ON" } else { "normal" };
+            let step_class = |level: company_autonomy::AutonomyLevel| {
+                if policy.max_level == level { "autonomy-step active" } else { "autonomy-step" }
+            };
             format!(
-                r#"<section class="autonomy-shell"><div><div class="section-kicker">Autonomy ladder</div><h2>Observe → Recommend → Simulate → Human approve → Limited → Strategic</h2><p class="muted">Current ceiling: <strong>{}</strong> · {} · limited autonomy requires {} bps confidence, {} evidence items, reversible action, simulation and ≥ {} days runway.</p></div><div class="autonomy-steps"><span class="autonomy-step">01 Observe</span><span class="autonomy-step">02 Recommend</span><span class="autonomy-step active">03 Simulate</span><span class="autonomy-step">04 Human approve</span><span class="autonomy-step">05 Limited</span><span class="autonomy-step">06 Strategic</span></div><small class="muted">External/material actions remain human-gated. The digital twin never mutates the live company state.</small></section>"#,
+                r#"<section class="autonomy-shell"><div><div class="section-kicker">Autonomy ladder</div><h2>Observe → Recommend → Simulate → Human approve → Limited → Strategic</h2><p class="muted">Current ceiling: <strong>{}</strong> · {} · limited autonomy requires {} bps confidence, {} evidence items, reversible action, simulation and ≥ {} days runway.</p></div><div class="autonomy-steps"><span class="{}">01 Observe</span><span class="{}">02 Recommend</span><span class="{}">03 Simulate</span><span class="{}">04 Human approve</span><span class="{}">05 Limited</span><span class="{}">06 Strategic</span></div><small class="muted">External/material actions remain human-gated. The digital twin never mutates the live company state.</small></section>"#,
+                ceiling,
                 ceiling,
                 stop_label,
                 policy.min_confidence_bps,
                 policy.min_evidence_count,
-                policy.min_runway_days
+                policy.min_runway_days,
+                step_class(company_autonomy::AutonomyLevel::Observe),
+                step_class(company_autonomy::AutonomyLevel::Recommend),
+                step_class(company_autonomy::AutonomyLevel::Simulate),
+                step_class(company_autonomy::AutonomyLevel::HumanApprove),
+                step_class(company_autonomy::AutonomyLevel::LimitedAutonomy),
+                step_class(company_autonomy::AutonomyLevel::StrategicAutonomy)
             )
         }
         _ => r#"<section class="autonomy-shell"><div class="section-kicker">Autonomy ladder</div><h2>Policy unavailable</h2><p class="muted">Autonomy policy cannot be loaded safely, so no autonomous execution ceiling is advertised.</p></section>"#.into(),
