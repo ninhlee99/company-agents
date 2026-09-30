@@ -82,3 +82,6 @@ Recurring autonomous operation is technically scaffolded, but unsupervised exter
 
 ## Release rule
 Do not advance a phase until its previous phase passes tests and operational acceptance criteria.
+
+
+- Portfolio classification foundation: capital candidates are labeled Scale, Maintain, Validate or Exit from bounded economics/risk/evidence gates; classification does not execute capital movement.

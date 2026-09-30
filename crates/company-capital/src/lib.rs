@@ -43,10 +43,19 @@ pub enum CapitalDecisionStatus {
     Reject,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum PortfolioClass {
+    Scale,
+    Maintain,
+    Validate,
+    Exit,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CapitalDecision {
     pub candidate_id: Uuid,
     pub status: CapitalDecisionStatus,
+    pub portfolio_class: PortfolioClass,
     pub score_bps: u32,
     pub allocation_minor: i128,
     pub reason: String,
@@ -152,18 +161,30 @@ pub fn decide_candidate(
     policy: &CapitalPolicy,
 ) -> Result<CapitalDecision, String> {
     let score = score_candidate(candidate, policy)?;
+    let portfolio_class = classify_candidate(candidate, policy)?;
     if policy.emergency_stop {
-        return Ok(held(candidate.candidate_id, score, "emergency stop blocks discretionary capital"));
+        return Ok(held(
+            candidate.candidate_id,
+            portfolio_class,
+            score,
+            "emergency stop blocks discretionary capital",
+        ));
     }
     if !matches!(policy.company_status, CompanyStatus::Active | CompanyStatus::Growth)
         || policy.runway_days < policy.min_runway_days
     {
-        return Ok(held(candidate.candidate_id, score, "company liquidity gate blocks discretionary capital"));
+        return Ok(held(
+            candidate.candidate_id,
+            portfolio_class,
+            score,
+            "company liquidity gate blocks discretionary capital",
+        ));
     }
     if candidate.expected_contribution_minor == 0 {
         return Ok(CapitalDecision {
             candidate_id: candidate.candidate_id,
             status: CapitalDecisionStatus::Reject,
+            portfolio_class,
             score_bps: score,
             allocation_minor: 0,
             reason: "candidate has no positive expected contribution".into(),
@@ -172,12 +193,18 @@ pub fn decide_candidate(
     if candidate.confidence_bps < policy.min_confidence_bps
         || candidate.evidence_count < policy.min_evidence_count
     {
-        return Ok(held(candidate.candidate_id, score, "candidate evidence is below the allocation gate"));
+        return Ok(held(
+            candidate.candidate_id,
+            portfolio_class,
+            score,
+            "candidate evidence is below the allocation gate",
+        ));
     }
     if score < policy.min_score_bps {
         return Ok(CapitalDecision {
             candidate_id: candidate.candidate_id,
             status: CapitalDecisionStatus::Reject,
+            portfolio_class,
             score_bps: score,
             allocation_minor: 0,
             reason: "candidate score is below the allocation threshold".into(),
@@ -186,6 +213,7 @@ pub fn decide_candidate(
     Ok(CapitalDecision {
         candidate_id: candidate.candidate_id,
         status: CapitalDecisionStatus::Allocate,
+        portfolio_class,
         score_bps: score,
         allocation_minor: candidate
             .capital_required_minor
@@ -269,10 +297,55 @@ fn ratio_bps(numerator: i128, denominator: i128) -> u32 {
         .min(10_000)) as u32
 }
 
-fn held(candidate_id: Uuid, score_bps: u32, reason: &str) -> CapitalDecision {
+fn classify_candidate(
+    candidate: &CapitalCandidate,
+    policy: &CapitalPolicy,
+) -> Result<PortfolioClass, String> {
+    validate_candidate(candidate)?;
+    validate_policy(policy)?;
+
+    let return_bps = ratio_bps(
+        candidate.expected_contribution_minor,
+        candidate.capital_required_minor,
+    );
+    let downside_bps = ratio_bps(
+        candidate.downside_minor,
+        candidate.capital_required_minor,
+    );
+
+    if candidate.expected_contribution_minor == 0
+        || candidate.expected_contribution_minor <= candidate.downside_minor
+    {
+        return Ok(PortfolioClass::Exit);
+    }
+    if candidate.confidence_bps < policy.min_confidence_bps
+        || candidate.evidence_count < policy.min_evidence_count
+        || return_bps < 5_000
+    {
+        return Ok(PortfolioClass::Validate);
+    }
+    if return_bps >= 8_000
+        && downside_bps <= 2_500
+        && candidate.confidence_bps >= 9_000
+        && candidate.evidence_count >= 5
+    {
+        return Ok(PortfolioClass::Scale);
+    }
+    Ok(PortfolioClass::Maintain)
+}
+
+
+
+fn held(
+    candidate_id: Uuid,
+    portfolio_class: PortfolioClass,
+    score_bps: u32,
+    reason: &str,
+) -> CapitalDecision {
     CapitalDecision {
         candidate_id,
         status: CapitalDecisionStatus::Hold,
+        portfolio_class,
         score_bps,
         allocation_minor: 0,
         reason: reason.into(),
@@ -315,6 +388,38 @@ mod tests {
             evidence_count: 5,
             allocation_cap_minor: 800,
         }
+    }
+
+    #[test]
+    fn portfolio_class_distinguishes_scale_validate_and_exit() {
+        let mut p = policy();
+        let mut scale = candidate(1, 20_000, 1_000);
+        scale.confidence_bps = 9_500;
+        scale.evidence_count = 6;
+        assert_eq!(classify_candidate(&scale, &p).unwrap(), PortfolioClass::Scale);
+
+        let mut validate = candidate(2, 3_000, 200);
+        validate.confidence_bps = 7_500;
+        assert_eq!(
+            classify_candidate(&validate, &p).unwrap(),
+            PortfolioClass::Validate
+        );
+
+        let exit = candidate(3, 500, 500);
+        assert_eq!(classify_candidate(&exit, &p).unwrap(), PortfolioClass::Exit);
+
+        p.min_confidence_bps = 9_900;
+        assert_eq!(
+            classify_candidate(&candidate(4, 3_000, 200), &p).unwrap(),
+            PortfolioClass::Validate
+        );
+    }
+
+    #[test]
+    fn capital_decision_carries_portfolio_class() {
+        let c = candidate(5, 3_000, 200);
+        let decision = decide_candidate(&c, &policy()).unwrap();
+        assert_eq!(decision.portfolio_class, PortfolioClass::Maintain);
     }
 
     #[test]
