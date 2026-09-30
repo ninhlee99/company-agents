@@ -249,6 +249,7 @@ pub async fn evaluate(config: EvaluationConfig) -> Result<SimulationEvaluation, 
         total_violations,
         truth_boundary: "Confidence intervals describe the simulated multi-seed distribution of this model; they are not real-world confidence intervals or revenue forecasts.",
     })
+}
 
 struct Rng {
     state: u64,
