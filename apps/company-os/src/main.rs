@@ -602,7 +602,46 @@ async fn index(
         )
     };
     let autonomy_policy = autonomy_policy_from_env();
-    let autonomy_stop = autonomy_emergency_stop_from_env();
+    let persistent_controls = state.store.autonomy_controls(&state.company_id).await;
+    let autonomy_stop = match (
+        autonomy_emergency_stop_from_env(),
+        persistent_controls.as_ref().map(|record| record.controls.emergency_stop.enabled),
+    ) {
+        (Ok(env_stop), Ok(persisted_stop)) => Ok(env_stop || persisted_stop),
+        (Err(error), _) => Err(error),
+        (_, Err(error)) => Err(error.to_string()),
+    };
+    let safety_controls_html = match persistent_controls {
+        Ok(record) => {
+            let stop_label = if record.controls.emergency_stop.enabled {
+                "EMERGENCY STOP ON"
+            } else {
+                "normal"
+            };
+            let stop_reason = record
+                .controls
+                .emergency_stop
+                .reason
+                .as_deref()
+                .unwrap_or("no active stop reason");
+            let b = &record.controls.budgets;
+            format!(
+                r#"<div class="card"><h2>Safety controls</h2><div class="metric">{}</div><div class="muted">{} · budgets reset daily at UTC day start</div><div class="grid" style="margin-top:10px"><div><small>Content publishes</small><div class="metric" style="font-size:18px">{}</div></div><div><small>LIVE minutes</small><div class="metric" style="font-size:18px">{}</div></div><div><small>Messages</small><div class="metric" style="font-size:18px">{}</div></div><div><small>Autonomous capital</small><div class="metric" style="font-size:18px">{}</div></div></div><small class="muted">Stop reason: {} · actor: {}</small></div>"#,
+                stop_label,
+                escape_html(stop_reason),
+                b.content_publish_daily,
+                b.live_minutes_daily,
+                b.outbound_messages_daily,
+                format_minor(b.autonomous_capital_daily_minor, &state.currency),
+                escape_html(stop_reason),
+                escape_html(&record.controls.emergency_stop.actor),
+            )
+        }
+        Err(error) => {
+            tracing::warn!(%error, "autonomy safety controls unavailable");
+            r#"<div class="card"><h2>Safety controls</h2><p class="muted">Persistent safety controls are unavailable. Autonomous side effects remain fail-closed.</p></div>"#.into()
+        }
+    };
     let autonomy_html = match (autonomy_policy, autonomy_stop) {
         (Ok(policy), Ok(emergency_stop)) => {
             let ceiling = policy.max_level.as_str();
@@ -765,6 +804,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <div class="card"><small>Affiliate reconciliation MTD</small><div class="metric">{}</div><small>variance · reported · attributed · paid: {} · {} · {} · {}</small></div>
 <div class="card"><h2>Growth pipeline</h2><p class="muted">Evidence-backed trend signals become scored opportunities before any content plan is created.</p>{}</div>
 <div class="card"><h2>Capital allocation</h2><p class="muted">Expected contribution, downside, speed, reversibility and evidence are evaluated before any capital movement.</p>{}</div>
+{}
 <div class="card"><h2>Policy intelligence</h2><p class="muted">External content/LIVE side effects require a matching versioned policy snapshot and evidence.</p>{}</div>
 <div class="grid"><div class="card"><small>Status</small><div class="metric">{:?}</div></div><div class="card"><small>Agent cycle</small><div class="metric">{}</div></div><div class="card"><small>Backlog / capacity</small><div class="metric">{}%</div></div><div class="card"><small>Agent results</small><div class="metric">{}</div></div></div>
 <div class="grid"><div class="card"><small>Active workforce</small><div class="metric">{}</div></div><div class="card"><small>Payroll due</small><div class="metric">{}</div></div><div class="card"><small>Business units</small><div class="metric">{}</div></div><div class="card"><small>Operating loop</small><div class="metric">observe → act → learn</div></div></div>
@@ -798,6 +838,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         format_minor(affiliate_reconciliation.recorded_payout_mtd_minor, &state.currency),
         growth_html,
         capital_plan_html,
+        safety_controls_html,
         compliance_html,
         company.runway_days,
         company.status,
