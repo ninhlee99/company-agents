@@ -10512,7 +10512,7 @@ mod publish_intent_completed_event_tests {
             1_800_000_400,
             publish_completion_correlation_id(&intent.to_string()),
             None,
-            "publish-completed:72:SUCCEEDED:publish-99",
+            "outbox:publish-completed:72:SUCCEEDED:publish-99",
             serde_json::json!({
                 "source": "publish_execution",
                 "intent_id": intent,
