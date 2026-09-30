@@ -1121,9 +1121,9 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <div class="grid">
 <div class="card"><small>Cash</small><div class="metric">{}</div></div>
 <div class="card"><small>Revenue MTD</small><div class="metric">{}</div><small>Ledger evidence: {} revenue transactions</small></div>
-<div class="card"><small>Monthly target</small><div class="metric">{}</div><div class="progress"><span style="width:{}%"></span></div><small>{}% of planning target · MTD only</small></div>
+<div class="card"><small>Monthly target</small><div class="metric">{}</div><div class="progress"><span style="width:{}%"></span></div><small>{}</small></div>
 <div class="card"><small>Revenue forecast</small><div class="metric">{}</div><small>calendar-day run-rate · confidence coverage: {}%</small></div>
-<div class="card"><small>30d run-rate</small><div class="metric">{}</div><small>last 30d scaled to a month · MTD: {}</small></div>
+<div class="card"><small>Last 30 days</small><div class="metric">{}</div><small>Monthly run-rate (30d scaled): {}</small></div>
 <div class="card"><small>Runway</small><div class="metric">{} days</div></div>
 </div>
 <div class="card"><small>Contribution margin MTD</small><div class="metric">{}</div><small>{}</small><div class="muted" style="margin-top:8px">platform {} · affiliate commission {} · refunds/cancellations {} · production/AI {} · ads {}</div></div>
