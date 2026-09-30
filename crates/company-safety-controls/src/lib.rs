@@ -298,6 +298,15 @@ mod tests {
     }
 
     #[test]
+    fn enabled_stop_requires_reason() {
+        let mut state = controls();
+        state.emergency_stop.enabled = true;
+        assert!(state.validate().is_err());
+        state.emergency_stop.reason = Some("operator incident".into());
+        assert!(state.validate().is_ok());
+    }
+
+    #[test]
     fn zero_limit_is_a_hard_block() {
         let mut state = controls();
         state.budgets.autonomous_capital_daily_minor = 0;
