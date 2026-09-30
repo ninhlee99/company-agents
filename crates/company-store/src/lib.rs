@@ -3331,6 +3331,17 @@ impl CompanyStore {
             .map_err(|error| error.to_string())?;
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
+        tx.execute(
+            "INSERT INTO autonomy_control_state
+             (company_id, emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
+              emergency_stop_changed_at_epoch, content_publish_daily, ads_spend_daily_minor,
+              live_minutes_daily, outbound_messages_daily, autonomous_capital_daily_minor,
+              updated_at_epoch)
+             VALUES ($1,false,NULL,'system-default',$2,10,0,60,100,0,$2)
+             ON CONFLICT(company_id) DO NOTHING",
+            &[&company, &now_epoch],
+        )
+        .await?;
         let controls = load_safety_controls_for_tx(&tx, company).await?;
         let used = tx
             .query_opt(
@@ -3369,6 +3380,18 @@ impl CompanyStore {
             .map_err(|error| error.to_string())?;
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
+
+        tx.execute(
+            "INSERT INTO autonomy_control_state
+             (company_id, emergency_stop_enabled, emergency_stop_reason, emergency_stop_actor,
+              emergency_stop_changed_at_epoch, content_publish_daily, ads_spend_daily_minor,
+              live_minutes_daily, outbound_messages_daily, autonomous_capital_daily_minor,
+              updated_at_epoch)
+             VALUES ($1,false,NULL,'system-default',$2,10,0,60,100,0,$2)
+             ON CONFLICT(company_id) DO NOTHING",
+            &[&company, &now_epoch],
+        )
+        .await?;
 
         if let Some(row) = tx
             .query_opt(
