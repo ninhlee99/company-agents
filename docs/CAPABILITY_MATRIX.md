@@ -18,7 +18,7 @@ This document intentionally separates implemented behavior from contracts, simul
 | Scheduler | Implemented | Database leases and replay-safe run tokens are used for recurring cycles. |
 | Outbox | Implemented | Durable events have leases, bounded retries and signed HTTPS webhook delivery. |
 | Web research / web-session relay | Environment-gated | Browser/web relay protocols and workers exist, but usable capability depends on configured relay/browser credentials. |
-| Affiliate product discovery | Environment-gated | Mock, Awin and TikTok Shop adapters exist; real data requires operator credentials/contracts. |
+| Affiliate product discovery | Environment-gated + freshness gate | Mock, Awin and TikTok Shop adapters exist; real data requires operator credentials/contracts. Ranked products now expose freshness evidence; source data older than 7 days is excluded, while missing timestamps remain explicitly `UNKNOWN` and lower evidence confidence. |
 | Affiliate attribution/reconciliation | Implemented + environment-gated | Click/conversion state and provider verification/accounting are durable; real provider verification requires provider data. |
 | Media production | Implemented | Media jobs run through isolated FFmpeg/FFprobe QA in the media worker. |
 | Publishing approval contract | Implemented | Publish intent, approval, lease, completion and revocation are durable and guarded. |
@@ -177,6 +177,8 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **No lifetime-vs-monthly comparison:** dashboard target progress uses only month-to-date observed revenue.
 
 ## Integration readiness
+- **Product freshness:** affiliate ranking excludes source timestamps older than 7 days relative to `as_of_date` (when supplied) or the current UTC date. Invalid timestamps are treated as stale; missing timestamps are `UNKNOWN` and are not described as fresh.
+
 
 - **Control-plane request telemetry:** protected requests are correlated with `x-request-id`; auth/scope/CSRF denials increment dedicated counters and protected request latency is exposed as a low-cardinality gauge. No path/actor labels are exported to avoid cardinality and secret leakage.
 
