@@ -4737,6 +4737,37 @@ async fn existing_compliance_check(
     compliance_check_from_row(row, input)
 }
 
+fn metric_bps(numerator: i64, denominator: i64) -> Result<u32, Box<dyn std::error::Error + Send + Sync>> {
+    if numerator < 0 || denominator < 0 {
+        return Err("command center rate inputs cannot be negative".into());
+    }
+    if denominator == 0 {
+        return Ok(0);
+    }
+    let value = (i128::from(numerator))
+        .checked_mul(10_000)
+        .and_then(|value| value.checked_div(i128::from(denominator)))
+        .ok_or("command center rate overflow")?;
+    Ok(value.clamp(0, 10_000) as u32)
+}
+
+fn scaled_minor(
+    numerator: i128,
+    denominator: i64,
+    scale: i128,
+) -> Result<i128, Box<dyn std::error::Error + Send + Sync>> {
+    if numerator < 0 || denominator < 0 || scale < 0 {
+        return Err("command center scaled metric inputs cannot be negative".into());
+    }
+    if denominator == 0 {
+        return Ok(0);
+    }
+    numerator
+        .checked_mul(scale)
+        .and_then(|value| value.checked_div(i128::from(denominator)))
+        .ok_or_else(|| "command center scaled metric overflow".into())
+}
+
 fn parse_reconciliation_status(
     value: &str,
 ) -> Result<affiliate_attribution::ReconciliationStatus, Box<dyn std::error::Error + Send + Sync>> {
