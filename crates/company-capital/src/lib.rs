@@ -173,7 +173,12 @@ pub fn decide_candidate(
     if !matches!(policy.company_status, CompanyStatus::Active | CompanyStatus::Growth)
         || policy.runway_days < policy.min_runway_days
     {
-        return Ok(held(candidate.candidate_id, score, "company liquidity gate blocks discretionary capital"));
+        return Ok(held(
+            candidate.candidate_id,
+            portfolio_class,
+            score,
+            "company liquidity gate blocks discretionary capital",
+        ));
     }
     if candidate.expected_contribution_minor == 0 {
         return Ok(CapitalDecision {
@@ -199,6 +204,7 @@ pub fn decide_candidate(
         return Ok(CapitalDecision {
             candidate_id: candidate.candidate_id,
             status: CapitalDecisionStatus::Reject,
+            portfolio_class,
             score_bps: score,
             allocation_minor: 0,
             reason: "candidate score is below the allocation threshold".into(),
@@ -318,7 +324,7 @@ fn classify_candidate(
     {
         return Ok(PortfolioClass::Validate);
     }
-    if return_bps >= 20_000
+    if return_bps >= 8_000
         && downside_bps <= 2_500
         && candidate.confidence_bps >= 9_000
         && candidate.evidence_count >= 5
