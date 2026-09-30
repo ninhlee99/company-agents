@@ -3205,10 +3205,11 @@ impl CompanyStore {
             });
         }
 
-        tx.execute(
+        let plan_row = tx.query_one(
             "INSERT INTO capital_allocation_plans
              (id,company_id,plan_key,policy_json,total_capital_minor,planned_capital_minor,unallocated_minor)
-             VALUES ($1,$2,$3,$4,$5::numeric,$6::numeric,$7::numeric)",
+             VALUES ($1,$2,$3,$4,$5::numeric,$6::numeric,$7::numeric)
+             RETURNING created_at::text",
             &[
                 &plan.plan_id,
                 &company,
@@ -3284,11 +3285,12 @@ impl CompanyStore {
         )
         .await?;
 
+        let created_at: String = plan_row.get(0);
         tx.commit().await?;
         Ok(CapitalAllocationRecord {
             plan,
             policy: *policy,
-            created_at: tx_plan_created_at(&self.client, company, &plan_key).await?,
+            created_at,
         })
     }
 
