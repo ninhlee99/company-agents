@@ -534,6 +534,42 @@ async fn index(
         growth_html.push_str(r#"<p class="muted">No evidence-backed opportunities have been accepted yet. Ingest a verified trend signal first.</p>"#);
     }
 
+    let capital_plan_html = match state
+        .store
+        .latest_capital_allocation_plan(&state.company_id)
+        .await
+    {
+        Ok(Some(record)) => {
+            let stop = if record.policy.emergency_stop { "blocked by emergency stop" } else { "planning only" };
+            let mut rows = String::new();
+            for decision in record.plan.decisions.iter().filter(|decision| decision.allocation_minor > 0).take(3) {
+                rows.push_str(&format!(
+                    r#"<div style="padding:9px 0;border-bottom:1px solid #26304a"><strong>{}</strong><div class="muted">{} · score {} · allocation {}</div></div>"#,
+                    escape_html(&decision.candidate_id.to_string()),
+                    escape_html(&decision.reason),
+                    decision.score_bps,
+                    format_minor(decision.allocation_minor, &state.currency)
+                ));
+            }
+            if rows.is_empty() {
+                rows.push_str(r#"<div class="muted">No candidate currently passes the allocation gates.</div>"#);
+            }
+            format!(
+                r#"<div class="metric">{}</div><div class="muted">{} · planned {} · unallocated {}</div>{}"#,
+                stop,
+                record.plan.decisions.len(),
+                format_minor(record.plan.planned_capital_minor, &state.currency),
+                format_minor(record.plan.unallocated_minor, &state.currency),
+                rows
+            )
+        }
+        Ok(None) => r#"<p class="muted">No capital allocation plan recorded yet. The company will not move cash from this dashboard.</p>"#.into(),
+        Err(error) => {
+            tracing::warn!(%error, "capital allocation plan dashboard unavailable");
+            r#"<p class="muted">Capital planning evidence is unavailable. No allocation is treated as approved.</p>"#.into()
+        }
+    };
+
     let contribution_margin_label = contribution_margin
         .month_to_date_contribution_margin_minor
         .map(|value| format_minor(value, &state.currency))
