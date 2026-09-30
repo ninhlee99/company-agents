@@ -31,6 +31,7 @@ pub enum CompanyEventType {
     LedgerTransactionCommitted,
     AutonomyAssessmentRecorded,
     AgentOutcomeEvidenceRecorded,
+    OpportunityCreated,
 }
 
 impl CompanyEventType {
@@ -58,6 +59,7 @@ impl CompanyEventType {
             Self::LedgerTransactionCommitted => "LEDGER_TRANSACTION_COMMITTED",
             Self::AutonomyAssessmentRecorded => "AUTONOMY_ASSESSMENT_RECORDED",
             Self::AgentOutcomeEvidenceRecorded => "AGENT_OUTCOME_EVIDENCE_RECORDED",
+            Self::OpportunityCreated => "OPPORTUNITY_CREATED",
             Self::LearningEntryRecorded => "LEARNING_ENTRY_RECORDED",
         }
     }
