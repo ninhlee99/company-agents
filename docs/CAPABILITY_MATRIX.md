@@ -122,6 +122,14 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Policy activation event:** activating a new version deactivates the prior active snapshot, rejects rollback to an older effective policy, and emits `POLICY_SNAPSHOT_ACTIVATED` for downstream watchers.
 - **Current boundary:** no automatic policy scraping is claimed. Operators or a verified policy watcher must supply the policy snapshot and evidence; changing platform rules do not silently become trusted.
 
+## Capital allocation planning
+
+- **Evidence-backed candidate contract:** capital candidates carry an explicit evidence reference plus expected contribution, downside, capital required, time-to-feedback, reversibility, strategic value, confidence, evidence count and a hard allocation cap.
+- **Deterministic portfolio plan:** the planner scores candidates using bounded return/risk/speed/quality inputs, respects company cash minus reserve and a discretionary budget, and allocates no more than hard caps.
+- **Liquidity and stop gates:** emergency stop, non-operational company states and insufficient runway/evidence hold capital at zero; positive expected contribution is required before allocation.
+- **Durable idempotency:** plan identity is deterministic per company + plan key and the complete input bundle is fingerprinted, so replay with different evidence fails closed instead of silently mutating a prior plan.
+- **No cash movement:** this capability creates an auditable allocation plan and outbox event only. It does not move company cash or execute external investments/payments.
+
 ## Trend → Opportunity → Content loop
 
 - **Evidence-gated trend ingestion:** trend signals require a source, evidence reference, timestamp, normalized scoring inputs, confidence and policy evidence before they can enter the growth loop.

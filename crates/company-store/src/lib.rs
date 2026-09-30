@@ -95,6 +95,13 @@ pub struct GrowthOpportunityRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CapitalAllocationRecord {
+    pub plan: company_capital::CapitalAllocationPlan,
+    pub policy: company_capital::CapitalPolicy,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AffiliateReconciliationMetrics {
     pub reported_commission_mtd_minor: i128,
     pub attributed_commission_mtd_minor: i128,
@@ -392,6 +399,11 @@ impl CompanyStore {
         client
             .batch_execute(include_str!(
                 "../../../infra/db/migrations/037_autonomy_simulations.sql"
+            ))
+            .await?;
+        client
+            .batch_execute(include_str!(
+                "../../../infra/db/migrations/038_capital_allocation.sql"
             ))
             .await
     }
@@ -3142,6 +3154,227 @@ impl CompanyStore {
                 })
             })
             .collect()
+    }
+
+    pub async fn create_capital_allocation_plan(
+        &self,
+        company_id: &str,
+        plan_key: &str,
+        policy: &company_capital::CapitalPolicy,
+        candidates: &[company_capital::CapitalCandidate],
+    ) -> Result<CapitalAllocationRecord, Box<dyn std::error::Error + Send + Sync>> {
+        if plan_key.trim().is_empty() || plan_key.len() > 256 {
+            return Err("capital allocation plan key is invalid".into());
+        }
+        company_capital::validate_policy(policy).map_err(|error| error.to_string())?;
+        let company = Uuid::parse_str(company_id)?;
+        let mut seen_candidate_ids = std::collections::HashSet::new();
+        for candidate in candidates {
+            company_capital::validate_candidate(candidate).map_err(|error| error.to_string())?;
+            if !seen_candidate_ids.insert(candidate.candidate_id) {
+                return Err("duplicate capital candidate id".into());
+            }
+        }
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        let authoritative = tx
+            .query_opt(
+                "SELECT state
+                   FROM company_state_snapshots
+                  WHERE company_id=$1
+                  FOR SHARE",
+                &[&company],
+            )
+            .await?
+            .ok_or("authoritative company snapshot is unavailable")?
+            .get::<_, serde_json::Value>(0);
+        let authoritative: CompanySnapshot = serde_json::from_value(authoritative)?;
+        if policy.company_status != authoritative.status
+            || policy.cash_available_minor != authoritative.cash_minor.max(0)
+            || policy.runway_days != authoritative.runway_days.max(0)
+        {
+            return Err("capital policy does not match the authoritative company snapshot".into());
+        }
+
+        for candidate in candidates {
+            let unit_id = Uuid::parse_str(&candidate.unit_id)
+                .map_err(|_| "capital candidate unit_id must be a business unit UUID".to_string())?;
+            let owns_unit = tx
+                .query_opt(
+                    "SELECT 1
+                       FROM business_units
+                      WHERE company_id=$1
+                        AND id=$2
+                        AND lifecycle IN ('TESTING','GROWING','STABLE')
+                      FOR SHARE",
+                    &[&company, &unit_id],
+                )
+                .await?
+                .is_some();
+            if !owns_unit {
+                return Err("capital candidate references a business unit outside the company".into());
+            }
+        }
+
+        let mut fingerprint_payload = serde_json::Map::new();
+        fingerprint_payload.insert("policy".into(), serde_json::to_value(policy)?);
+        fingerprint_payload.insert("candidates".into(), serde_json::to_value(candidates)?);
+        let fingerprint_bytes = serde_json::to_vec(&fingerprint_payload)?;
+        let inputs_hash = format!(
+            "sha256:{}",
+            Sha256::digest(fingerprint_bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        );
+        let plan_id = Uuid::new_v5(
+            &Uuid::NAMESPACE_URL,
+            format!("company-capital:{company}:{plan_key}").as_bytes(),
+        );
+        let plan = company_capital::plan_with_id(plan_id, policy, candidates)
+            .map_err(|error| error.to_string())?;
+        let policy_json = serde_json::to_value(policy)?;
+        let plan_json = serde_json::to_value(&plan)?;
+
+        if let Some(row) = tx
+            .query_opt(
+                "SELECT plan_json,policy_json,inputs_hash,created_at::text
+                   FROM capital_allocation_plans
+                  WHERE company_id=$1 AND plan_key=$2",
+                &[&company, &plan_key],
+            )
+            .await?
+        {
+            let stored_plan: company_capital::CapitalAllocationPlan = serde_json::from_value(row.get(0))?;
+            let stored_policy: company_capital::CapitalPolicy = serde_json::from_value(row.get(1))?;
+            let stored_inputs_hash: String = row.get(2);
+            let created_at: String = row.get(3);
+            if stored_plan != plan || stored_policy != *policy || stored_inputs_hash != inputs_hash {
+                return Err("capital allocation plan key already exists with different evidence".into());
+            }
+            tx.rollback().await?;
+            return Ok(CapitalAllocationRecord {
+                plan: stored_plan,
+                policy: stored_policy,
+                created_at,
+            });
+        }
+
+        let plan_row = tx.query_one(
+            "INSERT INTO capital_allocation_plans
+             (id,company_id,plan_key,inputs_hash,policy_json,total_capital_minor,planned_capital_minor,unallocated_minor)
+             VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8::numeric)
+             RETURNING created_at::text",
+            &[
+                &plan.plan_id,
+                &company,
+                &plan_key,
+                &inputs_hash,
+                &policy_json,
+                &plan.total_capital_minor.to_string(),
+                &plan.planned_capital_minor.to_string(),
+                &plan.unallocated_minor.to_string(),
+            ],
+        )
+        .await?;
+
+        for candidate in candidates {
+            tx.execute(
+                "INSERT INTO capital_allocation_candidates
+                 (id,company_id,plan_id,candidate_key,candidate_json)
+                 VALUES ($1,$2,$3,$4,$5)",
+                &[
+                    &candidate.candidate_id,
+                    &company,
+                    &plan.plan_id,
+                    &candidate.candidate_id.to_string(),
+                    &serde_json::to_value(candidate)?,
+                ],
+            )
+            .await?;
+        }
+
+        let candidate_map = candidates
+            .iter()
+            .map(|candidate| (candidate.candidate_id, candidate))
+            .collect::<std::collections::HashMap<_, _>>();
+
+        for decision in &plan.decisions {
+            let candidate = candidate_map
+                .get(&decision.candidate_id)
+                .ok_or("capital decision references unknown candidate")?;
+            tx.execute(
+                "INSERT INTO capital_allocation_decisions
+                 (id,company_id,plan_id,candidate_id,decision,score_bps,allocation_minor,reason)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7::numeric,$8)",
+                &[
+                    &Uuid::new_v4(),
+                    &company,
+                    &plan.plan_id,
+                    &candidate.candidate_id,
+                    &format!("{:?}", decision.status).to_uppercase(),
+                    &(decision.score_bps as i32),
+                    &decision.allocation_minor.to_string(),
+                    &decision.reason,
+                ],
+            )
+            .await?;
+        }
+
+        tx.execute(
+            "INSERT INTO outbox_events
+             (company_id,event_type,aggregate_id,idempotency_key,payload)
+             VALUES ($1,'CAPITAL_ALLOCATION_PLAN_CREATED',$2,$3,$4)
+             ON CONFLICT(company_id,idempotency_key) DO NOTHING",
+            &[
+                &company,
+                &plan.plan_id,
+                &format!("outbox:capital-plan:{plan_key}"),
+                &serde_json::json!({
+                    "plan_id": plan.plan_id,
+                    "plan_key": plan_key,
+                    "total_capital_minor": plan.total_capital_minor,
+                    "planned_capital_minor": plan.planned_capital_minor,
+                    "unallocated_minor": plan.unallocated_minor
+                }),
+            ],
+        )
+        .await?;
+
+        let created_at: String = plan_row.get(0);
+        tx.commit().await?;
+        Ok(CapitalAllocationRecord {
+            plan,
+            policy: *policy,
+            created_at,
+        })
+    }
+
+    pub async fn latest_capital_allocation_plan(
+        &self,
+        company_id: &str,
+    ) -> Result<Option<CapitalAllocationRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let company = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "SELECT plan_json, policy_json, created_at::text
+                   FROM capital_allocation_plans
+                  WHERE company_id=$1
+                  ORDER BY created_at DESC, id DESC
+                  LIMIT 1",
+                &[&company],
+            )
+            .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        Ok(Some(CapitalAllocationRecord {
+            plan: serde_json::from_value(row.get(0))?,
+            policy: serde_json::from_value(row.get(1))?,
+            created_at: row.get(2),
+        }))
     }
 
     pub async fn portfolio_metrics(

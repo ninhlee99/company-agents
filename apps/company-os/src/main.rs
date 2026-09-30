@@ -149,6 +149,13 @@ struct ContentCreateRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct CapitalAllocationRequest {
+    plan_key: String,
+    policy: company_capital::CapitalPolicy,
+    candidates: Vec<company_capital::CapitalCandidate>,
+}
+
+#[derive(Debug, Deserialize)]
 struct ContentObservationRequest {
     observation: company_content::ContentObservation,
 }
@@ -527,6 +534,42 @@ async fn index(
         growth_html.push_str(r#"<p class="muted">No evidence-backed opportunities have been accepted yet. Ingest a verified trend signal first.</p>"#);
     }
 
+    let capital_plan_html = match state
+        .store
+        .latest_capital_allocation_plan(&state.company_id)
+        .await
+    {
+        Ok(Some(record)) => {
+            let stop = if record.policy.emergency_stop { "blocked by emergency stop" } else { "planning only" };
+            let mut rows = String::new();
+            for decision in record.plan.decisions.iter().filter(|decision| decision.allocation_minor > 0).take(3) {
+                rows.push_str(&format!(
+                    r#"<div style="padding:9px 0;border-bottom:1px solid #26304a"><strong>{}</strong><div class="muted">{} · score {} · allocation {}</div></div>"#,
+                    escape_html(&decision.candidate_id.to_string()),
+                    escape_html(&decision.reason),
+                    decision.score_bps,
+                    format_minor(decision.allocation_minor, &state.currency)
+                ));
+            }
+            if rows.is_empty() {
+                rows.push_str(r#"<div class="muted">No candidate currently passes the allocation gates.</div>"#);
+            }
+            format!(
+                r#"<div class="metric">{}</div><div class="muted">{} · planned {} · unallocated {}</div>{}"#,
+                stop,
+                record.plan.decisions.len(),
+                format_minor(record.plan.planned_capital_minor, &state.currency),
+                format_minor(record.plan.unallocated_minor, &state.currency),
+                rows
+            )
+        }
+        Ok(None) => r#"<p class="muted">No capital allocation plan recorded yet. The company will not move cash from this dashboard.</p>"#.into(),
+        Err(error) => {
+            tracing::warn!(%error, "capital allocation plan dashboard unavailable");
+            r#"<p class="muted">Capital planning evidence is unavailable. No allocation is treated as approved.</p>"#.into()
+        }
+    };
+
     let contribution_margin_label = contribution_margin
         .month_to_date_contribution_margin_minor
         .map(|value| format_minor(value, &state.currency))
@@ -693,7 +736,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 @media(max-width:520px){{.grid{{grid-template-columns:1fr}}.cc-kpis{{grid-template-columns:1fr 1fr}}.cc-body{{grid-template-columns:1fr}}.autonomy-steps{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
 </style></head><body>
 <header><h1>Veridara AI</h1><small>Autonomous Company OS · {}</small></header>
-<nav><a href="/">Overview</a><a href="/api/ceo/command-center">Revenue JSON</a><a href="/api/autonomy/policy">Autonomy policy</a><a href="/api/agents">Agents</a><a href="/api/agents/evaluation">Agent outcomes</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Audit</a></nav>
+<nav><a href="/">Overview</a><a href="/api/ceo/command-center">Revenue JSON</a><a href="/api/capital/plan">Capital plan</a><a href="/api/autonomy/policy">Autonomy policy</a><a href="/api/agents">Agents</a><a href="/api/agents/evaluation">Agent outcomes</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Audit</a></nav>
 {}
 {}
 {}
@@ -706,6 +749,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <div class="card"><small>Contribution margin MTD</small><div class="metric">{}</div><small>{}</small></div>
 <div class="card"><small>Affiliate reconciliation MTD</small><div class="metric">{}</div><small>variance · reported · attributed · paid: {} · {} · {} · {}</small></div>
 <div class="card"><h2>Growth pipeline</h2><p class="muted">Evidence-backed trend signals become scored opportunities before any content plan is created.</p>{}</div>
+<div class="card"><h2>Capital allocation</h2><p class="muted">Expected contribution, downside, speed, reversibility and evidence are evaluated before any capital movement.</p>{}</div>
 <div class="card"><h2>Policy intelligence</h2><p class="muted">External content/LIVE side effects require a matching versioned policy snapshot and evidence.</p>{}</div>
 <div class="grid"><div class="card"><small>Status</small><div class="metric">{:?}</div></div><div class="card"><small>Agent cycle</small><div class="metric">{}</div></div><div class="card"><small>Backlog / capacity</small><div class="metric">{}%</div></div><div class="card"><small>Agent results</small><div class="metric">{}</div></div></div>
 <div class="grid"><div class="card"><small>Active workforce</small><div class="metric">{}</div></div><div class="card"><small>Payroll due</small><div class="metric">{}</div></div><div class="card"><small>Business units</small><div class="metric">{}</div></div><div class="card"><small>Operating loop</small><div class="metric">observe → act → learn</div></div></div>
@@ -738,6 +782,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
         format_minor(affiliate_reconciliation.attributed_commission_mtd_minor, &state.currency),
         format_minor(affiliate_reconciliation.recorded_payout_mtd_minor, &state.currency),
         growth_html,
+        capital_plan_html,
         compliance_html,
         company.runway_days,
         company.status,
@@ -1557,6 +1602,48 @@ async fn journal_api(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
+async fn create_capital_plan_api(
+    State(state): State<AppState>,
+    Json(request): Json<CapitalAllocationRequest>,
+) -> Result<Json<company_store::CapitalAllocationRecord>, StatusCode> {
+    let snapshot = state.company.read().await.clone();
+    let mut policy = request.policy;
+    policy.company_status = snapshot.status;
+    policy.cash_available_minor = snapshot.cash_minor.max(0);
+    policy.runway_days = snapshot.runway_days.max(0);
+    if autonomy_emergency_stop_from_env().unwrap_or(true) {
+        policy.emergency_stop = true;
+    }
+    state
+        .store
+        .create_capital_allocation_plan(
+            &state.company_id,
+            &request.plan_key,
+            &policy,
+            &request.candidates,
+        )
+        .await
+        .map(Json)
+        .map_err(|error| {
+            tracing::warn!(%error, "capital allocation plan rejected");
+            StatusCode::BAD_REQUEST
+        })
+}
+
+async fn latest_capital_plan_api(
+    State(state): State<AppState>,
+) -> Result<Json<Option<company_store::CapitalAllocationRecord>>, StatusCode> {
+    state
+        .store
+        .latest_capital_allocation_plan(&state.company_id)
+        .await
+        .map(Json)
+        .map_err(|error| {
+            tracing::warn!(%error, "capital allocation plan unavailable");
+            StatusCode::SERVICE_UNAVAILABLE
+        })
+}
+
 async fn business_units_api(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<company_organization::BusinessUnit>>, StatusCode> {
@@ -2010,6 +2097,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/growth/trends", get(growth_trends_api).post(growth_trend_api))
         .route("/api/growth/opportunities", get(growth_opportunities_api))
         .route("/api/growth/content", post(growth_content_api))
+        .route("/api/capital/plan", get(latest_capital_plan_api).post(create_capital_plan_api))
         .route("/api/compliance/policies", post(policy_snapshot_api))
         .route("/api/compliance/checks", post(compliance_check_api))
         .route("/api/compliance/status", get(compliance_status_api))

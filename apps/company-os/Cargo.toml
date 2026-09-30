@@ -17,6 +17,7 @@ company-compliance = { path = "../../crates/company-compliance" }
 company-command-center = { path = "../../crates/company-command-center" }
 company-agent-evaluation = { path = "../../crates/company-agent-evaluation" }
 company-autonomy = { path = "../../crates/company-autonomy" }
+company-capital = { path = "../../crates/company-capital" }
 commercial-sales = { path = "../../crates/commercial-sales" }
 social-publishing = { path = "../../crates/social-publishing" }
 tiktok-live-streaming = { path = "../../crates/tiktok-live-streaming" }
