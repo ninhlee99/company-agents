@@ -184,6 +184,8 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 
 ## Integration readiness
 
+- **Creator-product matching:** `POST /api/growth/creator-product-matches` accepts only caller-supplied company-scoped creator/product evidence. Results are deterministic fit/economic signals; stale or out-of-stock products are excluded, and no external marketplace connectivity or commercial success is implied.
+
 - **Creator-product matching:** `POST /api/growth/creator-product-matches` accepts company-scoped creator/product evidence and returns deterministic fit/economic scores. It excludes stale or out-of-stock products and never asserts marketplace connectivity or commercial success.
 
 
