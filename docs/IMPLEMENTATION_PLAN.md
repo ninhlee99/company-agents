@@ -7,6 +7,7 @@
 - Transactional cycle execution, scheduler leases, replay-safe run tokens and durable outbox delivery.
 - Automated CI and weekly PostgreSQL recovery drill are now part of the release gates.
 
+- Unified event architecture foundation: canonical event names, versioned envelope, correlation/causation metadata and idempotent outbox persistence are implemented; producer migration remains incremental.
 ## Phase 2 — Simulator
 **Status: implemented baseline**
 - Seeded/replayable company world.
@@ -16,7 +17,6 @@
 
 **Next acceptance work:** calibrate simulator distributions from real observed outcomes and validate sensitivity across target deployment scenarios. Multi-run statistical evaluation with deterministic seed sets and descriptive 95% intervals is implemented.
 
-- Unified event architecture foundation: canonical event names, versioned envelope, correlation/causation metadata and idempotent outbox persistence are implemented; producer migration remains incremental.
 ## Phase 3 — Agent Harness
 **Status: implemented safety baseline**
 - Typed Agent contract, multi-provider LLM gateway, bounded runtime, timeouts, fail-closed errors.
