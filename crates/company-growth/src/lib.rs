@@ -23,6 +23,7 @@ pub struct CompetitorObservation {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OwnedContentCoverage {
+    pub company_id: Uuid,
     pub topic: String,
     pub coverage_bps: u32,
     pub evidence_ref: String,
@@ -77,6 +78,9 @@ pub fn evaluate_content_whitespace(
         }
     }
     for coverage in owned_coverage {
+        if coverage.company_id == Uuid::nil() {
+            return Err("owned coverage company_id is required".into());
+        }
         require_text("coverage.topic", &coverage.topic, MAX_TEXT)?;
         require_text("coverage.evidence_ref", &coverage.evidence_ref, 256)?;
         if coverage.coverage_bps > 10_000 {
@@ -428,6 +432,7 @@ mod tests {
             },
         ];
         let owned = vec![OwnedContentCoverage {
+            company_id,
             topic: "standing desk".into(),
             coverage_bps: 2_000,
             evidence_ref: "owned-coverage-1".into(),
@@ -437,6 +442,36 @@ mod tests {
         assert!(gaps[0].whitespace_bps > 0);
         assert!(gaps[0].priority_bps >= gaps[0].whitespace_bps);
         assert_eq!(gaps[0].evidence_refs, vec!["comp-a-1", "comp-b-1", "owned-coverage-1"]);
+    }
+
+    #[test]
+    fn owned_coverage_requires_company_identity() {
+        let observation_company = Uuid::new_v4();
+        let coverage = OwnedContentCoverage {
+            company_id: Uuid::nil(),
+            topic: "standing desk".into(),
+            coverage_bps: 1_000,
+            evidence_ref: "owned-1".into(),
+        };
+        let observation = CompetitorObservation {
+            company_id: observation_company,
+            competitor_id: "competitor-a".into(),
+            content_key: "a-1".into(),
+            topic: "standing desk".into(),
+            source: "verified-competitor-feed".into(),
+            evidence_ref: "comp-a-1".into(),
+            observed_at_epoch: 1_800_000_000,
+            audience_signal_bps: 9_000,
+            engagement_signal_bps: 9_000,
+            offer_presence_bps: 9_000,
+        };
+        assert!(evaluate_content_whitespace(
+            &[observation],
+            &[coverage],
+            1_800_000_100,
+            86_400
+        )
+        .is_err());
     }
 
     #[test]
