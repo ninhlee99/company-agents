@@ -44,9 +44,9 @@ The name **Veridara** is an invented brand chosen to evoke verified intelligence
 
 ## Primary implementation
 
-The core Company OS is Rust.
+The production Company OS is Rust.
 
-There is no React and no Vue. The operator dashboard is server-rendered HTML from Rust with no SPA/frontend build pipeline.
+The repository also contains an optional React/Vite + Express UI harness under `src/` and `server.ts`. That harness uses synthetic in-memory state for product/demo visualization; it is **not** the durable Company OS control plane and must not be treated as a source of real cash, revenue, orders, inventory or provider success.
 
 The architecture is workload-based:
 - Rust: Company OS, Agent Runtime, governance, economic core, scheduler and control plane.
