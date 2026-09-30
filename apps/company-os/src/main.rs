@@ -3360,24 +3360,7 @@ async fn require_control_plane_auth(
     }
 
     let actor_id = control_plane_actor_id(provided);
-    let operator_token = match std::env::var("CONTROL_PLANE_TOKEN") {
-        Ok(value) if !value.is_empty() => value,
-        _ => {
-            mark_control_plane_denied(&state, false, started);
-            record_control_plane_audit(
-                &state,
-                &actor_id,
-                "operator",
-                &method,
-                &path,
-                "CONTROL_PLANE_REQUEST",
-                "DENIED",
-                &request_id,
-            )
-            .await;
-            return Err(StatusCode::UNAUTHORIZED);
-        }
-    };
+    let operator_token = std::env::var("CONTROL_PLANE_TOKEN").unwrap_or_default();
     let read_token = std::env::var("CONTROL_PLANE_READ_TOKEN")
         .ok()
         .filter(|value| !value.is_empty());
@@ -3715,6 +3698,30 @@ mod control_plane_audit_tests {
     fn malformed_named_principal_config_fails_closed() {
         std::env::set_var("CONTROL_PLANE_PRINCIPALS_JSON", "{bad-json");
         assert!(control_plane_auth_principal("GET", Some("anything"), "unused", None).is_err());
+        std::env::remove_var("CONTROL_PLANE_PRINCIPALS_JSON");
+    }
+
+    #[test]
+    fn named_principal_roles_are_scoped_by_http_method() {
+        std::env::set_var(
+            "CONTROL_PLANE_PRINCIPALS_JSON",
+            r#"[{"id":"reader","role":"read-only","token":"reader-secret"},{"id":"writer","role":"operator","token":"writer-secret"}]"#,
+        );
+        assert_eq!(
+            control_plane_auth_principal("GET", Some("reader-secret"), "", None)
+                .unwrap(),
+            Some(("reader".into(), "read-only"))
+        );
+        assert_eq!(
+            control_plane_auth_principal("POST", Some("reader-secret"), "", None)
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            control_plane_auth_principal("POST", Some("writer-secret"), "", None)
+                .unwrap(),
+            Some(("writer".into(), "operator"))
+        );
         std::env::remove_var("CONTROL_PLANE_PRINCIPALS_JSON");
     }
 
