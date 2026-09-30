@@ -45,7 +45,7 @@ pub struct CreatorIntelligence {
     pub company_id: Uuid,
     pub creator_id: Uuid,
     pub name: String,
-    pub category_fit_bps: u32,
+    pub specialty_categories: Vec<String>,
     pub audience_quality_bps: u32,
     pub engagement_bps: u32,
     pub click_through_bps: u32,
@@ -109,8 +109,13 @@ pub fn match_creators_to_products(
         {
             return Err("creator intelligence has invalid company/time scope".into());
         }
+        if creator.specialty_categories.is_empty() || creator.specialty_categories.len() > 32 {
+            return Err("creator specialty_categories must contain 1..32 values".into());
+        }
+        for category in &creator.specialty_categories {
+            require_text("creator.specialty_category", category, 128)?;
+        }
         for (name, value) in [
-            ("category_fit_bps", creator.category_fit_bps),
             ("audience_quality_bps", creator.audience_quality_bps),
             ("engagement_bps", creator.engagement_bps),
             ("click_through_bps", creator.click_through_bps),
@@ -150,7 +155,16 @@ pub fn match_creators_to_products(
                 && as_of_epoch.saturating_sub(value.observed_at_epoch) <= max_age_seconds
                 && value.company_id == creator.company_id
         }) {
-            let category_fit = creator.category_fit_bps;
+            let product_category = product.category.trim().to_ascii_lowercase();
+            let category_fit = if creator
+                .specialty_categories
+                .iter()
+                .any(|category| category.trim().eq_ignore_ascii_case(&product_category))
+            {
+                10_000
+            } else {
+                2_500
+            };
             let creator_fit = ((u64::from(category_fit) * 40
                 + u64::from(creator.audience_quality_bps) * 20
                 + u64::from(creator.engagement_bps) * 20
@@ -565,7 +579,7 @@ mod tests {
             company_id,
             creator_id: Uuid::new_v4(),
             name: "Creator A".into(),
-            category_fit_bps: 9_000,
+            specialty_categories: vec!["desk".into()],
             audience_quality_bps: 8_000,
             engagement_bps: 8_500,
             click_through_bps: 7_000,
@@ -625,7 +639,7 @@ mod tests {
             company_id,
             creator_id: Uuid::new_v4(),
             name: "Creator A".into(),
-            category_fit_bps: 9_000,
+            specialty_categories: vec!["desk".into()],
             audience_quality_bps: 8_000,
             engagement_bps: 8_000,
             click_through_bps: 8_000,
