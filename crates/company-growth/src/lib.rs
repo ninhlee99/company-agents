@@ -142,6 +142,7 @@ pub fn evaluate_kill_gate(input: &KillGateInput) -> Result<KillGateDecision, Str
         evidence_ref: input.evidence_ref.clone(),
     })
 }
+
 fn validate_non_negative_money(name: &str, value: i128) -> Result<(), String> {
     if value < 0 {
         return Err(format!("{name} must not be negative"));
