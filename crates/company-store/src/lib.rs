@@ -1151,7 +1151,7 @@ impl CompanyStore {
         let row = tx
             .query_one(
                 "INSERT INTO autonomy_simulations
-                 (id,company_id,idempotency_key,proposal,decision,ceiling,required_level,reason,simulation)
+                 (id,company_id,idempotency_key,proposal,decision,ceiling,required_level,reason,assessment_json)
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
                  RETURNING created_at::text",
                 &[
@@ -1163,7 +1163,7 @@ impl CompanyStore {
                     &assessment.ceiling.as_str(),
                     &assessment.required_level.as_str(),
                     &assessment.reason,
-                    &simulation_json,
+                    &assessment_json,
                 ],
             )
             .await?;
