@@ -147,6 +147,21 @@ struct ComplianceCheckRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct RevenueGraphEdgeRequest {
+    edge: company_revenue_graph::RevenueGraphEdge,
+}
+
+#[derive(Debug, Deserialize)]
+struct RevenueGraphLineageQuery {
+    root_type: String,
+    root_ref: String,
+    #[serde(default)]
+    max_depth: Option<i32>,
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
 struct GrowthTrendRequest {
     signal: company_growth::TrendSignal,
 }
@@ -1803,6 +1818,61 @@ async fn compliance_status_api(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
+async fn revenue_graph_edge_api(
+    State(state): State<AppState>,
+    Json(request): Json<RevenueGraphEdgeRequest>,
+) -> Result<Json<company_revenue_graph::RevenueGraphEdge>, StatusCode> {
+    if request.edge.company_id.to_string() != state.company_id {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    state
+        .store
+        .record_revenue_graph_edge(&request.edge)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn revenue_graph_summary_api(
+    State(state): State<AppState>,
+) -> Result<Json<company_store::RevenueGraphSummary>, StatusCode> {
+    state
+        .store
+        .revenue_graph_summary(&state.company_id)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
+}
+
+async fn revenue_graph_lineage_api(
+    State(state): State<AppState>,
+    Query(query): Query<RevenueGraphLineageQuery>,
+) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    let root_type = company_revenue_graph::RevenueNodeType::parse(&query.root_type)
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let rows = state
+        .store
+        .revenue_graph_lineage(
+            &state.company_id,
+            root_type,
+            &query.root_ref,
+            query.max_depth.unwrap_or(6),
+            query.limit.unwrap_or(100),
+        )
+        .await
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|(depth, edge)| {
+                serde_json::json!({
+                    "depth": depth,
+                    "edge": edge
+                })
+            })
+            .collect(),
+    ))
+}
+
 async fn growth_trend_api(
     State(state): State<AppState>,
     Json(request): Json<GrowthTrendRequest>,
@@ -2618,6 +2688,9 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/content/observations", post(content_observation_api))
         .route("/api/content/status", post(content_status_transition_api))
         .route("/api/growth/trends", get(growth_trends_api).post(growth_trend_api))
+        .route("/api/revenue-graph/edges", post(revenue_graph_edge_api))
+        .route("/api/revenue-graph/summary", get(revenue_graph_summary_api))
+        .route("/api/revenue-graph/lineage", get(revenue_graph_lineage_api))
         .route("/api/growth/opportunities", get(growth_opportunities_api))
         .route("/api/growth/content", post(growth_content_api))
         .route("/api/capital/plan", get(latest_capital_plan_api).post(create_capital_plan_api))
