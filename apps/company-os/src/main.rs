@@ -2254,7 +2254,15 @@ fn control_plane_auth_disabled() -> bool {
 
 async fn require_control_plane_auth(request: Request, next: Next) -> Result<Response, StatusCode> {
     let path = request.uri().path();
-    if matches!(path, "/healthz" | "/readyz" | "/metrics" | "/api/publishing/tiktok/webhook") {
+    if matches!(
+        path,
+        "/healthz"
+            | "/readyz"
+            | "/metrics"
+            | "/api/publishing/tiktok/webhook"
+            | "/api/tiktok/oauth/start"
+            | "/api/tiktok/oauth/callback"
+    ) {
         return Ok(next.run(request).await);
     }
     if control_plane_auth_disabled() {
