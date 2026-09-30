@@ -2262,7 +2262,6 @@ async fn require_control_plane_auth(request: Request, next: Next) -> Result<Resp
             | "/readyz"
             | "/metrics"
             | "/api/publishing/tiktok/webhook"
-            | "/api/tiktok/oauth/start"
             | "/api/tiktok/oauth/callback"
     ) {
         return Ok(next.run(request).await);
