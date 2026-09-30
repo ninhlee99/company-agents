@@ -226,7 +226,7 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Evidence gate:** failure records require severity and all entries require an observed actual outcome; the library rejects empty evidence and invalid confidence values rather than inventing outcomes.
 - **Idempotent identity:** the database enforces a company-scoped unique `entry_key`, preventing duplicate learning records for the same source event.
 - **Write-path baseline:** P0.5 introduces no update/delete workflow; the current contract is append-oriented, while database-level immutability enforcement remains a later hardening step.
-- **Experiment integration:** terminal experiment decisions now persist an evidence-backed learning entry and transactional `LEARNING_ENTRY_RECORDED` outbox event in the same database transaction. Content/LIVE automatic ingestion remains a later integration step.
+- **Outcome integrations:** terminal experiment decisions and content observations now persist evidence-backed learning entries plus transactional `LEARNING_ENTRY_RECORDED` outbox events in the same database transaction. LIVE automatic ingestion remains a later integration step.
 
 ## Content Factory
 
@@ -235,7 +235,7 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **Durable content ledger:** company-scoped PostgreSQL content items are persisted with status and explicit SCALE/ITERATE/PAUSE/KILL decisions.
 - **Control-plane API:** authenticated GET/POST /api/content/items is available for creating and reviewing content plans.
 - **Truth boundary:** content plans do not imply rendering, publishing, reach, conversion or revenue. Those outcomes require separate verified media, platform, analytics and attribution evidence.
-- **Next integration:** connect content plans to media jobs, publish intents, verified analytics, experiments and the learning ledger.
+- **Learning integration:** measured content observations now feed the learning ledger transactionally. Verified analytics/publisher evidence is still required at the content-observation boundary; LIVE learning remains separate.
 
 - **Content lifecycle evidence:** status transitions are governed and published/measured states require persisted evidence references.
 - **Content performance evidence:** company-scoped observations persist source/evidence hash, timestamp, sample/funnel metrics, spend, commission and contribution margin with idempotent observation keys.
