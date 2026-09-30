@@ -58,8 +58,9 @@ This document intentionally separates implemented behavior from contracts, simul
 | Autonomous company operation with no human | NOT achieved | The architecture is a controlled autonomy foundation. Real external credentials, platform adapters and production acceptance are still required. |
 
 
-## TikTok OAuth refresh durability
+## TikTok OAuth lifecycle
 
+- **TikTok OAuth lifecycle events:** `TIKTOK_OAUTH_CONNECTED` and `TIKTOK_OAUTH_REVOKED` use canonical typed envelopes; token material itself remains encrypted at rest and is never included in event payloads.
 - **Durable refresh lease:** enabled refresh workers use the existing `scheduled_jobs` lease, so concurrent Company OS instances claim at most one refresh job at a time. Refresh failures release the job for bounded retry; successful/no-op cycles advance the next run.
 
 ## Hard conclusion
@@ -255,7 +256,7 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 - **TTFC evidence:** the growth ledger stores the first content creation timestamp and derives trend-to-content elapsed seconds so growth speed can be measured instead of inferred.
 - **LIVE attention controller:** each accepted LIVE event is scored for purchase intent, objections, gifts, PK moments, engagement, explicit high-value viewer evidence and safety escalation; per-session response caps/cooldowns are persisted, with human escalation for safety signals.
 - **LIVE learning integration:** safety escalations and high-priority responses persist a bounded policy-learning record transactionally; the record carries event/session evidence identifiers and does not recognize gifts or engagement as revenue.
-- **Typed outbox events:** trend/opportunity/content events plus verified commission, affiliate conversion reconciliation, affiliate payout settlement, Agent decisions, agent outcome evidence, learning entries, opportunity creation, publish approvals/completions, and ledger commits now use canonical typed envelopes for durable downstream hand-off without free-form agent chat. Autonomy control-state changes and budget consumptions now use the same envelope boundary.
+- **Typed outbox events:** trend/opportunity/content events plus verified commission, affiliate conversion reconciliation, affiliate payout settlement, Agent decisions, agent outcome evidence, learning entries, opportunity creation, publish approvals/completions, and ledger commits now use canonical typed envelopes for durable downstream hand-off without free-form agent chat. Autonomy control-state changes and budget consumptions now use the same envelope boundary. TikTok OAuth connect/revoke lifecycle events now use the same envelope boundary.
 - **Current boundary:** trend discovery still requires an external/verified trend signal source, and content analytics/publishing evidence must come from separately authenticated platform boundaries.
 
 - **Affiliate payout event:** verified payout settlement emits `AFFILIATE_PAYOUT_SETTLED` with deterministic correlation, ledger transaction ID, currency, amount and remaining recognized receivable evidence; no payout is recognized beyond the existing ledger gate.
