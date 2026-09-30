@@ -687,6 +687,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}} nav a{{color:#94a3b8;
 <nav><a href="/">Overview</a><a href="/api/ceo/command-center">Revenue JSON</a><a href="/api/autonomy/policy">Autonomy policy</a><a href="/api/agents">Agents</a><a href="/api/agents/evaluation">Agent outcomes</a><a href="/api/customers">Customers</a><a href="/api/employees">Workforce</a><a href="/api/business-units">Business units</a><a href="/api/journal">Audit</a></nav>
 {}
 {}
+{}
 <div class="grid">
 <div class="card"><small>Cash</small><div class="metric">{}</div></div>
 <div class="card"><small>Revenue MTD</small><div class="metric">{}</div><small>Ledger evidence: {} revenue transactions</small></div>
