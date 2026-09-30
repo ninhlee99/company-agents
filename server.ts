@@ -12,7 +12,9 @@ app.use(express.json());
 const SIMULATED_DATA_MODE = 'SIMULATED' as const;
 
 function simulatedMutationsEnabled(): boolean {
-  return process.env.ALLOW_SIMULATED_ACTIONS === 'true' && process.env.NODE_ENV !== 'production';
+  const enabled = process.env.ALLOW_SIMULATED_ACTIONS?.trim().toLowerCase() === 'true';
+  const production = process.env.NODE_ENV?.trim().toLowerCase() === 'production';
+  return enabled && !production;
 }
 
 function rejectSimulatedMutation(req: express.Request, res: express.Response, next: express.NextFunction) {
