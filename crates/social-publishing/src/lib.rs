@@ -203,7 +203,8 @@ impl fmt::Display for PublishError {
 
 #[derive(Clone)]
 pub struct TikTokPublisher {
-    pub access_token: String,
+    pub access_token: Option<String>,
+    pub access_token_provider: Option<Arc<dyn TikTokAccessTokenProvider>>,
     pub api_base: String,
     pub client: reqwest::Client,
     pub approval: ApprovalAuthority,
