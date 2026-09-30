@@ -88,6 +88,26 @@ pub struct CeoCommandCenterRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PaymentExecutionIntentRecord {
+    pub id: Uuid,
+    pub company_id: Uuid,
+    pub invoice_id: Uuid,
+    pub amount_minor: i128,
+    pub currency: String,
+    pub provider: String,
+    pub payment_method_ref: String,
+    pub status: String,
+    pub approval_reference: Option<String>,
+    pub approved_by: Option<String>,
+    pub approved_at_epoch: Option<i64>,
+    pub submitted_at_epoch: Option<i64>,
+    pub completed_at_epoch: Option<i64>,
+    pub provider_execution_ref: Option<String>,
+    pub failure_reason: Option<String>,
+    pub idempotency_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GrowthOpportunityRecord {
     pub opportunity: company_growth::Opportunity,
     pub status: company_growth::OpportunityStatus,
