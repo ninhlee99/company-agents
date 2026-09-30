@@ -319,6 +319,12 @@ struct ContentStatusTransitionRequest {
 }
 
 #[derive(Debug, Deserialize, Default)]
+struct ForecastVarianceQuery {
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Default)]
 struct AgentEvaluationQuery {
     days: Option<i64>,
 }
@@ -1966,6 +1972,21 @@ async fn agent_outcome_evaluations_api(
         .await
         .map(Json)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn forecast_variance_api(
+    State(state): State<AppState>,
+    Query(query): Query<ForecastVarianceQuery>,
+) -> Result<Json<Vec<company_store::ForecastVarianceRecord>>, StatusCode> {
+    state
+        .store
+        .forecast_cashflow_variance(
+            &state.company_id,
+            query.limit.unwrap_or(12),
+        )
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
 }
 
 async fn ceo_command_center_api(
@@ -4104,6 +4125,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/live/stop", post(live_stop_html))
         .route("/api/run", post(run_api))
         .route("/api/ceo/command-center", get(ceo_command_center_api))
+        .route("/api/fpa/forecast-variance", get(forecast_variance_api))
         .route("/api/agents", get(agents_api))
         .route("/api/agents/outcome-evidence", post(agent_outcome_evidence_api))
         .route("/api/agents/evaluation", get(agent_outcome_evaluations_api))
