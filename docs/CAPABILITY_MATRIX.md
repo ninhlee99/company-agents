@@ -179,7 +179,6 @@ The commercial control plane now exposes a read-only pipeline view plus determin
 ## Integration readiness
 - **Product freshness:** affiliate ranking excludes source timestamps older than 7 days relative to `as_of_date` (when supplied) or the current UTC date. Invalid timestamps are treated as stale; missing timestamps are `UNKNOWN` and are not described as fresh.
 
-
 - **Control-plane request telemetry:** protected requests are correlated with `x-request-id`; auth/scope/CSRF denials increment dedicated counters and protected request latency is exposed as a low-cardinality gauge. No path/actor labels are exported to avoid cardinality and secret leakage.
 
 - **Readiness API:** `GET /api/integrations/readiness` returns explicit `READY`, `CONFIGURED`, `NOT_CONFIGURED`, `ACTION_REQUIRED`, `GATED`, or `UNAVAILABLE` states.
