@@ -254,6 +254,14 @@ struct CreatorProductMatchingRequest {
     max_age_seconds: i64,
     max_results: usize,
 }
+#[derive(Debug, Deserialize)]
+struct AdsDecisionRequest {
+    candidates: Vec<company_growth::AdsEvidenceCandidate>,
+    as_of_epoch: i64,
+    max_age_seconds: i64,
+    max_results: usize,
+}
+
 
 
 
@@ -2556,6 +2564,27 @@ async fn revenue_graph_lineage_api(
     ))
 }
 
+async fn ads_decisions_api(
+    State(state): State<AppState>,
+    Json(request): Json<AdsDecisionRequest>,
+) -> Result<Json<Vec<company_growth::AdsDecision>>, StatusCode> {
+    if request
+        .candidates
+        .iter()
+        .any(|candidate| candidate.company_id.to_string() != state.company_id)
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    company_growth::evaluate_ads_campaigns(
+        &request.candidates,
+        request.as_of_epoch,
+        request.max_age_seconds,
+        request.max_results,
+    )
+    .map(Json)
+    .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
 async fn creator_product_matches_api(
     State(state): State<AppState>,
     Json(request): Json<CreatorProductMatchingRequest>,
@@ -4222,6 +4251,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/growth/trends", get(growth_trends_api).post(growth_trend_api))
         .route("/api/growth/competitor-whitespace", post(competitor_whitespace_api))
         .route("/api/growth/creator-product-matches", post(creator_product_matches_api))
+        .route("/api/growth/ads/decisions", post(ads_decisions_api))
         .route("/api/revenue-graph/edges", post(revenue_graph_edge_api))
         .route("/api/revenue-graph/summary", get(revenue_graph_summary_api))
         .route("/api/revenue-graph/lineage", get(revenue_graph_lineage_api))
