@@ -4854,8 +4854,8 @@ impl CompanyStore {
                 &[&company_uuid, &employee_uuid, &attendance.work_date],
             )
             .await?
-            .flatten()
-            .map(|row| row.get::<_, time::OffsetDateTime>(0));
+            .map(|row| row.get::<_, Option<time::OffsetDateTime>>(0))
+            .transpose()?;
 
         let effective_check_in = check_in.or(existing_check_in);
 
