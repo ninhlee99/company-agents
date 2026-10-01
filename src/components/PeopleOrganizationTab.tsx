@@ -290,7 +290,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
   const [departmentList, setDepartmentList] = useState<Department[]>(seedDepartments);
   const [departmentActivationPending, setDepartmentActivationPending] = useState(false);
 
-  const people = livePeople.length ? livePeople : seedPeople;
+  const people = dataSource === 'DEMO_FALLBACK' ? seedPeople : livePeople;
   const selectedDepartment = departmentList.find((department) => department.id === selectedDepartmentId) ?? departmentList[0];
   const selectedEmployee = selectedEmployeeId ? people.find((person) => person.id === selectedEmployeeId) : undefined;
 
@@ -347,7 +347,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
           setDepartmentList(nextDepartments);
           setSelectedDepartmentId((current) => nextDepartments.some((item) => item.id === current) ? current : nextDepartments[0].id);
         }
-        setDataSource(nextPeople.length || nextDepartments.length ? 'DATABASE' : 'DATABASE_EMPTY');
+        setDataSource('DATABASE');
       } catch {
         if (!cancelled) setDataSource('DEMO_FALLBACK');
       }
