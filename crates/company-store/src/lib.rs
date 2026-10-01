@@ -4065,8 +4065,12 @@ impl CompanyStore {
                 let work_days = row
                     .get::<_, Vec<i16>>(8)
                     .into_iter()
-                    .map(|day| u8::try_from(day).map_err(|_| "invalid attendance work day"))
-                    .collect::<Result<Vec<_>, _>>()?;
+                    .map(|day| {
+                        u8::try_from(day).map_err(|_| -> Box<dyn std::error::Error + Send + Sync> {
+                            format!("invalid attendance work day: {day}").into()
+                        })
+                    })
+                    .collect::<Result<Vec<_>, Box<dyn std::error::Error + Send + Sync>>>()?;
                 Ok(company_organization::AttendancePolicyRecord {
                     id: row.get::<_, Uuid>(0).to_string(),
                     company_id: row.get::<_, Uuid>(1).to_string(),
@@ -4488,7 +4492,7 @@ impl CompanyStore {
         let client = self.client.lock().await;
         let rows = client
             .query(
-                "SELECT id, company_id, name, role, department_id, team_id, manager_id,
+                "SELECT id, company_id, name, role, department_id, team_id, manager_id, position_id,
                         employment_type, employment_level, joined_at_epoch, status
                    FROM employees
                   WHERE company_id=$1
@@ -4506,10 +4510,11 @@ impl CompanyStore {
                     department_id: row.get::<_, Option<Uuid>>(4).map(|id| id.to_string()),
                     team_id: row.get::<_, Option<Uuid>>(5).map(|id| id.to_string()),
                     manager_id: row.get::<_, Option<Uuid>>(6).map(|id| id.to_string()),
-                    employment_type: parse_employment_type(&row.get::<_, String>(7))?,
-                    employment_level: row.get(8),
-                    joined_at_epoch: row.get(9),
-                    status: parse_employee_status(&row.get::<_, String>(10))?,
+                    position_id: row.get::<_, Option<Uuid>>(7).map(|id| id.to_string()),
+                    employment_type: parse_employment_type(&row.get::<_, String>(8))?,
+                    employment_level: row.get(9),
+                    joined_at_epoch: row.get(10),
+                    status: parse_employee_status(&row.get::<_, String>(11))?,
                 })
             })
             .collect()
