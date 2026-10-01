@@ -3960,7 +3960,25 @@ impl CompanyStore {
         let company_uuid = Uuid::parse_str(company_id)?;
         let currency = self.company_currency(&company_uuid).await?;
         let department_type = signal.department_type;
-        let code = department_type.code();
+        let code = signal
+            .requested_code
+            .as_deref()
+            .unwrap_or(department_type.code())
+            .trim()
+            .to_ascii_uppercase();
+        if code.len() < 2
+            || code.len() > 32
+            || !code.bytes().all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_' || byte == b'-')
+        {
+            return Err("department code must be 2-32 characters using A-Z, 0-9, _ or -".into());
+        }
+        let requested_name = signal
+            .requested_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let fallback_name = standard_department_metadata(department_type).0;
+        let department_name = requested_name.unwrap_or(fallback_name.as_str());
 
         let client = self.client.lock().await;
         let rows = client
@@ -3984,9 +4002,9 @@ impl CompanyStore {
 
         let decision = company_organization::evaluate_department_formation(existing.as_slice(), signal)?;
         if decision == company_organization::DepartmentFormationDecision::FormDepartment {
-            let (name, criticality) = standard_department_metadata(department_type);
+            let (_, criticality) = standard_department_metadata(department_type);
             let charter = format!(
-                "Tự động đề xuất {name} vì thiếu năng lực kéo dài: {}.",
+                "Tự động đề xuất {department_name} vì thiếu năng lực kéo dài: {}.",
                 signal.required_capabilities.join(", ")
             );
             let responsibilities = serde_json::to_value(&signal.required_capabilities)?;
@@ -4016,7 +4034,7 @@ impl CompanyStore {
                     &Uuid::new_v4(),
                     &company_uuid,
                     &code,
-                    &name,
+                    &department_name,
                     &charter,
                     &responsibilities,
                     &kpis,
@@ -4039,8 +4057,8 @@ impl CompanyStore {
                 )
                 .await?
                 .get(0);
-            let team_name = format!("{name} · Core Team");
-            let team_charter = format!("Nhóm thực thi ban đầu của {name}.");
+            let team_name = format!("{department_name} · Core Team");
+            let team_charter = format!("Nhóm thực thi ban đầu của {department_name}.");
             client.execute(
                 "INSERT INTO teams (id, company_id, department_id, name, charter, active)
                  VALUES ($1,$2,$3,$4,$5,false)
