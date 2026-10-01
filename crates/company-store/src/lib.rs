@@ -3944,6 +3944,146 @@ impl CompanyStore {
             .collect()
     }
 
+    pub async fn evaluate_and_propose_department(
+        &self,
+        company_id: &str,
+        signal: &company_organization::DepartmentNeedSignal,
+    ) -> Result<company_organization::DepartmentFormationDecision, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let department_type = signal.department_type;
+        let code = department_type.code();
+
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT id, name, code, charter, monthly_budget_minor::text,
+                        currency, lifecycle = 'ACTIVE'
+                   FROM departments
+                  WHERE company_id=$1 AND code=$2",
+                &[&company_uuid, &code],
+            )
+            .await?;
+        let existing = rows.first().map(|row| company_organization::Department {
+            id: row.get::<_, Uuid>(0).to_string(),
+            name: row.get(1),
+            department_type,
+            lead_role: department_type.default_lead_role().into(),
+            monthly_budget_minor: parse_i128_numeric(&row.get::<_, String>(4))?,
+            currency: row.get(5),
+            active: row.get(6),
+        });
+
+        let decision = company_organization::evaluate_department_formation(
+            existing.as_slice(),
+            signal,
+        )?;
+
+        if decision == company_organization::DepartmentFormationDecision::FormDepartment {
+            let (name, criticality) = standard_department_metadata(department_type);
+            let charter = format!(
+                "Tự động đề xuất {name} vì thiếu năng lực kéo dài trong các capability: {}.",
+                signal.required_capabilities.join(", ")
+            );
+            let responsibilities = serde_json::json!(signal.required_capabilities);
+            let kpis = serde_json::json!([
+                "Capability coverage",
+                "Capacity gap",
+                "SLA / throughput"
+            ]);
+            client
+                .execute(
+                    "INSERT INTO departments
+                        (id, company_id, code, name, charter, responsibilities, kpis,
+                         owner_employee_id, monthly_budget_minor, currency, lifecycle,
+                         criticality, formation_reason)
+                     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,NULL,$8::numeric,$9,'PROPOSED',$10,$11)
+                     ON CONFLICT (company_id, code) DO NOTHING",
+                    &[
+                        &Uuid::new_v4(),
+                        &company_uuid,
+                        &code,
+                        &name,
+                        &charter,
+                        &responsibilities,
+                        &kpis,
+                        &signal.monthly_budget_ceiling_minor.to_string(),
+                        &signal_currency_for_company(&client, &company_uuid).await.unwrap_or_else(|_| "USD".into()),
+                        &criticality,
+                        &format!(
+                            "capacity_gap_pct={} sustained_cycles={} capabilities={}",
+                            signal.capacity_gap_pct,
+                            signal.sustained_cycles,
+                            signal.required_capabilities.join(",")
+                        ),
+                    ],
+                )
+                .await?;
+        }
+
+        Ok(decision)
+    }
+
+    pub async fn activate_department(
+        &self,
+        company_id: &str,
+        department_id: &str,
+        owner_employee_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let department_uuid = Uuid::parse_str(department_id)?;
+        let owner_uuid = Uuid::parse_str(owner_employee_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        let updated = tx
+            .execute(
+                "UPDATE departments
+                    SET owner_employee_id=$3,
+                        lifecycle='ACTIVE',
+                        updated_at=now()
+                  WHERE company_id=$1 AND id=$2 AND lifecycle='PROPOSED'
+                    AND EXISTS (
+                      SELECT 1 FROM employees e
+                       WHERE e.company_id=$1 AND e.id=$3
+                    )",
+                &[&company_uuid, &department_uuid, &owner_uuid],
+            )
+            .await?;
+        if updated != 1 {
+            tx.rollback().await?;
+            return Err("department activation requires a proposed department and same-company owner".into());
+        }
+
+        let team_name: String = tx
+            .query_one(
+                "SELECT name || ' · Core Team' FROM departments WHERE company_id=$1 AND id=$2",
+                &[&company_uuid, &department_uuid],
+            )
+            .await?
+            .get(0);
+        let team_charter = "Nhóm vận hành cốt lõi chịu trách nhiệm thực thi charter của phòng ban.";
+        tx.execute(
+            "INSERT INTO teams
+                (id, company_id, department_id, name, charter, owner_employee_id, active)
+             VALUES ($1,$2,$3,$4,$5,$6,true)
+             ON CONFLICT (company_id, department_id, name) DO UPDATE
+                SET owner_employee_id=EXCLUDED.owner_employee_id,
+                    active=true,
+                    updated_at=now()",
+            &[
+                &Uuid::new_v4(),
+                &company_uuid,
+                &department_uuid,
+                &team_name,
+                &team_charter,
+                &owner_uuid,
+            ],
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn list_departments(
         &self,
         company_id: &str,
@@ -8152,6 +8292,33 @@ fn parse_business_unit_lifecycle(
         "CLOSED" => Ok(company_organization::BusinessUnitLifecycle::Closed),
         other => Err(format!("unknown business unit lifecycle: {other}").into()),
     }
+}
+
+fn standard_department_metadata(
+    department_type: company_organization::DepartmentType,
+) -> (String, &'static str) {
+    match department_type {
+        company_organization::DepartmentType::Executive => ("Executive Office".into(), "CONTROL"),
+        company_organization::DepartmentType::ProductAndInnovation => ("Product & Innovation".into(), "CORE"),
+        company_organization::DepartmentType::GrowthAndMarketing => ("Growth & Marketing".into(), "GROWTH"),
+        company_organization::DepartmentType::CreativeAndMedia => ("Creative & Media".into(), "CORE"),
+        company_organization::DepartmentType::CommercialAndSales => ("Commercial & Sales".into(), "CORE"),
+        company_organization::DepartmentType::RiskAndCompliance => ("Risk & Compliance".into(), "CONTROL"),
+        company_organization::DepartmentType::CustomerSuccess => ("Customer Success".into(), "CORE"),
+        company_organization::DepartmentType::TreasuryAndFinance => ("Treasury & Finance".into(), "CONTROL"),
+        company_organization::DepartmentType::OperationsAndTech => ("Operations & Technology".into(), "CORE"),
+    }
+}
+
+async fn signal_currency_for_company(
+    client: &tokio_postgres::Client,
+    company_id: &Uuid,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    client
+        .query_one("SELECT base_currency FROM companies WHERE id=$1", &[company_id])
+        .await
+        .map(|row| row.get(0))
+        .map_err(Into::into)
 }
 
 fn parse_department_lifecycle(
