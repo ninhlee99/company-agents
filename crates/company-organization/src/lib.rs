@@ -464,7 +464,6 @@ pub struct OrganizationEmployeeRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DepartmentRecord {
     pub id: String,
     pub company_id: String,
