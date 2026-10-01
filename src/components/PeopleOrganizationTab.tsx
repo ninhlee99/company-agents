@@ -348,6 +348,9 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
     };
   }, []);
 
+  const rootEmployee = people.find((person) => person.managerId === null) ?? people[0];
+  const rootDirectReports = rootEmployee ? people.filter((person) => person.managerId === rootEmployee.id) : [];
+
   const presentCount = people.filter((person) => person.attendance === 'Đang làm' || person.attendance === 'Đã ra về').length;
   const lateCount = people.filter((person) => person.attendance === 'Đi muộn').length;
   const leaveCount = people.filter((person) => person.attendance === 'Nghỉ phép').length;
