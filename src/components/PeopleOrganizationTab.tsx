@@ -343,10 +343,8 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
         }));
 
         setLivePeople(nextPeople);
-        if (nextDepartments.length) {
-          setDepartmentList(nextDepartments);
-          setSelectedDepartmentId((current) => nextDepartments.some((item) => item.id === current) ? current : nextDepartments[0].id);
-        }
+        setDepartmentList(nextDepartments);
+        setSelectedDepartmentId((current) => nextDepartments.some((item) => item.id === current) ? current : (nextDepartments[0]?.id ?? ''));
         setDataSource('DATABASE');
       } catch {
         if (!cancelled) setDataSource('DEMO_FALLBACK');
@@ -393,7 +391,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
           </div>
           <div className="flex items-center gap-2">
             <button className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3.5 py-2.5 text-xs font-semibold text-slate-200"><CalendarCheck2 className="w-4 h-4" /> Hôm nay</button>
-            <button onClick={() => { setNewEmployee((current) => ({ ...current, departmentId: selectedDepartment?.id ?? departmentList[0]?.id ?? "" })); setShowEmployeeForm(true); }} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3.5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-500"><Plus className="w-4 h-4" /> Thêm nhân sự</button>
+            <button disabled={dataSource !== 'DATABASE' || departmentList.length === 0} onClick={() => { setNewEmployee((current) => ({ ...current, departmentId: selectedDepartment?.id ?? departmentList[0]?.id ?? "" })); setShowEmployeeForm(true); }} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3.5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-500 disabled:opacity-40"><Plus className="w-4 h-4" /> Thêm nhân sự</button>
           </div>
         </div>
 
@@ -534,13 +532,24 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
         </div>
       )}
 
-      {showAdvisor && (
+      {showAdvisor && dataSource === 'DATABASE' && (
         <section className="rounded-2xl border border-cyan-500/15 bg-cyan-500/[0.03] p-4">
           <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
-            <div className="flex items-start gap-3"><div className="w-9 h-9 rounded-xl border border-cyan-500/20 bg-cyan-500/10 flex items-center justify-center"><Zap className="w-4 h-4 text-cyan-300" /></div><div><div className="text-[10px] uppercase tracking-[0.14em] text-cyan-300 font-semibold">Organization Design Advisor</div><h3 className="text-sm font-semibold text-white mt-1">Growth & Commercial đang ở trạng thái “Forming”</h3><p className="text-[10px] text-slate-400 mt-1 max-w-3xl">Nhu cầu pipeline tăng nhưng chưa có owner đầy đủ. Hệ thống có thể <span className="text-slate-200 font-medium">đề xuất thành lập department</span>, xác định charter, budget ceiling, owner và open roles trước khi activation.</p></div></div>
-            <div className="flex items-center gap-2"><button className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-[10px] font-semibold text-slate-200">Xem nhu cầu</button><button onClick={() => setDepartmentActivationPending(true)} className="rounded-xl bg-cyan-600 px-3 py-2 text-[10px] font-semibold text-white hover:bg-cyan-500">Dự thảo department</button><button onClick={() => setShowAdvisor(false)} className="p-2 text-slate-600 hover:text-white"><X className="w-4 h-4" /></button></div>
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl border border-cyan-500/20 bg-cyan-500/10 flex items-center justify-center"><Zap className="w-4 h-4 text-cyan-300" /></div>
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.14em] text-cyan-300 font-semibold">Organization Design Automation</div>
+                <h3 className="text-sm font-semibold text-white mt-1">Department formation chạy theo need signal thực tế</h3>
+                <p className="text-[10px] text-slate-400 mt-1 max-w-3xl">Hệ thống không tự bịa headcount. Khi capability gap được ghi nhận đủ lâu, engine tạo <span className="text-slate-200 font-medium">PROPOSED department</span> với charter, budget ceiling và core team; activation vẫn cần owner thật và governance.</p>
+              </div>
+            </div>
+            <button onClick={() => setShowAdvisor(false)} className="p-2 text-slate-600 hover:text-white"><X className="w-4 h-4" /></button>
           </div>
-          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-2.5"><div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Trigger</div><div className="text-[10px] text-slate-300 mt-1">Pipeline ownership gap</div></div><div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Required capability</div><div className="text-[10px] text-slate-300 mt-1">Sales + partnerships + demand generation</div></div><div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Governance</div><div className="text-[10px] text-slate-300 mt-1">Charter → owner → budget → roles → activation</div></div></div>
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-2.5">
+            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Trigger</div><div className="text-[10px] text-slate-300 mt-1">Capability gap ≥ 25%</div></div>
+            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Persistence</div><div className="text-[10px] text-slate-300 mt-1">≥ 3 sustained cycles</div></div>
+            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Activation</div><div className="text-[10px] text-slate-300 mt-1">Owner + budget + roles + approval</div></div>
+          </div>
         </section>
       )}
 
