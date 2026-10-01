@@ -4862,7 +4862,6 @@ impl CompanyStore {
             )
             .await?;
 
-        let existing_status = existing.as_ref().map(|row| row.get::<_, String>(0));
         let existing_check_in = existing
             .as_ref()
             .and_then(|row| row.get::<_, Option<time::OffsetDateTime>>(1));
