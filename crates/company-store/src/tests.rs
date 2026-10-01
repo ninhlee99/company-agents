@@ -193,6 +193,35 @@ fn payment_execution_idempotency_matches_all_request_fields() {
     ));
 }
 
+#[test]
+fn payment_reconciliation_idempotency_matches_all_evidence_fields() {
+    let invoice = uuid::Uuid::new_v4();
+    assert!(super::payment_reconciliation_idempotency_matches(
+        invoice, Some("ext-1"), 2_500, "USD", 1_900_000_001, "hash-1",
+        invoice, Some("ext-1"), 2_500, "USD", 1_900_000_001, "hash-1",
+    ));
+    assert!(!super::payment_reconciliation_idempotency_matches(
+        invoice, Some("ext-1"), 2_500, "USD", 1_900_000_001, "hash-1",
+        invoice, Some("ext-1"), 2_501, "USD", 1_900_000_001, "hash-1",
+    ));
+    assert!(!super::payment_reconciliation_idempotency_matches(
+        invoice, Some("ext-1"), 2_500, "USD", 1_900_000_001, "hash-1",
+        invoice, Some("ext-2"), 2_500, "USD", 1_900_000_001, "hash-1",
+    ));
+    assert!(!super::payment_reconciliation_idempotency_matches(
+        invoice, Some("ext-1"), 2_500, "USD", 1_900_000_001, "hash-1",
+        uuid::Uuid::new_v4(), Some("ext-1"), 2_500, "USD", 1_900_000_001, "hash-1",
+    ));
+    assert!(!super::payment_reconciliation_idempotency_matches(
+        invoice, Some("ext-1"), 2_500, "USD", 1_900_000_001, "hash-1",
+        invoice, Some("ext-1"), 2_500, "USD", 1_900_000_002, "hash-1",
+    ));
+    assert!(!super::payment_reconciliation_idempotency_matches(
+        invoice, Some("ext-1"), 2_500, "USD", 1_900_000_001, "hash-1",
+        invoice, Some("ext-1"), 2_500, "USD", 1_900_000_001, "hash-2",
+    ));
+}
+
 async fn postgres_round_trip_is_idempotent_and_persists_authoritative_cycle() {
     let Some(store) = connect_store().await else {
         return;
