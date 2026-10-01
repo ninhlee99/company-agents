@@ -352,6 +352,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
   const selectedDepartment = departmentList.find((department) => department.id === selectedDepartmentId) ?? departmentList[0];
   const selectedEmployee = selectedEmployeeId ? people.find((person) => person.id === selectedEmployeeId) : undefined;
   const selectedPosition = selectedEmployee?.positionId ? livePositions.find((position) => position.id === selectedEmployee.positionId) : undefined;
+  const selectedFormPosition = newEmployee.positionId ? livePositions.find((position) => position.id === newEmployee.positionId) : undefined;
   const selectedPolicy = selectedEmployee ? livePolicies.find((policy) => policy.active && policy.code === (selectedEmployee.employmentType === 'Part-time' ? 'PART_1400' : 'OFFICE_0830')) : undefined;
   const selectedLifecycle = selectedEmployee ? liveLifecycleEvents.filter((event) => event.employee_id === selectedEmployee.id).sort((a, b) => b.effective_at_epoch - a.effective_at_epoch) : [];
 
@@ -639,7 +640,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
         <div className="fixed inset-0 z-[66] bg-black/55 backdrop-blur-[2px] flex items-center justify-center p-4" onClick={() => setShowEmployeeForm(false)}>
           <form className="w-full max-w-xl rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl overflow-hidden" onClick={(event) => event.stopPropagation()} onSubmit={async (event) => {
             event.preventDefault();
-            if (dataSource !== 'DATABASE' || !liveCompanyId || !newEmployee.name.trim() || !newEmployee.positionId || !newEmployee.departmentId) return;
+            if (dataSource !== 'DATABASE' || !liveCompanyId || !newEmployee.name.trim() || !newEmployee.positionId || !newEmployee.departmentId || !selectedFormPosition) return;
             setSavingEmployee(true);
             const employeeId = crypto.randomUUID();
             try {
@@ -707,12 +708,13 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
                   departmentId: position?.department_id ?? current.departmentId,
                   title: position?.title ?? current.title,
                   employmentLevel: position?.level ?? current.employmentLevel,
+                  employmentType: position?.employment_types.includes(current.employmentType) ? current.employmentType : (position?.employment_types[0] ?? current.employmentType),
                 }));
               }} className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[10px] text-slate-300"><option value="">Chọn position</option>{livePositions.filter((position) => position.active && (!newEmployee.departmentId || position.department_id === newEmployee.departmentId)).map((position) => <option key={position.id} value={position.id}>{position.code} · {position.title} · {position.level}</option>)}</select></label>
               <label><span className="text-[9px] uppercase tracking-[0.1em] text-slate-600">Phòng ban</span><select required value={newEmployee.departmentId} onChange={(event) => setNewEmployee((current) => ({ ...current, departmentId: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[10px] text-slate-300">{departmentList.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label>
               <label><span className="text-[9px] uppercase tracking-[0.1em] text-slate-600">Manager</span><select value={newEmployee.managerId} onChange={(event) => setNewEmployee((current) => ({ ...current, managerId: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[10px] text-slate-300"><option value="">Không có</option>{people.filter((person) => person.id && liveCompanyId && person.id.length === 36).map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
-              <label><span className="text-[9px] uppercase tracking-[0.1em] text-slate-600">Employment</span><select value={newEmployee.employmentType} onChange={(event) => setNewEmployee((current) => ({ ...current, employmentType: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[10px] text-slate-300"><option value="OFFICIAL">Chính thức</option><option value="PROBATION">Thử việc</option><option value="APPRENTICE">Học việc</option><option value="PART_TIME">Part-time</option><option value="CONTRACTOR">Contractor</option></select></label>
-              <label><span className="text-[9px] uppercase tracking-[0.1em] text-slate-600">Level</span><input value={newEmployee.employmentLevel} onChange={(event) => setNewEmployee((current) => ({ ...current, employmentLevel: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[11px] text-white outline-none" /></label>
+              <label><span className="text-[9px] uppercase tracking-[0.1em] text-slate-600">Employment type</span><select required disabled={!selectedFormPosition} value={newEmployee.employmentType} onChange={(event) => setNewEmployee((current) => ({ ...current, employmentType: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[10px] text-slate-300">{selectedFormPosition?.employment_types.map((type) => <option key={type} value={type}>{mapEmploymentType(type)}</option>)}</select></label>
+              <div><span className="text-[9px] uppercase tracking-[0.1em] text-slate-600">Level</span><div className="mt-1 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[11px] font-semibold text-slate-200">{selectedFormPosition?.level ?? 'Chọn position trước'}</div></div>
               <label className="col-span-2"><span className="text-[9px] uppercase tracking-[0.1em] text-slate-600">Monthly cost (minor unit)</span><input type="number" min="0" value={newEmployee.monthlyCost} onChange={(event) => setNewEmployee((current) => ({ ...current, monthlyCost: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[11px] text-white outline-none" /></label>
             </div>
             <div className="px-5 py-4 border-t border-slate-800 flex justify-end gap-2">
