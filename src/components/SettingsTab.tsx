@@ -606,229 +606,251 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         </div>
       )}
 
-      {/* SECTION 2: PRO CINEMATIC MOTION VIDEO ENGINE */}
+      {/* SECTION 2: PRO CINEMATIC MOTION VIDEO ENGINE (AI AUTO-DIRECTED) */}
       {activeSection === 'video_engine' && (
         <div className="space-y-4">
           <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
               <div>
                 <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                   <Film className="w-4 h-4 text-emerald-400" />
-                  Động Cơ Sản Xuất Video Chuyển Động Thật 60 FPS (Cinematic Creator Engine)
+                  Động Cơ Đạo Diễn &amp; Sản Xuất Video 60 FPS Tự Động 100% (AI Autonomous Director)
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Sản xuất video chuyển động mượt mà, trau chuốt như Content Creator thật ngoài đời (100% Video Footage động + Metahuman Lip-Sync 60fps). Tuyệt đối không dùng ảnh tĩnh ghép nối.
+                  Bạn không cần cấu hình cho từng video. Tác tử Đạo diễn AI sẽ tự động chọn góc máy 60fps, footage B-roll chuyển động thật, Metahuman và màu phim phù hợp với từng sản phẩm.
                 </p>
               </div>
 
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/60 border border-emerald-800/40 text-xs text-emerald-400 font-mono">
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>60 FPS Smooth Rendering</span>
+                <span>AI Tự Chọn 100% Cho Từng Video</span>
+              </div>
+            </div>
+
+            {/* Banner Notice */}
+            <div className="p-3.5 rounded-xl bg-blue-950/40 border border-blue-800/50 flex items-start gap-3">
+              <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+              <div className="text-xs text-slate-300">
+                <span className="font-semibold text-white block">Quy Trình Đạo Diễn &amp; Dựng Phim Tự Động:</span>
+                <p className="mt-0.5">
+                  Mỗi khi có chiến dịch affiliate hoặc kịch bản mới, Director AI tự động phân tích đối tượng khán giả để chọn góc máy (Macro, POV, Dolly), nhịp điệu cắt dựng (Fast-paced hoặc Cinematic) và áp dụng màu phim chuẩn điện ảnh. Bạn chỉ cần xem thành phẩm hoàn chỉnh!
+                </p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Metahuman 3D VTuber Engine */}
               <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
                 <span className="text-xs font-semibold text-white flex items-center gap-1.5">
                   <Video className="w-4 h-4 text-blue-400" />
-                  Công Nghệ Người Ảo Metahuman (3D Host VTuber)
+                  Người Ảo 3D Metahuman (Lip-Sync 60fps)
                 </span>
-                <select
-                  value={metahumanModel}
-                  onChange={(e) => setMetahumanModel(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-white focus:outline-none focus:border-blue-500 font-sans"
-                >
-                  <option value="Unreal Engine 5.4 Photorealistic Metahuman Pro (52 Blendshapes Lip-Sync)">
-                    Unreal Engine 5.4 Metahuman Pro (52 Blendshapes Lip-Sync 60fps - Chân thực đỉnh cao)
-                  </option>
-                  <option value="Anime VTuber 3D Shader Pro (Smooth Expressive Eye & Hair Physics)">
-                    Anime VTuber 3D Shader Pro (Chuyển động tóc và mắt mượt mà 60fps)
-                  </option>
-                </select>
+                <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-300 font-medium flex items-center justify-between">
+                  <span>Unreal Engine 5.4 Metahuman Pro (52 Blendshapes)</span>
+                  <span className="text-[10px] text-emerald-400 font-semibold px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800">Tự Động</span>
+                </div>
                 <span className="text-[11px] text-slate-400 block">
-                  Đồng bộ chuyển động khẩu hình theo từng âm tiết (Phoneme Lip-Sync) và chớp mắt tự nhiên.
+                  Đồng bộ khẩu hình 60fps theo từng âm tiết và biểu cảm tự nhiên.
                 </span>
               </div>
 
-              {/* Dynamic Real B-Roll Footage Source */}
               <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
                 <span className="text-xs font-semibold text-white flex items-center gap-1.5">
                   <Camera className="w-4 h-4 text-emerald-400" />
-                  Nguồn Video B-Roll Chuyển Động Thật (Real Footage)
+                  Kho Footage Chuyển Động Thật (Real B-Roll)
                 </span>
-                <select
-                  value={brollSource}
-                  onChange={(e: any) => setBrollSource(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-white focus:outline-none focus:border-blue-500 font-sans"
-                >
-                  <option value="real_motion_footage">
-                    Thư Viện Clip Chuyển Động Thật (Macro Close-Up &amp; Handheld POV 4K 60fps)
-                  </option>
-                  <option value="pro_cinematic_camera">
-                    Góc Quay Studio Điện Ảnh (Cinematic Depth of Field &amp; Dynamic Lighting)
-                  </option>
-                </select>
+                <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-300 font-medium flex items-center justify-between">
+                  <span>Thư Viện Clip Chuyển Động Thật 4K 60fps (Macro &amp; POV)</span>
+                  <span className="text-[10px] text-emerald-400 font-semibold px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800">Tự Động</span>
+                </div>
                 <span className="text-[11px] text-slate-400 block">
-                  100% Sử dụng clip chuyển động thật, loại bỏ hoàn toàn việc ghép ảnh tĩnh slide show.
+                  100% Clip chuyển động thật, tuyệt đối không dùng ảnh tĩnh ghép nối.
                 </span>
               </div>
 
-              {/* Cinematic Camera Motion */}
               <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
                 <span className="text-xs font-semibold text-white flex items-center gap-1.5">
                   <Sliders className="w-4 h-4 text-amber-400" />
-                  Hiệu Ứng Chuyển Động Camera (Cinematic Camera Moves)
+                  Góc Quay &amp; Chuyển Cảnh Điện Ảnh
                 </span>
-                <select
-                  value={cameraMotionStyle}
-                  onChange={(e) => setCameraMotionStyle(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-white focus:outline-none focus:border-blue-500 font-sans"
-                >
-                  <option value="Dynamic Cinematic (Whip Pan, Zoom Punch, Parallax Dolly)">
-                    Dynamic Cinematic (Whip Pan, Zoom Punch 1.2x, Parallax Dolly, Tilt 45°)
-                  </option>
-                  <option value="Smooth Handheld (Tự nhiên chân thật như quay điện thoại)">
-                    Smooth Handheld (Rung lắc tự nhiên chân thật như quay vlog điện thoại)
-                  </option>
-                </select>
+                <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-300 font-medium flex items-center justify-between">
+                  <span>Cinematic Whip-Pan, Zoom Punch 1.2x, Parallax Dolly</span>
+                  <span className="text-[10px] text-emerald-400 font-semibold px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800">Tự Động</span>
+                </div>
                 <span className="text-[11px] text-slate-400 block">
-                  Giúp video luôn có sự chuyển động liên tục, giữ chân người xem (Watch Time &gt; 85%).
+                  Chuyển động máy quay mượt mà, giữ chân người xem trung bình &gt; 85%.
                 </span>
               </div>
 
-              {/* Color Grading & Sound Ducking */}
-              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
                 <span className="text-xs font-semibold text-white flex items-center gap-1.5">
                   <Sparkles className="w-4 h-4 text-rose-400" />
-                  Hậu Kỳ &amp; Hiệu Ứng Âm Thanh Đẳng Cấp
+                  Hậu Kỳ &amp; Hiệu Ứng Âm Thanh
                 </span>
-                <div className="space-y-2 text-xs">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={kineticTypography}
-                      onChange={(e) => setKineticTypography(e.target.checked)}
-                      className="w-3.5 h-3.5 text-blue-600 rounded bg-slate-900 border-slate-700"
-                    />
-                    <span className="text-slate-200">Hiển thị phụ đề (Mặc định TẮT: Giữ khung hình Clean Cinematic chuẩn điện ảnh)</span>
-                  </label>
-
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={audioAutoDucking}
-                      onChange={(e) => setAudioAutoDucking(e.target.checked)}
-                      className="w-3.5 h-3.5 text-blue-600 rounded bg-slate-900 border-slate-700"
-                    />
-                    <span className="text-slate-200">Auto-Ducking: Nhạc nền tự hạ âm lượng (-18dB) khi Host AI nói</span>
-                  </label>
+                <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-300 font-medium flex items-center justify-between">
+                  <span>Clean Cinematic (Không Karaoke) + Auto-Ducking (-18dB)</span>
+                  <span className="text-[10px] text-emerald-400 font-semibold px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800">Tự Động</span>
                 </div>
+                <span className="text-[11px] text-slate-400 block">
+                  Khung hình sạch sẽ chuẩn điện ảnh, nhạc nền tự động hạ âm lượng khi có giọng đọc.
+                </span>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* SECTION 3: TTS & EMOTIONAL NEURAL VOICE */}
+      {/* SECTION 3: TTS VOICE ACTOR LIBRARY (AI AUTO-SELECTS VOICE & EMOTION) */}
       {activeSection === 'tts' && (
         <div className="space-y-4">
           <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
               <div>
                 <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                   <Mic className="w-4 h-4 text-emerald-400" />
-                  Cấu Hình Giọng Đọc Cảm Xúc Studio (Neural Emotional TTS)
+                  Thư Viện Giọng Đọc (Edge-TTS &amp; VietNeu-TTS) — AI Tự Chọn Giọng &amp; Cảm Xúc
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Giọng đọc nơ-ron tự nhiên như người thật (ngắt nghỉ theo hơi thở, biểu cảm vui vẻ, bí ẩn, bán hàng), 100% miễn phí.
+                  Hệ thống đã cấu hình sẵn 2 engine giọng đọc hàng đầu. AI sẽ tự động chọn giọng (Nam/Nữ), sắc thái cảm xúc và tốc độ đọc phù hợp với từng video mà bạn không cần phải tùy chỉnh thủ công.
                 </p>
               </div>
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/60 border border-emerald-800/40 text-xs text-emerald-400 font-mono">
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>Không Phải Giọng Robot</span>
+                <span>AI Tự Chọn Diễn Xuất</span>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-300">Công Nghệ Giọng Đọc (TTS Engine)</label>
-                <select
-                  value={ttsEngine}
-                  onChange={(e: any) => setTtsEngine(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-blue-500 font-sans"
-                >
-                  <option value="edge_tts">Microsoft Edge Neural (Khuyên dùng - Miễn phí 100%, Giọng cực tự nhiên)</option>
-                  <option value="vietneu">VietNeu-TTS (Local OpenSource - Chạy trực tiếp trên máy bằng Python)</option>
-                </select>
+            {/* Voice Actor Library Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              {/* Voice 1: Hoai My */}
+              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5 hover:border-slate-700 transition-colors">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">👩</span>
+                    <div>
+                      <span className="text-xs font-bold text-white block">Hoài My Neural (Nữ)</span>
+                      <span className="text-[10px] text-blue-400 font-mono">Microsoft Edge-TTS • vi-VN-HoaiMyNeural</span>
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-emerald-400 font-semibold px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800">
+                    Sẵn Sàng
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  <strong>Đặc trưng:</strong> Giọng truyền cảm, ngọt ngào, ấm áp. AI tự động chọn cho các video podcast, kể chuyện, review đồ gia dụng &amp; lifestyle.
+                </p>
+                <div className="flex items-center gap-2 pt-1 border-t border-slate-800/60">
+                  <button
+                    onClick={() => {
+                      setTtsVoice('vi-VN-HoaiMyNeural');
+                      handleTestTts();
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-[11px] text-slate-200 border border-slate-800 transition-colors"
+                  >
+                    <Volume2 className="w-3 h-3 text-emerald-400" />
+                    <span>Nghe Thử Giọng Này</span>
+                  </button>
+                </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-300">Giọng Đọc Chuyên Nghiệp (Voice Actor)</label>
-                <select
-                  value={ttsVoice}
-                  onChange={(e) => setTtsVoice(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-blue-500 font-sans"
-                >
-                  <option value="vi-VN-HoaiMyNeural">👩 Hoài My (Nữ - Truyền cảm, ngọt ngào, ấm áp - Podcast &amp; Short Video)</option>
-                  <option value="vi-VN-NamMinhNeural">👨 Nam Minh (Nam - Trầm ấm, chững chạc, uy tín - Livestream &amp; Review)</option>
-                </select>
+              {/* Voice 2: Nam Minh */}
+              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5 hover:border-slate-700 transition-colors">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">👨</span>
+                    <div>
+                      <span className="text-xs font-bold text-white block">Nam Minh Neural (Nam)</span>
+                      <span className="text-[10px] text-blue-400 font-mono">Microsoft Edge-TTS • vi-VN-NamMinhNeural</span>
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-emerald-400 font-semibold px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800">
+                    Sẵn Sàng
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  <strong>Đặc trưng:</strong> Giọng trầm ấm, đĩnh đạc, uy tín. AI tự động chọn cho Host livestream 24/7, bản tin công nghệ, tài chính &amp; đánh giá thiết bị.
+                </p>
+                <div className="flex items-center gap-2 pt-1 border-t border-slate-800/60">
+                  <button
+                    onClick={() => {
+                      setTtsVoice('vi-VN-NamMinhNeural');
+                      handleTestTts();
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-[11px] text-slate-200 border border-slate-800 transition-colors"
+                  >
+                    <Volume2 className="w-3 h-3 text-emerald-400" />
+                    <span>Nghe Thử Giọng Này</span>
+                  </button>
+                </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-300">Sắc Thái Cảm Xúc (Emotional Style)</label>
-                <select
-                  value={ttsEmotion}
-                  onChange={(e: any) => setTtsEmotion(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-blue-500 font-sans"
-                >
-                  <option value="cheerful">🌟 Hào Hứng, Vui Vẻ, Cuốn Hút (Livestream &amp; Giới thiệu sản phẩm)</option>
-                  <option value="mysterious">🌙 Bí Ẩn, Trầm Lắng, Sâu Sắc (Kể chuyện đêm khuya &amp; Kỳ án)</option>
-                  <option value="persuasive">💼 Thuyết Phục, Đáng Tin Cậy (Tư vấn tài chính &amp; Review công nghệ)</option>
-                  <option value="natural">🍃 Tự Nhiên, Trò Chuyện Thường Ngày (Chit-chat &amp; Q&amp;A)</option>
-                </select>
+              {/* Voice 3: VietNeu Female */}
+              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5 hover:border-slate-700 transition-colors">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🎙️</span>
+                    <div>
+                      <span className="text-xs font-bold text-white block">VietNeu Expressive (Nữ Local)</span>
+                      <span className="text-[10px] text-emerald-400 font-mono">VietNeu-TTS • Local Offline VITS</span>
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-emerald-400 font-semibold px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800">
+                    Local Offline
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  <strong>Đặc trưng:</strong> Giọng đọc cảm xúc cao chạy 100% offline trên máy Mac, biểu cảm sâu sắc không phụ thuộc vào internet.
+                </p>
+                <div className="flex items-center gap-2 pt-1 border-t border-slate-800/60">
+                  <button
+                    onClick={() => {
+                      setTtsVoice('vietneu-vietnamese-female');
+                      handleTestTts();
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-[11px] text-slate-200 border border-slate-800 transition-colors"
+                  >
+                    <Volume2 className="w-3 h-3 text-emerald-400" />
+                    <span>Nghe Thử Giọng Này</span>
+                  </button>
+                </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-300">Tốc Độ Đọc &amp; Ngắt Nhịp (Pacing &amp; Speed)</label>
-                <select
-                  value={ttsSpeed}
-                  onChange={(e) => setTtsSpeed(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-blue-500 font-sans"
-                >
-                  <option value="-10%">Chậm rãi, truyền cảm (-10% - Kể chuyện)</option>
-                  <option value="+0%">Tự nhiên chuẩn mực (+0% - Mặc định)</option>
-                  <option value="+10%">Nhanh nhẹn, cuốn hút (+10% - TikTok Viral)</option>
-                </select>
-              </div>
-
-              <div className="space-y-1.5 md:col-span-2">
-                <label className="text-xs font-medium text-slate-300">Đoạn Văn Bản Mẫu Để Nghe Thử</label>
-                <textarea
-                  rows={2}
-                  value={ttsSampleText}
-                  onChange={(e) => setTtsSampleText(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-blue-500 resize-none font-sans"
-                />
+              {/* Voice 4: VietNeu Deep Narrator */}
+              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5 hover:border-slate-700 transition-colors">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🎙️</span>
+                    <div>
+                      <span className="text-xs font-bold text-white block">VietNeu Deep Narrator (Nam Local)</span>
+                      <span className="text-[10px] text-emerald-400 font-mono">VietNeu-TTS • Local Offline VITS</span>
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-emerald-400 font-semibold px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800">
+                    Local Offline
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  <strong>Đặc trưng:</strong> Giọng nam kể chuyện truyền cảm bí ẩn, giọng kể kỳ án, trinh thám đêm khuya chạy offline trên máy.
+                </p>
+                <div className="flex items-center gap-2 pt-1 border-t border-slate-800/60">
+                  <button
+                    onClick={() => {
+                      setTtsVoice('vietneu-vietnamese-male');
+                      handleTestTts();
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-[11px] text-slate-200 border border-slate-800 transition-colors"
+                  >
+                    <Volume2 className="w-3 h-3 text-emerald-400" />
+                    <span>Nghe Thử Giọng Này</span>
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-800">
-              <button
-                onClick={handleTestTts}
-                disabled={isTestingTts}
-                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md transition-all active:scale-95"
-              >
-                <Volume2 className={`w-4 h-4 ${isTestingTts ? 'animate-bounce' : ''}`} />
-                <span>{isTestingTts ? 'Đang tạo âm thanh...' : '🔊 Nghe Thử Giọng Đọc Cảm Xúc Ngay'}</span>
-              </button>
-
-              {ttsTestResult && (
-                <span className="text-xs text-emerald-400 font-medium">
-                  {ttsTestResult}
-                </span>
-              )}
-            </div>
+            {ttsTestResult && (
+              <div className="p-3 rounded-xl bg-slate-950 border border-emerald-800/50 text-xs text-emerald-400 font-medium">
+                {ttsTestResult}
+              </div>
+            )}
           </div>
         </div>
       )}
