@@ -20,7 +20,7 @@ import {
   Zap,
 } from 'lucide-react';
 
-type EmploymentType = 'Chính thức' | 'Thử việc' | 'Học việc' | 'Part-time';
+type EmploymentType = 'Chính thức' | 'Thử việc' | 'Học việc' | 'Part-time' | 'Contractor';
 type Attendance = 'Đang làm' | 'Đã ra về' | 'Đi muộn' | 'Nghỉ phép' | 'Vắng' | 'Chưa chấm công';
 
 type Department = {
@@ -173,6 +173,7 @@ const employmentTone: Record<EmploymentType, string> = {
   'Thử việc': 'bg-amber-500/10 text-amber-300 border-amber-500/20',
   'Học việc': 'bg-blue-500/10 text-blue-300 border-blue-500/20',
   'Part-time': 'bg-violet-500/10 text-violet-300 border-violet-500/20',
+  Contractor: 'bg-slate-500/10 text-slate-300 border-slate-500/20',
 };
 
 const deptTone: Record<Department['criticality'], string> = {
@@ -283,6 +284,7 @@ const mapEmploymentType = (value: string): EmploymentType => {
     case 'PROBATION': return 'Thử việc';
     case 'APPRENTICE': return 'Học việc';
     case 'PART_TIME': return 'Part-time';
+    case 'CONTRACTOR': return 'Contractor';
     default: return 'Chính thức';
   }
 };
