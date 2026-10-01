@@ -530,6 +530,7 @@ pub struct EmploymentLifecycleEventRecord {
     pub created_at_epoch: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OrganizationEmployeeView {
     pub employee_id: String,
     pub company_id: String,
@@ -554,6 +555,7 @@ pub struct OrganizationEmployeeUpsert {
     pub currency: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DepartmentRecord {
     pub id: String,
     pub company_id: String,
@@ -584,6 +586,7 @@ pub struct TeamRecord {
     pub active: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AttendanceRecord {
     pub id: String,
     pub company_id: String,
