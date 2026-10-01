@@ -275,7 +275,7 @@ const formatEpochTime = (epoch?: number | null) =>
 
 export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiAgentCount = 0 }) => {
   const [livePeople, setLivePeople] = useState<Person[]>([]);
-  const [dataSource, setDataSource] = useState<'DATABASE' | 'DATABASE_EMPTY' | 'DEMO_FALLBACK'>('DEMO_FALLBACK');
+  const [dataSource, setDataSource] = useState<'LOADING' | 'DATABASE' | 'DEMO_FALLBACK'>('LOADING');
   const [liveCompanyId, setLiveCompanyId] = useState('');
   const [liveCurrency, setLiveCurrency] = useState('USD');
   const [showEmployeeForm, setShowEmployeeForm] = useState(false);
@@ -288,7 +288,6 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
   const [employment, setEmployment] = useState<'All' | EmploymentType>('All');
   const [showAdvisor, setShowAdvisor] = useState(true);
   const [departmentList, setDepartmentList] = useState<Department[]>(seedDepartments);
-  const [departmentActivationPending, setDepartmentActivationPending] = useState(false);
 
   const people = dataSource === 'DEMO_FALLBACK' ? seedPeople : livePeople;
   const selectedDepartment = departmentList.find((department) => department.id === selectedDepartmentId) ?? departmentList[0];
@@ -383,8 +382,8 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
             <div className="flex flex-wrap items-center gap-3 mt-2">
               <h1 className="text-2xl lg:text-[30px] font-semibold tracking-tight text-white">People, Departments & Organization</h1>
               <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-300">ENTERPRISE HR</span>
-              <span className={cx('rounded-full border px-2 py-1 text-[10px] font-semibold', dataSource === 'DATABASE' ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300' : 'border-amber-500/20 bg-amber-500/10 text-amber-300')}>
-                {dataSource === 'DATABASE' ? 'LIVE DATABASE' : dataSource === 'DATABASE_EMPTY' ? 'DATABASE · CHƯA CÓ RECORDS' : 'DEMO FALLBACK'}
+              <span className={cx('rounded-full border px-2 py-1 text-[10px] font-semibold', dataSource === 'DATABASE' ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300' : dataSource === 'LOADING' ? 'border-slate-700 bg-slate-900 text-slate-400' : 'border-amber-500/20 bg-amber-500/10 text-amber-300')}>
+                {dataSource === 'DATABASE' ? 'LIVE DATABASE' : dataSource === 'LOADING' ? 'ĐANG KẾT NỐI DATABASE' : 'DEMO FALLBACK'}
               </span>
             </div>
             <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-400">Công ty được vận hành theo mô hình <span className="text-slate-200 font-medium">Company → Department → Team → Employee</span>. Mỗi department có charter, owner, KPI và ranh giới trách nhiệm; mọi thay đổi tổ chức phải có governance record.</p>
