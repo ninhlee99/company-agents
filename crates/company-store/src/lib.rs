@@ -3878,15 +3878,7 @@ impl CompanyStore {
                 "INSERT INTO attendance_policies
                     (id, company_id, code, name, timezone, shift_start, shift_end, grace_minutes, work_days, active)
                  VALUES ($1,$2,$3,$4,'Asia/Ho_Chi_Minh',$5::time,$6::time,$7,ARRAY[1,2,3,4,5],true)
-                 ON CONFLICT (company_id, code) DO UPDATE
-                   SET name=EXCLUDED.name,
-                       timezone=EXCLUDED.timezone,
-                       shift_start=EXCLUDED.shift_start,
-                       shift_end=EXCLUDED.shift_end,
-                       grace_minutes=EXCLUDED.grace_minutes,
-                       work_days=EXCLUDED.work_days,
-                       active=true,
-                       updated_at=now()",
+                 ON CONFLICT (company_id, code) DO NOTHING",
                 &[&Uuid::new_v4(), &company_uuid, &code, &name, &start, &end, &grace],
             ).await?;
         }
@@ -3967,15 +3959,7 @@ impl CompanyStore {
                     (id, company_id, department_id, team_id, code, title, level,
                      employment_types, responsibilities, monthly_cost_min_minor, monthly_cost_max_minor, active)
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,0,0,true)
-                 ON CONFLICT (company_id, code) DO UPDATE
-                   SET department_id=EXCLUDED.department_id,
-                       team_id=EXCLUDED.team_id,
-                       title=EXCLUDED.title,
-                       level=EXCLUDED.level,
-                       employment_types=EXCLUDED.employment_types,
-                       responsibilities=EXCLUDED.responsibilities,
-                       active=true,
-                       updated_at=now()",
+                 ON CONFLICT (company_id, code) DO NOTHING",
                 &[
                     &Uuid::new_v4(),
                     &company_uuid,
