@@ -3131,6 +3131,55 @@ async fn portfolio_metrics_api(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
+#[derive(Debug, Deserialize, Default)]
+struct OrganizationQuery {
+    #[serde(default)]
+    work_date: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct OrganizationWorkspaceResponse {
+    company_id: String,
+    departments: Vec<company_organization::DepartmentRecord>,
+    employees: Vec<company_organization::OrganizationEmployeeView>,
+    attendance: Vec<company_organization::AttendanceRecord>,
+    source: &'static str,
+}
+
+async fn organization_api(
+    State(state): State<AppState>,
+    Query(query): Query<OrganizationQuery>,
+) -> Result<Json<OrganizationWorkspaceResponse>, StatusCode> {
+    let work_date = query.work_date.unwrap_or_else(|| {
+        time::OffsetDateTime::now_utc()
+            .date()
+            .to_string()
+    });
+    let departments = state
+        .store
+        .list_departments(&state.company_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let employees = state
+        .store
+        .list_organization_employee_views(&state.company_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let attendance = state
+        .store
+        .list_employee_attendance(&state.company_id, &work_date)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(OrganizationWorkspaceResponse {
+        company_id: state.company_id.clone(),
+        departments,
+        employees,
+        attendance,
+        source: "DATABASE",
+    }))
+}
+
 async fn employees_api(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<company_organization::Employee>>, StatusCode> {
@@ -4802,6 +4851,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/procurement/requests/approve", post(purchase_approve_api))
         .route("/api/procurement/deliveries", post(vendor_delivery_api))
         .route("/api/employees", get(employees_api))
+        .route("/api/organization", get(organization_api))
         .route("/api/payroll/due", get(payroll_due_api))
         .route("/api/commercial/proposals", post(service_proposal_api))
         .route("/api/commercial/pipeline", get(commercial_pipeline_api))
