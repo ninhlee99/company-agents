@@ -464,6 +464,29 @@ pub struct OrganizationEmployeeRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OrganizationEmployeeView {
+    pub employee_id: String,
+    pub company_id: String,
+    pub name: String,
+    pub title: String,
+    pub department_id: Option<String>,
+    pub team_id: Option<String>,
+    pub manager_id: Option<String>,
+    pub employment_type: EmploymentType,
+    pub employment_level: String,
+    pub joined_at_epoch: Option<i64>,
+    pub status: EmployeeStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OrganizationEmployeeUpsert {
+    pub employee: OrganizationEmployeeRecord,
+    pub name: String,
+    pub monthly_cost_minor: i128,
+    pub currency: String,
+}
+
 pub struct DepartmentRecord {
     pub id: String,
     pub company_id: String,
@@ -481,6 +504,7 @@ pub struct DepartmentRecord {
     pub formation_reason: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AttendanceRecord {
     pub id: String,
     pub company_id: String,
@@ -504,7 +528,7 @@ pub struct DepartmentNeedSignal {
     pub monthly_budget_ceiling_minor: i128,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum DepartmentFormationDecision {
     NoChange,
     FormDepartment,
