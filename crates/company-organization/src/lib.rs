@@ -74,12 +74,13 @@ pub enum DepartmentType {
     CommercialAndSales,
     RiskAndCompliance,
     CustomerSuccess,
+    PeopleAndCulture,
     TreasuryAndFinance,
     OperationsAndTech,
 }
 
 impl DepartmentType {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Executive,
         Self::ProductAndInnovation,
         Self::GrowthAndMarketing,
@@ -87,6 +88,7 @@ impl DepartmentType {
         Self::CommercialAndSales,
         Self::RiskAndCompliance,
         Self::CustomerSuccess,
+        Self::PeopleAndCulture,
         Self::TreasuryAndFinance,
         Self::OperationsAndTech,
     ];
@@ -100,6 +102,7 @@ impl DepartmentType {
             Self::CommercialAndSales => "COMMERCIAL",
             Self::RiskAndCompliance => "RISK",
             Self::CustomerSuccess => "CS",
+            Self::PeopleAndCulture => "PEOPLE",
             Self::TreasuryAndFinance => "TREASURY",
             Self::OperationsAndTech => "OPS",
         }
@@ -114,6 +117,7 @@ impl DepartmentType {
             Self::CommercialAndSales => "Head of Sales",
             Self::RiskAndCompliance => "Chief Risk Officer",
             Self::CustomerSuccess => "Head of Customer Success",
+            Self::PeopleAndCulture => "People & Culture Lead",
             Self::TreasuryAndFinance => "CFO",
             Self::OperationsAndTech => "COO",
         }
