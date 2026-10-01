@@ -103,13 +103,10 @@ async fn payment_execution_intent_is_idempotent_approval_gated_and_non_accountin
     let first = store.create_payment_execution_intent(
         &company_id, &invoice.id.to_string(), 2_500, "USD", "mock", "test-method", "payment-execution-1",
     ).await.unwrap();
-    let second = store.create_payment_execution_intent(
+    let reused_key = store.create_payment_execution_intent(
         &company_id, &invoice.id.to_string(), 9_000, "USD", "mock", "test-method", "payment-execution-1",
-    ).await.unwrap();
-
-    assert_eq!(first.id, second.id);
-    assert_eq!(second.amount_minor, 2_500);
-    assert_eq!(second.status, "PENDING_APPROVAL");
+    ).await;
+    assert!(reused_key.is_err());
     assert!(store.execute_payment_execution_intent(&company_id, &first.id.to_string()).await.is_err());
 
     store.approve_payment_execution_intent(
@@ -150,6 +147,53 @@ async fn payment_execution_intent_is_idempotent_approval_gated_and_non_accountin
 }
 
 #[tokio::test]
+#[test]
+fn payment_execution_idempotency_matches_all_request_fields() {
+    let existing = super::PaymentExecutionIntentRecord {
+        id: uuid::Uuid::new_v4(),
+        company_id: uuid::Uuid::new_v4(),
+        invoice_id: uuid::Uuid::new_v4(),
+        amount_minor: 2_500,
+        currency: "USD".into(),
+        provider: "mock".into(),
+        payment_method_ref: "test-method".into(),
+        status: "PENDING_APPROVAL".into(),
+        approval_reference: None,
+        approved_by: None,
+        approved_at_epoch: None,
+        submitted_at_epoch: None,
+        completed_at_epoch: None,
+        provider_execution_ref: None,
+        failure_reason: None,
+        idempotency_key: "payment-execution-1".into(),
+    };
+
+    assert!(super::payment_execution_idempotency_matches(
+        &existing,
+        existing.invoice_id,
+        2_500,
+        "USD",
+        "mock",
+        "test-method",
+    ));
+    assert!(!super::payment_execution_idempotency_matches(
+        &existing,
+        existing.invoice_id,
+        2_501,
+        "USD",
+        "mock",
+        "test-method",
+    ));
+    assert!(!super::payment_execution_idempotency_matches(
+        &existing,
+        existing.invoice_id,
+        2_500,
+        "EUR",
+        "mock",
+        "test-method",
+    ));
+}
+
 async fn postgres_round_trip_is_idempotent_and_persists_authoritative_cycle() {
     let Some(store) = connect_store().await else {
         return;
