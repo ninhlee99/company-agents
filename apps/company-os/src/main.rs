@@ -3210,9 +3210,11 @@ async fn organization_api(
 
 async fn organization_employee_upsert_api(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(request): Json<OrganizationEmployeeUpsertRequest>,
 ) -> Result<StatusCode, StatusCode> {
-    state.store.upsert_organization_employee(&state.company_id, &request.input)
+    let actor = trusted_control_plane_actor(&state, &headers, "POST")?;
+    state.store.upsert_organization_employee(&state.company_id, &request.input, &actor)
         .await
         .map(|_| StatusCode::ACCEPTED)
         .map_err(|_| StatusCode::BAD_REQUEST)
