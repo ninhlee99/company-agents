@@ -100,6 +100,21 @@ pub struct ForecastVarianceRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+fn payment_execution_idempotency_matches(
+    existing: &PaymentExecutionIntentRecord,
+    invoice_id: Uuid,
+    amount_minor: i128,
+    currency: &str,
+    provider: &str,
+    payment_method_ref: &str,
+) -> bool {
+    existing.invoice_id == invoice_id
+        && existing.amount_minor == amount_minor
+        && existing.currency == currency
+        && existing.provider == provider
+        && existing.payment_method_ref == payment_method_ref
+}
+
 pub struct PaymentExecutionIntentRecord {
     pub id: Uuid,
     pub company_id: Uuid,
@@ -8117,8 +8132,19 @@ impl CompanyStore {
             )
             .await?
         {
+            let existing = payment_execution_record_from_row(&row)?;
             tx.rollback().await?;
-            return payment_execution_record_from_row(&row);
+            if !payment_execution_idempotency_matches(
+                &existing,
+                invoice,
+                amount_minor,
+                &currency,
+                &provider,
+                &payment_method_ref,
+            ) {
+                return Err("payment execution idempotency key was reused with different parameters".into());
+            }
+            return Ok(existing);
         }
 
         let invoice_row = tx
