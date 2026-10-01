@@ -4,6 +4,11 @@ use economic_core::CompanyStatus;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+pub const HARD_MIN_RUNWAY_DAYS: i64 = 30;
+pub const HARD_MIN_CONFIDENCE_BPS: u32 = 8_500;
+pub const HARD_MIN_EVIDENCE_COUNT: u32 = 2;
+pub const HARD_MIN_RESERVE_CASH_MINOR: i128 = 1;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CapitalCandidate {
     pub candidate_id: Uuid,
@@ -120,6 +125,20 @@ pub fn validate_policy(policy: &CapitalPolicy) -> Result<(), String> {
         || policy.max_feedback_seconds == 0
     {
         return Err("capital policy bounds are invalid".into());
+    }
+    if policy.min_runway_days < HARD_MIN_RUNWAY_DAYS
+        || policy.min_confidence_bps < HARD_MIN_CONFIDENCE_BPS
+        || policy.min_evidence_count < HARD_MIN_EVIDENCE_COUNT
+    {
+        return Err(
+            "capital policy is below the autonomous-capital safety floor"
+                .into(),
+        );
+    }
+    if policy.discretionary_budget_minor > 0
+        && policy.reserve_cash_minor < HARD_MIN_RESERVE_CASH_MINOR
+    {
+        return Err("capital policy must preserve an explicit cash reserve".into());
     }
     if policy.discretionary_budget_minor
         > policy.cash_available_minor.saturating_sub(policy.reserve_cash_minor)
@@ -373,7 +392,7 @@ mod tests {
             discretionary_budget_minor: 5_000,
             min_runway_days: 45,
             runway_days: 90,
-            min_confidence_bps: 8_000,
+            min_confidence_bps: HARD_MIN_CONFIDENCE_BPS,
             min_evidence_count: 3,
             max_feedback_seconds: 604_800,
             min_score_bps: 6_500,
@@ -408,7 +427,7 @@ mod tests {
         assert_eq!(classify_candidate(&scale, &p).unwrap(), PortfolioClass::Scale);
 
         let mut validate = candidate(2, 3_000, 200);
-        validate.confidence_bps = 7_500;
+        validate.confidence_bps = 8_499;
         assert_eq!(
             classify_candidate(&validate, &p).unwrap(),
             PortfolioClass::Validate
@@ -422,6 +441,25 @@ mod tests {
             classify_candidate(&candidate(4, 3_000, 200), &p).unwrap(),
             PortfolioClass::Validate
         );
+    }
+
+    #[test]
+    fn policy_below_autonomous_capital_floor_fails_closed() {
+        let mut p = policy();
+        p.min_runway_days = HARD_MIN_RUNWAY_DAYS - 1;
+        assert!(validate_policy(&p).is_err());
+
+        let mut p = policy();
+        p.min_confidence_bps = HARD_MIN_CONFIDENCE_BPS - 1;
+        assert!(validate_policy(&p).is_err());
+
+        let mut p = policy();
+        p.min_evidence_count = HARD_MIN_EVIDENCE_COUNT - 1;
+        assert!(validate_policy(&p).is_err());
+
+        let mut p = policy();
+        p.reserve_cash_minor = 0;
+        assert!(validate_policy(&p).is_err());
     }
 
     #[test]
