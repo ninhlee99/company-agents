@@ -4948,7 +4948,7 @@ impl CompanyStore {
             tx.execute(
                 "INSERT INTO audit_log
                  (company_id,actor_type,actor_id,action,resource_type,resource_id,decision,metadata)
-                 VALUES ($1,'SYSTEM','tiktok-oauth','TIKTOK_OAUTH_TOKEN_REFRESHED','TIKTOK_CONNECTION',$2,'ACTIVE',$3)",
+                 VALUES ($1,'SYSTEM','tiktok-oauth','TIKTOK_OAUTH_TOKEN_UPDATED','TIKTOK_CONNECTION',$2,'ACTIVE',$3)",
                 &[
                     &company,
                     &token.open_id,
