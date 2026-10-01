@@ -3764,6 +3764,76 @@ impl CompanyStore {
         Ok(())
     }
 
+    pub async fn ensure_standard_organization(
+        &self,
+        company_id: &str,
+        company_name: &str,
+        currency: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        if currency.len() != 3 || !currency.bytes().all(|byte| byte.is_ascii_uppercase()) {
+            return Err("company currency must be uppercase 3-letter code".into());
+        }
+
+        let standard_departments = [
+            ("EXEC", "Executive Office", "Định hướng chiến lược, governance và phân bổ nguồn lực toàn công ty.", serde_json::json!(["Strategy & OKR", "Executive governance", "Capital allocation", "Cross-functional decisions"]), serde_json::json!(["OKR attainment", "Runway", "Operating plan"]), "CONTROL"),
+            ("PROD", "Product & Innovation", "Xây dựng sản phẩm, năng lực đổi mới và roadmap có thể đo lường.", serde_json::json!(["Product discovery", "Roadmap", "Experimentation", "Product quality"]), serde_json::json!(["Release quality", "Adoption", "Lead time"]), "CORE"),
+            ("GROWTH", "Growth & Marketing", "Tạo nhu cầu, tăng trưởng audience và chuyển hóa demand thành pipeline.", serde_json::json!(["Demand generation", "Lifecycle growth", "Content growth", "Attribution"]), serde_json::json!(["Qualified pipeline", "CAC", "Conversion"]), "GROWTH"),
+            ("CREATIVE", "Creative & Media", "Sản xuất creative/media nhất quán với brand, campaign và channel requirements.", serde_json::json!(["Creative production", "Media operations", "Brand systems", "Asset governance"]), serde_json::json!(["Output quality", "On-time delivery", "Reuse rate"]), "CORE"),
+            ("COMMERCIAL", "Commercial & Sales", "Quản trị pipeline doanh thu, proposals, contracts, delivery và customer expansion.", serde_json::json!(["Sales pipeline", "Proposals", "Commercial delivery", "Expansion"]), serde_json::json!(["Win rate", "Gross revenue", "Collection cycle"]), "CORE"),
+            ("RISK", "Risk & Compliance", "Bảo đảm policy, compliance, auditability và kiểm soát các hành động có rủi ro.", serde_json::json!(["Policy", "Compliance checks", "Audit", "Risk controls"]), serde_json::json!(["Control coverage", "Exception closure", "Audit freshness"]), "CONTROL"),
+            ("CS", "Customer Success", "Duy trì customer health, onboarding, retention và xử lý các nhiệm vụ hậu mãi.", serde_json::json!(["Onboarding", "Customer health", "Retention", "Support escalation"]), serde_json::json!(["Retention", "Time-to-resolution", "Health coverage"]), "CORE"),
+            ("TREASURY", "Treasury & Finance", "Quản trị cash, accounting, payroll readiness, budgets và financial control.", serde_json::json!(["Accounting", "Treasury", "Payroll control", "Financial planning"]), serde_json::json!(["Cash accuracy", "Runway", "Close cycle"]), "CONTROL"),
+            ("OPS", "Operations & Technology", "Điều phối vận hành, platform reliability và capacity để công ty chạy ổn định.", serde_json::json!(["Process excellence", "Platform operations", "Capacity", "Reliability"]), serde_json::json!(["SLA attainment", "Uptime", "Throughput"]), "CORE"),
+        ];
+
+        let client = self.client.lock().await;
+        let transaction = client.transaction().await?;
+
+        for (code, name, charter, responsibilities, kpis, criticality) in standard_departments {
+            transaction
+                .execute(
+                    "INSERT INTO departments
+                        (id, company_id, code, name, charter, responsibilities, kpis,
+                         monthly_budget_minor, currency, lifecycle, criticality, formation_reason)
+                     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,0,$8,'ACTIVE',$9,
+                             CASE WHEN $3 = 'EXEC' THEN 'standard company bootstrap' ELSE 'standard autonomous organization template' END)
+                     ON CONFLICT (company_id, code) DO UPDATE
+                       SET name = EXCLUDED.name,
+                           charter = EXCLUDED.charter,
+                           responsibilities = EXCLUDED.responsibilities,
+                           kpis = EXCLUDED.kpis,
+                           currency = EXCLUDED.currency,
+                           lifecycle = CASE
+                               WHEN departments.lifecycle = 'CLOSED' THEN departments.lifecycle
+                               ELSE EXCLUDED.lifecycle
+                           END,
+                           criticality = EXCLUDED.criticality,
+                           updated_at = now()",
+                    &[
+                        &Uuid::new_v4(),
+                        &company_uuid,
+                        &code,
+                        &name,
+                        &charter,
+                        &responsibilities,
+                        &kpis,
+                        &currency,
+                        &criticality,
+                    ],
+                )
+                .await?;
+        }
+
+        transaction.commit().await?;
+        tracing::info!(
+            company_id = %company_id,
+            company_name = company_name,
+            "standard company organization ensured"
+        );
+        Ok(())
+    }
+
     pub async fn upsert_employee(
         &self,
         company_id: &str,
