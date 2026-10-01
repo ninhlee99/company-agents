@@ -21,6 +21,7 @@ import { ClientContractsTab } from './components/ClientContractsTab';
 import { CreateContractTab } from './components/CreateContractTab';
 import { ManageFinances } from './components/ManageFinances';
 import { SettingsTab } from './components/SettingsTab';
+import { PeopleOrganizationTab } from './components/PeopleOrganizationTab';
 
 import { 
   LayoutDashboard, 
@@ -35,7 +36,7 @@ import {
 } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'workforce' | 'livestream' | 'pipeline' | 'contracts' | 'order' | 'finances' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'workforce' | 'organization' | 'livestream' | 'pipeline' | 'contracts' | 'order' | 'finances' | 'settings'>('overview');
   const [pipelineSubTab, setPipelineSubTab] = useState<'flow' | 'studio'>('flow');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [dataMode, setDataMode] = useState<'SIMULATION' | 'UNKNOWN'>('UNKNOWN');
@@ -385,7 +386,19 @@ export default function App() {
               }`}
             >
               <Users className="w-3.5 h-3.5 text-slate-300" />
-              <span>Đội Ngũ AI &amp; Nhân Sự ({customAgents.length})</span>
+              <span>AI Workforce ({customAgents.length})</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('organization')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                activeTab === 'organization'
+                  ? 'bg-slate-800 text-white font-semibold border border-slate-700 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5 text-slate-300" />
+              <span>Con Người &amp; Tổ Chức</span>
             </button>
 
             <button
@@ -484,6 +497,11 @@ export default function App() {
             onInterviewCandidate={handleInterviewCandidate}
             onHireCandidate={handleHireCandidate}
           />
+        )}
+
+        {/* Tab 3: People, Departments & Attendance */}
+        {activeTab === 'organization' && (
+          <PeopleOrganizationTab aiAgentCount={customAgents.length} />
         )}
 
         {/* Tab 3: Livestream & Channels */}
