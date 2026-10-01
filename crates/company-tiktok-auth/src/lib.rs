@@ -25,6 +25,7 @@ pub enum AuthError {
     InvalidRequest(String),
     Unauthorized,
     RateLimited,
+    ReauthorizationRequired(String),
     Provider(String),
     Transport(String),
     Crypto(String),
@@ -37,6 +38,7 @@ impl fmt::Display for AuthError {
             Self::InvalidRequest(v) => write!(f, "TikTok auth request error: {v}"),
             Self::Unauthorized => write!(f, "TikTok authorization failed"),
             Self::RateLimited => write!(f, "TikTok authorization endpoint rate limited"),
+            Self::ReauthorizationRequired(v) => write!(f, "TikTok reauthorization required: {v}"),
             Self::Provider(v) => write!(f, "TikTok auth provider error: {v}"),
             Self::Transport(v) => write!(f, "TikTok auth transport error: {v}"),
             Self::Crypto(v) => write!(f, "TikTok token encryption error: {v}"),
@@ -158,6 +160,11 @@ impl TokenSet {
     }
 }
 
+
+fn refresh_requires_reauthorization(error_code: &str) -> bool {
+    error_code == "invalid_grant"
+}
+
 #[derive(Debug, Deserialize)]
 struct TokenErrorResponse {
     error: Option<String>,
@@ -260,18 +267,28 @@ impl TikTokOAuthClient {
         let response_text = String::from_utf8_lossy(&bytes);
         let value: serde_json::Value = serde_json::from_slice(&bytes)
             .map_err(|error| AuthError::Provider(format!("invalid token response: {error}")))?;
-        if !status.is_success() {
-            return Err(provider_error(status, &bytes, &[self.config.client_secret.as_str()]));
-        }
-        if value.get("error").and_then(|v| v.as_str()).is_some_and(|v| v != "ok" && v != "null") {
-            let detail: TokenErrorResponse = serde_json::from_value(value)
+        if let Some(error_code) = value.get("error").and_then(|v| v.as_str()).filter(|v| *v != "ok" && *v != "null") {
+            let detail: TokenErrorResponse = serde_json::from_value(value.clone())
                 .unwrap_or(TokenErrorResponse { error: None, error_description: None, log_id: None });
             let log = detail.log_id.unwrap_or_default();
+            let message = detail
+                .error_description
+                .unwrap_or_else(|| log_or_body(log, &response_text));
+            if refresh_requires_reauthorization(error_code) {
+                return Err(AuthError::ReauthorizationRequired(message));
+            }
+            if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+                return Err(AuthError::Unauthorized);
+            }
             return Err(AuthError::Provider(format!(
-                "token request failed: {} {}",
-                detail.error.unwrap_or_else(|| "unknown".into()),
-                detail.error_description.unwrap_or_else(|| log_or_body(log, &response_text))
+                "token request failed: {error_code} {message}"
             )));
+        }
+        if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+            return Err(AuthError::Unauthorized);
+        }
+        if !status.is_success() {
+            return Err(provider_error(status, &bytes, &[self.config.client_secret.as_str()]));
         }
         let token: TokenSet = serde_json::from_value(value)
             .map_err(|error| AuthError::Provider(format!("token response schema invalid: {error}")))?;
@@ -421,6 +438,14 @@ mod tests {
         let encrypted = cipher.encrypt(company, "refresh-token").unwrap();
         assert_eq!(cipher.decrypt(company, &encrypted).unwrap(), "refresh-token");
         assert!(cipher.decrypt(Uuid::new_v4(), &encrypted).is_err());
+    }
+
+    #[test]
+    fn refresh_error_classification_requires_invalid_grant() {
+        assert!(refresh_requires_reauthorization("invalid_grant"));
+        assert!(!refresh_requires_reauthorization("temporarily_unavailable"));
+        assert!(!refresh_requires_reauthorization("invalid_request"));
+        assert!(!refresh_requires_reauthorization("invalid_client"));
     }
 
     #[test]

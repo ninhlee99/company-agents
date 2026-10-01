@@ -2349,13 +2349,14 @@ async fn tiktok_refresh_with_config(
             .save_tiktok_token_set(&state.company_id, &token, cipher)
             .await
             .map_err(|error| company_tiktok_auth::AuthError::Provider(error.to_string())),
-        Err(error) => {
+        Err(error @ company_tiktok_auth::AuthError::ReauthorizationRequired(_)) => {
             let _ = state
                 .store
                 .mark_tiktok_reauth_required(&state.company_id, &error.to_string())
                 .await;
             Err(error)
         }
+        Err(error) => Err(error),
     }
 }
 
@@ -2373,7 +2374,8 @@ async fn tiktok_oauth_refresh_api(
         .map_err(|error| {
             tracing::warn!(%error, "TikTok OAuth refresh failed");
             match error {
-                company_tiktok_auth::AuthError::Unauthorized => StatusCode::PRECONDITION_FAILED,
+                company_tiktok_auth::AuthError::ReauthorizationRequired(_)
+                | company_tiktok_auth::AuthError::Unauthorized => StatusCode::PRECONDITION_FAILED,
                 company_tiktok_auth::AuthError::RateLimited => StatusCode::TOO_MANY_REQUESTS,
                 _ => StatusCode::BAD_GATEWAY,
             }
@@ -2493,7 +2495,7 @@ fn spawn_tiktok_refresh_worker(state: AppState) {
                             .save_tiktok_token_set(&state.company_id, &token, &cipher)
                             .await?;
                     }
-                    Err(error) => {
+                    Err(error @ company_tiktok_auth::AuthError::ReauthorizationRequired(_)) => {
                         let _ = state
                             .store
                             .mark_tiktok_reauth_required(
@@ -2501,6 +2503,9 @@ fn spawn_tiktok_refresh_worker(state: AppState) {
                                 &error.to_string(),
                             )
                             .await;
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, "TikTok OAuth refresh transient/provider failure; retaining active connection for retry");
                     }
                 }
                 Ok(())
