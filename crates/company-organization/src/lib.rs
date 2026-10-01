@@ -560,11 +560,7 @@ pub fn evaluate_department_formation(
         .as_deref()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(signal.department_type.code());
-    let active = departments.iter().any(|department| {
-        department.active
-            && (department.department_type == signal.department_type
-                || department.id.eq_ignore_ascii_case(requested_code))
-    });
+    let active = departments.iter().any(|department| department.active);
 
     if signal.capacity_gap_pct < 25 || signal.sustained_cycles < 3 {
         return Ok(DepartmentFormationDecision::NoChange);
