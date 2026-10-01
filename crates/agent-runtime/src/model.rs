@@ -1257,6 +1257,32 @@ mod tests {
     }
 
     #[test]
+    fn fast_routing_falls_back_to_available_remote_provider() {
+        let providers = vec!["gemini".into(), "anthropic".into()];
+        let meta = ModelRequestMetadata {
+            agent: AgentRole::Experiment,
+            system_bytes: 100,
+            user_bytes: 100,
+        };
+        let decision = route_model_request(&providers, &meta, ModelRoutingMode::Shadow);
+        assert_eq!(decision.task, ModelTaskClass::Fast);
+        assert_eq!(decision.recommended_provider.as_deref(), Some("gemini"));
+    }
+
+    #[test]
+    fn benchmark_routing_uses_the_shared_provider_pool() {
+        let providers = vec!["ollama".to_string(), "gemini".to_string(), "anthropic".to_string()];
+        let meta = ModelRequestMetadata {
+            agent: AgentRole::CEO,
+            system_bytes: 100,
+            user_bytes: 100,
+        };
+        let decision = route_model_request(&providers, &meta, ModelRoutingMode::Shadow);
+        assert_eq!(decision.task, ModelTaskClass::Deep);
+        assert_eq!(decision.recommended_provider.as_deref(), Some("gemini"));
+    }
+
+    #[test]
     fn routing_prefers_remote_for_deep_work_on_small_hardware() {
         let providers = vec!["ollama".into(), "gemini".into(), "anthropic".into()];
         let meta = ModelRequestMetadata {
