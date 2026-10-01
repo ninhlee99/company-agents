@@ -392,7 +392,7 @@ mod tests {
             discretionary_budget_minor: 5_000,
             min_runway_days: 45,
             runway_days: 90,
-            min_confidence_bps: 8_000,
+            min_confidence_bps: HARD_MIN_CONFIDENCE_BPS,
             min_evidence_count: 3,
             max_feedback_seconds: 604_800,
             min_score_bps: 6_500,
