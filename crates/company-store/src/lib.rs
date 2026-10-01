@@ -4046,7 +4046,18 @@ impl CompanyStore {
                  owner_employee_id, monthly_budget_minor, currency, lifecycle,
                  criticality, formation_reason)
              VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,NULL,$8::numeric,$9,'PROPOSED',$10,$11)
-             ON CONFLICT (company_id, code) DO NOTHING",
+             ON CONFLICT (company_id, code) DO UPDATE
+               SET name=EXCLUDED.name,
+                   charter=EXCLUDED.charter,
+                   responsibilities=EXCLUDED.responsibilities,
+                   kpis=EXCLUDED.kpis,
+                   monthly_budget_minor=EXCLUDED.monthly_budget_minor,
+                   currency=EXCLUDED.currency,
+                   lifecycle='PROPOSED',
+                   criticality=EXCLUDED.criticality,
+                   formation_reason=EXCLUDED.formation_reason,
+                   updated_at=now()
+             WHERE departments.lifecycle='CLOSED'",
             &[
                 &Uuid::new_v4(),
                 &company_uuid,
