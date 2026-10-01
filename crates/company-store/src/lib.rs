@@ -3813,6 +3813,125 @@ impl CompanyStore {
         Ok(())
     }
 
+    pub async fn list_departments(
+        &self,
+        company_id: &str,
+    ) -> Result<Vec<company_organization::DepartmentRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT id, company_id, parent_department_id, code, name, charter,
+                        responsibilities, kpis, owner_employee_id,
+                        monthly_budget_minor::text, currency, lifecycle, criticality, formation_reason
+                   FROM departments
+                  WHERE company_id=$1
+                  ORDER BY code ASC, id ASC",
+                &[&company_uuid],
+            )
+            .await?;
+
+        rows.into_iter()
+            .map(|row| {
+                let responsibilities = serde_json::from_value::<Vec<String>>(row.get(6))
+                    .map_err(|error| format!("invalid department responsibilities: {error}"))?;
+                let kpis = serde_json::from_value::<Vec<String>>(row.get(7))
+                    .map_err(|error| format!("invalid department KPIs: {error}"))?;
+                Ok(company_organization::DepartmentRecord {
+                    id: row.get::<_, Uuid>(0).to_string(),
+                    company_id: row.get::<_, Uuid>(1).to_string(),
+                    parent_department_id: row.get::<_, Option<Uuid>>(2).map(|id| id.to_string()),
+                    code: row.get(3),
+                    name: row.get(4),
+                    charter: row.get(5),
+                    responsibilities,
+                    kpis,
+                    owner_employee_id: row.get::<_, Option<Uuid>>(8).map(|id| id.to_string()),
+                    monthly_budget_minor: parse_i128_numeric(&row.get::<_, String>(9))?,
+                    currency: row.get(10),
+                    lifecycle: parse_department_lifecycle(&row.get::<_, String>(11))?,
+                    criticality: parse_department_criticality(&row.get::<_, String>(12))?,
+                    formation_reason: row.get(13),
+                })
+            })
+            .collect()
+    }
+
+    pub async fn list_department_members(
+        &self,
+        company_id: &str,
+        department_id: &str,
+    ) -> Result<Vec<company_organization::OrganizationEmployeeRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let department_uuid = Uuid::parse_str(department_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT id, company_id, department_id, team_id, manager_id, role,
+                        employment_type, employment_level, joined_at_epoch, status
+                   FROM employees
+                  WHERE company_id=$1 AND department_id=$2
+                  ORDER BY manager_id NULLS FIRST, role ASC, id ASC",
+                &[&company_uuid, &department_uuid],
+            )
+            .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(company_organization::OrganizationEmployeeRecord {
+                    employee_id: row.get::<_, Uuid>(0).to_string(),
+                    company_id: row.get::<_, Uuid>(1).to_string(),
+                    department_id: row.get::<_, Uuid>(2).to_string(),
+                    team_id: row.get::<_, Option<Uuid>>(3).map(|id| id.to_string()),
+                    manager_id: row.get::<_, Option<Uuid>>(4).map(|id| id.to_string()),
+                    title: row.get(5),
+                    employment_type: parse_employment_type(&row.get::<_, String>(6))?,
+                    employment_level: row.get(7),
+                    joined_at_epoch: row.get::<_, Option<i64>>(8).unwrap_or(0),
+                    status: parse_employee_status(&row.get::<_, String>(9))?,
+                })
+            })
+            .collect()
+    }
+
+    pub async fn list_employee_attendance(
+        &self,
+        company_id: &str,
+        work_date: &str,
+    ) -> Result<Vec<company_organization::AttendanceRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT id, company_id, employee_id, work_date::text, status,
+                        shift_start::text, shift_end::text,
+                        extract(epoch FROM check_in_at)::bigint,
+                        extract(epoch FROM check_out_at)::bigint,
+                        source, exception_reason
+                   FROM employee_attendance
+                  WHERE company_id=$1 AND work_date=$2::date
+                  ORDER BY employee_id ASC",
+                &[&company_uuid, &work_date],
+            )
+            .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(company_organization::AttendanceRecord {
+                    id: row.get::<_, Uuid>(0).to_string(),
+                    company_id: row.get::<_, Uuid>(1).to_string(),
+                    employee_id: row.get::<_, Uuid>(2).to_string(),
+                    work_date: row.get(3),
+                    status: parse_attendance_status(&row.get::<_, String>(4))?,
+                    shift_start: row.get(5),
+                    shift_end: row.get(6),
+                    check_in_at_epoch: row.get(7),
+                    check_out_at_epoch: row.get(8),
+                    source: row.get(9),
+                    exception_reason: row.get(10),
+                })
+            })
+            .collect()
+    }
+
     pub async fn list_employees(
         &self,
         company_id: &str,
@@ -7738,6 +7857,57 @@ fn parse_business_unit_lifecycle(
         "PAUSED" => Ok(company_organization::BusinessUnitLifecycle::Paused),
         "CLOSED" => Ok(company_organization::BusinessUnitLifecycle::Closed),
         other => Err(format!("unknown business unit lifecycle: {other}").into()),
+    }
+}
+
+fn parse_department_lifecycle(
+    value: &str,
+) -> Result<company_organization::DepartmentLifecycle, Box<dyn std::error::Error + Send + Sync>> {
+    match value {
+        "PROPOSED" => Ok(company_organization::DepartmentLifecycle::Proposed),
+        "ACTIVE" => Ok(company_organization::DepartmentLifecycle::Active),
+        "SCALING" => Ok(company_organization::DepartmentLifecycle::Scaling),
+        "PAUSED" => Ok(company_organization::DepartmentLifecycle::Paused),
+        "CLOSED" => Ok(company_organization::DepartmentLifecycle::Closed),
+        other => Err(format!("unknown department lifecycle: {other}").into()),
+    }
+}
+
+fn parse_department_criticality(
+    value: &str,
+) -> Result<company_organization::DepartmentCriticality, Box<dyn std::error::Error + Send + Sync>> {
+    match value {
+        "CORE" => Ok(company_organization::DepartmentCriticality::Core),
+        "GROWTH" => Ok(company_organization::DepartmentCriticality::Growth),
+        "CONTROL" => Ok(company_organization::DepartmentCriticality::Control),
+        other => Err(format!("unknown department criticality: {other}").into()),
+    }
+}
+
+fn parse_employment_type(
+    value: &str,
+) -> Result<company_organization::EmploymentType, Box<dyn std::error::Error + Send + Sync>> {
+    match value {
+        "OFFICIAL" => Ok(company_organization::EmploymentType::Official),
+        "PROBATION" => Ok(company_organization::EmploymentType::Probation),
+        "APPRENTICE" => Ok(company_organization::EmploymentType::Apprentice),
+        "PART_TIME" => Ok(company_organization::EmploymentType::PartTime),
+        "CONTRACTOR" => Ok(company_organization::EmploymentType::Contractor),
+        other => Err(format!("unknown employment type: {other}").into()),
+    }
+}
+
+fn parse_attendance_status(
+    value: &str,
+) -> Result<company_organization::AttendanceStatus, Box<dyn std::error::Error + Send + Sync>> {
+    match value {
+        "PRESENT" => Ok(company_organization::AttendanceStatus::Present),
+        "REMOTE" => Ok(company_organization::AttendanceStatus::Remote),
+        "LATE" => Ok(company_organization::AttendanceStatus::Late),
+        "LEAVE" => Ok(company_organization::AttendanceStatus::Leave),
+        "ABSENT" => Ok(company_organization::AttendanceStatus::Absent),
+        "CHECKED_OUT" => Ok(company_organization::AttendanceStatus::CheckedOut),
+        other => Err(format!("unknown attendance status: {other}").into()),
     }
 }
 

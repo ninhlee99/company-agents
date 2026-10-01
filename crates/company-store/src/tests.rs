@@ -5,6 +5,35 @@ use agent_runtime::types::{
 };
 use economic_core::{CompanyStatus, LedgerEntry, LedgerTransaction};
 
+
+#[test]
+fn organization_read_model_parsers_cover_supported_states() {
+    assert!(matches!(
+        super::parse_department_lifecycle("ACTIVE").unwrap(),
+        company_organization::DepartmentLifecycle::Active
+    ));
+    assert!(matches!(
+        super::parse_department_criticality("CONTROL").unwrap(),
+        company_organization::DepartmentCriticality::Control
+    ));
+    assert!(matches!(
+        super::parse_employment_type("APPRENTICE").unwrap(),
+        company_organization::EmploymentType::Apprentice
+    ));
+    assert!(matches!(
+        super::parse_attendance_status("LATE").unwrap(),
+        company_organization::AttendanceStatus::Late
+    ));
+}
+
+#[test]
+fn organization_read_model_parsers_reject_unknown_states() {
+    assert!(super::parse_department_lifecycle("UNKNOWN").is_err());
+    assert!(super::parse_department_criticality("UNKNOWN").is_err());
+    assert!(super::parse_employment_type("UNKNOWN").is_err());
+    assert!(super::parse_attendance_status("UNKNOWN").is_err());
+}
+
 fn snapshot(company_id: &str) -> CompanySnapshot {
     CompanySnapshot {
         company_id: company_id.into(),
