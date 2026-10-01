@@ -140,7 +140,8 @@ fn recommended_provider(
         ModelTaskClass::Fast => providers
             .iter()
             .find(|name| is_local_provider(name))
-            .cloned(),
+            .cloned()
+            .or_else(|| providers.first().cloned()),
         ModelTaskClass::Deep if hardware == HardwareTier::Small => providers
             .iter()
             .find(|name| is_remote_api_provider(name))
@@ -226,8 +227,8 @@ pub fn model_error_kind(error: &ModelError) -> &'static str {
 pub async fn run_model_benchmark(
     provider_name: &str,
     model: &dyn Model,
+    providers: &[String],
 ) -> Vec<ModelBenchmarkObservation> {
-    let providers = vec![provider_name.to_string()];
     let mut observations = Vec::new();
 
     for case in model_benchmark_cases() {
@@ -1289,7 +1290,8 @@ mod tests {
 
     #[tokio::test]
     async fn mock_provider_benchmark_completes_without_external_services() {
-        let observations = run_model_benchmark("mock", &MockModel).await;
+        let providers = vec!["mock".to_string()];
+        let observations = run_model_benchmark("mock", &MockModel, &providers).await;
         assert_eq!(observations.len(), 3);
         assert!(observations.iter().all(|value| value.success));
         assert!(observations.iter().all(|value| value.output_object));
