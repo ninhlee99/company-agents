@@ -115,6 +115,28 @@ fn payment_execution_idempotency_matches(
         && existing.payment_method_ref == payment_method_ref
 }
 
+fn payment_reconciliation_idempotency_matches(
+    existing_invoice_id: Uuid,
+    existing_external_ref: Option<&str>,
+    existing_amount_minor: i128,
+    existing_currency: &str,
+    existing_observed_at_epoch: i64,
+    existing_evidence_hash: &str,
+    invoice_id: Uuid,
+    external_ref: Option<&str>,
+    amount_minor: i128,
+    currency: &str,
+    observed_at_epoch: i64,
+    evidence_hash: &str,
+) -> bool {
+    existing_invoice_id == invoice_id
+        && existing_external_ref == external_ref
+        && existing_amount_minor == amount_minor
+        && existing_currency == currency
+        && existing_observed_at_epoch == observed_at_epoch
+        && existing_evidence_hash == evidence_hash
+}
+
 pub struct PaymentExecutionIntentRecord {
     pub id: Uuid,
     pub company_id: Uuid,
@@ -8524,11 +8546,35 @@ impl CompanyStore {
         let mut c = self.client.lock().await;
         let tx = c.transaction().await?;
         if let Some(row) = tx.query_opt(
-            "SELECT status FROM payment_reconciliation_evidence WHERE company_id=$1 AND provider=$2 AND provider_event_id=$3",
+            "SELECT invoice_id,external_ref,observed_amount_minor::text,currency,observed_at_epoch,evidence_hash,status
+               FROM payment_reconciliation_evidence
+              WHERE company_id=$1 AND provider=$2 AND provider_event_id=$3",
             &[&company,&provider,&provider_event_id]
         ).await? {
-            let status: String = row.get(0);
+            let existing_invoice_id: Uuid = row.get(0);
+            let existing_external_ref: Option<String> = row.get(1);
+            let existing_amount_minor = parse_i128_numeric(&row.get::<_, String>(2))?;
+            let existing_currency: String = row.get(3);
+            let existing_observed_at_epoch: i64 = row.get(4);
+            let existing_evidence_hash: String = row.get(5);
+            let status: String = row.get(6);
             tx.rollback().await?;
+            if !payment_reconciliation_idempotency_matches(
+                existing_invoice_id,
+                existing_external_ref.as_deref(),
+                existing_amount_minor,
+                &existing_currency,
+                existing_observed_at_epoch,
+                &existing_evidence_hash,
+                invoice,
+                external_ref,
+                amount_minor,
+                currency,
+                observed_at_epoch,
+                evidence_hash,
+            ) {
+                return Err("payment reconciliation event id was reused with different parameters".into());
+            }
             return Ok(status);
         }
         let inv = tx.query_opt(
