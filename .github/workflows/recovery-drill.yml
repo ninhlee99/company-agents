@@ -4,6 +4,9 @@ on:
   schedule:
     - cron: "17 3 * * 0"
 
+permissions:
+  contents: read
+
 jobs:
   postgres-recovery:
     runs-on: ubuntu-latest
@@ -42,4 +45,4 @@ jobs:
       - name: Run recovery drill
         run: bash scripts/recovery_drill.sh
       - name: Run secret hygiene
-        run: bash scripts/secret_hygiene.sh
+        run: bash scripts/check_secret_hygiene.sh
