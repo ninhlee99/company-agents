@@ -4852,19 +4852,36 @@ impl CompanyStore {
             .map(time::OffsetDateTime::from_unix_timestamp)
             .transpose()?;
 
-        let existing_check_in = tx
+        let existing = tx
             .query_opt(
-                "SELECT check_in_at
+                "SELECT status, check_in_at, check_out_at
                    FROM employee_attendance
                   WHERE company_id=$1 AND employee_id=$2 AND work_date=$3::date
                   FOR UPDATE",
                 &[&company_uuid, &employee_uuid, &attendance.work_date],
             )
-            .await?
-            .map(|row| row.get::<_, Option<time::OffsetDateTime>>(0))
-            .flatten();
+            .await?;
 
-        let effective_check_in = check_in.or(existing_check_in);
+        let existing_status = existing.as_ref().map(|row| row.get::<_, String>(0));
+        let existing_check_in = existing
+            .as_ref()
+            .and_then(|row| row.get::<_, Option<time::OffsetDateTime>>(1));
+        let existing_check_out = existing
+            .as_ref()
+            .and_then(|row| row.get::<_, Option<time::OffsetDateTime>>(2));
+
+        if existing_check_out.is_some() {
+            tx.rollback().await?;
+            return Err("attendance day is already finalized with checkout".into());
+        }
+        if existing_check_in.is_some()
+            && requested_status != company_organization::AttendanceStatus::CheckedOut
+        {
+            tx.rollback().await?;
+            return Err("employee already has a check-in for this work date".into());
+        }
+
+        let effective_check_in = existing_check_in.or(check_in);
 
         if requested_status == company_organization::AttendanceStatus::CheckedOut
             && effective_check_in.is_none()
