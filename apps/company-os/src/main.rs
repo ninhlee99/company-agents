@@ -3762,9 +3762,27 @@ fn control_plane_action_allowed(role: &str, method: &str, path: &str) -> bool {
         ("POST", "/api/payments/execution/run"),
     ];
 
-    OPERATOR_ALLOWED
+    if OPERATOR_ALLOWED
         .iter()
         .any(|(expected_method, expected_path)| method == *expected_method && path == *expected_path)
+    {
+        return true;
+    }
+
+    if method == "POST" {
+        for suffix in ["/events", "/reconcile-gifts"] {
+            if let Some(session_id) = path
+                .strip_prefix("/api/live/sessions/")
+                .and_then(|value| value.strip_suffix(suffix))
+            {
+                if uuid::Uuid::parse_str(session_id).is_ok() {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
 }
 #[allow(dead_code)]
 fn control_plane_auth_scope(
