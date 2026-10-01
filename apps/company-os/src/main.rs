@@ -194,6 +194,7 @@ struct OrganizationFormationResponse {
 #[derive(Debug, Serialize)]
 struct OrganizationWorkspaceResponse {
     company_id: String,
+    currency: String,
     departments: Vec<company_organization::DepartmentRecord>,
     employees: Vec<company_organization::OrganizationEmployeeView>,
     attendance: Vec<company_organization::AttendanceRecord>,
@@ -3187,6 +3188,7 @@ async fn organization_api(
     let attendance = state.store.list_employee_attendance(&state.company_id, &work_date).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(OrganizationWorkspaceResponse {
         company_id: state.company_id.clone(),
+        currency: state.currency.clone(),
         departments,
         employees,
         attendance,
