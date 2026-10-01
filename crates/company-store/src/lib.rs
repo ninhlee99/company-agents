@@ -3890,6 +3890,27 @@ impl CompanyStore {
             ).await?;
         }
 
+        tx.execute(
+            "INSERT INTO employee_attendance_policy_assignments
+                (id, company_id, employee_id, policy_id, effective_from)
+             SELECT gen_random_uuid(), e.company_id, e.id, p.id,
+                    COALESCE(to_timestamp(e.joined_at_epoch)::date, CURRENT_DATE)
+               FROM employees e
+               JOIN attendance_policies p
+                 ON p.company_id=e.company_id
+                AND p.code = CASE WHEN e.employment_type='PART_TIME' THEN 'PART_1400' ELSE 'OFFICE_0830' END
+                AND p.active=true
+              WHERE e.company_id=$1
+                AND NOT EXISTS (
+                  SELECT 1
+                    FROM employee_attendance_policy_assignments a
+                   WHERE a.company_id=e.company_id
+                     AND a.employee_id=e.id
+                     AND a.effective_to IS NULL
+                )",
+            &[&company_uuid],
+        ).await?;
+
         let positions = [
             ("EXEC_CEO", "EXEC", "Chief Executive Officer", "L9", vec!["OFFICIAL"], vec!["Strategy & OKR","Executive governance","Capital allocation"]),
             ("PROD_LEAD", "PROD", "Product & Innovation Lead", "L7", vec!["OFFICIAL"], vec!["Product strategy","Roadmap","Experimentation"]),
