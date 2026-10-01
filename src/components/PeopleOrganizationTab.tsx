@@ -48,6 +48,7 @@ type Person = {
   attendance: Attendance;
   location: string;
   workMode: 'Văn phòng' | 'Hybrid' | 'Remote' | 'Chưa cấu hình';
+  positionId?: string | null;
   managerId: string | null;
   shift: string;
   checkedInAt?: string;
@@ -670,6 +671,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
                 id: employeeId,
                 name: newEmployee.name.trim(),
                 title: newEmployee.title.trim(),
+                positionId: newEmployee.positionId || null,
                 departmentId: newEmployee.departmentId,
                 level: newEmployee.employmentLevel.trim() || 'L4',
                 employmentType: mapEmploymentType(newEmployee.employmentType),
