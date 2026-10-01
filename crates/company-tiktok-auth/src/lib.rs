@@ -160,6 +160,11 @@ impl TokenSet {
     }
 }
 
+
+fn refresh_requires_reauthorization(error_code: &str) -> bool {
+    error_code == "invalid_grant"
+}
+
 #[derive(Debug, Deserialize)]
 struct TokenErrorResponse {
     error: Option<String>,
@@ -269,7 +274,7 @@ impl TikTokOAuthClient {
             let message = detail
                 .error_description
                 .unwrap_or_else(|| log_or_body(log, &response_text));
-            if error_code == "invalid_grant" {
+            if refresh_requires_reauthorization(error_code) {
                 return Err(AuthError::ReauthorizationRequired(message));
             }
             if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
@@ -435,13 +440,12 @@ mod tests {
         assert!(cipher.decrypt(Uuid::new_v4(), &encrypted).is_err());
     }
 
-
     #[test]
-    fn invalid_grant_is_the_only_refresh_specific_reauthorization_signal() {
-        let error = AuthError::ReauthorizationRequired("refresh token expired".into());
-        assert!(matches!(error, AuthError::ReauthorizationRequired(_)));
-        assert!(!matches!(AuthError::RateLimited, AuthError::ReauthorizationRequired(_)));
-        assert!(!matches!(AuthError::Transport("network".into()), AuthError::ReauthorizationRequired(_)));
+    fn refresh_error_classification_requires_invalid_grant() {
+        assert!(refresh_requires_reauthorization("invalid_grant"));
+        assert!(!refresh_requires_reauthorization("temporarily_unavailable"));
+        assert!(!refresh_requires_reauthorization("invalid_request"));
+        assert!(!refresh_requires_reauthorization("invalid_client"));
     }
 
     #[test]
