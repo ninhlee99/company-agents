@@ -386,7 +386,7 @@ export default function App() {
               }`}
             >
               <Users className="w-3.5 h-3.5 text-slate-300" />
-              <span>Đội Ngũ AI &amp; Nhân Sự ({customAgents.length})</span>
+              <span>AI Workforce ({customAgents.length})</span>
             </button>
 
             <button
