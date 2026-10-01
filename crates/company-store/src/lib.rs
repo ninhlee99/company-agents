@@ -4394,7 +4394,7 @@ impl CompanyStore {
              SET status = EXCLUDED.status,
                  shift_start = EXCLUDED.shift_start,
                  shift_end = EXCLUDED.shift_end,
-                 check_in_at = EXCLUDED.check_in_at,
+                 check_in_at = COALESCE(EXCLUDED.check_in_at, employee_attendance.check_in_at),
                  check_out_at = EXCLUDED.check_out_at,
                  source = EXCLUDED.source,
                  exception_reason = EXCLUDED.exception_reason,
