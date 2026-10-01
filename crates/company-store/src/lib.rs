@@ -4333,26 +4333,23 @@ impl CompanyStore {
 
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
-        let changed = tx
-            .execute(
-                "INSERT INTO employees
+        if tx
+            .query_opt(
+                "SELECT id FROM employees WHERE company_id=$1 AND id=$2",
+                &[&company_uuid, &employee_uuid],
+            )
+            .await?
+            .is_some()
+        {
+            tx.rollback().await?;
+            return Err("employee already exists; employment changes require the controlled workflow".into());
+        }
+
+        tx.execute(
+            "INSERT INTO employees
                  (id, company_id, name, role, monthly_cost_minor, currency, status,
                   department_id, team_id, manager_id, employment_type, employment_level, joined_at_epoch)
-                 VALUES ($1,$2,$3,$4,$5::numeric,$6,$7,$8,$9,$10,$11,$12,$13)
-                 ON CONFLICT (id) DO UPDATE
-                 SET name = EXCLUDED.name,
-                     role = EXCLUDED.role,
-                     monthly_cost_minor = EXCLUDED.monthly_cost_minor,
-                     currency = EXCLUDED.currency,
-                     status = EXCLUDED.status,
-                     department_id = EXCLUDED.department_id,
-                     team_id = EXCLUDED.team_id,
-                     manager_id = EXCLUDED.manager_id,
-                     employment_type = EXCLUDED.employment_type,
-                     employment_level = EXCLUDED.employment_level,
-                     joined_at_epoch = EXCLUDED.joined_at_epoch,
-                     updated_at = now()
-                 WHERE employees.company_id = EXCLUDED.company_id",
+             VALUES ($1,$2,$3,$4,$5::numeric,$6,$7,$8,$9,$10,$11,$12,$13)",
                 &[
                     &employee_uuid,
                     &company_uuid,
@@ -4370,11 +4367,6 @@ impl CompanyStore {
                 ],
             )
             .await?;
-        if changed == 0 {
-            tx.rollback().await?;
-            return Err("employee id already belongs to another company".into());
-        }
-
         let rows = tx
             .query(
                 "SELECT id, company_id, department_id, team_id, manager_id, role,
