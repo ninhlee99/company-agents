@@ -4791,34 +4791,16 @@ impl CompanyStore {
         if company_uuid != record_company_uuid {
             return Err("attendance company_id does not match request company".into());
         }
-        if attendance.work_date.trim().is_empty()
-            || attendance.shift_start.trim().is_empty()
-            || attendance.shift_end.trim().is_empty()
-            || attendance.source.trim().is_empty()
-        {
-            return Err("attendance work_date, shift window and source are required".into());
+        if attendance.work_date.trim().is_empty() || attendance.source.trim().is_empty() {
+            return Err("attendance work_date and source are required".into());
         }
 
         let employee_uuid = Uuid::parse_str(&attendance.employee_id)?;
-        let status = match attendance.status {
-            company_organization::AttendanceStatus::Present => "PRESENT",
-            company_organization::AttendanceStatus::Remote => "REMOTE",
-            company_organization::AttendanceStatus::Late => "LATE",
-            company_organization::AttendanceStatus::Leave => "LEAVE",
-            company_organization::AttendanceStatus::Absent => "ABSENT",
-            company_organization::AttendanceStatus::CheckedOut => "CHECKED_OUT",
-        };
-        let check_in = attendance
-            .check_in_at_epoch
-            .map(time::OffsetDateTime::from_unix_timestamp)
-            .transpose()?;
-        let check_out = attendance
-            .check_out_at_epoch
-            .map(time::OffsetDateTime::from_unix_timestamp)
-            .transpose()?;
+        let requested_status = attendance.status;
 
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
+
         let employee_exists = tx
             .query_opt(
                 "SELECT id FROM employees WHERE company_id=$1 AND id=$2",
@@ -4830,6 +4812,107 @@ impl CompanyStore {
             tx.rollback().await?;
             return Err("attendance employee does not belong to company".into());
         }
+
+        let policy = tx
+            .query_opt(
+                "SELECT p.shift_start::text, p.shift_end::text, p.grace_minutes
+                   FROM employee_attendance_policy_assignments a
+                   JOIN attendance_policies p
+                     ON p.company_id=a.company_id
+                    AND p.id=a.policy_id
+                    AND p.active=true
+                  WHERE a.company_id=$1
+                    AND a.employee_id=$2
+                    AND a.effective_from <= $3::date
+                    AND (a.effective_to IS NULL OR a.effective_to >= $3::date)
+                  ORDER BY a.effective_from DESC
+                  LIMIT 1",
+                &[&company_uuid, &employee_uuid, &attendance.work_date],
+            )
+            .await?
+            .ok_or("employee has no active attendance policy for this work date")?;
+
+        let policy_shift_start: String = policy.get(0);
+        let policy_shift_end: String = policy.get(1);
+        let grace_minutes: i32 = policy.get(2);
+
+        let check_in = attendance
+            .check_in_at_epoch
+            .map(time::OffsetDateTime::from_unix_timestamp)
+            .transpose()?;
+        let requested_check_out = attendance
+            .check_out_at_epoch
+            .map(time::OffsetDateTime::from_unix_timestamp)
+            .transpose()?;
+
+        let existing_check_in = tx
+            .query_opt(
+                "SELECT check_in_at
+                   FROM employee_attendance
+                  WHERE company_id=$1 AND employee_id=$2 AND work_date=$3::date
+                  FOR UPDATE",
+                &[&company_uuid, &employee_uuid, &attendance.work_date],
+            )
+            .await?
+            .flatten()
+            .map(|row| row.get::<_, time::OffsetDateTime>(0));
+
+        let effective_check_in = check_in.or(existing_check_in);
+
+        if requested_status == company_organization::AttendanceStatus::CheckedOut
+            && effective_check_in.is_none()
+        {
+            tx.rollback().await?;
+            return Err("checkout requires a recorded check-in".into());
+        }
+
+        if let (Some(check_in), Some(check_out)) = (effective_check_in, requested_check_out) {
+            if check_out < check_in {
+                tx.rollback().await?;
+                return Err("checkout cannot occur before check-in".into());
+            }
+        }
+
+        let effective_status = match requested_status {
+            company_organization::AttendanceStatus::Leave
+            | company_organization::AttendanceStatus::Absent
+            | company_organization::AttendanceStatus::CheckedOut => requested_status,
+            company_organization::AttendanceStatus::Present
+            | company_organization::AttendanceStatus::Remote
+            | company_organization::AttendanceStatus::Late => {
+                if let Some(check_in) = effective_check_in {
+                    let local = check_in.to_offset(time::UtcOffset::from_hms(7, 0, 0).expect("UTC+7 is valid")).time();
+                    let policy_start = time::Time::parse(
+                        &policy_shift_start,
+                        &time::format_description::parse("[hour]:[minute]:[second]")?,
+                    )?;
+                    let check_in_seconds =
+                        local.hour() as i64 * 3600 + local.minute() as i64 * 60 + local.second() as i64;
+                    let policy_start_seconds =
+                        policy_start.hour() as i64 * 3600 + policy_start.minute() as i64 * 60 + policy_start.second() as i64;
+                    if check_in_seconds > policy_start_seconds + (grace_minutes as i64 * 60) {
+                        company_organization::AttendanceStatus::Late
+                    } else if requested_status == company_organization::AttendanceStatus::Remote {
+                        company_organization::AttendanceStatus::Remote
+                    } else {
+                        company_organization::AttendanceStatus::Present
+                    }
+                } else if requested_status == company_organization::AttendanceStatus::Remote {
+                    company_organization::AttendanceStatus::Remote
+                } else {
+                    company_organization::AttendanceStatus::Present
+                }
+            }
+        };
+
+        let status = match effective_status {
+            company_organization::AttendanceStatus::Present => "PRESENT",
+            company_organization::AttendanceStatus::Remote => "REMOTE",
+            company_organization::AttendanceStatus::Late => "LATE",
+            company_organization::AttendanceStatus::Leave => "LEAVE",
+            company_organization::AttendanceStatus::Absent => "ABSENT",
+            company_organization::AttendanceStatus::CheckedOut => "CHECKED_OUT",
+        };
 
         tx.execute(
             "INSERT INTO employee_attendance
@@ -4851,10 +4934,10 @@ impl CompanyStore {
                 &employee_uuid,
                 &attendance.work_date,
                 &status,
-                &attendance.shift_start,
-                &attendance.shift_end,
-                &check_in,
-                &check_out,
+                &policy_shift_start,
+                &policy_shift_end,
+                &effective_check_in,
+                &requested_check_out,
                 &attendance.source,
                 &attendance.exception_reason,
             ],
