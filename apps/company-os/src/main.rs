@@ -197,7 +197,10 @@ struct OrganizationWorkspaceResponse {
     currency: String,
     departments: Vec<company_organization::DepartmentRecord>,
     teams: Vec<company_organization::TeamRecord>,
+    positions: Vec<company_organization::JobPositionRecord>,
+    attendance_policies: Vec<company_organization::AttendancePolicyRecord>,
     employees: Vec<company_organization::OrganizationEmployeeView>,
+    lifecycle_events: Vec<company_organization::EmploymentLifecycleEventRecord>,
     attendance: Vec<company_organization::AttendanceRecord>,
     source: &'static str,
 }
@@ -3186,14 +3189,20 @@ async fn organization_api(
     });
     let departments = state.store.list_departments(&state.company_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let teams = state.store.list_teams(&state.company_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let positions = state.store.list_job_positions(&state.company_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let attendance_policies = state.store.list_attendance_policies(&state.company_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let employees = state.store.list_organization_employee_views(&state.company_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let lifecycle_events = state.store.list_employee_lifecycle_events(&state.company_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let attendance = state.store.list_employee_attendance(&state.company_id, &work_date).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(OrganizationWorkspaceResponse {
         company_id: state.company_id.clone(),
         currency: state.currency.clone(),
         departments,
         teams,
+        positions,
+        attendance_policies,
         employees,
+        lifecycle_events,
         attendance,
         source: "DATABASE",
     }))
