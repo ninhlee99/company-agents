@@ -59,6 +59,15 @@ async fn connect_store() -> Option<CompanyStore> {
     Some(store)
 }
 
+
+#[test]
+fn tiktok_refresh_does_not_look_like_a_new_connection() {
+    assert!(!super::tiktok_connection_needs_connected_event(Some("ACTIVE")));
+    assert!(super::tiktok_connection_needs_connected_event(None));
+    assert!(super::tiktok_connection_needs_connected_event(Some("REAUTH_REQUIRED")));
+    assert!(super::tiktok_connection_needs_connected_event(Some("REVOKED")));
+}
+
 #[tokio::test]
 async fn payment_execution_intent_is_idempotent_approval_gated_and_non_accounting() {
     let Some(store) = connect_store().await else { return; };
