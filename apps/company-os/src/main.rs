@@ -196,6 +196,7 @@ struct OrganizationWorkspaceResponse {
     company_id: String,
     currency: String,
     departments: Vec<company_organization::DepartmentRecord>,
+    teams: Vec<company_organization::TeamRecord>,
     employees: Vec<company_organization::OrganizationEmployeeView>,
     attendance: Vec<company_organization::AttendanceRecord>,
     source: &'static str,
@@ -3184,12 +3185,14 @@ async fn organization_api(
             .to_string()
     });
     let departments = state.store.list_departments(&state.company_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let teams = state.store.list_teams(&state.company_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let employees = state.store.list_organization_employee_views(&state.company_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let attendance = state.store.list_employee_attendance(&state.company_id, &work_date).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(OrganizationWorkspaceResponse {
         company_id: state.company_id.clone(),
         currency: state.currency.clone(),
         departments,
+        teams,
         employees,
         attendance,
         source: "DATABASE",
