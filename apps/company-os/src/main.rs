@@ -2505,7 +2505,8 @@ fn spawn_tiktok_refresh_worker(state: AppState) {
                             .await;
                     }
                     Err(error) => {
-                        tracing::warn!(%error, "TikTok OAuth refresh transient/provider failure; retaining active connection for retry");
+                        tracing::warn!(%error, "TikTok OAuth refresh transient/provider failure; releasing scheduled job for bounded retry");
+                        return Err(Box::new(error));
                     }
                 }
                 Ok(())
