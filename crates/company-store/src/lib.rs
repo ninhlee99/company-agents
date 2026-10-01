@@ -3908,6 +3908,42 @@ impl CompanyStore {
         Ok(())
     }
 
+
+    pub async fn list_organization_employee_views(
+        &self,
+        company_id: &str,
+    ) -> Result<Vec<company_organization::OrganizationEmployeeView>, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT id, company_id, name, role, department_id, team_id, manager_id,
+                        employment_type, employment_level, joined_at_epoch, status
+                   FROM employees
+                  WHERE company_id=$1
+                  ORDER BY department_id NULLS LAST, manager_id NULLS FIRST, name ASC, id ASC",
+                &[&company_uuid],
+            )
+            .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(company_organization::OrganizationEmployeeView {
+                    employee_id: row.get::<_, Uuid>(0).to_string(),
+                    company_id: row.get::<_, Uuid>(1).to_string(),
+                    name: row.get(2),
+                    title: row.get(3),
+                    department_id: row.get::<_, Option<Uuid>>(4).map(|id| id.to_string()),
+                    team_id: row.get::<_, Option<Uuid>>(5).map(|id| id.to_string()),
+                    manager_id: row.get::<_, Option<Uuid>>(6).map(|id| id.to_string()),
+                    employment_type: parse_employment_type(&row.get::<_, String>(7))?,
+                    employment_level: row.get(8),
+                    joined_at_epoch: row.get(9),
+                    status: parse_employee_status(&row.get::<_, String>(10))?,
+                })
+            })
+            .collect()
+    }
+
     pub async fn list_departments(
         &self,
         company_id: &str,
@@ -4025,6 +4061,169 @@ impl CompanyStore {
                 })
             })
             .collect()
+    }
+
+    pub async fn upsert_organization_employee(
+        &self,
+        company_id: &str,
+        input: &company_organization::OrganizationEmployeeUpsert,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        company_organization::validate_employee(&company_organization::Employee {
+            id: input.employee.employee_id.clone(),
+            name: input.name.clone(),
+            role: input.employee.title.clone(),
+            monthly_cost_minor: input.monthly_cost_minor,
+            currency: input.currency.clone(),
+            status: input.employee.status,
+        })
+        .map_err(|error| error.to_string())?;
+
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let record_company_uuid = Uuid::parse_str(&input.employee.company_id)?;
+        if company_uuid != record_company_uuid {
+            return Err("employee company_id does not match request company".into());
+        }
+        if input.employee.manager_id.as_deref() == Some(input.employee.employee_id.as_str()) {
+            return Err("employee cannot manage itself".into());
+        }
+
+        let employee_uuid = Uuid::parse_str(&input.employee.employee_id)?;
+        let department_uuid = Uuid::parse_str(&input.employee.department_id)?;
+        let team_uuid = input.employee.team_id.as_deref().map(Uuid::parse_str).transpose()?;
+        let manager_uuid = input.employee.manager_id.as_deref().map(Uuid::parse_str).transpose()?;
+        let employment_type = match input.employee.employment_type {
+            company_organization::EmploymentType::Official => "OFFICIAL",
+            company_organization::EmploymentType::Probation => "PROBATION",
+            company_organization::EmploymentType::Apprentice => "APPRENTICE",
+            company_organization::EmploymentType::PartTime => "PART_TIME",
+            company_organization::EmploymentType::Contractor => "CONTRACTOR",
+        };
+        let status = match input.employee.status {
+            company_organization::EmployeeStatus::Proposed => "PROPOSED",
+            company_organization::EmployeeStatus::Active => "ACTIVE",
+            company_organization::EmployeeStatus::Suspended => "SUSPENDED",
+            company_organization::EmployeeStatus::Terminated => "TERMINATED",
+        };
+
+        let client = self.client.lock().await;
+        let changed = client
+            .execute(
+                "INSERT INTO employees
+                 (id, company_id, name, role, monthly_cost_minor, currency, status,
+                  department_id, team_id, manager_id, employment_type, employment_level, joined_at_epoch)
+                 VALUES ($1,$2,$3,$4,$5::numeric,$6,$7,$8,$9,$10,$11,$12,$13)
+                 ON CONFLICT (id) DO UPDATE
+                 SET name = EXCLUDED.name,
+                     role = EXCLUDED.role,
+                     monthly_cost_minor = EXCLUDED.monthly_cost_minor,
+                     currency = EXCLUDED.currency,
+                     status = EXCLUDED.status,
+                     department_id = EXCLUDED.department_id,
+                     team_id = EXCLUDED.team_id,
+                     manager_id = EXCLUDED.manager_id,
+                     employment_type = EXCLUDED.employment_type,
+                     employment_level = EXCLUDED.employment_level,
+                     joined_at_epoch = EXCLUDED.joined_at_epoch,
+                     updated_at = now()
+                 WHERE employees.company_id = EXCLUDED.company_id",
+                &[
+                    &employee_uuid,
+                    &company_uuid,
+                    &input.name,
+                    &input.employee.title,
+                    &input.monthly_cost_minor.to_string(),
+                    &input.currency,
+                    &status,
+                    &department_uuid,
+                    &team_uuid,
+                    &manager_uuid,
+                    &employment_type,
+                    &input.employee.employment_level,
+                    &Some(input.employee.joined_at_epoch),
+                ],
+            )
+            .await?;
+        if changed == 0 {
+            return Err("employee id already belongs to another company".into());
+        }
+        Ok(())
+    }
+
+    pub async fn record_employee_attendance(
+        &self,
+        company_id: &str,
+        attendance: &company_organization::AttendanceRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let record_company_uuid = Uuid::parse_str(&attendance.company_id)?;
+        let employee_uuid = Uuid::parse_str(&attendance.employee_id)?;
+        if company_uuid != record_company_uuid {
+            return Err("attendance company_id does not match request company".into());
+        }
+        if attendance.work_date.trim().is_empty()
+            || attendance.shift_start.trim().is_empty()
+            || attendance.shift_end.trim().is_empty()
+        {
+            return Err("attendance work_date and shift window are required".into());
+        }
+
+        let status = match attendance.status {
+            company_organization::AttendanceStatus::Present => "PRESENT",
+            company_organization::AttendanceStatus::Remote => "REMOTE",
+            company_organization::AttendanceStatus::Late => "LATE",
+            company_organization::AttendanceStatus::Leave => "LEAVE",
+            company_organization::AttendanceStatus::Absent => "ABSENT",
+            company_organization::AttendanceStatus::CheckedOut => "CHECKED_OUT",
+        };
+        let check_in = attendance.check_in_at_epoch.map(time::OffsetDateTime::from_unix_timestamp).transpose()?;
+        let check_out = attendance.check_out_at_epoch.map(time::OffsetDateTime::from_unix_timestamp).transpose()?;
+
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        let employee_exists = tx
+            .query_opt(
+                "SELECT id FROM employees WHERE company_id=$1 AND id=$2",
+                &[&company_uuid, &employee_uuid],
+            )
+            .await?
+            .is_some();
+        if !employee_exists {
+            tx.rollback().await?;
+            return Err("attendance employee does not belong to company".into());
+        }
+
+        tx.execute(
+            "INSERT INTO employee_attendance
+             (id, company_id, employee_id, work_date, status, shift_start, shift_end,
+              check_in_at, check_out_at, source, exception_reason)
+             VALUES ($1,$2,$3,$4::date,$5,$6::time,$7::time,$8,$9,$10,$11)
+             ON CONFLICT (company_id, employee_id, work_date) DO UPDATE
+             SET status = EXCLUDED.status,
+                 shift_start = EXCLUDED.shift_start,
+                 shift_end = EXCLUDED.shift_end,
+                 check_in_at = EXCLUDED.check_in_at,
+                 check_out_at = EXCLUDED.check_out_at,
+                 source = EXCLUDED.source,
+                 exception_reason = EXCLUDED.exception_reason,
+                 updated_at = now()",
+            &[
+                &Uuid::new_v4(),
+                &company_uuid,
+                &employee_uuid,
+                &attendance.work_date,
+                &status,
+                &attendance.shift_start,
+                &attendance.shift_end,
+                &check_in,
+                &check_out,
+                &attendance.source,
+                &attendance.exception_reason,
+            ],
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
     }
 
     pub async fn list_employees(
