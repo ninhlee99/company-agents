@@ -4194,6 +4194,37 @@ impl CompanyStore {
             .collect()
     }
 
+    pub async fn list_teams(
+        &self,
+        company_id: &str,
+    ) -> Result<Vec<company_organization::TeamRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT id, company_id, department_id, parent_team_id, name, charter, owner_employee_id, active
+                   FROM teams
+                  WHERE company_id=$1
+                  ORDER BY department_id ASC, parent_team_id NULLS FIRST, name ASC, id ASC",
+                &[&company_uuid],
+            )
+            .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(company_organization::TeamRecord {
+                    id: row.get::<_, Uuid>(0).to_string(),
+                    company_id: row.get::<_, Uuid>(1).to_string(),
+                    department_id: row.get::<_, Uuid>(2).to_string(),
+                    parent_team_id: row.get::<_, Option<Uuid>>(3).map(|id| id.to_string()),
+                    name: row.get(4),
+                    charter: row.get(5),
+                    owner_employee_id: row.get::<_, Option<Uuid>>(6).map(|id| id.to_string()),
+                    active: row.get(7),
+                })
+            })
+            .collect()
+    }
+
     pub async fn list_organization_employee_views(
         &self,
         company_id: &str,
