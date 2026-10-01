@@ -4599,7 +4599,6 @@ impl CompanyStore {
         let team_uuid = input.employee.team_id.as_deref().map(Uuid::parse_str).transpose()?;
         let manager_uuid = input.employee.manager_id.as_deref().map(Uuid::parse_str).transpose()?;
         let position_uuid = input.position_id.as_deref().map(Uuid::parse_str).transpose()?;
-
         let employment_type = match input.employee.employment_type {
             company_organization::EmploymentType::Official => "OFFICIAL",
             company_organization::EmploymentType::Probation => "PROBATION",
@@ -4628,20 +4627,28 @@ impl CompanyStore {
             return Err("employee already exists; employment changes require the controlled workflow".into());
         }
 
-        if let Some(position_id) = position_uuid {
-            let valid_position = tx
-                .query_opt(
-                    "SELECT id
-                       FROM job_positions
-                      WHERE company_id=$1 AND id=$2 AND department_id=$3 AND active=true",
-                    &[&company_uuid, &position_id, &department_uuid],
-                )
-                .await?
-                .is_some();
-            if !valid_position {
+        let position_id = match position_uuid {
+            Some(value) => value,
+            None => {
                 tx.rollback().await?;
-                return Err("position must be active and belong to the selected department".into());
+                return Err("employee onboarding requires an active position".into());
             }
+        };
+        let position_row = tx
+            .query_one(
+                "SELECT title, level, employment_types::text
+                   FROM job_positions
+                  WHERE company_id=$1 AND id=$2 AND department_id=$3 AND active=true",
+                &[&company_uuid, &position_id, &department_uuid],
+            )
+            .await
+            .map_err(|_| "position must be active and belong to the selected department")?;
+        let authoritative_title: String = position_row.get(0);
+        let authoritative_level: String = position_row.get(1);
+        let allowed_types: Vec<String> = serde_json::from_str(&position_row.get::<_, String>(2))?;
+        if !allowed_types.iter().any(|value| value == employment_type) {
+            tx.rollback().await?;
+            return Err("employment type is not permitted for the selected position".into());
         }
 
         tx.execute(
