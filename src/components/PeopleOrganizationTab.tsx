@@ -227,15 +227,18 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
         </div>
 
         <div className="mt-6 grid grid-cols-2 lg:grid-cols-5 gap-2.5">
-          {[
-            ['Departments', departments.length, 'Active + forming', Building2],
-            ['Human workforce', people.length, 'Employee records', Users],
-            ['Present', presentCount, 'Today', CalendarCheck2],
-            ['Exceptions', lateCount, 'Late arrivals', Clock3],
-            ['AI workforce', aiAgentCount, 'Separate AI layer', Zap],
-          ].map(([label, value, note, Icon]) => (
-            <div key={String(label)} className="rounded-xl border border-slate-800 bg-slate-950/55 px-3.5 py-3">
-              <div className="flex items-center justify-between"><span className="text-[10px] uppercase tracking-[0.12em] text-slate-500">{label}</span><Icon className="w-4 h-4 text-slate-500" /></div>
+          {([
+            { label: 'Departments', value: departments.length, note: 'Active + forming', Icon: Building2 },
+            { label: 'Human workforce', value: people.length, note: 'Employee records', Icon: Users },
+            { label: 'Present', value: presentCount, note: 'Today', Icon: CalendarCheck2 },
+            { label: 'Exceptions', value: lateCount, note: 'Late arrivals', Icon: Clock3 },
+            { label: 'AI workforce', value: aiAgentCount, note: 'Separate AI layer', Icon: Zap },
+          ] as const).map(({ label, value, note, Icon }) => (
+            <div key={label} className="rounded-xl border border-slate-800 bg-slate-950/55 px-3.5 py-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-[0.12em] text-slate-500">{label}</span>
+                <Icon className="w-4 h-4 text-slate-500" />
+              </div>
               <div className="mt-2 text-2xl font-semibold font-mono text-white">{value}</div>
               <div className="mt-1 text-[10px] text-slate-500">{note}</div>
             </div>
