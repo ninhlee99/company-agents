@@ -3857,6 +3857,41 @@ impl CompanyStore {
             .collect()
     }
 
+    pub async fn list_organization_employee_views(
+        &self,
+        company_id: &str,
+    ) -> Result<Vec<company_organization::OrganizationEmployeeView>, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT id, company_id, name, role, department_id, team_id, manager_id,
+                        employment_type, employment_level, joined_at_epoch, status
+                   FROM employees
+                  WHERE company_id=$1
+                  ORDER BY department_id NULLS LAST, manager_id NULLS FIRST, name ASC, id ASC",
+                &[&company_uuid],
+            )
+            .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(company_organization::OrganizationEmployeeView {
+                    employee_id: row.get::<_, Uuid>(0).to_string(),
+                    company_id: row.get::<_, Uuid>(1).to_string(),
+                    name: row.get(2),
+                    title: row.get(3),
+                    department_id: row.get::<_, Option<Uuid>>(4).map(|id| id.to_string()),
+                    team_id: row.get::<_, Option<Uuid>>(5).map(|id| id.to_string()),
+                    manager_id: row.get::<_, Option<Uuid>>(6).map(|id| id.to_string()),
+                    employment_type: parse_employment_type(&row.get::<_, String>(7))?,
+                    employment_level: row.get(8),
+                    joined_at_epoch: row.get(9),
+                    status: parse_employee_status(&row.get::<_, String>(10))?,
+                })
+            })
+            .collect()
+    }
+
     pub async fn list_department_members(
         &self,
         company_id: &str,
