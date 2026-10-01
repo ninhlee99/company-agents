@@ -3877,376 +3877,13 @@ impl CompanyStore {
             company_organization::EmployeeStatus::Suspended => "SUSPENDED",
             company_organization::EmployeeStatus::Terminated => "TERMINATED",
         };
-        let client = self.client.lock().await;
-        let changed = client
-            .execute(
-                "INSERT INTO employees
-                 (id, company_id, name, role, monthly_cost_minor, currency, status)
-                 VALUES ($1,$2,$3,$4,$5::numeric,$6,$7)
-                 ON CONFLICT (id) DO UPDATE
-                 SET name = EXCLUDED.name,
-                     role = EXCLUDED.role,
-                     monthly_cost_minor = EXCLUDED.monthly_cost_minor,
-                     currency = EXCLUDED.currency,
-                     status = EXCLUDED.status,
-                     updated_at = now()
-                 WHERE employees.company_id = EXCLUDED.company_id",
-                &[
-                    &employee_uuid,
-                    &company_uuid,
-                    &employee.name,
-                    &employee.role,
-                    &employee.monthly_cost_minor.to_string(),
-                    &employee.currency,
-                    &status,
-                ],
-            )
-            .await?;
-        if changed == 0 {
-            return Err("employee id already belongs to another company".into());
-        }
-        Ok(())
-    }
-
-
-    pub async fn list_organization_employee_views(
-        &self,
-        company_id: &str,
-    ) -> Result<Vec<company_organization::OrganizationEmployeeView>, Box<dyn std::error::Error + Send + Sync>> {
-        let company_uuid = Uuid::parse_str(company_id)?;
-        let client = self.client.lock().await;
-        let rows = client
-            .query(
-                "SELECT id, company_id, name, role, department_id, team_id, manager_id,
-                        employment_type, employment_level, joined_at_epoch, status
-                   FROM employees
-                  WHERE company_id=$1
-                  ORDER BY department_id NULLS LAST, manager_id NULLS FIRST, name ASC, id ASC",
-                &[&company_uuid],
-            )
-            .await?;
-        rows.into_iter()
-            .map(|row| {
-                Ok(company_organization::OrganizationEmployeeView {
-                    employee_id: row.get::<_, Uuid>(0).to_string(),
-                    company_id: row.get::<_, Uuid>(1).to_string(),
-                    name: row.get(2),
-                    title: row.get(3),
-                    department_id: row.get::<_, Option<Uuid>>(4).map(|id| id.to_string()),
-                    team_id: row.get::<_, Option<Uuid>>(5).map(|id| id.to_string()),
-                    manager_id: row.get::<_, Option<Uuid>>(6).map(|id| id.to_string()),
-                    employment_type: parse_employment_type(&row.get::<_, String>(7))?,
-                    employment_level: row.get(8),
-                    joined_at_epoch: row.get(9),
-                    status: parse_employee_status(&row.get::<_, String>(10))?,
-                })
-            })
-            .collect()
-    }
-
-    pub async fn evaluate_and_propose_department(
-        &self,
-        company_id: &str,
-        signal: &company_organization::DepartmentNeedSignal,
-    ) -> Result<company_organization::DepartmentFormationDecision, Box<dyn std::error::Error + Send + Sync>> {
-        let company_uuid = Uuid::parse_str(company_id)?;
-        let department_type = signal.department_type;
-        let code = department_type.code();
-
-        let client = self.client.lock().await;
-        let rows = client
-            .query(
-                "SELECT id, name, code, charter, monthly_budget_minor::text,
-                        currency, lifecycle = 'ACTIVE'
-                   FROM departments
-                  WHERE company_id=$1 AND code=$2",
-                &[&company_uuid, &code],
-            )
-            .await?;
-        let existing = rows.first().map(|row| company_organization::Department {
-            id: row.get::<_, Uuid>(0).to_string(),
-            name: row.get(1),
-            department_type,
-            lead_role: department_type.default_lead_role().into(),
-            monthly_budget_minor: parse_i128_numeric(&row.get::<_, String>(4))?,
-            currency: row.get(5),
-            active: row.get(6),
-        });
-
-        let decision = company_organization::evaluate_department_formation(
-            existing.as_slice(),
-            signal,
-        )?;
-
-        if decision == company_organization::DepartmentFormationDecision::FormDepartment {
-            let (name, criticality) = standard_department_metadata(department_type);
-            let charter = format!(
-                "Tự động đề xuất {name} vì thiếu năng lực kéo dài trong các capability: {}.",
-                signal.required_capabilities.join(", ")
-            );
-            let responsibilities = serde_json::json!(signal.required_capabilities);
-            let kpis = serde_json::json!([
-                "Capability coverage",
-                "Capacity gap",
-                "SLA / throughput"
-            ]);
-            client
-                .execute(
-                    "INSERT INTO departments
-                        (id, company_id, code, name, charter, responsibilities, kpis,
-                         owner_employee_id, monthly_budget_minor, currency, lifecycle,
-                         criticality, formation_reason)
-                     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,NULL,$8::numeric,$9,'PROPOSED',$10,$11)
-                     ON CONFLICT (company_id, code) DO NOTHING",
-                    &[
-                        &Uuid::new_v4(),
-                        &company_uuid,
-                        &code,
-                        &name,
-                        &charter,
-                        &responsibilities,
-                        &kpis,
-                        &signal.monthly_budget_ceiling_minor.to_string(),
-                        &signal_currency_for_company(&client, &company_uuid).await.unwrap_or_else(|_| "USD".into()),
-                        &criticality,
-                        &format!(
-                            "capacity_gap_pct={} sustained_cycles={} capabilities={}",
-                            signal.capacity_gap_pct,
-                            signal.sustained_cycles,
-                            signal.required_capabilities.join(",")
-                        ),
-                    ],
-                )
-                .await?;
+        if input.currency != self.company_currency(&company_uuid).await? {
+            return Err("employee currency must match company currency".into());
         }
 
-        Ok(decision)
-    }
-
-    pub async fn activate_department(
-        &self,
-        company_id: &str,
-        department_id: &str,
-        owner_employee_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let company_uuid = Uuid::parse_str(company_id)?;
-        let department_uuid = Uuid::parse_str(department_id)?;
-        let owner_uuid = Uuid::parse_str(owner_employee_id)?;
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
-
-        let updated = tx
-            .execute(
-                "UPDATE departments
-                    SET owner_employee_id=$3,
-                        lifecycle='ACTIVE',
-                        updated_at=now()
-                  WHERE company_id=$1 AND id=$2 AND lifecycle='PROPOSED'
-                    AND EXISTS (
-                      SELECT 1 FROM employees e
-                       WHERE e.company_id=$1 AND e.id=$3
-                    )",
-                &[&company_uuid, &department_uuid, &owner_uuid],
-            )
-            .await?;
-        if updated != 1 {
-            tx.rollback().await?;
-            return Err("department activation requires a proposed department and same-company owner".into());
-        }
-
-        let team_name: String = tx
-            .query_one(
-                "SELECT name || ' · Core Team' FROM departments WHERE company_id=$1 AND id=$2",
-                &[&company_uuid, &department_uuid],
-            )
-            .await?
-            .get(0);
-        let team_charter = "Nhóm vận hành cốt lõi chịu trách nhiệm thực thi charter của phòng ban.";
-        tx.execute(
-            "INSERT INTO teams
-                (id, company_id, department_id, name, charter, owner_employee_id, active)
-             VALUES ($1,$2,$3,$4,$5,$6,true)
-             ON CONFLICT (company_id, department_id, name) DO UPDATE
-                SET owner_employee_id=EXCLUDED.owner_employee_id,
-                    active=true,
-                    updated_at=now()",
-            &[
-                &Uuid::new_v4(),
-                &company_uuid,
-                &department_uuid,
-                &team_name,
-                &team_charter,
-                &owner_uuid,
-            ],
-        )
-        .await?;
-        tx.commit().await?;
-        Ok(())
-    }
-
-    pub async fn list_departments(
-        &self,
-        company_id: &str,
-    ) -> Result<Vec<company_organization::DepartmentRecord>, Box<dyn std::error::Error + Send + Sync>> {
-        let company_uuid = Uuid::parse_str(company_id)?;
-        let client = self.client.lock().await;
-        let rows = client
-            .query(
-                "SELECT id, company_id, parent_department_id, code, name, charter,
-                        responsibilities, kpis, owner_employee_id,
-                        monthly_budget_minor::text, currency, lifecycle, criticality, formation_reason
-                   FROM departments
-                  WHERE company_id=$1
-                  ORDER BY code ASC, id ASC",
-                &[&company_uuid],
-            )
-            .await?;
-
-        rows.into_iter()
-            .map(|row| {
-                let responsibilities = serde_json::from_value::<Vec<String>>(row.get(6))
-                    .map_err(|error| format!("invalid department responsibilities: {error}"))?;
-                let kpis = serde_json::from_value::<Vec<String>>(row.get(7))
-                    .map_err(|error| format!("invalid department KPIs: {error}"))?;
-                Ok(company_organization::DepartmentRecord {
-                    id: row.get::<_, Uuid>(0).to_string(),
-                    company_id: row.get::<_, Uuid>(1).to_string(),
-                    parent_department_id: row.get::<_, Option<Uuid>>(2).map(|id| id.to_string()),
-                    code: row.get(3),
-                    name: row.get(4),
-                    charter: row.get(5),
-                    responsibilities,
-                    kpis,
-                    owner_employee_id: row.get::<_, Option<Uuid>>(8).map(|id| id.to_string()),
-                    monthly_budget_minor: parse_i128_numeric(&row.get::<_, String>(9))?,
-                    currency: row.get(10),
-                    lifecycle: parse_department_lifecycle(&row.get::<_, String>(11))?,
-                    criticality: parse_department_criticality(&row.get::<_, String>(12))?,
-                    formation_reason: row.get(13),
-                })
-            })
-            .collect()
-    }
-
-    pub async fn list_department_members(
-        &self,
-        company_id: &str,
-        department_id: &str,
-    ) -> Result<Vec<company_organization::OrganizationEmployeeRecord>, Box<dyn std::error::Error + Send + Sync>> {
-        let company_uuid = Uuid::parse_str(company_id)?;
-        let department_uuid = Uuid::parse_str(department_id)?;
-        let client = self.client.lock().await;
-        let rows = client
-            .query(
-                "SELECT id, company_id, department_id, team_id, manager_id, role,
-                        employment_type, employment_level, joined_at_epoch, status
-                   FROM employees
-                  WHERE company_id=$1 AND department_id=$2
-                  ORDER BY manager_id NULLS FIRST, role ASC, id ASC",
-                &[&company_uuid, &department_uuid],
-            )
-            .await?;
-        rows.into_iter()
-            .map(|row| {
-                Ok(company_organization::OrganizationEmployeeRecord {
-                    employee_id: row.get::<_, Uuid>(0).to_string(),
-                    company_id: row.get::<_, Uuid>(1).to_string(),
-                    department_id: row.get::<_, Uuid>(2).to_string(),
-                    team_id: row.get::<_, Option<Uuid>>(3).map(|id| id.to_string()),
-                    manager_id: row.get::<_, Option<Uuid>>(4).map(|id| id.to_string()),
-                    title: row.get(5),
-                    employment_type: parse_employment_type(&row.get::<_, String>(6))?,
-                    employment_level: row.get(7),
-                    joined_at_epoch: row.get::<_, Option<i64>>(8).unwrap_or(0),
-                    status: parse_employee_status(&row.get::<_, String>(9))?,
-                })
-            })
-            .collect()
-    }
-
-    pub async fn list_employee_attendance(
-        &self,
-        company_id: &str,
-        work_date: &str,
-    ) -> Result<Vec<company_organization::AttendanceRecord>, Box<dyn std::error::Error + Send + Sync>> {
-        let company_uuid = Uuid::parse_str(company_id)?;
-        let client = self.client.lock().await;
-        let rows = client
-            .query(
-                "SELECT id, company_id, employee_id, work_date::text, status,
-                        shift_start::text, shift_end::text,
-                        extract(epoch FROM check_in_at)::bigint,
-                        extract(epoch FROM check_out_at)::bigint,
-                        source, exception_reason
-                   FROM employee_attendance
-                  WHERE company_id=$1 AND work_date=$2::date
-                  ORDER BY employee_id ASC",
-                &[&company_uuid, &work_date],
-            )
-            .await?;
-        rows.into_iter()
-            .map(|row| {
-                Ok(company_organization::AttendanceRecord {
-                    id: row.get::<_, Uuid>(0).to_string(),
-                    company_id: row.get::<_, Uuid>(1).to_string(),
-                    employee_id: row.get::<_, Uuid>(2).to_string(),
-                    work_date: row.get(3),
-                    status: parse_attendance_status(&row.get::<_, String>(4))?,
-                    shift_start: row.get(5),
-                    shift_end: row.get(6),
-                    check_in_at_epoch: row.get(7),
-                    check_out_at_epoch: row.get(8),
-                    source: row.get(9),
-                    exception_reason: row.get(10),
-                })
-            })
-            .collect()
-    }
-
-    pub async fn upsert_organization_employee(
-        &self,
-        company_id: &str,
-        input: &company_organization::OrganizationEmployeeUpsert,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        company_organization::validate_employee(&company_organization::Employee {
-            id: input.employee.employee_id.clone(),
-            name: input.name.clone(),
-            role: input.employee.title.clone(),
-            monthly_cost_minor: input.monthly_cost_minor,
-            currency: input.currency.clone(),
-            status: input.employee.status,
-        })
-        .map_err(|error| error.to_string())?;
-
-        let company_uuid = Uuid::parse_str(company_id)?;
-        let record_company_uuid = Uuid::parse_str(&input.employee.company_id)?;
-        if company_uuid != record_company_uuid {
-            return Err("employee company_id does not match request company".into());
-        }
-        if input.employee.manager_id.as_deref() == Some(input.employee.employee_id.as_str()) {
-            return Err("employee cannot manage itself".into());
-        }
-
-        let employee_uuid = Uuid::parse_str(&input.employee.employee_id)?;
-        let department_uuid = Uuid::parse_str(&input.employee.department_id)?;
-        let team_uuid = input.employee.team_id.as_deref().map(Uuid::parse_str).transpose()?;
-        let manager_uuid = input.employee.manager_id.as_deref().map(Uuid::parse_str).transpose()?;
-        let employment_type = match input.employee.employment_type {
-            company_organization::EmploymentType::Official => "OFFICIAL",
-            company_organization::EmploymentType::Probation => "PROBATION",
-            company_organization::EmploymentType::Apprentice => "APPRENTICE",
-            company_organization::EmploymentType::PartTime => "PART_TIME",
-            company_organization::EmploymentType::Contractor => "CONTRACTOR",
-        };
-        let status = match input.employee.status {
-            company_organization::EmployeeStatus::Proposed => "PROPOSED",
-            company_organization::EmployeeStatus::Active => "ACTIVE",
-            company_organization::EmployeeStatus::Suspended => "SUSPENDED",
-            company_organization::EmployeeStatus::Terminated => "TERMINATED",
-        };
-
-        let client = self.client.lock().await;
-        let changed = client
+        let changed = tx
             .execute(
                 "INSERT INTO employees
                  (id, company_id, name, role, monthly_cost_minor, currency, status,
@@ -4284,8 +3921,43 @@ impl CompanyStore {
             )
             .await?;
         if changed == 0 {
+            tx.rollback().await?;
             return Err("employee id already belongs to another company".into());
         }
+
+        let rows = tx
+            .query(
+                "SELECT id, company_id, department_id, team_id, manager_id, role,
+                        employment_type, employment_level, joined_at_epoch, status
+                   FROM employees
+                  WHERE company_id=$1",
+                &[&company_uuid],
+            )
+            .await?;
+        let organization_records = rows
+            .into_iter()
+            .map(|row| {
+                Ok(company_organization::OrganizationEmployeeRecord {
+                    employee_id: row.get::<_, Uuid>(0).to_string(),
+                    company_id: row.get::<_, Uuid>(1).to_string(),
+                    department_id: row.get::<_, Uuid>(2).to_string(),
+                    team_id: row.get::<_, Option<Uuid>>(3).map(|id| id.to_string()),
+                    manager_id: row.get::<_, Option<Uuid>>(4).map(|id| id.to_string()),
+                    title: row.get(5),
+                    employment_type: parse_employment_type(&row.get::<_, String>(6))?,
+                    employment_level: row.get(7),
+                    joined_at_epoch: row.get::<_, Option<i64>>(8).unwrap_or(0),
+                    status: parse_employee_status(&row.get::<_, String>(9))?,
+                })
+            })
+            .collect::<Result<Vec<_>, Box<dyn std::error::Error + Send + Sync>>>()?;
+
+        if let Err(error) = company_organization::validate_reporting_tree(&organization_records) {
+            tx.rollback().await?;
+            return Err(error.to_string().into());
+        }
+
+        tx.commit().await?;
         Ok(())
     }
 
