@@ -35,7 +35,7 @@ type Department = {
   headcount: number;
   openRoles: number;
   criticality: 'Core' | 'Growth' | 'Control';
-  status: 'Active' | 'Scaling' | 'Forming';
+  status: 'Active' | 'Scaling' | 'Forming' | 'Paused' | 'Closed';
 };
 
 type Person = {
@@ -214,6 +214,16 @@ type OrganizationWorkspaceResponse = {
     joined_at_epoch?: number | null;
     status: string;
   }>;
+  teams: Array<{
+    id: string;
+    company_id: string;
+    department_id: string;
+    parent_team_id?: string | null;
+    name: string;
+    charter: string;
+    owner_employee_id?: string | null;
+    active: boolean;
+  }>;
   attendance: Array<{
     employee_id: string;
     status: string;
@@ -258,7 +268,9 @@ const mapDepartmentStatus = (value: string): Department['status'] => {
   switch (value) {
     case 'PROPOSED': return 'Forming';
     case 'SCALING': return 'Scaling';
-    default: return value === 'CLOSED' || value === 'PAUSED' ? 'Forming' : 'Active';
+    case 'PAUSED': return 'Paused';
+    case 'CLOSED': return 'Closed';
+    default: return 'Active';
   }
 };
 
@@ -278,6 +290,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
   const [dataSource, setDataSource] = useState<'LOADING' | 'DATABASE' | 'DEMO_FALLBACK'>('LOADING');
   const [liveCompanyId, setLiveCompanyId] = useState('');
   const [liveCurrency, setLiveCurrency] = useState('USD');
+  const [liveTeams, setLiveTeams] = useState<OrganizationWorkspaceResponse['teams']>([]);
   const [showEmployeeForm, setShowEmployeeForm] = useState(false);
   const [savingEmployee, setSavingEmployee] = useState(false);
   const [newEmployee, setNewEmployee] = useState({ name: '', title: '', departmentId: '', managerId: '', employmentType: 'OFFICIAL', employmentLevel: 'L4', monthlyCost: '0' });
@@ -304,6 +317,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
         if (cancelled) return;
         setLiveCompanyId(data.company_id);
         setLiveCurrency(data.currency);
+        setLiveTeams(data.teams);
 
         const attendanceByEmployee = new Map(data.attendance.map((record) => [record.employee_id, record]));
         const nextPeople: Person[] = data.employees.map((employee) => {
@@ -326,20 +340,23 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
           };
         });
 
-        const nextDepartments: Department[] = data.departments.map((department) => ({
-          id: department.id,
-          name: department.name,
-          shortName: department.code,
-          owner: department.owner_employee_id ? 'Assigned owner' : 'Unassigned',
-          ownerTitle: department.owner_employee_id ? 'Accountable owner' : 'Owner required',
-          charter: department.charter,
-          responsibilities: department.responsibilities,
-          kpis: department.kpis,
-          headcount: nextPeople.filter((person) => person.departmentId === department.id).length,
-          openRoles: 0,
-          criticality: mapCriticality(department.criticality),
-          status: mapDepartmentStatus(department.lifecycle),
-        }));
+        const nextDepartments: Department[] = data.departments.map((department) => {
+          const owner = department.owner_employee_id ? nextPeople.find((person) => person.id === department.owner_employee_id) : undefined;
+          return {
+            id: department.id,
+            name: department.name,
+            shortName: department.code,
+            owner: owner?.name ?? (department.owner_employee_id ? 'Assigned owner' : 'Unassigned'),
+            ownerTitle: owner?.title ?? (department.owner_employee_id ? 'Accountable owner' : 'Owner required'),
+            charter: department.charter,
+            responsibilities: department.responsibilities,
+            kpis: department.kpis,
+            headcount: nextPeople.filter((person) => person.departmentId === department.id).length,
+            openRoles: 0,
+            criticality: mapCriticality(department.criticality),
+            status: mapDepartmentStatus(department.lifecycle),
+          };
+        });
 
         setLivePeople(nextPeople);
         setDepartmentList(nextDepartments);
@@ -355,6 +372,16 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
       cancelled = true;
     };
   }, []);
+
+  const teamsByDepartment = useMemo(() => {
+    const grouped = new Map<string, OrganizationWorkspaceResponse['teams']>();
+    for (const team of liveTeams) {
+      const list = grouped.get(team.department_id) ?? [];
+      list.push(team);
+      grouped.set(team.department_id, list);
+    }
+    return grouped;
+  }, [liveTeams]);
 
   const rootEmployee = people.find((person) => person.managerId === null) ?? people[0];
   const rootDirectReports = rootEmployee ? people.filter((person) => person.managerId === rootEmployee.id) : [];
