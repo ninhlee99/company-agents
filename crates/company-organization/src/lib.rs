@@ -528,7 +528,7 @@ pub struct DepartmentNeedSignal {
     pub monthly_budget_ceiling_minor: i128,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum DepartmentFormationDecision {
     NoChange,
     FormDepartment,
