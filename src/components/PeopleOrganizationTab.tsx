@@ -228,7 +228,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
 
         <div className="mt-6 grid grid-cols-2 lg:grid-cols-5 gap-2.5">
           {([
-            { label: 'Departments', value: departments.length, note: 'Active + forming', Icon: Building2 },
+            { label: 'Departments', value: departmentList.length, note: 'Active + forming', Icon: Building2 },
             { label: 'Human workforce', value: people.length, note: 'Employee records', Icon: Users },
             { label: 'Present', value: presentCount, note: 'Today', Icon: CalendarCheck2 },
             { label: 'Exceptions', value: lateCount, note: 'Late arrivals', Icon: Clock3 },
