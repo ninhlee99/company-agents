@@ -534,6 +534,7 @@ pub struct OrganizationEmployeeView {
     pub department_id: Option<String>,
     pub team_id: Option<String>,
     pub manager_id: Option<String>,
+    pub position_id: Option<String>,
     pub employment_type: EmploymentType,
     pub employment_level: String,
     pub joined_at_epoch: Option<i64>,
