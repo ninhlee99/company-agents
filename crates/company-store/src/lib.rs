@@ -3787,7 +3787,7 @@ impl CompanyStore {
             ("OPS", "Operations & Technology", "Điều phối vận hành, platform reliability và capacity để công ty chạy ổn định.", serde_json::json!(["Process excellence", "Platform operations", "Capacity", "Reliability"]), serde_json::json!(["SLA attainment", "Uptime", "Throughput"]), "CORE"),
         ];
 
-        let client = self.client.lock().await;
+        let mut client = self.client.lock().await;
         let transaction = client.transaction().await?;
 
         for (code, name, charter, responsibilities, kpis, criticality) in standard_departments {
@@ -3824,6 +3824,34 @@ impl CompanyStore {
                 )
                 .await?;
 
+            let department_uuid: Uuid = transaction
+                .query_one(
+                    "SELECT id FROM departments WHERE company_id=$1 AND code=$2",
+                    &[&company_uuid, &code],
+                )
+                .await?
+                .get(0);
+
+            let team_name = format!("{name} · Core Team");
+            let team_charter = format!("Nhóm vận hành cốt lõi của {name}; chịu trách nhiệm thực thi charter của phòng ban.");
+            transaction
+                .execute(
+                    "INSERT INTO teams
+                        (id, company_id, department_id, name, charter, active)
+                     VALUES ($1,$2,$3,$4,$5,true)
+                     ON CONFLICT (company_id, department_id, name) DO UPDATE
+                       SET charter = EXCLUDED.charter,
+                           active = true,
+                           updated_at = now()",
+                    &[
+                        &Uuid::new_v4(),
+                        &company_uuid,
+                        &department_uuid,
+                        &team_name,
+                        &team_charter,
+                    ],
+                )
+                .await?;
         }
 
         transaction.commit().await?;
