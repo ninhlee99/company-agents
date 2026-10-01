@@ -680,7 +680,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
                   const response = await fetch('/api/organization/attendance', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify({ attendance: { id: crypto.randomUUID(), company_id: liveCompanyId, employee_id: selectedEmployee.id, work_date: localCompanyDate(), status: 'CHECKED_OUT', shift_start: shiftStart, shift_end: shiftEnd, check_in_at_epoch: selectedEmployee.checkedInAt ? undefined : null, check_out_at_epoch: checkOut, source: 'company-os-ui', exception_reason: null } }),
+                    body: JSON.stringify({ attendance: { id: crypto.randomUUID(), company_id: liveCompanyId, employee_id: selectedEmployee.id, work_date: localCompanyDate(), status: 'CHECKED_OUT', shift_start: shiftStart, shift_end: shiftEnd, check_in_at_epoch: null, check_out_at_epoch: checkOut, source: 'company-os-ui', exception_reason: null } }),
                   });
                   if (response.ok) setLivePeople((current) => current.map((person) => person.id === selectedEmployee.id ? { ...person, attendance: 'Đã ra về', checkedOutAt: formatEpochTime(checkOut) } : person));
                 }} className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-[10px] font-semibold text-slate-200 disabled:opacity-40">Check-out</button>
