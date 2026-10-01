@@ -639,7 +639,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
         <div className="fixed inset-0 z-[66] bg-black/55 backdrop-blur-[2px] flex items-center justify-center p-4" onClick={() => setShowEmployeeForm(false)}>
           <form className="w-full max-w-xl rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl overflow-hidden" onClick={(event) => event.stopPropagation()} onSubmit={async (event) => {
             event.preventDefault();
-            if (dataSource !== 'DATABASE' || !liveCompanyId || !newEmployee.name.trim() || !newEmployee.title.trim() || !newEmployee.departmentId) return;
+            if (dataSource !== 'DATABASE' || !liveCompanyId || !newEmployee.name.trim() || !newEmployee.positionId || !newEmployee.departmentId) return;
             setSavingEmployee(true);
             const employeeId = crypto.randomUUID();
             try {
@@ -648,6 +648,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({
                   input: {
+                    position_id: newEmployee.positionId || null,
                     employee: {
                       employee_id: employeeId,
                       company_id: liveCompanyId,
@@ -685,7 +686,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
               setDepartmentList((current) => current.map((item) => item.id === newEmployee.departmentId ? { ...item, headcount: item.headcount + 1 } : item));
               setSelectedEmployeeId(employeeId);
               setShowEmployeeForm(false);
-              setNewEmployee({ name: '', title: '', departmentId: newEmployee.departmentId, managerId: '', employmentType: 'OFFICIAL', employmentLevel: 'L4', monthlyCost: '0' });
+              setNewEmployee({ name: '', title: '', positionId: '', departmentId: newEmployee.departmentId, managerId: '', employmentType: 'OFFICIAL', employmentLevel: 'L4', monthlyCost: '0' });
             } catch (error) {
               console.error(error);
             } finally {
@@ -698,7 +699,16 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
             </div>
             <div className="p-5 grid grid-cols-2 gap-3">
               <label className="col-span-2"><span className="text-[9px] uppercase tracking-[0.1em] text-slate-600">Họ tên</span><input required value={newEmployee.name} onChange={(event) => setNewEmployee((current) => ({ ...current, name: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[11px] text-white outline-none" /></label>
-              <label className="col-span-2"><span className="text-[9px] uppercase tracking-[0.1em] text-slate-600">Chức danh</span><input required value={newEmployee.title} onChange={(event) => setNewEmployee((current) => ({ ...current, title: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[11px] text-white outline-none" /></label>
+              <label className="col-span-2"><span className="text-[9px] uppercase tracking-[0.1em] text-slate-600">Position</span><select required value={newEmployee.positionId} onChange={(event) => {
+                const position = livePositions.find((item) => item.id === event.target.value);
+                setNewEmployee((current) => ({
+                  ...current,
+                  positionId: event.target.value,
+                  departmentId: position?.department_id ?? current.departmentId,
+                  title: position?.title ?? current.title,
+                  employmentLevel: position?.level ?? current.employmentLevel,
+                }));
+              }} className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[10px] text-slate-300"><option value="">Chọn position</option>{livePositions.filter((position) => position.active && (!newEmployee.departmentId || position.department_id === newEmployee.departmentId)).map((position) => <option key={position.id} value={position.id}>{position.code} · {position.title} · {position.level}</option>)}</select></label>
               <label><span className="text-[9px] uppercase tracking-[0.1em] text-slate-600">Phòng ban</span><select required value={newEmployee.departmentId} onChange={(event) => setNewEmployee((current) => ({ ...current, departmentId: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[10px] text-slate-300">{departmentList.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label>
               <label><span className="text-[9px] uppercase tracking-[0.1em] text-slate-600">Manager</span><select value={newEmployee.managerId} onChange={(event) => setNewEmployee((current) => ({ ...current, managerId: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[10px] text-slate-300"><option value="">Không có</option>{people.filter((person) => person.id && liveCompanyId && person.id.length === 36).map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
               <label><span className="text-[9px] uppercase tracking-[0.1em] text-slate-600">Employment</span><select value={newEmployee.employmentType} onChange={(event) => setNewEmployee((current) => ({ ...current, employmentType: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[10px] text-slate-300"><option value="OFFICIAL">Chính thức</option><option value="PROBATION">Thử việc</option><option value="APPRENTICE">Học việc</option><option value="PART_TIME">Part-time</option><option value="CONTRACTOR">Contractor</option></select></label>
