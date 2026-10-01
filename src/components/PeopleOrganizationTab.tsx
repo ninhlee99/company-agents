@@ -485,9 +485,11 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
               <div className="grid grid-cols-5 gap-3 mt-4">
                 {departmentList.filter((d) => d.id !== 'exec').map((department) => {
                   const departmentPeople = people.filter((person) => person.departmentId === department.id).slice(0, 3);
+                  const departmentTeams = teamsByDepartment.get(department.id) ?? [];
                   return (
                     <div key={department.id} className="rounded-xl border border-slate-800 bg-slate-950/45 p-2.5">
-                      <div className="flex items-center justify-between text-[9px] text-slate-600 uppercase tracking-[0.1em]"><span>People</span><span>{department.openRoles ? '+' + department.openRoles + ' roles' : 'Covered'}</span></div>
+                      <div className="flex items-center justify-between text-[9px] text-slate-600 uppercase tracking-[0.1em]"><span>{departmentTeams.length} teams · {department.headcount} people</span><span>{department.openRoles ? '+' + department.openRoles + ' roles' : 'Covered'}</span></div>
+                      {departmentTeams.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{departmentTeams.slice(0, 2).map((team) => <span key={team.id} className="rounded-md border border-slate-800 bg-slate-950 px-1.5 py-1 text-[8px] text-slate-500">{team.name}</span>)}{departmentTeams.length > 2 && <span className="text-[8px] text-slate-600 py-1">+{departmentTeams.length - 2} more</span>}</div>}
                       <div className="mt-2 space-y-1.5">
                         {departmentPeople.map((person) => (
                           <button key={person.id} onClick={() => setSelectedEmployeeId(person.id)} className="w-full flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/45 px-2.5 py-2 text-left hover:border-slate-700">
