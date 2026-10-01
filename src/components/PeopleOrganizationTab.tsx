@@ -282,6 +282,7 @@ const formatEpochTime = (epoch?: number | null) =>
 export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiAgentCount = 0 }) => {
   const [livePeople, setLivePeople] = useState<Person[]>([]);
   const [dataSource, setDataSource] = useState<'DATABASE' | 'DATABASE_EMPTY' | 'DEMO_FALLBACK'>('DEMO_FALLBACK');
+  const [liveCompanyId, setLiveCompanyId] = useState('');
   const [view, setView] = useState<'overview' | 'departments' | 'employees' | 'attendance'>('overview');
   const [selectedDepartmentId, setSelectedDepartmentId] = useState('people');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
@@ -307,6 +308,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
         if (!response.ok) throw new Error('organization API unavailable');
         const data = (await response.json()) as OrganizationWorkspaceResponse;
         if (cancelled) return;
+        setLiveCompanyId(data.company_id);
 
         const attendanceByEmployee = new Map(data.attendance.map((record) => [record.employee_id, record]));
         const nextPeople: Person[] = data.employees.map((employee) => {
@@ -557,7 +559,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
               input: {
                 employee: {
                   employee_id: employeeId,
-                  company_id: 'CURRENT_COMPANY',
+                  company_id: liveCompanyId,
                   department_id: newEmployee.departmentId,
                   team_id: null,
                   manager_id: newEmployee.managerId || null,
@@ -613,7 +615,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
             </div>
             <div className="px-5 py-4 border-t border-slate-800 flex gap-2 justify-end">
               <button type="button" onClick={() => setShowEmployeeForm(false)} className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-[10px] font-semibold text-slate-300">Hủy</button>
-              <button type="submit" disabled={savingEmployee || dataSource !== 'DATABASE'} className="rounded-xl bg-blue-600 px-4 py-2.5 text-[10px] font-semibold text-white disabled:opacity-40">{savingEmployee ? 'Đang tạo…' : 'Tạo nhân sự'}</button>
+              <button type="submit" disabled={savingEmployee || dataSource !== 'DATABASE' || !liveCompanyId} className="rounded-xl bg-blue-600 px-4 py-2.5 text-[10px] font-semibold text-white disabled:opacity-40">{savingEmployee ? 'Đang tạo…' : 'Tạo nhân sự'}</button>
             </div>
           </form>
         </div>
@@ -661,7 +663,62 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
               <div className="rounded-2xl border border-slate-800 bg-slate-900/75 p-4"><div className="flex items-center gap-3"><div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500/20 to-violet-500/15 border border-blue-400/15 flex items-center justify-center text-lg font-semibold text-blue-100">{selectedEmployee.avatar}</div><div><h3 className="text-lg font-semibold text-white">{selectedEmployee.name}</h3><p className="text-xs text-slate-400 mt-0.5">{selectedEmployee.title}</p><div className="mt-2 flex gap-1.5"><span className={cx('text-[9px] px-2 py-1 rounded border', employmentTone[selectedEmployee.employmentType])}>{selectedEmployee.employmentType}</span><span className="text-[9px] px-2 py-1 rounded border border-slate-700 bg-slate-950 text-slate-500">{selectedEmployee.level}</span></div></div></div></div>
               <div className="grid grid-cols-2 gap-2.5">{[['Department', departments.find((department) => department.id === selectedEmployee.departmentId)?.name],['Manager', people.find((person) => person.id === selectedEmployee.managerId)?.name ?? 'CEO'],['Work mode', selectedEmployee.workMode],['Location', selectedEmployee.location],['Shift', selectedEmployee.shift],['Attendance', selectedEmployee.attendance]].map(([label, value]) => <div key={label} className="rounded-xl border border-slate-800 bg-slate-900/45 px-3 py-2.5"><div className="text-[9px] uppercase tracking-[0.1em] text-slate-600">{label}</div><div className="text-[10px] text-slate-300 mt-1 truncate">{value}</div></div>)}</div>
               <div className="rounded-2xl border border-blue-500/15 bg-blue-500/[0.03] p-4"><div className="flex items-center gap-2"><UserRound className="w-4 h-4 text-blue-300" /><div><div className="text-xs font-semibold text-white">Employment lifecycle</div><div className="text-[10px] text-slate-500 mt-0.5">Một hồ sơ · employment status · attendance</div></div></div><div className="mt-4 space-y-2">{['Profile verified', selectedEmployee.employmentType, 'Reporting line assigned', 'Attendance policy assigned', selectedEmployee.employmentType === 'Chính thức' ? 'Review completed' : 'Probation / apprenticeship in progress'].map((item, index) => <div key={item} className="flex items-center gap-3"><div className="w-6 h-6 rounded-full border border-slate-700 bg-slate-900 flex items-center justify-center text-[9px] font-bold text-slate-500">{index + 1}</div><span className="text-[10px] text-slate-300">{item}</span></div>)}</div></div>
-              <div className="grid grid-cols-2 gap-2"><button className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-[10px] font-semibold text-slate-200">Xem công tháng</button><button className="rounded-xl bg-blue-600 px-3 py-2.5 text-[10px] font-semibold text-white">Hồ sơ employment</button></div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={!liveCompanyId || dataSource !== 'DATABASE'}
+                  onClick={async () => {
+                    const [shiftStart, shiftEnd] = selectedEmployee.shift.includes('–') ? selectedEmployee.shift.split('–') : ['08:30', '17:30'];
+                    const attendance = {
+                      id: crypto.randomUUID(),
+                      company_id: liveCompanyId,
+                      employee_id: selectedEmployee.id,
+                      work_date: localCompanyDate(),
+                      status: 'PRESENT',
+                      shift_start: shiftStart,
+                      shift_end: shiftEnd,
+                      check_in_at_epoch: Math.floor(Date.now() / 1000),
+                      check_out_at_epoch: null,
+                      source: 'company-os-ui',
+                      exception_reason: null,
+                    };
+                    const response = await fetch('/api/organization/attendance', {
+                      method: 'POST',
+                      headers: { 'content-type': 'application/json' },
+                      body: JSON.stringify({ attendance }),
+                    });
+                    if (response.ok) setLivePeople((current) => current.map((person) => person.id === selectedEmployee.id ? { ...person, attendance: 'Đang làm', checkedInAt: formatEpochTime(attendance.check_in_at_epoch), checkedOutAt: undefined } : person));
+                  }}
+                  className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2.5 text-[10px] font-semibold text-emerald-300 disabled:opacity-40"
+                >Check-in</button>
+                <button
+                  type="button"
+                  disabled={!liveCompanyId || dataSource !== 'DATABASE'}
+                  onClick={async () => {
+                    const [shiftStart, shiftEnd] = selectedEmployee.shift.includes('–') ? selectedEmployee.shift.split('–') : ['08:30', '17:30'];
+                    const attendance = {
+                      id: crypto.randomUUID(),
+                      company_id: liveCompanyId,
+                      employee_id: selectedEmployee.id,
+                      work_date: localCompanyDate(),
+                      status: 'CHECKED_OUT',
+                      shift_start: shiftStart,
+                      shift_end: shiftEnd,
+                      check_in_at_epoch: undefined,
+                      check_out_at_epoch: Math.floor(Date.now() / 1000),
+                      source: 'company-os-ui',
+                      exception_reason: null,
+                    };
+                    const response = await fetch('/api/organization/attendance', {
+                      method: 'POST',
+                      headers: { 'content-type': 'application/json' },
+                      body: JSON.stringify({ attendance }),
+                    });
+                    if (response.ok) setLivePeople((current) => current.map((person) => person.id === selectedEmployee.id ? { ...person, attendance: 'Đã ra về', checkedOutAt: formatEpochTime(attendance.check_out_at_epoch) } : person));
+                  }}
+                  className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-[10px] font-semibold text-slate-200 disabled:opacity-40"
+                >Check-out</button>
+              </div>
             </div>
           </aside>
         </div>
