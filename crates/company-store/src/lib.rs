@@ -4807,6 +4807,10 @@ impl CompanyStore {
         Ok(row.map(|value| (value.get(0), value.get(1))))
     }
 
+    fn tiktok_connection_needs_connected_event(previous_status: Option<&str>) -> bool {
+        !matches!(previous_status, Some("ACTIVE"))
+    }
+
     pub async fn save_tiktok_token_set(
         &self,
         company_id: &str,
@@ -4823,70 +4827,140 @@ impl CompanyStore {
 
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
-        tx.execute(
-            "INSERT INTO tiktok_oauth_connections
-             (company_id,open_id,encrypted_access_token,encrypted_refresh_token,
-              access_token_expires_at_epoch,refresh_token_expires_at_epoch,
-              scopes,token_type,status,last_error,updated_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'ACTIVE',NULL,now())
-             ON CONFLICT(company_id) DO UPDATE
-             SET open_id=EXCLUDED.open_id,
-                 encrypted_access_token=EXCLUDED.encrypted_access_token,
-                 encrypted_refresh_token=EXCLUDED.encrypted_refresh_token,
-                 access_token_expires_at_epoch=EXCLUDED.access_token_expires_at_epoch,
-                 refresh_token_expires_at_epoch=EXCLUDED.refresh_token_expires_at_epoch,
-                 scopes=EXCLUDED.scopes,
-                 token_type=EXCLUDED.token_type,
-                 status='ACTIVE',
-                 last_error=NULL,
-                 updated_at=now()",
-            &[
-                &company,
-                &token.open_id,
-                &encrypted_access_token,
-                &encrypted_refresh_token,
-                &access_expires_at_epoch,
-                &refresh_expires_at_epoch,
-                &token.scope,
-                &token.token_type,
-            ],
-        )
-        .await?;
+        let existing_status = tx
+            .query_opt(
+                "SELECT status
+                   FROM tiktok_oauth_connections
+                  WHERE company_id=$1
+                  FOR UPDATE",
+                &[&company],
+            )
+            .await?
+            .map(|row| row.get::<_, String>(0));
 
-        let connected_key = format!("outbox:tiktok-oauth:connected:{}:{}", company, access_expires_at_epoch);
-        let connected_event = company_domain::CompanyEventEnvelope::new(
-            company,
-            company_domain::CompanyEventType::TikTokOAuthConnected,
-            "tiktok_oauth_connection",
-            Some(company),
-            now_epoch,
-            tiktok_oauth_correlation_id(company, &token.open_id),
-            None,
-            connected_key,
-            serde_json::json!({
-                "open_id": token.open_id,
-                "scopes": token.scope,
-                "access_token_expires_at_epoch": access_expires_at_epoch,
-                "refresh_token_expires_at_epoch": refresh_expires_at_epoch
-            }),
-        )?;
-        enqueue_company_event_tx(&tx, &connected_event).await?;
+        let inserted = if existing_status.is_none() {
+            tx.execute(
+                "INSERT INTO tiktok_oauth_connections
+                 (company_id,open_id,encrypted_access_token,encrypted_refresh_token,
+                  access_token_expires_at_epoch,refresh_token_expires_at_epoch,
+                  scopes,token_type,status,last_error,updated_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'ACTIVE',NULL,now())
+                 ON CONFLICT(company_id) DO NOTHING",
+                &[
+                    &company,
+                    &token.open_id,
+                    &encrypted_access_token,
+                    &encrypted_refresh_token,
+                    &access_token_expires_at_epoch,
+                    &refresh_expires_at_epoch,
+                    &token.scope,
+                    &token.token_type,
+                ],
+            )
+            .await?
+                == 1
+        } else {
+            false
+        };
 
-        tx.execute(
-            "INSERT INTO audit_log
-             (company_id,actor_type,actor_id,action,resource_type,resource_id,decision,metadata)
-             VALUES ($1,'SYSTEM','tiktok-oauth','TIKTOK_OAUTH_CONNECTED','TIKTOK_CONNECTION',$2,'ACTIVE',$3)",
-            &[
-                &company,
-                &token.open_id,
-                &serde_json::json!({
+        let previous_status = if inserted {
+            None
+        } else if let Some(status) = existing_status {
+            Some(status)
+        } else {
+            Some(
+                tx.query_one(
+                    "SELECT status
+                       FROM tiktok_oauth_connections
+                      WHERE company_id=$1
+                      FOR UPDATE",
+                    &[&company],
+                )
+                .await?
+                .get::<_, String>(0),
+            )
+        };
+
+        if !inserted {
+            tx.execute(
+                "UPDATE tiktok_oauth_connections
+                    SET open_id=$2,
+                        encrypted_access_token=$3,
+                        encrypted_refresh_token=$4,
+                        access_token_expires_at_epoch=$5,
+                        refresh_token_expires_at_epoch=$6,
+                        scopes=$7,
+                        token_type=$8,
+                        status='ACTIVE',
+                        last_error=NULL,
+                        updated_at=now()
+                  WHERE company_id=$1",
+                &[
+                    &company,
+                    &token.open_id,
+                    &encrypted_access_token,
+                    &encrypted_refresh_token,
+                    &access_expires_at_epoch,
+                    &refresh_expires_at_epoch,
+                    &token.scope,
+                    &token.token_type,
+                ],
+            )
+            .await?;
+        }
+
+        if tiktok_connection_needs_connected_event(previous_status.as_deref()) {
+            let connected_key = format!("outbox:tiktok-oauth:connected:{}:{}", company, access_expires_at_epoch);
+            let connected_event = company_domain::CompanyEventEnvelope::new(
+                company,
+                company_domain::CompanyEventType::TikTokOAuthConnected,
+                "tiktok_oauth_connection",
+                Some(company),
+                now_epoch,
+                tiktok_oauth_correlation_id(company, &token.open_id),
+                None,
+                connected_key,
+                serde_json::json!({
+                    "open_id": token.open_id,
                     "scopes": token.scope,
                     "access_token_expires_at_epoch": access_expires_at_epoch,
                     "refresh_token_expires_at_epoch": refresh_expires_at_epoch
                 }),
-            ],
-        )
-        .await?;
+            )?;
+            enqueue_company_event_tx(&tx, &connected_event).await?;
+
+            tx.execute(
+                "INSERT INTO audit_log
+                 (company_id,actor_type,actor_id,action,resource_type,resource_id,decision,metadata)
+                 VALUES ($1,'SYSTEM','tiktok-oauth','TIKTOK_OAUTH_CONNECTED','TIKTOK_CONNECTION',$2,'ACTIVE',$3)",
+                &[
+                    &company,
+                    &token.open_id,
+                    &serde_json::json!({
+                        "scopes": token.scope,
+                        "access_token_expires_at_epoch": access_expires_at_epoch,
+                        "refresh_token_expires_at_epoch": refresh_expires_at_epoch
+                    }),
+                ],
+            )
+            .await?;
+        } else {
+            tx.execute(
+                "INSERT INTO audit_log
+                 (company_id,actor_type,actor_id,action,resource_type,resource_id,decision,metadata)
+                 VALUES ($1,'SYSTEM','tiktok-oauth','TIKTOK_OAUTH_TOKEN_UPDATED','TIKTOK_CONNECTION',$2,'ACTIVE',$3)",
+                &[
+                    &company,
+                    &token.open_id,
+                    &serde_json::json!({
+                        "scopes": token.scope,
+                        "access_token_expires_at_epoch": access_expires_at_epoch,
+                        "refresh_token_expires_at_epoch": refresh_expires_at_epoch
+                    }),
+                ],
+            )
+            .await?;
+        }
 
         let row = tx
             .query_one(
