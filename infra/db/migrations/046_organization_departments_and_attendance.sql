@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS departments (
 );
 
 ALTER TABLE employees
-  ADD COLUMN IF NOT EXISTS department_id uuid REFERENCES departments(id),
+  ADD COLUMN IF NOT EXISTS department_id uuid,
   ADD COLUMN IF NOT EXISTS team_id uuid,
   ADD COLUMN IF NOT EXISTS manager_id uuid,
   ADD COLUMN IF NOT EXISTS employment_type text NOT NULL DEFAULT 'OFFICIAL'
@@ -81,6 +81,18 @@ BEGIN
       ADD CONSTRAINT departments_owner_same_company_fk
       FOREIGN KEY (company_id, owner_employee_id)
       REFERENCES employees(company_id, id);
+  END IF;
+END $;
+
+DO $
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'employees_department_same_company_fk'
+  ) THEN
+    ALTER TABLE employees
+      ADD CONSTRAINT employees_department_same_company_fk
+      FOREIGN KEY (company_id, department_id)
+      REFERENCES departments(company_id, id);
   END IF;
 END $;
 
@@ -162,7 +174,7 @@ END $$;
 CREATE TABLE IF NOT EXISTS employee_attendance (
   id uuid PRIMARY KEY,
   company_id uuid NOT NULL REFERENCES companies(id),
-  employee_id uuid NOT NULL REFERENCES employees(id),
+  employee_id uuid NOT NULL,
   work_date date NOT NULL,
   status text NOT NULL CHECK (status IN ('PRESENT','REMOTE','LATE','LEAVE','ABSENT','CHECKED_OUT')),
   shift_start time NOT NULL,
@@ -175,6 +187,18 @@ CREATE TABLE IF NOT EXISTS employee_attendance (
   updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE(company_id, employee_id, work_date)
 );
+
+DO $
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'attendance_employee_same_company_fk'
+  ) THEN
+    ALTER TABLE employee_attendance
+      ADD CONSTRAINT attendance_employee_same_company_fk
+      FOREIGN KEY (company_id, employee_id)
+      REFERENCES employees(company_id, id);
+  END IF;
+END $;
 
 CREATE INDEX IF NOT EXISTS idx_employee_attendance_daily
   ON employee_attendance(company_id, work_date, status);
