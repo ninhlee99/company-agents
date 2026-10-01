@@ -1,0 +1,389 @@
+import React, { useMemo, useState } from 'react';
+import {
+  Activity,
+  Building2,
+  CalendarCheck2,
+  ChevronDown,
+  ChevronRight,
+  ClipboardCheck,
+  Clock3,
+  GitBranch,
+  Layers3,
+  MapPin,
+  MoreHorizontal,
+  Plus,
+  Search,
+  ShieldCheck,
+  Target,
+  Users,
+  UserRound,
+  X,
+  Zap,
+} from 'lucide-react';
+
+type EmploymentType = 'Chính thức' | 'Thử việc' | 'Học việc' | 'Part-time';
+type Attendance = 'Đang làm' | 'Đã ra về' | 'Đi muộn' | 'Nghỉ phép' | 'Vắng';
+
+type Department = {
+  id: string;
+  name: string;
+  shortName: string;
+  owner: string;
+  ownerTitle: string;
+  charter: string;
+  responsibilities: string[];
+  kpis: string[];
+  headcount: number;
+  openRoles: number;
+  criticality: 'Core' | 'Growth' | 'Control';
+  status: 'Active' | 'Scaling' | 'Forming';
+};
+
+type Person = {
+  id: string;
+  name: string;
+  title: string;
+  departmentId: string;
+  level: string;
+  employmentType: EmploymentType;
+  attendance: Attendance;
+  location: string;
+  workMode: 'Văn phòng' | 'Hybrid' | 'Remote';
+  managerId: string | null;
+  shift: string;
+  checkedInAt?: string;
+  checkedOutAt?: string;
+  avatar: string;
+};
+
+const departments: Department[] = [
+  {
+    id: 'exec',
+    name: 'Executive Office',
+    shortName: 'EXEC',
+    owner: 'Alex Morgan',
+    ownerTitle: 'Chief Executive Officer',
+    charter: 'Định hướng chiến lược, phân bổ nguồn lực và chịu trách nhiệm P&L toàn công ty.',
+    responsibilities: ['Strategy & OKR', 'Capital allocation', 'Executive governance', 'Cross-functional decisions'],
+    kpis: ['Company EBITDA', 'Runway', 'OKR attainment'],
+    headcount: 3,
+    openRoles: 0,
+    criticality: 'Control',
+    status: 'Active',
+  },
+  {
+    id: 'ops',
+    name: 'Operations',
+    shortName: 'OPS',
+    owner: 'Sofia Nguyen',
+    ownerTitle: 'Chief Operating Officer',
+    charter: 'Biến chiến lược thành vận hành lặp lại, SLA rõ ràng và năng suất đo được.',
+    responsibilities: ['Process excellence', 'Delivery operations', 'Workforce capacity', 'Vendor operations'],
+    kpis: ['SLA attainment', 'Throughput', 'Cost / unit'],
+    headcount: 4,
+    openRoles: 1,
+    criticality: 'Core',
+    status: 'Scaling',
+  },
+  {
+    id: 'finance',
+    name: 'Finance & Treasury',
+    shortName: 'FIN',
+    owner: 'Daniel Tran',
+    ownerTitle: 'Chief Financial Officer',
+    charter: 'Bảo toàn tiền mặt, accounting integrity, payroll readiness và financial control.',
+    responsibilities: ['Accounting', 'Treasury', 'Payroll control', 'Management reporting'],
+    kpis: ['Cash accuracy', 'Close cycle', 'Runway'],
+    headcount: 3,
+    openRoles: 1,
+    criticality: 'Control',
+    status: 'Active',
+  },
+  {
+    id: 'tech',
+    name: 'Technology & Product',
+    shortName: 'TECH',
+    owner: 'Maya Patel',
+    ownerTitle: 'Chief Technology Officer',
+    charter: 'Xây dựng platform, data, security và product capabilities phục vụ tăng trưởng dài hạn.',
+    responsibilities: ['Platform engineering', 'Security & reliability', 'Product delivery', 'Data systems'],
+    kpis: ['Uptime', 'Release quality', 'Lead time'],
+    headcount: 3,
+    openRoles: 2,
+    criticality: 'Core',
+    status: 'Scaling',
+  },
+  {
+    id: 'people',
+    name: 'People & Culture',
+    shortName: 'PEOPLE',
+    owner: 'Linh Pham',
+    ownerTitle: 'People & Culture Director',
+    charter: 'Quản trị talent lifecycle, organization design, policy, attendance và employee experience.',
+    responsibilities: ['Recruitment', 'Employment lifecycle', 'Attendance & policy', 'Performance & development'],
+    kpis: ['Time-to-fill', 'Retention', 'Attendance integrity'],
+    headcount: 3,
+    openRoles: 1,
+    criticality: 'Control',
+    status: 'Active',
+  },
+  {
+    id: 'growth',
+    name: 'Growth & Commercial',
+    shortName: 'GROWTH',
+    owner: 'Jordan Lee',
+    ownerTitle: 'Chief Growth Officer',
+    charter: 'Tạo pipeline, tăng trưởng demand và chuyển đổi thành doanh thu được kiểm chứng.',
+    responsibilities: ['Demand generation', 'Sales pipeline', 'Partnerships', 'Revenue experiments'],
+    kpis: ['Qualified pipeline', 'Conversion', 'Gross revenue'],
+    headcount: 0,
+    openRoles: 3,
+    criticality: 'Growth',
+    status: 'Forming',
+  },
+];
+
+const people: Person[] = [
+  { id: 'p01', name: 'Alex Morgan', title: 'Chief Executive Officer', departmentId: 'exec', level: 'L9 · Executive', employmentType: 'Chính thức', attendance: 'Đang làm', location: 'Ho Chi Minh City', workMode: 'Hybrid', managerId: null, shift: '08:30–17:30', checkedInAt: '08:21', avatar: 'AM' },
+  { id: 'p02', name: 'Sofia Nguyen', title: 'Chief Operating Officer', departmentId: 'ops', level: 'L8 · Director', employmentType: 'Chính thức', attendance: 'Đang làm', location: 'Ho Chi Minh City', workMode: 'Văn phòng', managerId: 'p01', shift: '08:30–17:30', checkedInAt: '08:26', avatar: 'SN' },
+  { id: 'p03', name: 'Daniel Tran', title: 'Chief Financial Officer', departmentId: 'finance', level: 'L8 · Director', employmentType: 'Chính thức', attendance: 'Đang làm', location: 'Ho Chi Minh City', workMode: 'Hybrid', managerId: 'p01', shift: '08:30–17:30', checkedInAt: '08:34', avatar: 'DT' },
+  { id: 'p04', name: 'Maya Patel', title: 'Chief Technology Officer', departmentId: 'tech', level: 'L8 · Director', employmentType: 'Chính thức', attendance: 'Đã ra về', location: 'Singapore', workMode: 'Hybrid', managerId: 'p01', shift: '09:00–18:00', checkedInAt: '08:57', checkedOutAt: '16:48', avatar: 'MP' },
+  { id: 'p05', name: 'Linh Pham', title: 'People & Culture Director', departmentId: 'people', level: 'L7 · Director', employmentType: 'Chính thức', attendance: 'Đang làm', location: 'Ho Chi Minh City', workMode: 'Văn phòng', managerId: 'p02', shift: '08:30–17:30', checkedInAt: '08:17', avatar: 'LP' },
+  { id: 'p06', name: 'Omar Wilson', title: 'Engineering Manager', departmentId: 'tech', level: 'L7 · Manager', employmentType: 'Chính thức', attendance: 'Đang làm', location: 'Bangkok', workMode: 'Remote', managerId: 'p04', shift: '09:00–18:00', checkedInAt: '08:52', avatar: 'OW' },
+  { id: 'p07', name: 'Hailey Kim', title: 'Talent Partner', departmentId: 'people', level: 'L5 · Specialist', employmentType: 'Thử việc', attendance: 'Đi muộn', location: 'Ho Chi Minh City', workMode: 'Văn phòng', managerId: 'p05', shift: '08:30–17:30', checkedInAt: '09:03', avatar: 'HK' },
+  { id: 'p08', name: 'Ethan Le', title: 'Senior Backend Engineer', departmentId: 'tech', level: 'L6 · Senior', employmentType: 'Chính thức', attendance: 'Đang làm', location: 'Da Nang', workMode: 'Hybrid', managerId: 'p06', shift: '09:00–18:00', checkedInAt: '08:49', avatar: 'EL' },
+  { id: 'p09', name: 'Nora Bui', title: 'People Operations Coordinator', departmentId: 'people', level: 'L4 · Coordinator', employmentType: 'Học việc', attendance: 'Đang làm', location: 'Ho Chi Minh City', workMode: 'Văn phòng', managerId: 'p05', shift: '08:30–17:30', checkedInAt: '08:31', avatar: 'NB' },
+  { id: 'p10', name: 'Marcus Ho', title: 'Financial Controller', departmentId: 'finance', level: 'L6 · Senior', employmentType: 'Chính thức', attendance: 'Nghỉ phép', location: 'Ho Chi Minh City', workMode: 'Hybrid', managerId: 'p03', shift: '08:30–17:30', avatar: 'MH' },
+  { id: 'p11', name: 'Grace Chen', title: 'Product Operations Lead', departmentId: 'ops', level: 'L6 · Lead', employmentType: 'Chính thức', attendance: 'Đang làm', location: 'Singapore', workMode: 'Hybrid', managerId: 'p02', shift: '09:00–18:00', checkedInAt: '08:46', avatar: 'GC' },
+  { id: 'p12', name: 'Noah Vo', title: 'Operations Apprentice', departmentId: 'ops', level: 'L2 · Apprentice', employmentType: 'Học việc', attendance: 'Đang làm', location: 'Ho Chi Minh City', workMode: 'Văn phòng', managerId: 'p11', shift: '08:30–17:30', checkedInAt: '08:29', avatar: 'NV' },
+  { id: 'p13', name: 'Isabella Wong', title: 'Growth Specialist', departmentId: 'growth', level: 'L4 · Specialist', employmentType: 'Chính thức', attendance: 'Vắng', location: 'Kuala Lumpur', workMode: 'Remote', managerId: null, shift: '09:00–18:00', avatar: 'IW' },
+];
+
+const attendanceTone: Record<Attendance, string> = {
+  'Đang làm': 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20',
+  'Đã ra về': 'bg-slate-500/10 text-slate-300 border-slate-500/20',
+  'Đi muộn': 'bg-amber-500/10 text-amber-300 border-amber-500/20',
+  'Nghỉ phép': 'bg-violet-500/10 text-violet-300 border-violet-500/20',
+  Vắng: 'bg-rose-500/10 text-rose-300 border-rose-500/20',
+};
+
+const employmentTone: Record<EmploymentType, string> = {
+  'Chính thức': 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20',
+  'Thử việc': 'bg-amber-500/10 text-amber-300 border-amber-500/20',
+  'Học việc': 'bg-blue-500/10 text-blue-300 border-blue-500/20',
+  'Part-time': 'bg-violet-500/10 text-violet-300 border-violet-500/20',
+};
+
+const deptTone: Record<Department['criticality'], string> = {
+  Core: 'border-blue-500/20 bg-blue-500/10 text-blue-300',
+  Growth: 'border-cyan-500/20 bg-cyan-500/10 text-cyan-300',
+  Control: 'border-violet-500/20 bg-violet-500/10 text-violet-300',
+};
+
+const cx = (...v: Array<string | false | null | undefined>) => v.filter(Boolean).join(' ');
+
+export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiAgentCount = 0 }) => {
+  const [view, setView] = useState<'overview' | 'departments' | 'employees' | 'attendance'>('overview');
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState('people');
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('p05');
+  const [search, setSearch] = useState('');
+  const [employment, setEmployment] = useState<'All' | EmploymentType>('All');
+  const [showAdvisor, setShowAdvisor] = useState(true);
+
+  const selectedDepartment = departments.find((department) => department.id === selectedDepartmentId) ?? departments[0];
+  const selectedEmployee = people.find((person) => person.id === selectedEmployeeId) ?? people[0];
+
+  const presentCount = people.filter((person) => person.attendance === 'Đang làm' || person.attendance === 'Đã ra về').length;
+  const lateCount = people.filter((person) => person.attendance === 'Đi muộn').length;
+  const leaveCount = people.filter((person) => person.attendance === 'Nghỉ phép').length;
+
+  const filteredPeople = useMemo(
+    () => people.filter((person) => {
+      const query = search.trim().toLowerCase();
+      const matchesQuery = !query || person.name.toLowerCase().includes(query) || person.title.toLowerCase().includes(query);
+      const matchesEmployment = employment === 'All' || person.employmentType === employment;
+      return matchesQuery && matchesEmployment;
+    }),
+    [search, employment],
+  );
+
+  return (
+    <div className="space-y-5 pb-14">
+      <section className="rounded-2xl border border-slate-800 bg-[radial-gradient(circle_at_top_right,_rgba(59,130,246,0.13),_transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(15,23,42,0.95))] p-5 lg:p-6">
+        <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-5">
+          <div>
+            <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-blue-300 font-semibold"><ShieldCheck className="w-3.5 h-3.5" />People Operating System</div>
+            <div className="flex flex-wrap items-center gap-3 mt-2">
+              <h1 className="text-2xl lg:text-[30px] font-semibold tracking-tight text-white">People, Departments & Organization</h1>
+              <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-300">ENTERPRISE HR</span>
+            </div>
+            <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-400">Công ty được vận hành theo mô hình <span className="text-slate-200 font-medium">Company → Department → Team → Employee</span>. Mỗi department có charter, owner, KPI và ranh giới trách nhiệm; mọi thay đổi tổ chức phải có governance record.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3.5 py-2.5 text-xs font-semibold text-slate-200"><CalendarCheck2 className="w-4 h-4" /> Hôm nay</button>
+            <button className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3.5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-500"><Plus className="w-4 h-4" /> Tạo vị trí mới</button>
+          </div>
+        </div>
+
+        <div className="mt-6 grid grid-cols-2 lg:grid-cols-5 gap-2.5">
+          {[
+            ['Departments', departments.length, 'Active + forming', Building2],
+            ['Human workforce', people.length, 'Employee records', Users],
+            ['Present', presentCount, 'Today', CalendarCheck2],
+            ['Exceptions', lateCount, 'Late arrivals', Clock3],
+            ['AI workforce', aiAgentCount, 'Separate AI layer', Zap],
+          ].map(([label, value, note, Icon]) => (
+            <div key={String(label)} className="rounded-xl border border-slate-800 bg-slate-950/55 px-3.5 py-3">
+              <div className="flex items-center justify-between"><span className="text-[10px] uppercase tracking-[0.12em] text-slate-500">{label}</span><Icon className="w-4 h-4 text-slate-500" /></div>
+              <div className="mt-2 text-2xl font-semibold font-mono text-white">{value}</div>
+              <div className="mt-1 text-[10px] text-slate-500">{note}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <div className="flex items-center gap-1 rounded-xl border border-slate-800 bg-slate-950/60 p-1 w-fit">
+        {[
+          ['overview', 'Tổng quan'],
+          ['departments', 'Phòng ban'],
+          ['employees', 'Nhân viên'],
+          ['attendance', 'Chấm công'],
+        ].map(([id, label]) => (
+          <button key={id} onClick={() => setView(id as typeof view)} className={cx('px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors', view === id ? 'bg-slate-800 text-white' : 'text-slate-500 hover:text-slate-200')}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view !== 'attendance' && (
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/55 overflow-hidden">
+          <div className="px-4 py-3.5 border-b border-slate-800 flex items-center justify-between">
+            <div className="flex items-center gap-2"><GitBranch className="w-4 h-4 text-blue-300" /><div><h2 className="text-sm font-semibold text-white">Organization Tree</h2><p className="text-[10px] text-slate-500">Company → Department → Team → Employee</p></div></div>
+            <span className="text-[10px] text-slate-500">{departments.filter((d) => d.status !== 'Forming').length} operational departments</span>
+          </div>
+          <div className="p-4 overflow-x-auto">
+            <div className="min-w-[1080px]">
+              <div className="flex justify-center">
+                <button onClick={() => setSelectedDepartmentId('exec')} className={cx('w-[300px] rounded-2xl border px-4 py-4 text-left', selectedDepartmentId === 'exec' ? 'border-blue-500/40 bg-blue-500/[0.06]' : 'border-slate-700 bg-slate-950/80')}>
+                  <div className="flex items-center gap-3"><div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500/25 to-violet-500/20 border border-blue-400/20 flex items-center justify-center"><Building2 className="w-5 h-5 text-blue-200" /></div><div><div className="text-[10px] uppercase tracking-[0.15em] text-blue-300">Corporate</div><div className="text-sm font-semibold text-white">Executive Office</div><div className="text-[10px] text-slate-500">CEO · Governance · Strategy</div></div></div>
+                  <div className="mt-3 flex items-center justify-between text-[10px]"><span className="text-slate-500">Direct departments</span><span className="text-slate-200 font-semibold">5</span></div>
+                </button>
+              </div>
+              <div className="mx-auto h-7 w-px bg-slate-700"></div>
+              <div className="relative">
+                <div className="absolute left-[10%] right-[10%] top-0 h-px bg-slate-700"></div>
+                <div className="grid grid-cols-5 gap-3">
+                  {departments.filter((d) => d.id !== 'exec').map((department) => (
+                    <button key={department.id} onClick={() => setSelectedDepartmentId(department.id)} className={cx('relative rounded-xl border p-3 text-left transition-all', selectedDepartmentId === department.id ? 'border-blue-500/40 bg-blue-500/[0.05]' : 'border-slate-800 bg-slate-950/65 hover:border-slate-700')}>
+                      <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-slate-950 border border-slate-700"></div>
+                      <div className="flex items-center gap-2.5"><div className={cx('w-8 h-8 rounded-lg border border-slate-700 bg-slate-800 flex items-center justify-center text-[9px] font-bold', department.status === 'Forming' ? 'text-cyan-300' : 'text-slate-200')}>{department.shortName}</div><div className="min-w-0"><div className="text-[11px] font-semibold text-white truncate">{department.name}</div><div className="text-[9px] text-slate-500 truncate">{department.ownerTitle}</div></div></div>
+                      <div className="mt-2 flex items-center justify-between"><span className={cx('text-[9px] px-1.5 py-0.5 rounded border', deptTone[department.criticality])}>{department.criticality}</span><span className="text-[9px] text-slate-500">{department.headcount} HC</span></div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-5 gap-3 mt-4">
+                {departments.filter((d) => d.id !== 'exec').map((department) => {
+                  const departmentPeople = people.filter((person) => person.departmentId === department.id).slice(0, 3);
+                  return (
+                    <div key={department.id} className="rounded-xl border border-slate-800 bg-slate-950/45 p-2.5">
+                      <div className="flex items-center justify-between text-[9px] text-slate-600 uppercase tracking-[0.1em]"><span>People</span><span>{department.openRoles ? '+' + department.openRoles + ' roles' : 'Covered'}</span></div>
+                      <div className="mt-2 space-y-1.5">
+                        {departmentPeople.map((person) => (
+                          <button key={person.id} onClick={() => setSelectedEmployeeId(person.id)} className="w-full flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/45 px-2.5 py-2 text-left hover:border-slate-700">
+                            <div className="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-[9px] font-bold text-slate-300">{person.avatar}</div>
+                            <div className="min-w-0 flex-1"><div className="text-[10px] font-medium text-slate-200 truncate">{person.name}</div><div className="text-[9px] text-slate-600 truncate">{person.title}</div></div>
+                            <ChevronRight className="w-3 h-3 text-slate-600" />
+                          </button>
+                        ))}
+                        {department.status === 'Forming' && <div className="rounded-lg border border-dashed border-cyan-500/20 bg-cyan-500/[0.03] px-2.5 py-2 text-[9px] text-cyan-300">Department forming · 3 critical roles open</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {(view === 'overview' || view === 'departments') && (
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)] gap-4">
+          <section className="rounded-2xl border border-slate-800 bg-slate-900/55 overflow-hidden">
+            <div className="px-4 py-3.5 border-b border-slate-800 flex items-center justify-between"><div><h2 className="text-sm font-semibold text-white">Department Charters</h2><p className="text-[10px] text-slate-500 mt-0.5">Mỗi phòng ban có trách nhiệm, owner và KPI riêng</p></div><ClipboardCheck className="w-4 h-4 text-slate-500" /></div>
+            <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+              {departments.map((department) => (
+                <button key={department.id} onClick={() => setSelectedDepartmentId(department.id)} className={cx('rounded-xl border p-3.5 text-left transition-all', selectedDepartmentId === department.id ? 'border-blue-500/35 bg-blue-500/[0.045]' : 'border-slate-800 bg-slate-950/50 hover:border-slate-700')}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div><div className="flex items-center gap-2"><h3 className="text-xs font-semibold text-white">{department.name}</h3><span className={cx('text-[8px] px-1.5 py-0.5 rounded border', deptTone[department.criticality])}>{department.criticality}</span></div><div className="mt-1 text-[10px] text-slate-500">Owner · {department.owner} · {department.ownerTitle}</div></div>
+                    <span className={cx('text-[9px] px-2 py-1 rounded-md border', department.status === 'Forming' ? 'border-cyan-500/20 bg-cyan-500/10 text-cyan-300' : department.status === 'Scaling' ? 'border-amber-500/20 bg-amber-500/10 text-amber-300' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300')}>{department.status}</span>
+                  </div>
+                  <p className="mt-3 text-[10px] leading-5 text-slate-400">{department.charter}</p>
+                  <div className="mt-3 flex flex-wrap gap-1.5">{department.responsibilities.map((item) => <span key={item} className="text-[9px] rounded-md border border-slate-800 bg-slate-950 px-2 py-1 text-slate-500">{item}</span>)}</div>
+                  <div className="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between text-[9px]"><span className="text-slate-500">{department.headcount} employees · {department.openRoles} open roles</span><span className="text-blue-300">View charter →</span></div>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-800 bg-slate-900/55 overflow-hidden">
+            <div className="px-4 py-3.5 border-b border-slate-800 flex items-center gap-2"><Target className="w-4 h-4 text-violet-300" /><div><h2 className="text-sm font-semibold text-white">Department Control</h2><p className="text-[10px] text-slate-500">Owner · accountability · KPI</p></div></div>
+            <div className="p-4">
+              <div className="rounded-xl border border-slate-800 bg-slate-950/55 p-3.5"><div className="text-[10px] uppercase tracking-[0.12em] text-slate-600">Selected department</div><div className="mt-1 text-lg font-semibold text-white">{selectedDepartment.name}</div><div className="text-[10px] text-slate-500 mt-1">{selectedDepartment.owner} · {selectedDepartment.ownerTitle}</div><div className="mt-3 rounded-lg border border-slate-800 bg-slate-900/40 p-3 text-[10px] leading-5 text-slate-400">{selectedDepartment.charter}</div></div>
+              <div className="mt-3 space-y-2">{selectedDepartment.responsibilities.map((responsibility, index) => <div key={responsibility} className="flex items-center gap-2.5 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2.5"><span className="w-5 h-5 rounded-full border border-slate-700 bg-slate-900 text-[9px] font-bold text-slate-500 flex items-center justify-center">{index + 1}</span><span className="text-[10px] text-slate-300">{responsibility}</span></div>)}</div>
+              <div className="mt-3 grid grid-cols-3 gap-2">{selectedDepartment.kpis.map((kpi) => <div key={kpi} className="rounded-lg border border-slate-800 bg-slate-950/40 p-2.5"><div className="text-[9px] text-slate-600">KPI</div><div className="mt-1 text-[10px] font-semibold text-slate-300">{kpi}</div></div>)}</div>
+              <button className="mt-3 w-full rounded-xl border border-slate-700 bg-slate-900 py-2.5 text-[10px] font-semibold text-slate-200 hover:bg-slate-800">Mở Department Charter</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {view === 'employees' && (
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/55 overflow-hidden">
+          <div className="px-4 py-3.5 border-b border-slate-800 flex flex-wrap gap-3 items-center justify-between">
+            <div><h2 className="text-sm font-semibold text-white">Employee Directory</h2><p className="text-[10px] text-slate-500 mt-0.5">{filteredPeople.length} employee records</p></div>
+            <div className="flex items-center gap-2"><div className="relative"><Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm nhân viên…" className="w-52 rounded-xl border border-slate-800 bg-slate-950/70 pl-9 pr-3 py-2 text-[10px] text-white placeholder:text-slate-600 outline-none focus:border-blue-500/50" /></div><select value={employment} onChange={(event) => setEmployment(event.target.value as typeof employment)} className="rounded-xl border border-slate-800 bg-slate-950/70 px-2.5 py-2 text-[10px] text-slate-300 outline-none"><option value="All">Tất cả employment</option><option value="Chính thức">Chính thức</option><option value="Thử việc">Thử việc</option><option value="Học việc">Học việc</option><option value="Part-time">Part-time</option></select></div>
+          </div>
+          <div className="overflow-x-auto"><table className="w-full min-w-[980px] text-left"><thead><tr className="border-b border-slate-800 text-[9px] uppercase tracking-[0.12em] text-slate-600"><th className="px-4 py-3">Employee</th><th className="px-4 py-3">Department</th><th className="px-4 py-3">Level</th><th className="px-4 py-3">Employment</th><th className="px-4 py-3">Attendance</th><th className="px-4 py-3">Location</th><th className="px-4 py-3"></th></tr></thead><tbody>{filteredPeople.map((person) => <tr key={person.id} onClick={() => setSelectedEmployeeId(person.id)} className={cx('border-b border-slate-800/80 cursor-pointer', selectedEmployeeId === person.id ? 'bg-blue-500/[0.04]' : 'hover:bg-slate-950/55')}><td className="px-4 py-3"><div className="flex items-center gap-3"><div className="w-9 h-9 rounded-xl border border-slate-700 bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-200">{person.avatar}</div><div><div className="text-xs font-semibold text-white">{person.name}</div><div className="text-[10px] text-slate-500">{person.title}</div></div></div></td><td className="px-4 py-3 text-[10px] text-slate-300">{departments.find((department) => department.id === person.departmentId)?.name}</td><td className="px-4 py-3 text-[10px] text-slate-500">{person.level}</td><td className="px-4 py-3"><span className={cx('text-[9px] px-2 py-1 rounded border', employmentTone[person.employmentType])}>{person.employmentType}</span></td><td className="px-4 py-3"><span className={cx('text-[9px] px-2 py-1 rounded border', attendanceTone[person.attendance])}>{person.attendance}</span></td><td className="px-4 py-3"><div className="flex items-center gap-1.5 text-[10px] text-slate-400"><MapPin className="w-3 h-3 text-slate-600" />{person.workMode}</div><div className="text-[9px] text-slate-600">{person.location}</div></td><td className="px-4 py-3 text-right"><MoreHorizontal className="w-4 h-4 text-slate-600" /></td></tr>)}</tbody></table></div>
+        </section>
+      )}
+
+      {view === 'attendance' && (
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.6fr)] gap-4">
+          <section className="rounded-2xl border border-slate-800 bg-slate-900/55 overflow-hidden">
+            <div className="px-4 py-3.5 border-b border-slate-800 flex items-center justify-between"><div><h2 className="text-sm font-semibold text-white">Attendance Control Board</h2><p className="text-[10px] text-slate-500 mt-0.5">Daily timekeeping · shift · exceptions · manager ownership</p></div><span className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[9px] font-semibold text-emerald-300">LIVE</span></div>
+            <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-2.5">{people.map((person) => <button key={person.id} onClick={() => setSelectedEmployeeId(person.id)} className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/50 p-3 text-left hover:border-slate-700"><div className="w-9 h-9 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-300">{person.avatar}</div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="text-[11px] font-semibold text-slate-200 truncate">{person.name}</span><span className={cx('text-[8px] px-1.5 py-0.5 rounded border', attendanceTone[person.attendance])}>{person.attendance}</span></div><div className="text-[9px] text-slate-600 mt-1">{person.shift} · {person.workMode}</div></div><div className="text-right shrink-0 text-[9px] font-mono text-slate-500">{person.checkedInAt ? 'IN ' + person.checkedInAt : '—'}<br />{person.checkedOutAt ? 'OUT ' + person.checkedOutAt : ''}</div></button>)}</div>
+          </section>
+          <section className="rounded-2xl border border-slate-800 bg-slate-900/55 p-4"><div className="flex items-center gap-2"><Activity className="w-4 h-4 text-emerald-300" /><div><h2 className="text-sm font-semibold text-white">Attendance Exceptions</h2><p className="text-[10px] text-slate-500">Cần manager review</p></div></div><div className="mt-4 space-y-2">{people.filter((person) => person.attendance === 'Đi muộn' || person.attendance === 'Vắng').map((person) => <div key={person.id} className="rounded-xl border border-amber-500/15 bg-amber-500/[0.035] p-3"><div className="flex items-center justify-between"><span className="text-[10px] font-semibold text-white">{person.name}</span><span className={cx('text-[8px] px-1.5 py-0.5 rounded border', attendanceTone[person.attendance])}>{person.attendance}</span></div><div className="mt-1 text-[9px] text-slate-500">{departments.find((department) => department.id === person.departmentId)?.name} · {person.shift}</div><button className="mt-2 text-[9px] font-semibold text-blue-300">Review exception →</button></div>)}</div></section>
+        </div>
+      )}
+
+      {showAdvisor && (
+        <section className="rounded-2xl border border-cyan-500/15 bg-cyan-500/[0.03] p-4">
+          <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+            <div className="flex items-start gap-3"><div className="w-9 h-9 rounded-xl border border-cyan-500/20 bg-cyan-500/10 flex items-center justify-center"><Zap className="w-4 h-4 text-cyan-300" /></div><div><div className="text-[10px] uppercase tracking-[0.14em] text-cyan-300 font-semibold">Organization Design Advisor</div><h3 className="text-sm font-semibold text-white mt-1">Growth & Commercial đang ở trạng thái “Forming”</h3><p className="text-[10px] text-slate-400 mt-1 max-w-3xl">Nhu cầu pipeline tăng nhưng chưa có owner đầy đủ. Hệ thống có thể <span className="text-slate-200 font-medium">đề xuất thành lập department</span>, xác định charter, budget ceiling, owner và open roles trước khi activation.</p></div></div>
+            <div className="flex items-center gap-2"><button className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-[10px] font-semibold text-slate-200">Xem nhu cầu</button><button className="rounded-xl bg-cyan-600 px-3 py-2 text-[10px] font-semibold text-white hover:bg-cyan-500">Dự thảo department</button><button onClick={() => setShowAdvisor(false)} className="p-2 text-slate-600 hover:text-white"><X className="w-4 h-4" /></button></div>
+          </div>
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-2.5"><div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Trigger</div><div className="text-[10px] text-slate-300 mt-1">Pipeline ownership gap</div></div><div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Required capability</div><div className="text-[10px] text-slate-300 mt-1">Sales + partnerships + demand generation</div></div><div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Governance</div><div className="text-[10px] text-slate-300 mt-1">Charter → owner → budget → roles → activation</div></div></div>
+        </section>
+      )}
+
+      {selectedEmployee && (view === 'employees' || view === 'attendance' || view === 'overview') && (
+        <div className="fixed inset-0 z-[70] bg-black/50 backdrop-blur-[2px] flex justify-end" onClick={() => setSelectedEmployeeId('')}>
+          <aside className="h-full w-full max-w-md bg-slate-950 border-l border-slate-800 shadow-2xl overflow-y-auto" onClick={(event) => event.stopPropagation()}>
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-800 bg-slate-950/95 px-5 py-4"><div><div className="text-[10px] uppercase tracking-[0.14em] text-blue-300/80">Employee profile</div><div className="text-sm font-semibold text-white mt-1">Hồ sơ nhân sự</div></div><button onClick={() => setSelectedEmployeeId('')} className="rounded-lg p-2 text-slate-500 hover:bg-slate-800 hover:text-white"><X className="w-4 h-4" /></button></div>
+            <div className="p-5 space-y-5">
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/75 p-4"><div className="flex items-center gap-3"><div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500/20 to-violet-500/15 border border-blue-400/15 flex items-center justify-center text-lg font-semibold text-blue-100">{selectedEmployee.avatar}</div><div><h3 className="text-lg font-semibold text-white">{selectedEmployee.name}</h3><p className="text-xs text-slate-400 mt-0.5">{selectedEmployee.title}</p><div className="mt-2 flex gap-1.5"><span className={cx('text-[9px] px-2 py-1 rounded border', employmentTone[selectedEmployee.employmentType])}>{selectedEmployee.employmentType}</span><span className="text-[9px] px-2 py-1 rounded border border-slate-700 bg-slate-950 text-slate-500">{selectedEmployee.level}</span></div></div></div></div>
+              <div className="grid grid-cols-2 gap-2.5">{[['Department', departments.find((department) => department.id === selectedEmployee.departmentId)?.name],['Manager', people.find((person) => person.id === selectedEmployee.managerId)?.name ?? 'CEO'],['Work mode', selectedEmployee.workMode],['Location', selectedEmployee.location],['Shift', selectedEmployee.shift],['Attendance', selectedEmployee.attendance]].map(([label, value]) => <div key={label} className="rounded-xl border border-slate-800 bg-slate-900/45 px-3 py-2.5"><div className="text-[9px] uppercase tracking-[0.1em] text-slate-600">{label}</div><div className="text-[10px] text-slate-300 mt-1 truncate">{value}</div></div>)}</div>
+              <div className="rounded-2xl border border-blue-500/15 bg-blue-500/[0.03] p-4"><div className="flex items-center gap-2"><UserRound className="w-4 h-4 text-blue-300" /><div><div className="text-xs font-semibold text-white">Employment lifecycle</div><div className="text-[10px] text-slate-500 mt-0.5">Một hồ sơ · employment status · attendance</div></div></div><div className="mt-4 space-y-2">{['Profile verified', selectedEmployee.employmentType, 'Reporting line assigned', 'Attendance policy assigned', selectedEmployee.employmentType === 'Chính thức' ? 'Review completed' : 'Probation / apprenticeship in progress'].map((item, index) => <div key={item} className="flex items-center gap-3"><div className="w-6 h-6 rounded-full border border-slate-700 bg-slate-900 flex items-center justify-center text-[9px] font-bold text-slate-500">{index + 1}</div><span className="text-[10px] text-slate-300">{item}</span></div>)}</div></div>
+              <div className="grid grid-cols-2 gap-2"><button className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-[10px] font-semibold text-slate-200">Xem công tháng</button><button className="rounded-xl bg-blue-600 px-3 py-2.5 text-[10px] font-semibold text-white">Hồ sơ employment</button></div>
+            </div>
+          </aside>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between px-1 text-[9px] text-slate-600"><div className="flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5" />Payroll, employment changes and department activation should remain approval-gated and auditable.</div><div>Human workforce {people.length} · AI workforce {aiAgentCount}</div></div>
+    </div>
+  );
+};
