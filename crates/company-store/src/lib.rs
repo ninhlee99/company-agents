@@ -3823,6 +3823,7 @@ impl CompanyStore {
                     ],
                 )
                 .await?;
+
         }
 
         transaction.commit().await?;
