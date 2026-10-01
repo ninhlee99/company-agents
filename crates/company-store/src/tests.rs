@@ -34,6 +34,34 @@ fn organization_read_model_parsers_reject_unknown_states() {
     assert!(super::parse_attendance_status("UNKNOWN").is_err());
 }
 
+#[test]
+fn organization_contract_helpers_round_trip_supported_states() {
+    assert!(matches!(
+        super::parse_employment_type("OFFICIAL").unwrap(),
+        company_organization::EmploymentType::Official
+    ));
+    assert!(matches!(
+        super::parse_attendance_status("CHECKED_OUT").unwrap(),
+        company_organization::AttendanceStatus::CheckedOut
+    ));
+    assert!(matches!(
+        super::parse_department_lifecycle("SCALING").unwrap(),
+        company_organization::DepartmentLifecycle::Scaling
+    ));
+    assert!(matches!(
+        super::parse_department_criticality("GROWTH").unwrap(),
+        company_organization::DepartmentCriticality::Growth
+    ));
+}
+
+#[test]
+fn organization_contract_helpers_fail_closed_on_unknown_states() {
+    assert!(super::parse_employment_type("UNKNOWN").is_err());
+    assert!(super::parse_attendance_status("UNKNOWN").is_err());
+    assert!(super::parse_department_lifecycle("UNKNOWN").is_err());
+    assert!(super::parse_department_criticality("UNKNOWN").is_err());
+}
+
 fn snapshot(company_id: &str) -> CompanySnapshot {
     CompanySnapshot {
         company_id: company_id.into(),
