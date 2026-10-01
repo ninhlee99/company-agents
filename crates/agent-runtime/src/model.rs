@@ -111,7 +111,26 @@ pub fn hardware_tier_for_cores(cores: usize) -> HardwareTier {
     }
 }
 
+fn parse_hardware_tier(value: &str) -> Option<HardwareTier> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "small" => Some(HardwareTier::Small),
+        "medium" => Some(HardwareTier::Medium),
+        "large" => Some(HardwareTier::Large),
+        _ => None,
+    }
+}
+
 fn detected_hardware_tier() -> HardwareTier {
+    if let Ok(configured) = env::var("MODEL_HARDWARE_TIER") {
+        if let Some(tier) = parse_hardware_tier(&configured) {
+            return tier;
+        }
+        tracing::warn!(
+            value = %configured,
+            "invalid MODEL_HARDWARE_TIER; falling back to detected CPU parallelism"
+        );
+    }
+
     std::thread::available_parallelism()
         .map(|value| hardware_tier_for_cores(value.get()))
         .unwrap_or(HardwareTier::Medium)
@@ -1233,6 +1252,14 @@ mod tests {
             classify_model_task(AgentRole::Growth, 13_000, 100),
             ModelTaskClass::Deep
         );
+    }
+
+    #[test]
+    fn configured_hardware_tier_is_parsed_explicitly() {
+        assert_eq!(parse_hardware_tier("small"), Some(HardwareTier::Small));
+        assert_eq!(parse_hardware_tier(" Medium "), Some(HardwareTier::Medium));
+        assert_eq!(parse_hardware_tier("LARGE"), Some(HardwareTier::Large));
+        assert_eq!(parse_hardware_tier("gpu"), None);
     }
 
     #[test]
