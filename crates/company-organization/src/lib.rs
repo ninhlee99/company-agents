@@ -397,3 +397,301 @@ mod tests {
         assert!(org.department_by_type(DepartmentType::CustomerSuccess).is_some());
     }
 }
+
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum EmploymentType {
+    Official,
+    Probation,
+    Apprentice,
+    PartTime,
+    Contractor,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum DepartmentLifecycle {
+    Proposed,
+    Active,
+    Scaling,
+    Paused,
+    Closed,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum DepartmentCriticality {
+    Core,
+    Growth,
+    Control,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AttendanceStatus {
+    Present,
+    Remote,
+    Late,
+    Leave,
+    Absent,
+    CheckedOut,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Team {
+    pub id: String,
+    pub department_id: String,
+    pub parent_team_id: Option<String>,
+    pub name: String,
+    pub charter: String,
+    pub owner_employee_id: Option<String>,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OrganizationEmployeeRecord {
+    pub employee_id: String,
+    pub company_id: String,
+    pub department_id: String,
+    pub team_id: Option<String>,
+    pub manager_id: Option<String>,
+    pub title: String,
+    pub employment_type: EmploymentType,
+    pub employment_level: String,
+    pub joined_at_epoch: i64,
+    pub status: EmployeeStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AttendanceRecord {
+    pub id: String,
+    pub company_id: String,
+    pub employee_id: String,
+    pub work_date: String,
+    pub status: AttendanceStatus,
+    pub shift_start: String,
+    pub shift_end: String,
+    pub check_in_at_epoch: Option<i64>,
+    pub check_out_at_epoch: Option<i64>,
+    pub source: String,
+    pub exception_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DepartmentNeedSignal {
+    pub department_type: DepartmentType,
+    pub required_capabilities: Vec<String>,
+    pub capacity_gap_pct: u8,
+    pub sustained_cycles: u16,
+    pub monthly_budget_ceiling_minor: i128,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DepartmentFormationDecision {
+    NoChange,
+    FormDepartment,
+    ScaleExisting,
+}
+
+pub fn evaluate_department_formation(
+    departments: &[Department],
+    signal: &DepartmentNeedSignal,
+) -> Result<DepartmentFormationDecision, OrganizationError> {
+    if signal.capacity_gap_pct > 100 {
+        return Err(OrganizationError::InvalidValue(
+            "capacity gap percentage must be <= 100".into(),
+        ));
+    }
+    if signal.sustained_cycles == 0 || signal.required_capabilities.is_empty() {
+        return Ok(DepartmentFormationDecision::NoChange);
+    }
+    if signal.monthly_budget_ceiling_minor < 0 {
+        return Err(OrganizationError::InvalidValue(
+            "department budget ceiling cannot be negative".into(),
+        ));
+    }
+
+    let active = departments.iter().any(|department| {
+        department.department_type == signal.department_type && department.active
+    });
+
+    if signal.capacity_gap_pct < 25 || signal.sustained_cycles < 3 {
+        return Ok(DepartmentFormationDecision::NoChange);
+    }
+
+    if active {
+        Ok(DepartmentFormationDecision::ScaleExisting)
+    } else {
+        Ok(DepartmentFormationDecision::FormDepartment)
+    }
+}
+
+pub fn validate_reporting_tree(
+    employees: &[OrganizationEmployeeRecord],
+) -> Result<(), OrganizationError> {
+    use std::collections::{HashMap, HashSet};
+
+    let company_id = employees.first().map(|employee| employee.company_id.as_str());
+    let mut ids = HashSet::new();
+    let mut managers = HashMap::new();
+    for employee in employees {
+        if employee.employee_id.trim().is_empty()
+            || employee.company_id.trim().is_empty()
+            || employee.department_id.trim().is_empty()
+            || employee.title.trim().is_empty()
+            || employee.employment_level.trim().is_empty()
+        {
+            return Err(OrganizationError::InvalidValue(
+                "employee organization record is incomplete".into(),
+            ));
+        }
+        if company_id != Some(employee.company_id.as_str()) {
+            return Err(OrganizationError::InvalidValue(
+                "reporting tree cannot mix employees from different companies".into(),
+            ));
+        }
+        if !ids.insert(employee.employee_id.clone()) {
+            return Err(OrganizationError::InvalidValue(
+                "duplicate employee id in reporting tree".into(),
+            ));
+        }
+        if employee.manager_id.as_deref() == Some(employee.employee_id.as_str()) {
+            return Err(OrganizationError::InvalidValue(
+                "employee cannot manage itself".into(),
+            ));
+        }
+        managers.insert(employee.employee_id.clone(), employee.manager_id.clone());
+    }
+
+    for employee_id in managers.keys() {
+        let mut cursor = Some(employee_id.clone());
+        let mut seen = HashSet::new();
+        while let Some(current) = cursor {
+            if !seen.insert(current.clone()) {
+                return Err(OrganizationError::InvalidValue(
+                    "reporting tree contains a management cycle".into(),
+                ));
+            }
+            cursor = managers.get(&current).cloned().flatten();
+            if let Some(manager) = &cursor {
+                if !managers.contains_key(manager) {
+                    return Err(OrganizationError::InvalidValue(
+                        "manager must belong to the same organization tree".into(),
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod enterprise_organization_tests {
+    use super::*;
+
+    #[test]
+    fn department_formation_requires_sustained_capacity_gap() {
+        let signal = DepartmentNeedSignal {
+            department_type: DepartmentType::CustomerSuccess,
+            required_capabilities: vec!["customer success".into()],
+            capacity_gap_pct: 35,
+            sustained_cycles: 3,
+            monthly_budget_ceiling_minor: 1_000_000,
+        };
+        assert_eq!(
+            evaluate_department_formation(&[], &signal).unwrap(),
+            DepartmentFormationDecision::FormDepartment
+        );
+    }
+
+    #[test]
+    fn existing_department_scales_instead_of_duplicate_forming() {
+        let department = Department {
+            id: "dept-cs".into(),
+            name: "Customer Success".into(),
+            department_type: DepartmentType::CustomerSuccess,
+            lead_role: "Head of Customer Success".into(),
+            monthly_budget_minor: 500_000,
+            currency: "USD".into(),
+            active: true,
+        };
+        let signal = DepartmentNeedSignal {
+            department_type: DepartmentType::CustomerSuccess,
+            required_capabilities: vec!["customer success".into()],
+            capacity_gap_pct: 40,
+            sustained_cycles: 4,
+            monthly_budget_ceiling_minor: 900_000,
+        };
+        assert_eq!(
+            evaluate_department_formation(&[department], &signal).unwrap(),
+            DepartmentFormationDecision::ScaleExisting
+        );
+    }
+
+    #[test]
+    fn reporting_tree_rejects_cycles_and_unknown_managers() {
+        let mut people = vec![
+            OrganizationEmployeeRecord {
+                employee_id: "a".into(),
+                company_id: "c".into(),
+                department_id: "d".into(),
+                team_id: None,
+                manager_id: Some("b".into()),
+                title: "Lead".into(),
+                employment_type: EmploymentType::Official,
+                employment_level: "L5".into(),
+                joined_at_epoch: 1,
+                status: EmployeeStatus::Active,
+            },
+            OrganizationEmployeeRecord {
+                employee_id: "b".into(),
+                company_id: "c".into(),
+                department_id: "d".into(),
+                team_id: None,
+                manager_id: Some("a".into()),
+                title: "Lead".into(),
+                employment_type: EmploymentType::Official,
+                employment_level: "L5".into(),
+                joined_at_epoch: 1,
+                status: EmployeeStatus::Active,
+            },
+        ];
+        assert!(validate_reporting_tree(&people).is_err());
+
+        people[1].manager_id = Some("missing".into());
+        assert!(validate_reporting_tree(&people).is_err());
+    }
+
+    #[test]
+    fn reporting_tree_accepts_root_and_direct_report() {
+        let people = vec![
+            OrganizationEmployeeRecord {
+                employee_id: "ceo".into(),
+                company_id: "c".into(),
+                department_id: "exec".into(),
+                team_id: None,
+                manager_id: None,
+                title: "CEO".into(),
+                employment_type: EmploymentType::Official,
+                employment_level: "L9".into(),
+                joined_at_epoch: 1,
+                status: EmployeeStatus::Active,
+            },
+            OrganizationEmployeeRecord {
+                employee_id: "hr".into(),
+                company_id: "c".into(),
+                department_id: "people".into(),
+                team_id: None,
+                manager_id: Some("ceo".into()),
+                title: "People Director".into(),
+                employment_type: EmploymentType::Official,
+                employment_level: "L7".into(),
+                joined_at_epoch: 2,
+                status: EmployeeStatus::Active,
+            },
+        ];
+        assert!(validate_reporting_tree(&people).is_ok());
+    }
+}
