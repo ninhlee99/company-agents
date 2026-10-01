@@ -3859,6 +3859,99 @@ impl CompanyStore {
         Ok(())
     }
 
+    pub async fn ensure_standard_hr_configuration(
+        &self,
+        company_id: &str,
+        currency: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        for (code, name, start, end, grace) in [
+            ("OFFICE_0830", "Standard Office", "08:30", "17:30", 10_i32),
+            ("FLEX_0900", "Flexible Office", "09:00", "18:00", 15_i32),
+            ("PART_1400", "Part-time Core", "14:00", "18:00", 10_i32),
+        ] {
+            tx.execute(
+                "INSERT INTO attendance_policies
+                    (id, company_id, code, name, timezone, shift_start, shift_end, grace_minutes, work_days, active)
+                 VALUES ($1,$2,$3,$4,'Asia/Ho_Chi_Minh',$5::time,$6::time,$7,ARRAY[1,2,3,4,5],true)
+                 ON CONFLICT (company_id, code) DO UPDATE
+                   SET name=EXCLUDED.name,
+                       timezone=EXCLUDED.timezone,
+                       shift_start=EXCLUDED.shift_start,
+                       shift_end=EXCLUDED.shift_end,
+                       grace_minutes=EXCLUDED.grace_minutes,
+                       work_days=EXCLUDED.work_days,
+                       active=true,
+                       updated_at=now()",
+                &[&Uuid::new_v4(), &company_uuid, &code, &name, &start, &end, &grace],
+            ).await?;
+        }
+
+        let positions = [
+            ("EXEC_CEO", "EXEC", "Chief Executive Officer", "L9", vec!["OFFICIAL"], vec!["Strategy & OKR","Executive governance","Capital allocation"]),
+            ("PROD_LEAD", "PROD", "Product & Innovation Lead", "L7", vec!["OFFICIAL"], vec!["Product strategy","Roadmap","Experimentation"]),
+            ("PROD_SPECIALIST", "PROD", "Product Specialist", "L4", vec!["OFFICIAL","PROBATION","APPRENTICE"], vec!["Discovery","Product operations","Quality"]),
+            ("GROWTH_LEAD", "GROWTH", "Growth & Marketing Lead", "L7", vec!["OFFICIAL"], vec!["Demand generation","Lifecycle growth","Attribution"]),
+            ("GROWTH_SPECIALIST", "GROWTH", "Growth Specialist", "L4", vec!["OFFICIAL","PROBATION","APPRENTICE"], vec!["Content growth","Campaign operations","Pipeline"]),
+            ("CREATIVE_LEAD", "CREATIVE", "Creative Director", "L7", vec!["OFFICIAL"], vec!["Creative direction","Brand systems","Asset governance"]),
+            ("CREATIVE_SPECIALIST", "CREATIVE", "Creative Specialist", "L4", vec!["OFFICIAL","PROBATION","APPRENTICE"], vec!["Creative production","Media operations","Asset QA"]),
+            ("COMMERCIAL_LEAD", "COMMERCIAL", "Head of Sales", "L7", vec!["OFFICIAL"], vec!["Sales pipeline","Commercial delivery","Expansion"]),
+            ("COMMERCIAL_SPECIALIST", "COMMERCIAL", "Sales Specialist", "L4", vec!["OFFICIAL","PROBATION","APPRENTICE"], vec!["Prospecting","Pipeline hygiene","Proposal support"]),
+            ("RISK_LEAD", "RISK", "Risk & Compliance Lead", "L7", vec!["OFFICIAL"], vec!["Policy","Compliance","Audit"]),
+            ("RISK_SPECIALIST", "RISK", "Compliance Specialist", "L4", vec!["OFFICIAL","PROBATION"], vec!["Control checks","Evidence","Exception management"]),
+            ("CS_LEAD", "CS", "Head of Customer Success", "L7", vec!["OFFICIAL"], vec!["Onboarding","Customer health","Retention"]),
+            ("CS_SPECIALIST", "CS", "Customer Success Specialist", "L4", vec!["OFFICIAL","PROBATION","APPRENTICE"], vec!["Customer tasks","Support","Health monitoring"]),
+            ("TREASURY_LEAD", "TREASURY", "Chief Financial Officer", "L8", vec!["OFFICIAL"], vec!["Accounting","Treasury","Financial planning"]),
+            ("TREASURY_SPECIALIST", "TREASURY", "Finance Specialist", "L4", vec!["OFFICIAL","PROBATION"], vec!["Close support","Reconciliation","Reporting"]),
+            ("OPS_LEAD", "OPS", "Operations & Technology Lead", "L7", vec!["OFFICIAL"], vec!["Process excellence","Platform operations","Reliability"]),
+            ("OPS_SPECIALIST", "OPS", "Operations Specialist", "L4", vec!["OFFICIAL","PROBATION","APPRENTICE"], vec!["SLA operations","Capacity","Workflow execution"]),
+        ];
+
+        for (code, department_code, title, level, allowed_types, responsibilities) in positions {
+            let department_id: Uuid = tx.query_one(
+                "SELECT id FROM departments WHERE company_id=$1 AND code=$2",
+                &[&company_uuid, &department_code],
+            ).await?.get(0);
+            let team_id: Uuid = tx.query_one(
+                "SELECT id FROM teams WHERE company_id=$1 AND department_id=$2 AND active=true ORDER BY name ASC LIMIT 1",
+                &[&company_uuid, &department_id],
+            ).await?.get(0);
+            tx.execute(
+                "INSERT INTO job_positions
+                    (id, company_id, department_id, team_id, code, title, level,
+                     employment_types, responsibilities, monthly_cost_min_minor, monthly_cost_max_minor, active)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,0,0,true)
+                 ON CONFLICT (company_id, code) DO UPDATE
+                   SET department_id=EXCLUDED.department_id,
+                       team_id=EXCLUDED.team_id,
+                       title=EXCLUDED.title,
+                       level=EXCLUDED.level,
+                       employment_types=EXCLUDED.employment_types,
+                       responsibilities=EXCLUDED.responsibilities,
+                       active=true,
+                       updated_at=now()",
+                &[
+                    &Uuid::new_v4(),
+                    &company_uuid,
+                    &department_id,
+                    &team_id,
+                    &code,
+                    &title,
+                    &level,
+                    &serde_json::to_value(&allowed_types)?,
+                    &serde_json::to_value(&responsibilities)?,
+                ],
+            ).await?;
+        }
+
+        tracing::info!(company_id=%company_id,currency=%currency,"standard HR configuration ensured");
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn upsert_employee(
         &self,
         company_id: &str,
