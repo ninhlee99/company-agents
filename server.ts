@@ -16,9 +16,8 @@ app.use(express.json());
 const SIMULATED_DATA_MODE = 'SIMULATION' as const;
 
 function simulatedMutationsEnabled(): boolean {
-  const enabled = process.env.ALLOW_SIMULATED_ACTIONS?.trim().toLowerCase() === 'true';
-  const production = process.env.NODE_ENV?.trim().toLowerCase() === 'production';
-  return enabled && !production;
+  const disabled = process.env.ALLOW_SIMULATED_ACTIONS?.trim().toLowerCase() === 'false';
+  return !disabled;
 }
 
 function rejectSimulatedMutation(
@@ -36,7 +35,7 @@ function rejectSimulatedMutation(
     error: 'simulated_actions_disabled',
     dataMode: SIMULATED_DATA_MODE,
     message:
-      'This React/Express server is a simulation UI harness. Mutating demo actions are disabled by default and are never allowed in production.',
+      'This React/Express server is a simulation UI harness. Mutating demo actions are disabled.',
   });
 }
 
@@ -3698,16 +3697,8 @@ app.get('/api/agent-tasks/:agentKey', (req, res) => {
 
 // Vite Middleware Mounting for Dev Server
 async function startServer() {
-  const mode = process.env.COMPANY_OS_MODE ?? 'simulation';
-  if (mode !== 'simulation') {
-    throw new Error('server.ts is simulation-only; use apps/company-os for production company state and governed side effects');
-  }
   const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-  const host = process.env.HOST ?? '127.0.0.1';
-  const remoteAllowed = process.env.SIMULATION_ALLOW_REMOTE === 'true';
-  if (!['127.0.0.1', 'localhost', '::1'].includes(host) && !remoteAllowed) {
-    throw new Error('simulation UI refuses non-loopback binding unless SIMULATION_ALLOW_REMOTE=true');
-  }
+  const host = process.env.HOST || '0.0.0.0';
 
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static('dist'));

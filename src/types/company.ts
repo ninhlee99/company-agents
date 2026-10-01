@@ -318,8 +318,8 @@ export interface AudioTrackSpec {
 
 export interface VisualShotSpec {
   shotIndex: number;
-  framing: 'Macro Detail Close-Up' | '45-Degree Desk Top-Down' | 'POV Handheld Showcase' | 'Side Split Comparison';
-  lighting: 'Studio Softbox Glow' | 'Cyberpunk Neon Accent' | 'Warm Natural Daylight';
+  framing: 'Macro Detail Close-Up' | '45-Degree Desk Top-Down' | 'POV Handheld Showcase' | 'Side Split Comparison' | string;
+  lighting: 'Studio Softbox Glow' | 'Cyberpunk Neon Accent' | 'Warm Natural Daylight' | string;
   imagePrompt: string;
   durationSec: number;
   textOverlay: string;
