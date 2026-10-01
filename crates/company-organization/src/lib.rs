@@ -574,7 +574,6 @@ pub struct DepartmentRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TeamRecord {
     pub id: String,
     pub company_id: String,
