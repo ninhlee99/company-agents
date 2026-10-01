@@ -4808,10 +4808,10 @@ impl CompanyStore {
     }
 
     fn tiktok_connection_needs_connected_event(previous_status: Option<&str>) -> bool {
-    !matches!(previous_status, Some("ACTIVE"))
-}
+        !matches!(previous_status, Some("ACTIVE"))
+    }
 
-pub async fn save_tiktok_token_set(
+    pub async fn save_tiktok_token_set(
         &self,
         company_id: &str,
         token: &company_tiktok_auth::TokenSet,
