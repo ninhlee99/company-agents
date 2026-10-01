@@ -504,6 +504,18 @@ pub struct DepartmentRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TeamRecord {
+    pub id: String,
+    pub company_id: String,
+    pub department_id: String,
+    pub parent_team_id: Option<String>,
+    pub name: String,
+    pub charter: String,
+    pub owner_employee_id: Option<String>,
+    pub active: bool,
+}
+
 pub struct AttendanceRecord {
     pub id: String,
     pub company_id: String,
