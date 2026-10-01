@@ -3783,6 +3783,7 @@ impl CompanyStore {
             ("COMMERCIAL", "Commercial & Sales", "Quản trị pipeline doanh thu, proposals, contracts, delivery và customer expansion.", serde_json::json!(["Sales pipeline", "Proposals", "Commercial delivery", "Expansion"]), serde_json::json!(["Win rate", "Gross revenue", "Collection cycle"]), "CORE"),
             ("RISK", "Risk & Compliance", "Bảo đảm policy, compliance, auditability và kiểm soát các hành động có rủi ro.", serde_json::json!(["Policy", "Compliance checks", "Audit", "Risk controls"]), serde_json::json!(["Control coverage", "Exception closure", "Audit freshness"]), "CONTROL"),
             ("CS", "Customer Success", "Duy trì customer health, onboarding, retention và xử lý các nhiệm vụ hậu mãi.", serde_json::json!(["Onboarding", "Customer health", "Retention", "Support escalation"]), serde_json::json!(["Retention", "Time-to-resolution", "Health coverage"]), "CORE"),
+            ("PEOPLE", "People & Culture", "Quản trị talent lifecycle, organization design, policy, attendance và employee experience.", serde_json::json!(["Recruitment", "Employment lifecycle", "Attendance & policy", "Performance & development"]), serde_json::json!(["Time-to-fill", "Retention", "Attendance integrity"]), "CONTROL"),
             ("TREASURY", "Treasury & Finance", "Quản trị cash, accounting, payroll readiness, budgets và financial control.", serde_json::json!(["Accounting", "Treasury", "Payroll control", "Financial planning"]), serde_json::json!(["Cash accuracy", "Runway", "Close cycle"]), "CONTROL"),
             ("OPS", "Operations & Technology", "Điều phối vận hành, platform reliability và capacity để công ty chạy ổn định.", serde_json::json!(["Process excellence", "Platform operations", "Capacity", "Reliability"]), serde_json::json!(["SLA attainment", "Uptime", "Throughput"]), "CORE"),
         ];
@@ -3944,6 +3945,8 @@ impl CompanyStore {
             ("RISK_SPECIALIST", "RISK", "Compliance Specialist", "L4", vec!["OFFICIAL","PROBATION"], vec!["Control checks","Evidence","Exception management"]),
             ("CS_LEAD", "CS", "Head of Customer Success", "L7", vec!["OFFICIAL"], vec!["Onboarding","Customer health","Retention"]),
             ("CS_SPECIALIST", "CS", "Customer Success Specialist", "L4", vec!["OFFICIAL","PROBATION","APPRENTICE"], vec!["Customer tasks","Support","Health monitoring"]),
+            ("PEOPLE_LEAD", "PEOPLE", "People & Culture Lead", "L7", vec!["OFFICIAL"], vec!["Recruitment","Organization design","Policy and compliance","Employee experience"]),
+            ("PEOPLE_SPECIALIST", "PEOPLE", "People Operations Specialist", "L4", vec!["OFFICIAL","PROBATION","APPRENTICE"], vec!["Onboarding","Attendance operations","Employee support"]),
             ("TREASURY_LEAD", "TREASURY", "Chief Financial Officer", "L8", vec!["OFFICIAL"], vec!["Accounting","Treasury","Financial planning"]),
             ("TREASURY_SPECIALIST", "TREASURY", "Finance Specialist", "L4", vec!["OFFICIAL","PROBATION"], vec!["Close support","Reconciliation","Reporting"]),
             ("OPS_LEAD", "OPS", "Operations & Technology Lead", "L7", vec!["OFFICIAL"], vec!["Process excellence","Platform operations","Reliability"]),
@@ -8801,6 +8804,7 @@ fn standard_department_metadata(
         company_organization::DepartmentType::CommercialAndSales => ("Commercial & Sales".into(), "CORE"),
         company_organization::DepartmentType::RiskAndCompliance => ("Risk & Compliance".into(), "CONTROL"),
         company_organization::DepartmentType::CustomerSuccess => ("Customer Success".into(), "CORE"),
+        company_organization::DepartmentType::PeopleAndCulture => ("People & Culture".into(), "CONTROL"),
         company_organization::DepartmentType::TreasuryAndFinance => ("Treasury & Finance".into(), "CONTROL"),
         company_organization::DepartmentType::OperationsAndTech => ("Operations & Technology".into(), "CORE"),
     }
