@@ -209,10 +209,52 @@ type OrganizationWorkspaceResponse = {
     department_id?: string | null;
     team_id?: string | null;
     manager_id?: string | null;
+    position_id?: string | null;
     employment_type: string;
     employment_level: string;
     joined_at_epoch?: number | null;
     status: string;
+  }>;
+  positions: Array<{
+    id: string;
+    company_id: string;
+    department_id: string;
+    team_id?: string | null;
+    code: string;
+    title: string;
+    level: string;
+    employment_types: string[];
+    responsibilities: string[];
+    monthly_cost_min_minor: number | string;
+    monthly_cost_max_minor: number | string;
+    active: boolean;
+  }>;
+  attendance_policies: Array<{
+    id: string;
+    company_id: string;
+    code: string;
+    name: string;
+    timezone: string;
+    shift_start: string;
+    shift_end: string;
+    grace_minutes: number;
+    work_days: number[];
+    active: boolean;
+  }>;
+  lifecycle_events: Array<{
+    id: string;
+    company_id: string;
+    employee_id: string;
+    event_type: string;
+    effective_at_epoch: number;
+    position_id?: string | null;
+    department_id?: string | null;
+    team_id?: string | null;
+    manager_id?: string | null;
+    notes?: string | null;
+    approval_reference?: string | null;
+    actor_id: string;
+    created_at_epoch: number;
   }>;
   teams: Array<{
     id: string;
@@ -291,9 +333,12 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
   const [liveCompanyId, setLiveCompanyId] = useState('');
   const [liveCurrency, setLiveCurrency] = useState('USD');
   const [liveTeams, setLiveTeams] = useState<OrganizationWorkspaceResponse['teams']>([]);
+  const [livePositions, setLivePositions] = useState<OrganizationWorkspaceResponse['positions']>([]);
+  const [livePolicies, setLivePolicies] = useState<OrganizationWorkspaceResponse['attendance_policies']>([]);
+  const [liveLifecycleEvents, setLiveLifecycleEvents] = useState<OrganizationWorkspaceResponse['lifecycle_events']>([]);
   const [showEmployeeForm, setShowEmployeeForm] = useState(false);
   const [savingEmployee, setSavingEmployee] = useState(false);
-  const [newEmployee, setNewEmployee] = useState({ name: '', title: '', departmentId: '', managerId: '', employmentType: 'OFFICIAL', employmentLevel: 'L4', monthlyCost: '0' });
+  const [newEmployee, setNewEmployee] = useState({ name: '', title: '', positionId: '', departmentId: '', managerId: '', employmentType: 'OFFICIAL', employmentLevel: 'L4', monthlyCost: '0' });
   const [view, setView] = useState<'overview' | 'departments' | 'employees' | 'attendance'>('overview');
   const [selectedDepartmentId, setSelectedDepartmentId] = useState('people');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
@@ -305,6 +350,9 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
   const people = dataSource === 'DEMO_FALLBACK' ? seedPeople : livePeople;
   const selectedDepartment = departmentList.find((department) => department.id === selectedDepartmentId) ?? departmentList[0];
   const selectedEmployee = selectedEmployeeId ? people.find((person) => person.id === selectedEmployeeId) : undefined;
+  const selectedPosition = selectedEmployee?.positionId ? livePositions.find((position) => position.id === selectedEmployee.positionId) : undefined;
+  const selectedPolicy = selectedEmployee ? livePolicies.find((policy) => policy.active && policy.code === (selectedEmployee.employmentType === 'Part-time' ? 'PART_1400' : 'OFFICE_0830')) : undefined;
+  const selectedLifecycle = selectedEmployee ? liveLifecycleEvents.filter((event) => event.employee_id === selectedEmployee.id).sort((a, b) => b.effective_at_epoch - a.effective_at_epoch) : [];
 
   useEffect(() => {
     let cancelled = false;
@@ -318,6 +366,9 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
         setLiveCompanyId(data.company_id);
         setLiveCurrency(data.currency);
         setLiveTeams(data.teams);
+        setLivePositions(data.positions);
+        setLivePolicies(data.attendance_policies);
+        setLiveLifecycleEvents(data.lifecycle_events);
 
         const attendanceByEmployee = new Map(data.attendance.map((record) => [record.employee_id, record]));
         const nextPeople: Person[] = data.employees.map((employee) => {
