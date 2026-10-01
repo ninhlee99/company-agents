@@ -185,12 +185,14 @@ const cx = (...v: Array<string | false | null | undefined>) => v.filter(Boolean)
 export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiAgentCount = 0 }) => {
   const [view, setView] = useState<'overview' | 'departments' | 'employees' | 'attendance'>('overview');
   const [selectedDepartmentId, setSelectedDepartmentId] = useState('people');
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState('p05');
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [search, setSearch] = useState('');
   const [employment, setEmployment] = useState<'All' | EmploymentType>('All');
   const [showAdvisor, setShowAdvisor] = useState(true);
+  const [departmentList, setDepartmentList] = useState<Department[]>(departments);
+  const [departmentActivationPending, setDepartmentActivationPending] = useState(false);
 
-  const selectedDepartment = departments.find((department) => department.id === selectedDepartmentId) ?? departments[0];
+  const selectedDepartment = departmentList.find((department) => department.id === selectedDepartmentId) ?? departmentList[0];
   const selectedEmployee = people.find((person) => person.id === selectedEmployeeId) ?? people[0];
 
   const presentCount = people.filter((person) => person.attendance === 'Đang làm' || person.attendance === 'Đã ra về').length;
@@ -273,7 +275,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
               <div className="relative">
                 <div className="absolute left-[10%] right-[10%] top-0 h-px bg-slate-700"></div>
                 <div className="grid grid-cols-5 gap-3">
-                  {departments.filter((d) => d.id !== 'exec').map((department) => (
+                  {departmentList.filter((d) => d.id !== 'exec').map((department) => (
                     <button key={department.id} onClick={() => setSelectedDepartmentId(department.id)} className={cx('relative rounded-xl border p-3 text-left transition-all', selectedDepartmentId === department.id ? 'border-blue-500/40 bg-blue-500/[0.05]' : 'border-slate-800 bg-slate-950/65 hover:border-slate-700')}>
                       <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-slate-950 border border-slate-700"></div>
                       <div className="flex items-center gap-2.5"><div className={cx('w-8 h-8 rounded-lg border border-slate-700 bg-slate-800 flex items-center justify-center text-[9px] font-bold', department.status === 'Forming' ? 'text-cyan-300' : 'text-slate-200')}>{department.shortName}</div><div className="min-w-0"><div className="text-[11px] font-semibold text-white truncate">{department.name}</div><div className="text-[9px] text-slate-500 truncate">{department.ownerTitle}</div></div></div>
@@ -284,7 +286,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
               </div>
 
               <div className="grid grid-cols-5 gap-3 mt-4">
-                {departments.filter((d) => d.id !== 'exec').map((department) => {
+                {departmentList.filter((d) => d.id !== 'exec').map((department) => {
                   const departmentPeople = people.filter((person) => person.departmentId === department.id).slice(0, 3);
                   return (
                     <div key={department.id} className="rounded-xl border border-slate-800 bg-slate-950/45 p-2.5">
@@ -313,7 +315,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
           <section className="rounded-2xl border border-slate-800 bg-slate-900/55 overflow-hidden">
             <div className="px-4 py-3.5 border-b border-slate-800 flex items-center justify-between"><div><h2 className="text-sm font-semibold text-white">Department Charters</h2><p className="text-[10px] text-slate-500 mt-0.5">Mỗi phòng ban có trách nhiệm, owner và KPI riêng</p></div><ClipboardCheck className="w-4 h-4 text-slate-500" /></div>
             <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-              {departments.map((department) => (
+              {departmentList.map((department) => (
                 <button key={department.id} onClick={() => setSelectedDepartmentId(department.id)} className={cx('rounded-xl border p-3.5 text-left transition-all', selectedDepartmentId === department.id ? 'border-blue-500/35 bg-blue-500/[0.045]' : 'border-slate-800 bg-slate-950/50 hover:border-slate-700')}>
                   <div className="flex items-start justify-between gap-3">
                     <div><div className="flex items-center gap-2"><h3 className="text-xs font-semibold text-white">{department.name}</h3><span className={cx('text-[8px] px-1.5 py-0.5 rounded border', deptTone[department.criticality])}>{department.criticality}</span></div><div className="mt-1 text-[10px] text-slate-500">Owner · {department.owner} · {department.ownerTitle}</div></div>
@@ -367,6 +369,40 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
           </div>
           <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-2.5"><div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Trigger</div><div className="text-[10px] text-slate-300 mt-1">Pipeline ownership gap</div></div><div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Required capability</div><div className="text-[10px] text-slate-300 mt-1">Sales + partnerships + demand generation</div></div><div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Governance</div><div className="text-[10px] text-slate-300 mt-1">Charter → owner → budget → roles → activation</div></div></div>
         </section>
+      )}
+
+      {departmentActivationPending && (
+        <div className="fixed inset-0 z-[65] bg-black/55 backdrop-blur-[2px] flex items-center justify-center p-4" onClick={() => setDepartmentActivationPending(false)}>
+          <div className="w-full max-w-lg rounded-2xl border border-cyan-500/15 bg-slate-950 shadow-2xl overflow-hidden" onClick={(event) => event.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+              <div><div className="text-[10px] uppercase tracking-[0.14em] text-cyan-300">Department proposal</div><div className="mt-1 text-sm font-semibold text-white">Growth & Commercial</div></div>
+              <button onClick={() => setDepartmentActivationPending(false)} className="p-2 rounded-lg text-slate-500 hover:text-white hover:bg-slate-800"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="rounded-xl border border-slate-800 bg-slate-900/55 p-3.5 text-[10px] leading-5 text-slate-400">Activation chỉ được ghi nhận sau khi charter, owner, budget ceiling và critical roles đã được xác định. Đây là organization change có audit trail, không phải tự ý bypass governance.</div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Charter</div><div className="mt-1 text-[10px] text-slate-300">Revenue pipeline & partnerships</div></div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Initial team</div><div className="mt-1 text-[10px] text-slate-300">Head of Sales + 2 specialists</div></div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Owner</div><div className="mt-1 text-[10px] text-slate-300">Jordan Lee · CGO</div></div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Budget ceiling</div><div className="mt-1 text-[10px] text-slate-300">$12,000 / month</div></div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setDepartmentActivationPending(false)} className="flex-1 rounded-xl border border-slate-700 bg-slate-900 py-2.5 text-[10px] font-semibold text-slate-300">Để review</button>
+                <button
+                  onClick={() => {
+                    setDepartmentList((current) => current.some((item) => item.id === 'growth') ? current.map((item) => item.id === 'growth' ? { ...item, status: 'Active' as const } : item) : [...current, { id: 'growth', name: 'Growth & Commercial', shortName: 'GROWTH', owner: 'Jordan Lee', ownerTitle: 'Chief Growth Officer', charter: 'Tạo pipeline, tăng trưởng demand và chuyển đổi thành doanh thu được kiểm chứng.', responsibilities: ['Demand generation', 'Sales pipeline', 'Partnerships', 'Revenue experiments'], kpis: ['Qualified pipeline', 'Conversion', 'Gross revenue'], headcount: 0, openRoles: 3, criticality: 'Growth' as const, status: 'Active' as const }]);
+                    setSelectedDepartmentId('growth');
+                    setDepartmentActivationPending(false);
+                    setView('departments');
+                  }}
+                  className="flex-1 rounded-xl bg-cyan-600 py-2.5 text-[10px] font-semibold text-white hover:bg-cyan-500"
+                >
+                  Kích hoạt với governance
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {selectedEmployee && (view === 'employees' || view === 'attendance' || view === 'overview') && (
