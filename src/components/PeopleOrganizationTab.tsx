@@ -8,7 +8,6 @@ import {
   ClipboardCheck,
   Clock3,
   GitBranch,
-  Layers3,
   MapPin,
   MoreHorizontal,
   Plus,
