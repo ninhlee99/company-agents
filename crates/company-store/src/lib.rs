@@ -4001,6 +4001,142 @@ impl CompanyStore {
         Ok(())
     }
 
+    pub async fn list_job_positions(
+        &self,
+        company_id: &str,
+    ) -> Result<Vec<company_organization::JobPositionRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT id, company_id, department_id, team_id, code, title, level,
+                        employment_types, responsibilities,
+                        monthly_cost_min_minor::text, monthly_cost_max_minor::text, active
+                   FROM job_positions
+                  WHERE company_id=$1
+                  ORDER BY department_id ASC, level DESC, title ASC, id ASC",
+                &[&company_uuid],
+            )
+            .await?;
+        rows.into_iter()
+            .map(|row| {
+                let employment_types_json: Vec<String> = serde_json::from_value(row.get(7))?;
+                let employment_types = employment_types_json
+                    .into_iter()
+                    .map(|value| parse_employment_type(&value))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let responsibilities = serde_json::from_value::<Vec<String>>(row.get(8))?;
+                Ok(company_organization::JobPositionRecord {
+                    id: row.get::<_, Uuid>(0).to_string(),
+                    company_id: row.get::<_, Uuid>(1).to_string(),
+                    department_id: row.get::<_, Uuid>(2).to_string(),
+                    team_id: row.get::<_, Option<Uuid>>(3).map(|id| id.to_string()),
+                    code: row.get(4),
+                    title: row.get(5),
+                    level: row.get(6),
+                    employment_types,
+                    responsibilities,
+                    monthly_cost_min_minor: parse_i128_numeric(&row.get::<_, String>(9))?,
+                    monthly_cost_max_minor: parse_i128_numeric(&row.get::<_, String>(10))?,
+                    active: row.get(11),
+                })
+            })
+            .collect()
+    }
+
+    pub async fn list_attendance_policies(
+        &self,
+        company_id: &str,
+    ) -> Result<Vec<company_organization::AttendancePolicyRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT id, company_id, code, name, timezone, shift_start::text, shift_end::text,
+                        grace_minutes, work_days, active
+                   FROM attendance_policies
+                  WHERE company_id=$1
+                  ORDER BY active DESC, code ASC",
+                &[&company_uuid],
+            )
+            .await?;
+        rows.into_iter()
+            .map(|row| {
+                let work_days = row
+                    .get::<_, Vec<i16>>(8)
+                    .into_iter()
+                    .map(|day| u8::try_from(day).map_err(|_| "invalid attendance work day"))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(company_organization::AttendancePolicyRecord {
+                    id: row.get::<_, Uuid>(0).to_string(),
+                    company_id: row.get::<_, Uuid>(1).to_string(),
+                    code: row.get(2),
+                    name: row.get(3),
+                    timezone: row.get(4),
+                    shift_start: row.get(5),
+                    shift_end: row.get(6),
+                    grace_minutes: row.get(7),
+                    work_days,
+                    active: row.get(9),
+                })
+            })
+            .collect()
+    }
+
+    pub async fn list_employee_lifecycle_events(
+        &self,
+        company_id: &str,
+    ) -> Result<Vec<company_organization::EmploymentLifecycleEventRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT id, company_id, employee_id, event_type,
+                        extract(epoch FROM effective_at)::bigint,
+                        position_id, department_id, team_id, manager_id,
+                        notes, approval_reference, actor_id,
+                        extract(epoch FROM created_at)::bigint
+                   FROM employment_lifecycle_events
+                  WHERE company_id=$1
+                  ORDER BY effective_at DESC, created_at DESC, id DESC",
+                &[&company_uuid],
+            )
+            .await?;
+        rows.into_iter()
+            .map(|row| {
+                let event_type = match row.get::<_, String>(3).as_str() {
+                    "HIRED" => company_organization::EmploymentLifecycleEventType::Hired,
+                    "PROBATION_STARTED" => company_organization::EmploymentLifecycleEventType::ProbationStarted,
+                    "PROBATION_PASSED" => company_organization::EmploymentLifecycleEventType::ProbationPassed,
+                    "APPRENTICESHIP_STARTED" => company_organization::EmploymentLifecycleEventType::ApprenticeshipStarted,
+                    "APPOINTED" => company_organization::EmploymentLifecycleEventType::Appointed,
+                    "PROMOTED" => company_organization::EmploymentLifecycleEventType::Promoted,
+                    "TRANSFERRED" => company_organization::EmploymentLifecycleEventType::Transferred,
+                    "MANAGER_CHANGED" => company_organization::EmploymentLifecycleEventType::ManagerChanged,
+                    "SUSPENDED" => company_organization::EmploymentLifecycleEventType::Suspended,
+                    "REINSTATED" => company_organization::EmploymentLifecycleEventType::Reinstated,
+                    "TERMINATED" => company_organization::EmploymentLifecycleEventType::Terminated,
+                    other => return Err(format!("unknown employment lifecycle event: {other}").into()),
+                };
+                Ok(company_organization::EmploymentLifecycleEventRecord {
+                    id: row.get::<_, Uuid>(0).to_string(),
+                    company_id: row.get::<_, Uuid>(1).to_string(),
+                    employee_id: row.get::<_, Uuid>(2).to_string(),
+                    event_type,
+                    effective_at_epoch: row.get(4),
+                    position_id: row.get::<_, Option<Uuid>>(5).map(|id| id.to_string()),
+                    department_id: row.get::<_, Option<Uuid>>(6).map(|id| id.to_string()),
+                    team_id: row.get::<_, Option<Uuid>>(7).map(|id| id.to_string()),
+                    manager_id: row.get::<_, Option<Uuid>>(8).map(|id| id.to_string()),
+                    notes: row.get(9),
+                    approval_reference: row.get(10),
+                    actor_id: row.get(11),
+                    created_at_epoch: row.get(12),
+                })
+            })
+            .collect()
+    }
+
     pub async fn list_departments(
         &self,
         company_id: &str,
