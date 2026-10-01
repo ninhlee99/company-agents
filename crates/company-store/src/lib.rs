@@ -3859,6 +3859,102 @@ impl CompanyStore {
         Ok(())
     }
 
+    pub async fn ensure_standard_hr_configuration(
+        &self,
+        company_id: &str,
+        currency: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        let policies = [
+            ("OFFICE_0830", "Standard Office", "08:30", "17:30", 10),
+            ("FLEX_0900", "Flexible Office", "09:00", "18:00", 15),
+            ("PART_1400", "Part-time Core", "14:00", "18:00", 10),
+        ];
+        for (code, name, shift_start, shift_end, grace_minutes) in policies {
+            tx.execute(
+                "INSERT INTO attendance_policies
+                    (id, company_id, code, name, timezone, shift_start, shift_end, grace_minutes, work_days, active)
+                 VALUES ($1,$2,$3,$4,'Asia/Ho_Chi_Minh',$5::time,$6::time,$7,ARRAY[1,2,3,4,5],true)
+                 ON CONFLICT (company_id, code) DO UPDATE
+                   SET name=EXCLUDED.name,
+                       timezone=EXCLUDED.timezone,
+                       shift_start=EXCLUDED.shift_start,
+                       shift_end=EXCLUDED.shift_end,
+                       grace_minutes=EXCLUDED.grace_minutes,
+                       work_days=EXCLUDED.work_days,
+                       active=true,
+                       updated_at=now()",
+                &[&Uuid::new_v4(), &company_uuid, &code, &name, &shift_start, &shift_end, &grace_minutes],
+            ).await?;
+        }
+
+        let positions = [
+            ("EXEC_CEO", "EXEC", "Chief Executive Officer", "L9", r#"["Strategy & OKR","Executive governance","Capital allocation"]"#),
+            ("EXEC_CO", "EXEC", "Chief of Operations", "L8", r#"["Operating system","Cross-functional execution","Capacity planning"]"#),
+            ("PROD_LEAD", "PROD", "Product & Innovation Lead", "L7", r#"["Product strategy","Roadmap","Experimentation"]"#),
+            ("PROD_SPECIALIST", "PROD", "Product Specialist", "L4", r#"["Discovery","Product operations","Quality"]"#),
+            ("GROWTH_LEAD", "GROWTH", "Growth & Marketing Lead", "L7", r#"["Demand generation","Lifecycle growth","Attribution"]"#),
+            ("GROWTH_SPECIALIST", "GROWTH", "Growth Specialist", "L4", r#"["Content growth","Campaign operations","Pipeline"]"#),
+            ("CREATIVE_LEAD", "CREATIVE", "Creative Director", "L7", r#"["Creative direction","Brand systems","Asset governance"]"#),
+            ("CREATIVE_SPECIALIST", "CREATIVE", "Creative Specialist", "L4", r#"["Creative production","Media operations","Asset QA"]"#),
+            ("COMMERCIAL_LEAD", "COMMERCIAL", "Head of Sales", "L7", r#"["Sales pipeline","Commercial delivery","Expansion"]"#),
+            ("COMMERCIAL_SPECIALIST", "COMMERCIAL", "Sales Specialist", "L4", r#"["Prospecting","Pipeline hygiene","Proposal support"]"#),
+            ("RISK_LEAD", "RISK", "Risk & Compliance Lead", "L7", r#"["Policy","Compliance","Audit"]"#),
+            ("RISK_SPECIALIST", "RISK", "Compliance Specialist", "L4", r#"["Control checks","Evidence","Exception management"]"#),
+            ("CS_LEAD", "CS", "Head of Customer Success", "L7", r#"["Onboarding","Customer health","Retention"]"#),
+            ("CS_SPECIALIST", "CS", "Customer Success Specialist", "L4", r#"["Customer tasks","Support","Health monitoring"]"#),
+            ("TREASURY_LEAD", "TREASURY", "Chief Financial Officer", "L8", r#"["Accounting","Treasury","Financial planning"]"#),
+            ("TREASURY_SPECIALIST", "TREASURY", "Finance Specialist", "L4", r#"["Close support","Reconciliation","Reporting"]"#),
+            ("OPS_LEAD", "OPS", "Operations & Technology Lead", "L7", r#"["Process excellence","Platform operations","Reliability"]"#),
+            ("OPS_SPECIALIST", "OPS", "Operations Specialist", "L4", r#"["SLA operations","Capacity","Workflow execution"]"#),
+        ];
+
+        for (code, department_code, title, level, responsibilities_json) in positions {
+            let department_id: Uuid = tx.query_one(
+                "SELECT id FROM departments WHERE company_id=$1 AND code=$2",
+                &[&company_uuid, &department_code],
+            ).await?.get(0);
+            let team_id: Uuid = tx.query_one(
+                "SELECT id FROM teams WHERE company_id=$1 AND department_id=$2 AND active=true ORDER BY name ASC LIMIT 1",
+                &[&company_uuid, &department_id],
+            ).await?.get(0);
+
+            tx.execute(
+                "INSERT INTO job_positions
+                    (id, company_id, department_id, team_id, code, title, level,
+                     employment_types, responsibilities, monthly_cost_min_minor, monthly_cost_max_minor, active)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,0,0,true)
+                 ON CONFLICT (company_id, code) DO UPDATE
+                   SET department_id=EXCLUDED.department_id,
+                       team_id=EXCLUDED.team_id,
+                       title=EXCLUDED.title,
+                       level=EXCLUDED.level,
+                       employment_types=EXCLUDED.employment_types,
+                       responsibilities=EXCLUDED.responsibilities,
+                       active=true,
+                       updated_at=now()",
+                &[
+                    &Uuid::new_v4(),
+                    &company_uuid,
+                    &department_id,
+                    &team_id,
+                    &code,
+                    &title,
+                    &level,
+                    &serde_json::json!(["OFFICIAL","PROBATION","APPRENTICE","PART_TIME"]),
+                    &serde_json::from_str::<serde_json::Value>(responsibilities_json)?,
+                ],
+            ).await?;
+        }
+
+        tx.commit().await?;
+        tracing::info!(company_id=%company_id, currency=%currency, "standard HR configuration ensured");
+        Ok(())
+    }
+
     pub async fn upsert_employee(
         &self,
         company_id: &str,
