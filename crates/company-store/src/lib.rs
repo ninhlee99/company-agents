@@ -4383,7 +4383,11 @@ impl CompanyStore {
         &self,
         company_id: &str,
         input: &company_organization::OrganizationEmployeeUpsert,
+        actor_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if actor_id.trim().is_empty() {
+            return Err("employee onboarding actor is required".into());
+        }
         company_organization::validate_employee(&company_organization::Employee {
             id: input.employee.employee_id.clone(),
             name: input.name.clone(),
@@ -4410,6 +4414,8 @@ impl CompanyStore {
         let department_uuid = Uuid::parse_str(&input.employee.department_id)?;
         let team_uuid = input.employee.team_id.as_deref().map(Uuid::parse_str).transpose()?;
         let manager_uuid = input.employee.manager_id.as_deref().map(Uuid::parse_str).transpose()?;
+        let position_uuid = input.position_id.as_deref().map(Uuid::parse_str).transpose()?;
+
         let employment_type = match input.employee.employment_type {
             company_organization::EmploymentType::Official => "OFFICIAL",
             company_organization::EmploymentType::Probation => "PROBATION",
@@ -4438,28 +4444,46 @@ impl CompanyStore {
             return Err("employee already exists; employment changes require the controlled workflow".into());
         }
 
+        if let Some(position_id) = position_uuid {
+            let valid_position = tx
+                .query_opt(
+                    "SELECT id
+                       FROM job_positions
+                      WHERE company_id=$1 AND id=$2 AND department_id=$3 AND active=true",
+                    &[&company_uuid, &position_id, &department_uuid],
+                )
+                .await?
+                .is_some();
+            if !valid_position {
+                tx.rollback().await?;
+                return Err("position must be active and belong to the selected department".into());
+            }
+        }
+
         tx.execute(
             "INSERT INTO employees
                  (id, company_id, name, role, monthly_cost_minor, currency, status,
-                  department_id, team_id, manager_id, employment_type, employment_level, joined_at_epoch)
-             VALUES ($1,$2,$3,$4,$5::numeric,$6,$7,$8,$9,$10,$11,$12,$13)",
-                &[
-                    &employee_uuid,
-                    &company_uuid,
-                    &input.name,
-                    &input.employee.title,
-                    &input.monthly_cost_minor.to_string(),
-                    &input.currency,
-                    &status,
-                    &department_uuid,
-                    &team_uuid,
-                    &manager_uuid,
-                    &employment_type,
-                    &input.employee.employment_level,
-                    &Some(input.employee.joined_at_epoch),
-                ],
-            )
-            .await?;
+                  department_id, team_id, manager_id, position_id, employment_type, employment_level, joined_at_epoch)
+             VALUES ($1,$2,$3,$4,$5::numeric,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
+            &[
+                &employee_uuid,
+                &company_uuid,
+                &input.name,
+                &input.employee.title,
+                &input.monthly_cost_minor.to_string(),
+                &input.currency,
+                &status,
+                &department_uuid,
+                &team_uuid,
+                &manager_uuid,
+                &position_uuid,
+                &employment_type,
+                &input.employee.employment_level,
+                &Some(input.employee.joined_at_epoch),
+            ],
+        )
+        .await?;
+
         let rows = tx
             .query(
                 "SELECT id, company_id, department_id, team_id, manager_id, role,
@@ -4490,6 +4514,84 @@ impl CompanyStore {
             tx.rollback().await?;
             return Err(error.to_string().into());
         }
+
+        let policy_code = if matches!(input.employee.employment_type, company_organization::EmploymentType::PartTime) {
+            "PART_1400"
+        } else {
+            "OFFICE_0830"
+        };
+        let joined_date = time::OffsetDateTime::from_unix_timestamp(input.employee.joined_at_epoch)?
+            .to_offset(time::UtcOffset::from_hms(7, 0, 0).expect("UTC+7 is valid"))
+            .date();
+
+        let policy_id: Uuid = tx
+            .query_opt(
+                "SELECT id
+                   FROM attendance_policies
+                  WHERE company_id=$1 AND code=$2 AND active=true",
+                &[&company_uuid, &policy_code],
+            )
+            .await?
+            .ok_or("standard attendance policy is not configured")?
+            .get(0);
+
+        tx.execute(
+            "INSERT INTO employee_attendance_policy_assignments
+                (id, company_id, employee_id, policy_id, effective_from)
+             VALUES ($1,$2,$3,$4,$5)
+             ON CONFLICT DO NOTHING",
+            &[&Uuid::new_v4(), &company_uuid, &employee_uuid, &policy_id, &joined_date],
+        )
+        .await?;
+
+        let event_time = time::OffsetDateTime::from_unix_timestamp(input.employee.joined_at_epoch)?;
+        tx.execute(
+            "INSERT INTO employment_lifecycle_events
+                (id, company_id, employee_id, event_type, effective_at,
+                 position_id, department_id, team_id, manager_id, notes, actor_id)
+             VALUES ($1,$2,$3,'HIRED',$4,$5,$6,$7,$8,$9,$10)
+             ON CONFLICT DO NOTHING",
+            &[
+                &Uuid::new_v4(),
+                &company_uuid,
+                &employee_uuid,
+                &event_time,
+                &position_uuid,
+                &department_uuid,
+                &team_uuid,
+                &manager_uuid,
+                &Some(format!("Initial onboarding as {employment_type}")),
+                &actor_id,
+            ],
+        )
+        .await?;
+
+        let secondary_event = match input.employee.employment_type {
+            company_organization::EmploymentType::Probation => Some("PROBATION_STARTED"),
+            company_organization::EmploymentType::Apprentice => Some("APPRENTICESHIP_STARTED"),
+            _ => Some("APPOINTED"),
+        };
+        tx.execute(
+            "INSERT INTO employment_lifecycle_events
+                (id, company_id, employee_id, event_type, effective_at,
+                 position_id, department_id, team_id, manager_id, notes, actor_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+             ON CONFLICT DO NOTHING",
+            &[
+                &Uuid::new_v4(),
+                &company_uuid,
+                &employee_uuid,
+                &secondary_event,
+                &event_time,
+                &position_uuid,
+                &department_uuid,
+                &team_uuid,
+                &manager_uuid,
+                &Some("Initial employment lifecycle state".to_string()),
+                &actor_id,
+            ],
+        )
+        .await?;
 
         tx.commit().await?;
         Ok(())
