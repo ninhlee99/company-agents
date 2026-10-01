@@ -4855,7 +4855,7 @@ impl CompanyStore {
             )
             .await?
             .map(|row| row.get::<_, Option<time::OffsetDateTime>>(0))
-            .transpose()?;
+            .flatten();
 
         let effective_check_in = check_in.or(existing_check_in);
 
