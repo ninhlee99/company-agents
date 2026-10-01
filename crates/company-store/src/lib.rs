@@ -3890,26 +3890,45 @@ impl CompanyStore {
             ).await?;
         }
 
-        tx.execute(
-            "INSERT INTO employee_attendance_policy_assignments
-                (id, company_id, employee_id, policy_id, effective_from)
-             SELECT gen_random_uuid(), e.company_id, e.id, p.id,
-                    COALESCE(to_timestamp(e.joined_at_epoch)::date, CURRENT_DATE)
-               FROM employees e
-               JOIN attendance_policies p
-                 ON p.company_id=e.company_id
-                AND p.code = CASE WHEN e.employment_type='PART_TIME' THEN 'PART_1400' ELSE 'OFFICE_0830' END
-                AND p.active=true
-              WHERE e.company_id=$1
-                AND NOT EXISTS (
-                  SELECT 1
-                    FROM employee_attendance_policy_assignments a
-                   WHERE a.company_id=e.company_id
-                     AND a.employee_id=e.id
-                     AND a.effective_to IS NULL
-                )",
-            &[&company_uuid],
-        ).await?;
+        let existing_employees = tx
+            .query(
+                "SELECT id, employment_type, joined_at_epoch
+                   FROM employees
+                  WHERE company_id=$1",
+                &[&company_uuid],
+            )
+            .await?;
+        for row in existing_employees {
+            let employee_id: Uuid = row.get(0);
+            let employment_type: String = row.get(1);
+            let policy_code = if employment_type == "PART_TIME" { "PART_1400" } else { "OFFICE_0830" };
+            let policy_id: Uuid = tx
+                .query_one(
+                    "SELECT id
+                       FROM attendance_policies
+                      WHERE company_id=$1 AND code=$2 AND active=true",
+                    &[&company_uuid, &policy_code],
+                )
+                .await?
+                .get(0);
+            tx.execute(
+                "INSERT INTO employee_attendance_policy_assignments
+                    (id, company_id, employee_id, policy_id, effective_from)
+                 VALUES ($1,$2,$3,$4,$5::date)
+                 ON CONFLICT DO NOTHING",
+                &[
+                    &Uuid::new_v4(),
+                    &company_uuid,
+                    &employee_id,
+                    &policy_id,
+                    &row.get::<_, Option<i64>>(2)
+                        .and_then(|epoch| time::OffsetDateTime::from_unix_timestamp(epoch).ok())
+                        .map(|value| value.to_offset(time::UtcOffset::from_hms(7, 0, 0).expect("UTC+7 is valid")).date())
+                        .unwrap_or_else(|| time::OffsetDateTime::now_utc().date()),
+                ],
+            )
+            .await?;
+        }
 
         let positions = [
             ("EXEC_CEO", "EXEC", "Chief Executive Officer", "L9", vec!["OFFICIAL"], vec!["Strategy & OKR","Executive governance","Capital allocation"]),
