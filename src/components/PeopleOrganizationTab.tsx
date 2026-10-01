@@ -376,6 +376,8 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
         const nextPeople: Person[] = data.employees.map((employee) => {
           const attendance = attendanceByEmployee.get(employee.employee_id);
           const position = data.positions.find((item) => item.id === employee.position_id);
+          const policyCode = employee.employment_type === 'PART_TIME' ? 'PART_1400' : 'OFFICE_0830';
+          const policy = data.attendance_policies.find((item) => item.active && item.code === policyCode);
           return {
             id: employee.employee_id,
             name: employee.name,
@@ -388,7 +390,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
             location: 'Chưa cấu hình',
             workMode: attendance?.status === 'REMOTE' ? 'Remote' : 'Chưa cấu hình',
             managerId: employee.manager_id ?? null,
-            shift: attendance ? `${attendance.shift_start}–${attendance.shift_end}` : 'Theo attendance policy',
+            shift: attendance ? `${attendance.shift_start}–${attendance.shift_end}` : policy ? `${policy.shift_start}–${policy.shift_end}` : 'Chưa gán policy',
             checkedInAt: formatEpochTime(attendance?.check_in_at_epoch),
             checkedOutAt: formatEpochTime(attendance?.check_out_at_epoch),
             avatar: employee.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(),
