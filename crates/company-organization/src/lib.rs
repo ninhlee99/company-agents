@@ -464,7 +464,6 @@ pub struct OrganizationEmployeeRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OrganizationEmployeeView {
     pub employee_id: String,
     pub company_id: String,
@@ -555,11 +554,6 @@ pub fn evaluate_department_formation(
         ));
     }
 
-    let requested_code = signal
-        .requested_code
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or(signal.department_type.code());
     let active = departments.iter().any(|department| department.active);
 
     if signal.capacity_gap_pct < 25 || signal.sustained_cycles < 3 {
