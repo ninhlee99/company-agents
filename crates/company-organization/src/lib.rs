@@ -464,6 +464,28 @@ pub struct OrganizationEmployeeRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OrganizationEmployeeView {
+    pub employee_id: String,
+    pub company_id: String,
+    pub name: String,
+    pub title: String,
+    pub department_id: Option<String>,
+    pub team_id: Option<String>,
+    pub manager_id: Option<String>,
+    pub employment_type: EmploymentType,
+    pub employment_level: String,
+    pub joined_at_epoch: Option<i64>,
+    pub status: EmployeeStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OrganizationEmployeeUpsert {
+    pub employee: OrganizationEmployeeRecord,
+    pub name: String,
+    pub monthly_cost_minor: i128,
+    pub currency: String,
+}
+
 pub struct DepartmentRecord {
     pub id: String,
     pub company_id: String,
@@ -479,6 +501,19 @@ pub struct DepartmentRecord {
     pub lifecycle: DepartmentLifecycle,
     pub criticality: DepartmentCriticality,
     pub formation_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TeamRecord {
+    pub id: String,
+    pub company_id: String,
+    pub department_id: String,
+    pub parent_team_id: Option<String>,
+    pub name: String,
+    pub charter: String,
+    pub owner_employee_id: Option<String>,
+    pub active: bool,
 }
 
 pub struct AttendanceRecord {
@@ -498,13 +533,15 @@ pub struct AttendanceRecord {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DepartmentNeedSignal {
     pub department_type: DepartmentType,
+    pub requested_code: Option<String>,
+    pub requested_name: Option<String>,
     pub required_capabilities: Vec<String>,
     pub capacity_gap_pct: u8,
     pub sustained_cycles: u16,
     pub monthly_budget_ceiling_minor: i128,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum DepartmentFormationDecision {
     NoChange,
     FormDepartment,
@@ -529,9 +566,7 @@ pub fn evaluate_department_formation(
         ));
     }
 
-    let active = departments.iter().any(|department| {
-        department.department_type == signal.department_type && department.active
-    });
+    let active = departments.iter().any(|department| department.active);
 
     if signal.capacity_gap_pct < 25 || signal.sustained_cycles < 3 {
         return Ok(DepartmentFormationDecision::NoChange);
@@ -612,6 +647,8 @@ mod enterprise_organization_tests {
     fn department_formation_requires_sustained_capacity_gap() {
         let signal = DepartmentNeedSignal {
             department_type: DepartmentType::CustomerSuccess,
+            requested_code: Some("REVOPS".into()),
+            requested_name: Some("Revenue Operations".into()),
             required_capabilities: vec!["customer success".into()],
             capacity_gap_pct: 35,
             sustained_cycles: 3,
@@ -619,6 +656,32 @@ mod enterprise_organization_tests {
         };
         assert_eq!(
             evaluate_department_formation(&[], &signal).unwrap(),
+            DepartmentFormationDecision::FormDepartment
+        );
+    }
+
+    #[test]
+    fn custom_department_code_can_form_when_standard_department_exists() {
+        let signal = DepartmentNeedSignal {
+            department_type: DepartmentType::OperationsAndTech,
+            requested_code: Some("REVOPS".into()),
+            requested_name: Some("Revenue Operations".into()),
+            required_capabilities: vec!["revenue operations".into()],
+            capacity_gap_pct: 45,
+            sustained_cycles: 4,
+            monthly_budget_ceiling_minor: 2_000_000,
+        };
+        let operations = Department {
+            id: "dept-ops".into(),
+            name: "Operations & Technology".into(),
+            department_type: DepartmentType::OperationsAndTech,
+            lead_role: "COO".into(),
+            monthly_budget_minor: 500_000,
+            currency: "USD".into(),
+            active: true,
+        };
+        assert_eq!(
+            evaluate_department_formation(&[operations], &signal).unwrap(),
             DepartmentFormationDecision::FormDepartment
         );
     }
@@ -636,6 +699,8 @@ mod enterprise_organization_tests {
         };
         let signal = DepartmentNeedSignal {
             department_type: DepartmentType::CustomerSuccess,
+            requested_code: Some("REVOPS".into()),
+            requested_name: Some("Revenue Operations".into()),
             required_capabilities: vec!["customer success".into()],
             capacity_gap_pct: 40,
             sustained_cycles: 4,

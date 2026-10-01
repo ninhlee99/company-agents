@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   Building2,
@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 
 type EmploymentType = 'Chính thức' | 'Thử việc' | 'Học việc' | 'Part-time';
-type Attendance = 'Đang làm' | 'Đã ra về' | 'Đi muộn' | 'Nghỉ phép' | 'Vắng';
+type Attendance = 'Đang làm' | 'Đã ra về' | 'Đi muộn' | 'Nghỉ phép' | 'Vắng' | 'Chưa chấm công';
 
 type Department = {
   id: string;
@@ -35,7 +35,7 @@ type Department = {
   headcount: number;
   openRoles: number;
   criticality: 'Core' | 'Growth' | 'Control';
-  status: 'Active' | 'Scaling' | 'Forming';
+  status: 'Active' | 'Scaling' | 'Forming' | 'Paused' | 'Closed';
 };
 
 type Person = {
@@ -47,7 +47,7 @@ type Person = {
   employmentType: EmploymentType;
   attendance: Attendance;
   location: string;
-  workMode: 'Văn phòng' | 'Hybrid' | 'Remote';
+  workMode: 'Văn phòng' | 'Hybrid' | 'Remote' | 'Chưa cấu hình';
   managerId: string | null;
   shift: string;
   checkedInAt?: string;
@@ -55,7 +55,7 @@ type Person = {
   avatar: string;
 };
 
-const departments: Department[] = [
+const seedDepartments: Department[] = [
   {
     id: 'exec',
     name: 'Executive Office',
@@ -142,7 +142,7 @@ const departments: Department[] = [
   },
 ];
 
-const people: Person[] = [
+const seedPeople: Person[] = [
   { id: 'p01', name: 'Alex Morgan', title: 'Chief Executive Officer', departmentId: 'exec', level: 'L9 · Executive', employmentType: 'Chính thức', attendance: 'Đang làm', location: 'Ho Chi Minh City', workMode: 'Hybrid', managerId: null, shift: '08:30–17:30', checkedInAt: '08:21', avatar: 'AM' },
   { id: 'p02', name: 'Sofia Nguyen', title: 'Chief Operating Officer', departmentId: 'ops', level: 'L8 · Director', employmentType: 'Chính thức', attendance: 'Đang làm', location: 'Ho Chi Minh City', workMode: 'Văn phòng', managerId: 'p01', shift: '08:30–17:30', checkedInAt: '08:26', avatar: 'SN' },
   { id: 'p03', name: 'Daniel Tran', title: 'Chief Financial Officer', departmentId: 'finance', level: 'L8 · Director', employmentType: 'Chính thức', attendance: 'Đang làm', location: 'Ho Chi Minh City', workMode: 'Hybrid', managerId: 'p01', shift: '08:30–17:30', checkedInAt: '08:34', avatar: 'DT' },
@@ -164,6 +164,7 @@ const attendanceTone: Record<Attendance, string> = {
   'Đi muộn': 'bg-amber-500/10 text-amber-300 border-amber-500/20',
   'Nghỉ phép': 'bg-violet-500/10 text-violet-300 border-violet-500/20',
   Vắng: 'bg-rose-500/10 text-rose-300 border-rose-500/20',
+  'Chưa chấm công': 'bg-slate-500/10 text-slate-400 border-slate-500/20',
 };
 
 const employmentTone: Record<EmploymentType, string> = {
@@ -181,18 +182,209 @@ const deptTone: Record<Department['criticality'], string> = {
 
 const cx = (...v: Array<string | false | null | undefined>) => v.filter(Boolean).join(' ');
 
+type OrganizationWorkspaceResponse = {
+  company_id: string;
+  currency: string;
+  departments: Array<{
+    id: string;
+    company_id: string;
+    parent_department_id?: string | null;
+    code: string;
+    name: string;
+    charter: string;
+    responsibilities: string[];
+    kpis: string[];
+    owner_employee_id?: string | null;
+    monthly_budget_minor: number | string;
+    currency: string;
+    lifecycle: string;
+    criticality: string;
+    formation_reason?: string | null;
+  }>;
+  employees: Array<{
+    employee_id: string;
+    company_id: string;
+    name: string;
+    title: string;
+    department_id?: string | null;
+    team_id?: string | null;
+    manager_id?: string | null;
+    employment_type: string;
+    employment_level: string;
+    joined_at_epoch?: number | null;
+    status: string;
+  }>;
+  teams: Array<{
+    id: string;
+    company_id: string;
+    department_id: string;
+    parent_team_id?: string | null;
+    name: string;
+    charter: string;
+    owner_employee_id?: string | null;
+    active: boolean;
+  }>;
+  attendance: Array<{
+    employee_id: string;
+    status: string;
+    shift_start: string;
+    shift_end: string;
+    check_in_at_epoch?: number | null;
+    check_out_at_epoch?: number | null;
+  }>;
+  source: string;
+};
+
+const mapEmploymentType = (value: string): EmploymentType => {
+  switch (value) {
+    case 'PROBATION': return 'Thử việc';
+    case 'APPRENTICE': return 'Học việc';
+    case 'PART_TIME': return 'Part-time';
+    default: return 'Chính thức';
+  }
+};
+
+const mapAttendance = (value?: string): Attendance => {
+  switch (value) {
+    case 'PRESENT': return 'Đang làm';
+    case 'REMOTE': return 'Đang làm';
+    case 'CHECKED_OUT': return 'Đã ra về';
+    case 'LATE': return 'Đi muộn';
+    case 'LEAVE': return 'Nghỉ phép';
+    case 'ABSENT': return 'Vắng';
+    default: return 'Chưa chấm công';
+  }
+};
+
+const mapCriticality = (value: string): Department['criticality'] => {
+  switch (value) {
+    case 'CONTROL': return 'Control';
+    case 'GROWTH': return 'Growth';
+    default: return 'Core';
+  }
+};
+
+const mapDepartmentStatus = (value: string): Department['status'] => {
+  switch (value) {
+    case 'PROPOSED': return 'Forming';
+    case 'SCALING': return 'Scaling';
+    case 'PAUSED': return 'Paused';
+    case 'CLOSED': return 'Closed';
+    default: return 'Active';
+  }
+};
+
+const formatEpochTime = (epoch?: number | null) =>
+  epoch == null
+    ? undefined
+    : new Intl.DateTimeFormat('vi-VN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Ho_Chi_Minh',
+      }).format(new Date(epoch * 1000));
+
+
 export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiAgentCount = 0 }) => {
+  const [livePeople, setLivePeople] = useState<Person[]>([]);
+  const [dataSource, setDataSource] = useState<'LOADING' | 'DATABASE' | 'DEMO_FALLBACK'>('LOADING');
+  const [liveCompanyId, setLiveCompanyId] = useState('');
+  const [liveCurrency, setLiveCurrency] = useState('USD');
+  const [liveTeams, setLiveTeams] = useState<OrganizationWorkspaceResponse['teams']>([]);
+  const [showEmployeeForm, setShowEmployeeForm] = useState(false);
+  const [savingEmployee, setSavingEmployee] = useState(false);
+  const [newEmployee, setNewEmployee] = useState({ name: '', title: '', departmentId: '', managerId: '', employmentType: 'OFFICIAL', employmentLevel: 'L4', monthlyCost: '0' });
   const [view, setView] = useState<'overview' | 'departments' | 'employees' | 'attendance'>('overview');
   const [selectedDepartmentId, setSelectedDepartmentId] = useState('people');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [search, setSearch] = useState('');
   const [employment, setEmployment] = useState<'All' | EmploymentType>('All');
   const [showAdvisor, setShowAdvisor] = useState(true);
-  const [departmentList, setDepartmentList] = useState<Department[]>(departments);
-  const [departmentActivationPending, setDepartmentActivationPending] = useState(false);
+  const [departmentList, setDepartmentList] = useState<Department[]>(seedDepartments);
 
+  const people = dataSource === 'DEMO_FALLBACK' ? seedPeople : livePeople;
   const selectedDepartment = departmentList.find((department) => department.id === selectedDepartmentId) ?? departmentList[0];
   const selectedEmployee = selectedEmployeeId ? people.find((person) => person.id === selectedEmployeeId) : undefined;
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadOrganization = async () => {
+      try {
+        const workDate = new Date().toISOString().slice(0, 10);
+        const response = await fetch(`/api/organization?work_date=${workDate}`);
+        if (!response.ok) throw new Error('organization API unavailable');
+        const data = (await response.json()) as OrganizationWorkspaceResponse;
+        if (cancelled) return;
+        setLiveCompanyId(data.company_id);
+        setLiveCurrency(data.currency);
+        setLiveTeams(data.teams);
+
+        const attendanceByEmployee = new Map(data.attendance.map((record) => [record.employee_id, record]));
+        const nextPeople: Person[] = data.employees.map((employee) => {
+          const attendance = attendanceByEmployee.get(employee.employee_id);
+          return {
+            id: employee.employee_id,
+            name: employee.name,
+            title: employee.title,
+            departmentId: employee.department_id ?? 'unassigned',
+            level: employee.employment_level,
+            employmentType: mapEmploymentType(employee.employment_type),
+            attendance: mapAttendance(attendance?.status),
+            location: 'Chưa cấu hình',
+            workMode: attendance?.status === 'REMOTE' ? 'Remote' : 'Chưa cấu hình',
+            managerId: employee.manager_id ?? null,
+            shift: attendance ? `${attendance.shift_start}–${attendance.shift_end}` : 'Theo attendance policy',
+            checkedInAt: formatEpochTime(attendance?.check_in_at_epoch),
+            checkedOutAt: formatEpochTime(attendance?.check_out_at_epoch),
+            avatar: employee.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(),
+          };
+        });
+
+        const nextDepartments: Department[] = data.departments.map((department) => {
+          const owner = department.owner_employee_id ? nextPeople.find((person) => person.id === department.owner_employee_id) : undefined;
+          return {
+            id: department.id,
+            name: department.name,
+            shortName: department.code,
+            owner: owner?.name ?? (department.owner_employee_id ? 'Assigned owner' : 'Unassigned'),
+            ownerTitle: owner?.title ?? (department.owner_employee_id ? 'Accountable owner' : 'Owner required'),
+            charter: department.charter,
+            responsibilities: department.responsibilities,
+            kpis: department.kpis,
+            headcount: nextPeople.filter((person) => person.departmentId === department.id).length,
+            openRoles: 0,
+            criticality: mapCriticality(department.criticality),
+            status: mapDepartmentStatus(department.lifecycle),
+          };
+        });
+
+        setLivePeople(nextPeople);
+        setDepartmentList(nextDepartments);
+        setSelectedDepartmentId((current) => nextDepartments.some((item) => item.id === current) ? current : (nextDepartments[0]?.id ?? ''));
+        setDataSource('DATABASE');
+      } catch {
+        if (!cancelled) setDataSource('DEMO_FALLBACK');
+      }
+    };
+
+    void loadOrganization();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const teamsByDepartment = useMemo(() => {
+    const grouped = new Map<string, OrganizationWorkspaceResponse['teams']>();
+    for (const team of liveTeams) {
+      const list = grouped.get(team.department_id) ?? [];
+      list.push(team);
+      grouped.set(team.department_id, list);
+    }
+    return grouped;
+  }, [liveTeams]);
+
+  const rootEmployee = people.find((person) => person.managerId === null) ?? people[0];
+  const rootDirectReports = rootEmployee ? people.filter((person) => person.managerId === rootEmployee.id) : [];
 
   const presentCount = people.filter((person) => person.attendance === 'Đang làm' || person.attendance === 'Đã ra về').length;
   const lateCount = people.filter((person) => person.attendance === 'Đi muộn').length;
@@ -217,12 +409,15 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
             <div className="flex flex-wrap items-center gap-3 mt-2">
               <h1 className="text-2xl lg:text-[30px] font-semibold tracking-tight text-white">People, Departments & Organization</h1>
               <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-300">ENTERPRISE HR</span>
+              <span className={cx('rounded-full border px-2 py-1 text-[10px] font-semibold', dataSource === 'DATABASE' ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300' : dataSource === 'LOADING' ? 'border-slate-700 bg-slate-900 text-slate-400' : 'border-amber-500/20 bg-amber-500/10 text-amber-300')}>
+                {dataSource === 'DATABASE' ? 'LIVE DATABASE' : dataSource === 'LOADING' ? 'ĐANG KẾT NỐI DATABASE' : 'DEMO FALLBACK'}
+              </span>
             </div>
             <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-400">Công ty được vận hành theo mô hình <span className="text-slate-200 font-medium">Company → Department → Team → Employee</span>. Mỗi department có charter, owner, KPI và ranh giới trách nhiệm; mọi thay đổi tổ chức phải có governance record.</p>
           </div>
           <div className="flex items-center gap-2">
             <button className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3.5 py-2.5 text-xs font-semibold text-slate-200"><CalendarCheck2 className="w-4 h-4" /> Hôm nay</button>
-            <button className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3.5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-500"><Plus className="w-4 h-4" /> Tạo vị trí mới</button>
+            <button disabled={dataSource !== 'DATABASE' || departmentList.length === 0} onClick={() => { setNewEmployee((current) => ({ ...current, departmentId: selectedDepartment?.id ?? departmentList[0]?.id ?? "" })); setShowEmployeeForm(true); }} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3.5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-500 disabled:opacity-40"><Plus className="w-4 h-4" /> Thêm nhân sự</button>
           </div>
         </div>
 
@@ -263,7 +458,7 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
         <section className="rounded-2xl border border-slate-800 bg-slate-900/55 overflow-hidden">
           <div className="px-4 py-3.5 border-b border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-2"><GitBranch className="w-4 h-4 text-blue-300" /><div><h2 className="text-sm font-semibold text-white">Organization Tree</h2><p className="text-[10px] text-slate-500">Company → Department → Team → Employee</p></div></div>
-            <span className="text-[10px] text-slate-500">{departments.filter((d) => d.status !== 'Forming').length} operational departments</span>
+            <span className="text-[10px] text-slate-500">{departmentList.filter((d) => d.status !== 'Forming').length} operational departments</span>
           </div>
           <div className="p-4 overflow-x-auto">
             <div className="min-w-[1080px]">
@@ -290,9 +485,11 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
               <div className="grid grid-cols-5 gap-3 mt-4">
                 {departmentList.filter((d) => d.id !== 'exec').map((department) => {
                   const departmentPeople = people.filter((person) => person.departmentId === department.id).slice(0, 3);
+                  const departmentTeams = teamsByDepartment.get(department.id) ?? [];
                   return (
                     <div key={department.id} className="rounded-xl border border-slate-800 bg-slate-950/45 p-2.5">
-                      <div className="flex items-center justify-between text-[9px] text-slate-600 uppercase tracking-[0.1em]"><span>People</span><span>{department.openRoles ? '+' + department.openRoles + ' roles' : 'Covered'}</span></div>
+                      <div className="flex items-center justify-between text-[9px] text-slate-600 uppercase tracking-[0.1em]"><span>{departmentTeams.length} teams · {department.headcount} people</span><span>{department.openRoles ? '+' + department.openRoles + ' roles' : 'Covered'}</span></div>
+                      {departmentTeams.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{departmentTeams.slice(0, 2).map((team) => <span key={team.id} className="rounded-md border border-slate-800 bg-slate-950 px-1.5 py-1 text-[8px] text-slate-500">{team.name}</span>)}{departmentTeams.length > 2 && <span className="text-[8px] text-slate-600 py-1">+{departmentTeams.length - 2} more</span>}</div>}
                       <div className="mt-2 space-y-1.5">
                         {departmentPeople.map((person) => (
                           <button key={person.id} onClick={() => setSelectedEmployeeId(person.id)} className="w-full flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/45 px-2.5 py-2 text-left hover:border-slate-700">
@@ -359,18 +556,106 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
             <div className="px-4 py-3.5 border-b border-slate-800 flex items-center justify-between"><div><h2 className="text-sm font-semibold text-white">Attendance Control Board</h2><p className="text-[10px] text-slate-500 mt-0.5">Daily timekeeping · shift · exceptions · manager ownership</p></div><span className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[9px] font-semibold text-emerald-300">LIVE</span></div>
             <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-2.5">{people.map((person) => <button key={person.id} onClick={() => setSelectedEmployeeId(person.id)} className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/50 p-3 text-left hover:border-slate-700"><div className="w-9 h-9 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-300">{person.avatar}</div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="text-[11px] font-semibold text-slate-200 truncate">{person.name}</span><span className={cx('text-[8px] px-1.5 py-0.5 rounded border', attendanceTone[person.attendance])}>{person.attendance}</span></div><div className="text-[9px] text-slate-600 mt-1">{person.shift} · {person.workMode}</div></div><div className="text-right shrink-0 text-[9px] font-mono text-slate-500">{person.checkedInAt ? 'IN ' + person.checkedInAt : '—'}<br />{person.checkedOutAt ? 'OUT ' + person.checkedOutAt : ''}</div></button>)}</div>
           </section>
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/55 p-4"><div className="flex items-center gap-2"><Activity className="w-4 h-4 text-emerald-300" /><div><h2 className="text-sm font-semibold text-white">Attendance Exceptions</h2><p className="text-[10px] text-slate-500">Cần manager review</p></div></div><div className="mt-4 space-y-2">{people.filter((person) => person.attendance === 'Đi muộn' || person.attendance === 'Vắng').map((person) => <div key={person.id} className="rounded-xl border border-amber-500/15 bg-amber-500/[0.035] p-3"><div className="flex items-center justify-between"><span className="text-[10px] font-semibold text-white">{person.name}</span><span className={cx('text-[8px] px-1.5 py-0.5 rounded border', attendanceTone[person.attendance])}>{person.attendance}</span></div><div className="mt-1 text-[9px] text-slate-500">{departments.find((department) => department.id === person.departmentId)?.name} · {person.shift}</div><button className="mt-2 text-[9px] font-semibold text-blue-300">Review exception →</button></div>)}</div></section>
+          <section className="rounded-2xl border border-slate-800 bg-slate-900/55 p-4"><div className="flex items-center gap-2"><Activity className="w-4 h-4 text-emerald-300" /><div><h2 className="text-sm font-semibold text-white">Attendance Exceptions</h2><p className="text-[10px] text-slate-500">Cần manager review</p></div></div><div className="mt-4 space-y-2">{people.filter((person) => person.attendance === 'Đi muộn' || person.attendance === 'Vắng').map((person) => <div key={person.id} className="rounded-xl border border-amber-500/15 bg-amber-500/[0.035] p-3"><div className="flex items-center justify-between"><span className="text-[10px] font-semibold text-white">{person.name}</span><span className={cx('text-[8px] px-1.5 py-0.5 rounded border', attendanceTone[person.attendance])}>{person.attendance}</span></div><div className="mt-1 text-[9px] text-slate-500">{departmentList.find((department) => department.id === person.departmentId)?.name} · {person.shift}</div><button className="mt-2 text-[9px] font-semibold text-blue-300">Review exception →</button></div>)}</div></section>
         </div>
       )}
 
-      {showAdvisor && (
+      {showAdvisor && dataSource === 'DATABASE' && (
         <section className="rounded-2xl border border-cyan-500/15 bg-cyan-500/[0.03] p-4">
           <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
-            <div className="flex items-start gap-3"><div className="w-9 h-9 rounded-xl border border-cyan-500/20 bg-cyan-500/10 flex items-center justify-center"><Zap className="w-4 h-4 text-cyan-300" /></div><div><div className="text-[10px] uppercase tracking-[0.14em] text-cyan-300 font-semibold">Organization Design Advisor</div><h3 className="text-sm font-semibold text-white mt-1">Growth & Commercial đang ở trạng thái “Forming”</h3><p className="text-[10px] text-slate-400 mt-1 max-w-3xl">Nhu cầu pipeline tăng nhưng chưa có owner đầy đủ. Hệ thống có thể <span className="text-slate-200 font-medium">đề xuất thành lập department</span>, xác định charter, budget ceiling, owner và open roles trước khi activation.</p></div></div>
-            <div className="flex items-center gap-2"><button className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-[10px] font-semibold text-slate-200">Xem nhu cầu</button><button onClick={() => setDepartmentActivationPending(true)} className="rounded-xl bg-cyan-600 px-3 py-2 text-[10px] font-semibold text-white hover:bg-cyan-500">Dự thảo department</button><button onClick={() => setShowAdvisor(false)} className="p-2 text-slate-600 hover:text-white"><X className="w-4 h-4" /></button></div>
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl border border-cyan-500/20 bg-cyan-500/10 flex items-center justify-center"><Zap className="w-4 h-4 text-cyan-300" /></div>
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.14em] text-cyan-300 font-semibold">Organization Design Automation</div>
+                <h3 className="text-sm font-semibold text-white mt-1">Department formation chạy theo need signal thực tế</h3>
+                <p className="text-[10px] text-slate-400 mt-1 max-w-3xl">Hệ thống không tự bịa headcount. Khi capability gap được ghi nhận đủ lâu, engine tạo <span className="text-slate-200 font-medium">PROPOSED department</span> với charter, budget ceiling và core team; activation vẫn cần owner thật và governance.</p>
+              </div>
+            </div>
+            <button onClick={() => setShowAdvisor(false)} className="p-2 text-slate-600 hover:text-white"><X className="w-4 h-4" /></button>
           </div>
-          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-2.5"><div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Trigger</div><div className="text-[10px] text-slate-300 mt-1">Pipeline ownership gap</div></div><div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Required capability</div><div className="text-[10px] text-slate-300 mt-1">Sales + partnerships + demand generation</div></div><div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Governance</div><div className="text-[10px] text-slate-300 mt-1">Charter → owner → budget → roles → activation</div></div></div>
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-2.5">
+            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Trigger</div><div className="text-[10px] text-slate-300 mt-1">Capability gap ≥ 25%</div></div>
+            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Persistence</div><div className="text-[10px] text-slate-300 mt-1">≥ 3 sustained cycles</div></div>
+            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"><div className="text-[9px] text-slate-600">Activation</div><div className="text-[10px] text-slate-300 mt-1">Owner + budget + roles + approval</div></div>
+          </div>
         </section>
+      )}
+
+      {showEmployeeForm && (
+        <div className="fixed inset-0 z-[66] bg-black/55 backdrop-blur-[2px] flex items-center justify-center p-4" onClick={() => setShowEmployeeForm(false)}>
+          <form className="w-full max-w-xl rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl overflow-hidden" onClick={(event) => event.stopPropagation()} onSubmit={async (event) => {
+            event.preventDefault();
+            if (dataSource !== 'DATABASE' || !liveCompanyId || !newEmployee.name.trim() || !newEmployee.title.trim() || !newEmployee.departmentId) return;
+            setSavingEmployee(true);
+            const employeeId = crypto.randomUUID();
+            try {
+              const response = await fetch('/api/organization/employees', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  input: {
+                    employee: {
+                      employee_id: employeeId,
+                      company_id: liveCompanyId,
+                      department_id: newEmployee.departmentId,
+                      team_id: null,
+                      manager_id: newEmployee.managerId || null,
+                      title: newEmployee.title.trim(),
+                      employment_type: newEmployee.employmentType,
+                      employment_level: newEmployee.employmentLevel.trim() || 'L4',
+                      joined_at_epoch: Math.floor(Date.now() / 1000),
+                      status: 'ACTIVE',
+                    },
+                    name: newEmployee.name.trim(),
+                    monthly_cost_minor: Number(newEmployee.monthlyCost || 0),
+                    currency: liveCurrency,
+                  },
+                }),
+              });
+              if (!response.ok) throw new Error('employee create failed');
+              setLivePeople((current) => [...current, {
+                id: employeeId,
+                name: newEmployee.name.trim(),
+                title: newEmployee.title.trim(),
+                departmentId: newEmployee.departmentId,
+                level: newEmployee.employmentLevel.trim() || 'L4',
+                employmentType: mapEmploymentType(newEmployee.employmentType),
+                attendance: 'Chưa chấm công',
+                location: 'Chưa cấu hình',
+                workMode: 'Chưa cấu hình',
+                managerId: newEmployee.managerId || null,
+                shift: 'Theo attendance policy',
+                avatar: newEmployee.name.trim().split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(),
+              }]);
+              setDepartmentList((current) => current.map((item) => item.id === newEmployee.departmentId ? { ...item, headcount: item.headcount + 1 } : item));
+              setSelectedEmployeeId(employeeId);
+              setShowEmployeeForm(false);
+              setNewEmployee({ name: '', title: '', departmentId: newEmployee.departmentId, managerId: '', employmentType: 'OFFICIAL', employmentLevel: 'L4', monthlyCost: '0' });
+            } catch (error) {
+              console.error(error);
+            } finally {
+              setSavingEmployee(false);
+            }
+          }}>
+            <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+              <div><div className="text-[10px] uppercase tracking-[0.14em] text-blue-300">People onboarding</div><div className="mt-1 text-sm font-semibold text-white">Thêm nhân sự vào phòng ban</div></div>
+              <button type="button" onClick={() => setShowEmployeeForm(false)} className="p-2 rounded-lg text-slate-500 hover:text-white hover:bg-slate-800"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-5 grid grid-cols-2 gap-3">
+              <label className="col-span-2"><span className="text-[9px] uppercase tracking-[0.1em] text-slate-600">Họ tên</span><input required value={newEmployee.name} onChange={(event) => setNewEmployee((current) => ({ ...current, name: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[11px] text-white outline-none" /></label>
+              <label className="col-span-2"><span className="text-[9px] uppercase tracking-[0.1em] text-slate-600">Chức danh</span><input required value={newEmployee.title} onChange={(event) => setNewEmployee((current) => ({ ...current, title: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[11px] text-white outline-none" /></label>
+              <label><span className="text-[9px] uppercase tracking-[0.1em] text-slate-600">Phòng ban</span><select required value={newEmployee.departmentId} onChange={(event) => setNewEmployee((current) => ({ ...current, departmentId: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[10px] text-slate-300">{departmentList.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label>
+              <label><span className="text-[9px] uppercase tracking-[0.1em] text-slate-600">Manager</span><select value={newEmployee.managerId} onChange={(event) => setNewEmployee((current) => ({ ...current, managerId: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[10px] text-slate-300"><option value="">Không có</option>{people.filter((person) => person.id && liveCompanyId && person.id.length === 36).map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+              <label><span className="text-[9px] uppercase tracking-[0.1em] text-slate-600">Employment</span><select value={newEmployee.employmentType} onChange={(event) => setNewEmployee((current) => ({ ...current, employmentType: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[10px] text-slate-300"><option value="OFFICIAL">Chính thức</option><option value="PROBATION">Thử việc</option><option value="APPRENTICE">Học việc</option><option value="PART_TIME">Part-time</option><option value="CONTRACTOR">Contractor</option></select></label>
+              <label><span className="text-[9px] uppercase tracking-[0.1em] text-slate-600">Level</span><input value={newEmployee.employmentLevel} onChange={(event) => setNewEmployee((current) => ({ ...current, employmentLevel: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[11px] text-white outline-none" /></label>
+              <label className="col-span-2"><span className="text-[9px] uppercase tracking-[0.1em] text-slate-600">Monthly cost (minor unit)</span><input type="number" min="0" value={newEmployee.monthlyCost} onChange={(event) => setNewEmployee((current) => ({ ...current, monthlyCost: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-[11px] text-white outline-none" /></label>
+            </div>
+            <div className="px-5 py-4 border-t border-slate-800 flex justify-end gap-2">
+              <button type="button" onClick={() => setShowEmployeeForm(false)} className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-[10px] font-semibold text-slate-300">Hủy</button>
+              <button type="submit" disabled={savingEmployee || dataSource !== 'DATABASE' || !liveCompanyId} className="rounded-xl bg-blue-600 px-4 py-2.5 text-[10px] font-semibold text-white disabled:opacity-40">{savingEmployee ? 'Đang tạo…' : 'Tạo nhân sự'}</button>
+            </div>
+          </form>
+        </div>
       )}
 
       {departmentActivationPending && (
@@ -415,7 +700,28 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
               <div className="rounded-2xl border border-slate-800 bg-slate-900/75 p-4"><div className="flex items-center gap-3"><div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500/20 to-violet-500/15 border border-blue-400/15 flex items-center justify-center text-lg font-semibold text-blue-100">{selectedEmployee.avatar}</div><div><h3 className="text-lg font-semibold text-white">{selectedEmployee.name}</h3><p className="text-xs text-slate-400 mt-0.5">{selectedEmployee.title}</p><div className="mt-2 flex gap-1.5"><span className={cx('text-[9px] px-2 py-1 rounded border', employmentTone[selectedEmployee.employmentType])}>{selectedEmployee.employmentType}</span><span className="text-[9px] px-2 py-1 rounded border border-slate-700 bg-slate-950 text-slate-500">{selectedEmployee.level}</span></div></div></div></div>
               <div className="grid grid-cols-2 gap-2.5">{[['Department', departments.find((department) => department.id === selectedEmployee.departmentId)?.name],['Manager', people.find((person) => person.id === selectedEmployee.managerId)?.name ?? 'CEO'],['Work mode', selectedEmployee.workMode],['Location', selectedEmployee.location],['Shift', selectedEmployee.shift],['Attendance', selectedEmployee.attendance]].map(([label, value]) => <div key={label} className="rounded-xl border border-slate-800 bg-slate-900/45 px-3 py-2.5"><div className="text-[9px] uppercase tracking-[0.1em] text-slate-600">{label}</div><div className="text-[10px] text-slate-300 mt-1 truncate">{value}</div></div>)}</div>
               <div className="rounded-2xl border border-blue-500/15 bg-blue-500/[0.03] p-4"><div className="flex items-center gap-2"><UserRound className="w-4 h-4 text-blue-300" /><div><div className="text-xs font-semibold text-white">Employment lifecycle</div><div className="text-[10px] text-slate-500 mt-0.5">Một hồ sơ · employment status · attendance</div></div></div><div className="mt-4 space-y-2">{['Profile verified', selectedEmployee.employmentType, 'Reporting line assigned', 'Attendance policy assigned', selectedEmployee.employmentType === 'Chính thức' ? 'Review completed' : 'Probation / apprenticeship in progress'].map((item, index) => <div key={item} className="flex items-center gap-3"><div className="w-6 h-6 rounded-full border border-slate-700 bg-slate-900 flex items-center justify-center text-[9px] font-bold text-slate-500">{index + 1}</div><span className="text-[10px] text-slate-300">{item}</span></div>)}</div></div>
-              <div className="grid grid-cols-2 gap-2"><button className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-[10px] font-semibold text-slate-200">Xem công tháng</button><button className="rounded-xl bg-blue-600 px-3 py-2.5 text-[10px] font-semibold text-white">Hồ sơ employment</button></div>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" disabled={!liveCompanyId || dataSource !== 'DATABASE'} onClick={async () => {
+                  const [shiftStart, shiftEnd] = selectedEmployee.shift.includes('–') ? selectedEmployee.shift.split('–') : ['08:30', '17:30'];
+                  const checkIn = Math.floor(Date.now() / 1000);
+                  const response = await fetch('/api/organization/attendance', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ attendance: { id: crypto.randomUUID(), company_id: liveCompanyId, employee_id: selectedEmployee.id, work_date: localCompanyDate(), status: 'PRESENT', shift_start: shiftStart, shift_end: shiftEnd, check_in_at_epoch: checkIn, check_out_at_epoch: null, source: 'company-os-ui', exception_reason: null } }),
+                  });
+                  if (response.ok) setLivePeople((current) => current.map((person) => person.id === selectedEmployee.id ? { ...person, attendance: 'Đang làm', checkedInAt: formatEpochTime(checkIn), checkedOutAt: undefined } : person));
+                }} className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2.5 text-[10px] font-semibold text-emerald-300 disabled:opacity-40">Check-in</button>
+                <button type="button" disabled={!liveCompanyId || dataSource !== 'DATABASE'} onClick={async () => {
+                  const [shiftStart, shiftEnd] = selectedEmployee.shift.includes('–') ? selectedEmployee.shift.split('–') : ['08:30', '17:30'];
+                  const checkOut = Math.floor(Date.now() / 1000);
+                  const response = await fetch('/api/organization/attendance', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ attendance: { id: crypto.randomUUID(), company_id: liveCompanyId, employee_id: selectedEmployee.id, work_date: localCompanyDate(), status: 'CHECKED_OUT', shift_start: shiftStart, shift_end: shiftEnd, check_in_at_epoch: null, check_out_at_epoch: checkOut, source: 'company-os-ui', exception_reason: null } }),
+                  });
+                  if (response.ok) setLivePeople((current) => current.map((person) => person.id === selectedEmployee.id ? { ...person, attendance: 'Đã ra về', checkedOutAt: formatEpochTime(checkOut) } : person));
+                }} className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-[10px] font-semibold text-slate-200 disabled:opacity-40">Check-out</button>
+              </div>
             </div>
           </aside>
         </div>
