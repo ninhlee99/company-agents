@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS employee_attendance_policy_assignments (
   effective_from date NOT NULL,
   effective_to date,
   created_at timestamptz NOT NULL DEFAULT now(),
-  CHECK (effective_to IS NULL OR effective_to >= effective_from)
+  CHECK (effective_to IS NULL OR effective_to >= effective_from),
+  UNIQUE(company_id, employee_id, effective_from)
 );
 
 CREATE TABLE IF NOT EXISTS employment_lifecycle_events (
