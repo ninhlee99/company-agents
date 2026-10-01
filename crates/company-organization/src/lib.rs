@@ -464,6 +464,68 @@ pub struct OrganizationEmployeeRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct JobPositionRecord {
+    pub id: String,
+    pub company_id: String,
+    pub department_id: String,
+    pub team_id: Option<String>,
+    pub code: String,
+    pub title: String,
+    pub level: String,
+    pub employment_types: Vec<EmploymentType>,
+    pub responsibilities: Vec<String>,
+    pub monthly_cost_min_minor: i128,
+    pub monthly_cost_max_minor: i128,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AttendancePolicyRecord {
+    pub id: String,
+    pub company_id: String,
+    pub code: String,
+    pub name: String,
+    pub timezone: String,
+    pub shift_start: String,
+    pub shift_end: String,
+    pub grace_minutes: i32,
+    pub work_days: Vec<u8>,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum EmploymentLifecycleEventType {
+    Hired,
+    ProbationStarted,
+    ProbationPassed,
+    ApprenticeshipStarted,
+    Appointed,
+    Promoted,
+    Transferred,
+    ManagerChanged,
+    Suspended,
+    Reinstated,
+    Terminated,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EmploymentLifecycleEventRecord {
+    pub id: String,
+    pub company_id: String,
+    pub employee_id: String,
+    pub event_type: EmploymentLifecycleEventType,
+    pub effective_at_epoch: i64,
+    pub position_id: Option<String>,
+    pub department_id: Option<String>,
+    pub team_id: Option<String>,
+    pub manager_id: Option<String>,
+    pub notes: Option<String>,
+    pub approval_reference: Option<String>,
+    pub actor_id: String,
+    pub created_at_epoch: i64,
+}
+
 pub struct OrganizationEmployeeView {
     pub employee_id: String,
     pub company_id: String,
@@ -481,6 +543,7 @@ pub struct OrganizationEmployeeView {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OrganizationEmployeeUpsert {
     pub employee: OrganizationEmployeeRecord,
+    pub position_id: Option<String>,
     pub name: String,
     pub monthly_cost_minor: i128,
     pub currency: String,
