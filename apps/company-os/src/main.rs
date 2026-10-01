@@ -4697,6 +4697,9 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     store
         .ensure_standard_organization(&company_id, &company_name, &currency)
         .await?;
+    store
+        .ensure_standard_hr_configuration(&company_id, &currency)
+        .await?;
 
     let company = match store.load_snapshot(&company_id).await? {
         Some(snapshot) => snapshot,
