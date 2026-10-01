@@ -146,7 +146,6 @@ async fn payment_execution_intent_is_idempotent_approval_gated_and_non_accountin
     assert_eq!(again.status, "SUCCEEDED");
 }
 
-#[tokio::test]
 #[test]
 fn payment_execution_idempotency_matches_all_request_fields() {
     let existing = super::PaymentExecutionIntentRecord {
