@@ -3688,6 +3688,7 @@ fn control_plane_action_allowed(role: &str, method: &str, path: &str) -> bool {
     if !matches!(role, "admin" | "operator" | "operator-browser") {
         return false;
     }
+
     let admin_only = [
         ("POST", "/api/autonomy/controls"),
         ("POST", "/api/autonomy/budget/consume"),
@@ -3701,7 +3702,69 @@ fn control_plane_action_allowed(role: &str, method: &str, path: &str) -> bool {
     }) {
         return role == "admin";
     }
-    true
+
+    const OPERATOR_ALLOWED: &[(&str, &str)] = &[
+        ("POST", "/auth/session"),
+        ("POST", "/auth/logout"),
+        ("POST", "/run"),
+        ("POST", "/live/session"),
+        ("POST", "/live/start"),
+        ("POST", "/live/stop"),
+        ("POST", "/api/run"),
+        ("POST", "/api/agents/outcome-evidence"),
+        ("POST", "/api/autonomy/assess"),
+        ("POST", "/api/content/items"),
+        ("POST", "/api/content/observations"),
+        ("POST", "/api/content/status"),
+        ("POST", "/api/growth/trends"),
+        ("POST", "/api/growth/competitor-whitespace"),
+        ("POST", "/api/growth/creator-product-matches"),
+        ("POST", "/api/growth/ads/decisions"),
+        ("POST", "/api/growth/kill-gate"),
+        ("POST", "/api/revenue-graph/edges"),
+        ("POST", "/api/growth/content"),
+        ("POST", "/api/capital/plan"),
+        ("POST", "/api/capital/profit-cockpit"),
+        ("POST", "/api/compliance/checks"),
+        ("POST", "/api/affiliate/click"),
+        ("POST", "/api/affiliate/conversion"),
+        ("POST", "/api/affiliate/verify"),
+        ("POST", "/api/affiliate/payout"),
+        ("POST", "/api/publishing/intents"),
+        ("POST", "/api/publishing/intents/approve"),
+        ("POST", "/api/publishing/intents/claim"),
+        ("POST", "/api/publishing/intents/complete"),
+        ("POST", "/api/publishing/intents/revoke"),
+        ("POST", "/api/publishing/tiktok/execute"),
+        ("POST", "/api/publishing/tiktok/status"),
+        ("POST", "/api/publishing/tiktok/webhook"),
+        ("POST", "/api/tiktok/oauth/refresh"),
+        ("POST", "/api/live/sessions"),
+        ("POST", "/api/live/sessions/:session_id/events"),
+        ("POST", "/api/live/sessions/:session_id/reconcile-gifts"),
+        ("POST", "/api/live/stream/start"),
+        ("POST", "/api/live/stream/overlay"),
+        ("POST", "/api/live/stream/stop"),
+        ("POST", "/api/customers"),
+        ("POST", "/api/vendors"),
+        ("POST", "/api/procurement/requests"),
+        ("POST", "/api/procurement/deliveries"),
+        ("POST", "/api/commercial/proposals"),
+        ("POST", "/api/commercial/proposals/transition"),
+        ("POST", "/api/commercial/sponsorships/transition"),
+        ("POST", "/api/commercial/sponsorships/delivery"),
+        ("POST", "/api/commercial/sponsorships"),
+        ("POST", "/api/commercial/invoices"),
+        ("POST", "/api/commercial/invoices/issue"),
+        ("POST", "/api/commercial/invoice-payments"),
+        ("POST", "/api/commercial/payments/reconcile"),
+        ("POST", "/api/payments/execution/intents"),
+        ("POST", "/api/payments/execution/run"),
+    ];
+
+    OPERATOR_ALLOWED
+        .iter()
+        .any(|(expected_method, expected_path)| method == *expected_method && path == *expected_path)
 }
 #[allow(dead_code)]
 fn control_plane_auth_scope(
@@ -4224,6 +4287,16 @@ async fn metrics(
 #[cfg(test)]
 mod control_plane_audit_tests {
     use super::*;
+#[test]
+    fn control_plane_mutations_fail_closed_for_unknown_routes() {
+        assert!(control_plane_action_allowed("operator", "POST", "/api/run"));
+        assert!(!control_plane_action_allowed("operator", "POST", "/api/future-dangerous-action"));
+        assert!(!control_plane_action_allowed("read-only", "POST", "/api/run"));
+        assert!(!control_plane_action_allowed("operator", "POST", "/api/payments/execution/approve"));
+        assert!(control_plane_action_allowed("admin", "POST", "/api/payments/execution/approve"));
+        assert!(control_plane_action_allowed("operator", "GET", "/api/future-dangerous-action"));
+    }
+
 
     #[test]
     fn auth_disable_switch_is_never_effective_in_production() {
