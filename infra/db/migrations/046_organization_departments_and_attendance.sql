@@ -102,7 +102,7 @@ CREATE INDEX IF NOT EXISTS idx_employees_org
 CREATE TABLE IF NOT EXISTS teams (
   id uuid PRIMARY KEY,
   company_id uuid NOT NULL REFERENCES companies(id),
-  department_id uuid NOT NULL REFERENCES departments(id),
+  department_id uuid NOT NULL,
   parent_team_id uuid,
   name text NOT NULL,
   charter text NOT NULL,
