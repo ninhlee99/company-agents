@@ -394,11 +394,12 @@ mod tests {
             "Autonomous Agents Inc",
             "USD",
         );
-        assert_eq!(org.departments.len(), 9);
+        assert_eq!(org.departments.len(), 10);
         assert!(org.validate().is_ok());
         assert!(org.department_by_type(DepartmentType::ProductAndInnovation).is_some());
         assert!(org.department_by_type(DepartmentType::RiskAndCompliance).is_some());
         assert!(org.department_by_type(DepartmentType::CustomerSuccess).is_some());
+        assert!(org.department_by_type(DepartmentType::PeopleAndCulture).is_some());
     }
 }
 
