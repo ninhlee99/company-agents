@@ -28,7 +28,7 @@ ALTER TABLE employees
   ADD COLUMN IF NOT EXISTS employment_level text NOT NULL DEFAULT 'L4',
   ADD COLUMN IF NOT EXISTS joined_at_epoch bigint;
 
-DO $
+DO $org$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'employees_company_id_id_key'
@@ -36,9 +36,9 @@ BEGIN
     ALTER TABLE employees
       ADD CONSTRAINT employees_company_id_id_key UNIQUE (company_id, id);
   END IF;
-END $;
+END $org$;
 
-DO $
+DO $org$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'employees_manager_same_company_fk'
@@ -48,9 +48,9 @@ BEGIN
       FOREIGN KEY (company_id, manager_id)
       REFERENCES employees(company_id, id);
   END IF;
-END $;
+END $org$;
 
-DO $
+DO $org$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'departments_company_id_id_key'
@@ -58,9 +58,9 @@ BEGIN
     ALTER TABLE departments
       ADD CONSTRAINT departments_company_id_id_key UNIQUE (company_id, id);
   END IF;
-END $;
+END $org$;
 
-DO $
+DO $org$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'departments_parent_same_company_fk'
@@ -70,9 +70,9 @@ BEGIN
       FOREIGN KEY (company_id, parent_department_id)
       REFERENCES departments(company_id, id);
   END IF;
-END $;
+END $org$;
 
-DO $
+DO $org$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'departments_owner_same_company_fk'
@@ -82,9 +82,9 @@ BEGIN
       FOREIGN KEY (company_id, owner_employee_id)
       REFERENCES employees(company_id, id);
   END IF;
-END $;
+END $org$;
 
-DO $
+DO $org$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'employees_department_same_company_fk'
@@ -94,7 +94,7 @@ BEGIN
       FOREIGN KEY (company_id, department_id)
       REFERENCES departments(company_id, id);
   END IF;
-END $;
+END $org$;
 
 CREATE INDEX IF NOT EXISTS idx_employees_org
   ON employees(company_id, department_id, manager_id, status);
@@ -113,7 +113,7 @@ CREATE TABLE IF NOT EXISTS teams (
   UNIQUE(company_id, department_id, name)
 );
 
-DO $
+DO $org$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'teams_company_id_id_key'
@@ -121,9 +121,9 @@ BEGIN
     ALTER TABLE teams
       ADD CONSTRAINT teams_company_id_id_key UNIQUE (company_id, id);
   END IF;
-END $;
+END $org$;
 
-DO $
+DO $org$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'teams_department_same_company_fk'
@@ -133,9 +133,9 @@ BEGIN
       FOREIGN KEY (company_id, department_id)
       REFERENCES departments(company_id, id);
   END IF;
-END $;
+END $org$;
 
-DO $
+DO $org$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'teams_parent_same_company_fk'
@@ -145,9 +145,9 @@ BEGIN
       FOREIGN KEY (company_id, parent_team_id)
       REFERENCES teams(company_id, id);
   END IF;
-END $;
+END $org$;
 
-DO $
+DO $org$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'teams_owner_same_company_fk'
@@ -157,9 +157,9 @@ BEGIN
       FOREIGN KEY (company_id, owner_employee_id)
       REFERENCES employees(company_id, id);
   END IF;
-END $;
+END $org$;
 
-DO $
+DO $org$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'employees_team_fk'
@@ -169,7 +169,7 @@ BEGIN
       FOREIGN KEY (company_id, team_id)
       REFERENCES teams(company_id, id);
   END IF;
-END $$;
+END $org$;
 
 CREATE TABLE IF NOT EXISTS employee_attendance (
   id uuid PRIMARY KEY,
@@ -188,7 +188,7 @@ CREATE TABLE IF NOT EXISTS employee_attendance (
   UNIQUE(company_id, employee_id, work_date)
 );
 
-DO $
+DO $org$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'attendance_employee_same_company_fk'
@@ -198,7 +198,7 @@ BEGIN
       FOREIGN KEY (company_id, employee_id)
       REFERENCES employees(company_id, id);
   END IF;
-END $;
+END $org$;
 
 CREATE INDEX IF NOT EXISTS idx_employee_attendance_daily
   ON employee_attendance(company_id, work_date, status);
