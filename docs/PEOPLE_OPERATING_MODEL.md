@@ -67,3 +67,18 @@ Activation should follow:
 **Need signal → Charter → Owner → Budget ceiling → Critical roles → Governance record → Activation**
 
 Automation may draft and prepare the structure, but the activation event must remain auditable and bounded by the organization's approval policy.
+
+
+## HR operating baseline
+
+The Company OS bootstraps an HR catalog at startup:
+- standard job positions with level, allowed employment types and responsibilities;
+- standard attendance policies in Asia/Ho_Chi_Minh with explicit shifts, workdays and grace periods;
+- attendance policy assignments for employees;
+- append-only employment lifecycle events with actor and approval references.
+
+Employee onboarding is position-driven. The selected position supplies the authoritative title/level and must belong to the selected department. A successful onboarding transaction also assigns the default attendance policy and records the initial employment lifecycle.
+
+Attendance writes resolve the employee's active policy for the work date. Shift windows are taken from the policy, not trusted from the browser. For present/remote check-ins, lateness is derived server-side from local check-in time plus policy grace.
+
+No legal employee identity, compensation amount, or physical attendance is fabricated by bootstrap. Those records require real operator input or an external attendance integration.

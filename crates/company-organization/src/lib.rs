@@ -74,12 +74,13 @@ pub enum DepartmentType {
     CommercialAndSales,
     RiskAndCompliance,
     CustomerSuccess,
+    PeopleAndCulture,
     TreasuryAndFinance,
     OperationsAndTech,
 }
 
 impl DepartmentType {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Executive,
         Self::ProductAndInnovation,
         Self::GrowthAndMarketing,
@@ -87,6 +88,7 @@ impl DepartmentType {
         Self::CommercialAndSales,
         Self::RiskAndCompliance,
         Self::CustomerSuccess,
+        Self::PeopleAndCulture,
         Self::TreasuryAndFinance,
         Self::OperationsAndTech,
     ];
@@ -100,6 +102,7 @@ impl DepartmentType {
             Self::CommercialAndSales => "COMMERCIAL",
             Self::RiskAndCompliance => "RISK",
             Self::CustomerSuccess => "CS",
+            Self::PeopleAndCulture => "PEOPLE",
             Self::TreasuryAndFinance => "TREASURY",
             Self::OperationsAndTech => "OPS",
         }
@@ -114,6 +117,7 @@ impl DepartmentType {
             Self::CommercialAndSales => "Head of Sales",
             Self::RiskAndCompliance => "Chief Risk Officer",
             Self::CustomerSuccess => "Head of Customer Success",
+            Self::PeopleAndCulture => "People & Culture Lead",
             Self::TreasuryAndFinance => "CFO",
             Self::OperationsAndTech => "COO",
         }
@@ -390,11 +394,12 @@ mod tests {
             "Autonomous Agents Inc",
             "USD",
         );
-        assert_eq!(org.departments.len(), 9);
+        assert_eq!(org.departments.len(), 10);
         assert!(org.validate().is_ok());
         assert!(org.department_by_type(DepartmentType::ProductAndInnovation).is_some());
         assert!(org.department_by_type(DepartmentType::RiskAndCompliance).is_some());
         assert!(org.department_by_type(DepartmentType::CustomerSuccess).is_some());
+        assert!(org.department_by_type(DepartmentType::PeopleAndCulture).is_some());
     }
 }
 
@@ -464,6 +469,68 @@ pub struct OrganizationEmployeeRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct JobPositionRecord {
+    pub id: String,
+    pub company_id: String,
+    pub department_id: String,
+    pub team_id: Option<String>,
+    pub code: String,
+    pub title: String,
+    pub level: String,
+    pub employment_types: Vec<EmploymentType>,
+    pub responsibilities: Vec<String>,
+    pub monthly_cost_min_minor: i128,
+    pub monthly_cost_max_minor: i128,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AttendancePolicyRecord {
+    pub id: String,
+    pub company_id: String,
+    pub code: String,
+    pub name: String,
+    pub timezone: String,
+    pub shift_start: String,
+    pub shift_end: String,
+    pub grace_minutes: i32,
+    pub work_days: Vec<u8>,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum EmploymentLifecycleEventType {
+    Hired,
+    ProbationStarted,
+    ProbationPassed,
+    ApprenticeshipStarted,
+    Appointed,
+    Promoted,
+    Transferred,
+    ManagerChanged,
+    Suspended,
+    Reinstated,
+    Terminated,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EmploymentLifecycleEventRecord {
+    pub id: String,
+    pub company_id: String,
+    pub employee_id: String,
+    pub event_type: EmploymentLifecycleEventType,
+    pub effective_at_epoch: i64,
+    pub position_id: Option<String>,
+    pub department_id: Option<String>,
+    pub team_id: Option<String>,
+    pub manager_id: Option<String>,
+    pub notes: Option<String>,
+    pub approval_reference: Option<String>,
+    pub actor_id: String,
+    pub created_at_epoch: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OrganizationEmployeeView {
     pub employee_id: String,
     pub company_id: String,
@@ -472,6 +539,7 @@ pub struct OrganizationEmployeeView {
     pub department_id: Option<String>,
     pub team_id: Option<String>,
     pub manager_id: Option<String>,
+    pub position_id: Option<String>,
     pub employment_type: EmploymentType,
     pub employment_level: String,
     pub joined_at_epoch: Option<i64>,
@@ -481,11 +549,13 @@ pub struct OrganizationEmployeeView {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OrganizationEmployeeUpsert {
     pub employee: OrganizationEmployeeRecord,
+    pub position_id: Option<String>,
     pub name: String,
     pub monthly_cost_minor: i128,
     pub currency: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DepartmentRecord {
     pub id: String,
     pub company_id: String,
@@ -504,7 +574,6 @@ pub struct DepartmentRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TeamRecord {
     pub id: String,
     pub company_id: String,
@@ -516,6 +585,7 @@ pub struct TeamRecord {
     pub active: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AttendanceRecord {
     pub id: String,
     pub company_id: String,

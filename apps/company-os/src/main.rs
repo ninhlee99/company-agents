@@ -197,7 +197,10 @@ struct OrganizationWorkspaceResponse {
     currency: String,
     departments: Vec<company_organization::DepartmentRecord>,
     teams: Vec<company_organization::TeamRecord>,
+    positions: Vec<company_organization::JobPositionRecord>,
+    attendance_policies: Vec<company_organization::AttendancePolicyRecord>,
     employees: Vec<company_organization::OrganizationEmployeeView>,
+    lifecycle_events: Vec<company_organization::EmploymentLifecycleEventRecord>,
     attendance: Vec<company_organization::AttendanceRecord>,
     source: &'static str,
 }
@@ -3186,14 +3189,20 @@ async fn organization_api(
     });
     let departments = state.store.list_departments(&state.company_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let teams = state.store.list_teams(&state.company_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let positions = state.store.list_job_positions(&state.company_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let attendance_policies = state.store.list_attendance_policies(&state.company_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let employees = state.store.list_organization_employee_views(&state.company_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let lifecycle_events = state.store.list_employee_lifecycle_events(&state.company_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let attendance = state.store.list_employee_attendance(&state.company_id, &work_date).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(OrganizationWorkspaceResponse {
         company_id: state.company_id.clone(),
         currency: state.currency.clone(),
         departments,
         teams,
+        positions,
+        attendance_policies,
         employees,
+        lifecycle_events,
         attendance,
         source: "DATABASE",
     }))
@@ -3201,9 +3210,11 @@ async fn organization_api(
 
 async fn organization_employee_upsert_api(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(request): Json<OrganizationEmployeeUpsertRequest>,
 ) -> Result<StatusCode, StatusCode> {
-    state.store.upsert_organization_employee(&state.company_id, &request.input)
+    let actor = trusted_control_plane_actor(&state, &headers, "POST")?;
+    state.store.upsert_organization_employee(&state.company_id, &request.input, &actor)
         .await
         .map(|_| StatusCode::ACCEPTED)
         .map_err(|_| StatusCode::BAD_REQUEST)
@@ -4696,6 +4707,9 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .await?;
     store
         .ensure_standard_organization(&company_id, &company_name, &currency)
+        .await?;
+    store
+        .ensure_standard_hr_configuration(&company_id, &currency)
         .await?;
 
     let company = match store.load_snapshot(&company_id).await? {

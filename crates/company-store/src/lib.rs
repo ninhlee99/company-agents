@@ -3783,6 +3783,7 @@ impl CompanyStore {
             ("COMMERCIAL", "Commercial & Sales", "Quản trị pipeline doanh thu, proposals, contracts, delivery và customer expansion.", serde_json::json!(["Sales pipeline", "Proposals", "Commercial delivery", "Expansion"]), serde_json::json!(["Win rate", "Gross revenue", "Collection cycle"]), "CORE"),
             ("RISK", "Risk & Compliance", "Bảo đảm policy, compliance, auditability và kiểm soát các hành động có rủi ro.", serde_json::json!(["Policy", "Compliance checks", "Audit", "Risk controls"]), serde_json::json!(["Control coverage", "Exception closure", "Audit freshness"]), "CONTROL"),
             ("CS", "Customer Success", "Duy trì customer health, onboarding, retention và xử lý các nhiệm vụ hậu mãi.", serde_json::json!(["Onboarding", "Customer health", "Retention", "Support escalation"]), serde_json::json!(["Retention", "Time-to-resolution", "Health coverage"]), "CORE"),
+            ("PEOPLE", "People & Culture", "Quản trị talent lifecycle, organization design, policy, attendance và employee experience.", serde_json::json!(["Recruitment", "Employment lifecycle", "Attendance & policy", "Performance & development"]), serde_json::json!(["Time-to-fill", "Retention", "Attendance integrity"]), "CONTROL"),
             ("TREASURY", "Treasury & Finance", "Quản trị cash, accounting, payroll readiness, budgets và financial control.", serde_json::json!(["Accounting", "Treasury", "Payroll control", "Financial planning"]), serde_json::json!(["Cash accuracy", "Runway", "Close cycle"]), "CONTROL"),
             ("OPS", "Operations & Technology", "Điều phối vận hành, platform reliability và capacity để công ty chạy ổn định.", serde_json::json!(["Process excellence", "Platform operations", "Capacity", "Reliability"]), serde_json::json!(["SLA attainment", "Uptime", "Throughput"]), "CORE"),
         ];
@@ -3859,6 +3860,125 @@ impl CompanyStore {
         Ok(())
     }
 
+    pub async fn ensure_standard_hr_configuration(
+        &self,
+        company_id: &str,
+        currency: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        for (code, name, start, end, grace) in [
+            ("OFFICE_0830", "Standard Office", "08:30", "17:30", 10_i32),
+            ("FLEX_0900", "Flexible Office", "09:00", "18:00", 15_i32),
+            ("PART_1400", "Part-time Core", "14:00", "18:00", 10_i32),
+        ] {
+            tx.execute(
+                "INSERT INTO attendance_policies
+                    (id, company_id, code, name, timezone, shift_start, shift_end, grace_minutes, work_days, active)
+                 VALUES ($1,$2,$3,$4,'Asia/Ho_Chi_Minh',$5::time,$6::time,$7,ARRAY[1,2,3,4,5],true)
+                 ON CONFLICT (company_id, code) DO NOTHING",
+                &[&Uuid::new_v4(), &company_uuid, &code, &name, &start, &end, &grace],
+            ).await?;
+        }
+
+        let existing_employees = tx
+            .query(
+                "SELECT id, employment_type, joined_at_epoch
+                   FROM employees
+                  WHERE company_id=$1",
+                &[&company_uuid],
+            )
+            .await?;
+        for row in existing_employees {
+            let employee_id: Uuid = row.get(0);
+            let employment_type: String = row.get(1);
+            let policy_code = if employment_type == "PART_TIME" { "PART_1400" } else { "OFFICE_0830" };
+            let policy_id: Uuid = tx
+                .query_one(
+                    "SELECT id
+                       FROM attendance_policies
+                      WHERE company_id=$1 AND code=$2 AND active=true",
+                    &[&company_uuid, &policy_code],
+                )
+                .await?
+                .get(0);
+            tx.execute(
+                "INSERT INTO employee_attendance_policy_assignments
+                    (id, company_id, employee_id, policy_id, effective_from)
+                 VALUES ($1,$2,$3,$4,$5::date)
+                 ON CONFLICT DO NOTHING",
+                &[
+                    &Uuid::new_v4(),
+                    &company_uuid,
+                    &employee_id,
+                    &policy_id,
+                    &row.get::<_, Option<i64>>(2)
+                        .and_then(|epoch| time::OffsetDateTime::from_unix_timestamp(epoch).ok())
+                        .map(|value| value.to_offset(time::UtcOffset::from_hms(7, 0, 0).expect("UTC+7 is valid")).date())
+                        .unwrap_or_else(|| time::OffsetDateTime::now_utc().date()),
+                ],
+            )
+            .await?;
+        }
+
+        let positions = [
+            ("EXEC_CEO", "EXEC", "Chief Executive Officer", "L9", vec!["OFFICIAL"], vec!["Strategy & OKR","Executive governance","Capital allocation"]),
+            ("PROD_LEAD", "PROD", "Product & Innovation Lead", "L7", vec!["OFFICIAL"], vec!["Product strategy","Roadmap","Experimentation"]),
+            ("PROD_SPECIALIST", "PROD", "Product Specialist", "L4", vec!["OFFICIAL","PROBATION","APPRENTICE"], vec!["Discovery","Product operations","Quality"]),
+            ("GROWTH_LEAD", "GROWTH", "Growth & Marketing Lead", "L7", vec!["OFFICIAL"], vec!["Demand generation","Lifecycle growth","Attribution"]),
+            ("GROWTH_SPECIALIST", "GROWTH", "Growth Specialist", "L4", vec!["OFFICIAL","PROBATION","APPRENTICE"], vec!["Content growth","Campaign operations","Pipeline"]),
+            ("CREATIVE_LEAD", "CREATIVE", "Creative Director", "L7", vec!["OFFICIAL"], vec!["Creative direction","Brand systems","Asset governance"]),
+            ("CREATIVE_SPECIALIST", "CREATIVE", "Creative Specialist", "L4", vec!["OFFICIAL","PROBATION","APPRENTICE"], vec!["Creative production","Media operations","Asset QA"]),
+            ("COMMERCIAL_LEAD", "COMMERCIAL", "Head of Sales", "L7", vec!["OFFICIAL"], vec!["Sales pipeline","Commercial delivery","Expansion"]),
+            ("COMMERCIAL_SPECIALIST", "COMMERCIAL", "Sales Specialist", "L4", vec!["OFFICIAL","PROBATION","APPRENTICE"], vec!["Prospecting","Pipeline hygiene","Proposal support"]),
+            ("RISK_LEAD", "RISK", "Risk & Compliance Lead", "L7", vec!["OFFICIAL"], vec!["Policy","Compliance","Audit"]),
+            ("RISK_SPECIALIST", "RISK", "Compliance Specialist", "L4", vec!["OFFICIAL","PROBATION"], vec!["Control checks","Evidence","Exception management"]),
+            ("CS_LEAD", "CS", "Head of Customer Success", "L7", vec!["OFFICIAL"], vec!["Onboarding","Customer health","Retention"]),
+            ("CS_SPECIALIST", "CS", "Customer Success Specialist", "L4", vec!["OFFICIAL","PROBATION","APPRENTICE"], vec!["Customer tasks","Support","Health monitoring"]),
+            ("PEOPLE_LEAD", "PEOPLE", "People & Culture Lead", "L7", vec!["OFFICIAL"], vec!["Recruitment","Organization design","Policy and compliance","Employee experience"]),
+            ("PEOPLE_SPECIALIST", "PEOPLE", "People Operations Specialist", "L4", vec!["OFFICIAL","PROBATION","APPRENTICE"], vec!["Onboarding","Attendance operations","Employee support"]),
+            ("TREASURY_LEAD", "TREASURY", "Chief Financial Officer", "L8", vec!["OFFICIAL"], vec!["Accounting","Treasury","Financial planning"]),
+            ("TREASURY_SPECIALIST", "TREASURY", "Finance Specialist", "L4", vec!["OFFICIAL","PROBATION"], vec!["Close support","Reconciliation","Reporting"]),
+            ("OPS_LEAD", "OPS", "Operations & Technology Lead", "L7", vec!["OFFICIAL"], vec!["Process excellence","Platform operations","Reliability"]),
+            ("OPS_SPECIALIST", "OPS", "Operations Specialist", "L4", vec!["OFFICIAL","PROBATION","APPRENTICE"], vec!["SLA operations","Capacity","Workflow execution"]),
+        ];
+
+        for (code, department_code, title, level, allowed_types, responsibilities) in positions {
+            let department_id: Uuid = tx.query_one(
+                "SELECT id FROM departments WHERE company_id=$1 AND code=$2",
+                &[&company_uuid, &department_code],
+            ).await?.get(0);
+            let team_id: Uuid = tx.query_one(
+                "SELECT id FROM teams WHERE company_id=$1 AND department_id=$2 AND active=true ORDER BY name ASC LIMIT 1",
+                &[&company_uuid, &department_id],
+            ).await?.get(0);
+            tx.execute(
+                "INSERT INTO job_positions
+                    (id, company_id, department_id, team_id, code, title, level,
+                     employment_types, responsibilities, monthly_cost_min_minor, monthly_cost_max_minor, active)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,0,0,true)
+                 ON CONFLICT (company_id, code) DO NOTHING",
+                &[
+                    &Uuid::new_v4(),
+                    &company_uuid,
+                    &department_id,
+                    &team_id,
+                    &code,
+                    &title,
+                    &level,
+                    &serde_json::to_value(&allowed_types)?,
+                    &serde_json::to_value(&responsibilities)?,
+                ],
+            ).await?;
+        }
+
+        tracing::info!(company_id=%company_id,currency=%currency,"standard HR configuration ensured");
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn upsert_employee(
         &self,
         company_id: &str,
@@ -3906,6 +4026,146 @@ impl CompanyStore {
             return Err("employee id already belongs to another company".into());
         }
         Ok(())
+    }
+
+    pub async fn list_job_positions(
+        &self,
+        company_id: &str,
+    ) -> Result<Vec<company_organization::JobPositionRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT id, company_id, department_id, team_id, code, title, level,
+                        employment_types, responsibilities,
+                        monthly_cost_min_minor::text, monthly_cost_max_minor::text, active
+                   FROM job_positions
+                  WHERE company_id=$1
+                  ORDER BY department_id ASC, level DESC, title ASC, id ASC",
+                &[&company_uuid],
+            )
+            .await?;
+        rows.into_iter()
+            .map(|row| {
+                let employment_types_json: Vec<String> = serde_json::from_value(row.get(7))?;
+                let employment_types = employment_types_json
+                    .into_iter()
+                    .map(|value| parse_employment_type(&value))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let responsibilities = serde_json::from_value::<Vec<String>>(row.get(8))?;
+                Ok(company_organization::JobPositionRecord {
+                    id: row.get::<_, Uuid>(0).to_string(),
+                    company_id: row.get::<_, Uuid>(1).to_string(),
+                    department_id: row.get::<_, Uuid>(2).to_string(),
+                    team_id: row.get::<_, Option<Uuid>>(3).map(|id| id.to_string()),
+                    code: row.get(4),
+                    title: row.get(5),
+                    level: row.get(6),
+                    employment_types,
+                    responsibilities,
+                    monthly_cost_min_minor: parse_i128_numeric(&row.get::<_, String>(9))?,
+                    monthly_cost_max_minor: parse_i128_numeric(&row.get::<_, String>(10))?,
+                    active: row.get(11),
+                })
+            })
+            .collect()
+    }
+
+    pub async fn list_attendance_policies(
+        &self,
+        company_id: &str,
+    ) -> Result<Vec<company_organization::AttendancePolicyRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT id, company_id, code, name, timezone, shift_start::text, shift_end::text,
+                        grace_minutes, work_days, active
+                   FROM attendance_policies
+                  WHERE company_id=$1
+                  ORDER BY active DESC, code ASC",
+                &[&company_uuid],
+            )
+            .await?;
+        rows.into_iter()
+            .map(|row| {
+                let work_days = row
+                    .get::<_, Vec<i16>>(8)
+                    .into_iter()
+                    .map(|day| {
+                        u8::try_from(day).map_err(|_| -> Box<dyn std::error::Error + Send + Sync> {
+                            format!("invalid attendance work day: {day}").into()
+                        })
+                    })
+                    .collect::<Result<Vec<_>, Box<dyn std::error::Error + Send + Sync>>>()?;
+                Ok(company_organization::AttendancePolicyRecord {
+                    id: row.get::<_, Uuid>(0).to_string(),
+                    company_id: row.get::<_, Uuid>(1).to_string(),
+                    code: row.get(2),
+                    name: row.get(3),
+                    timezone: row.get(4),
+                    shift_start: row.get(5),
+                    shift_end: row.get(6),
+                    grace_minutes: row.get(7),
+                    work_days,
+                    active: row.get(9),
+                })
+            })
+            .collect()
+    }
+
+    pub async fn list_employee_lifecycle_events(
+        &self,
+        company_id: &str,
+    ) -> Result<Vec<company_organization::EmploymentLifecycleEventRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let company_uuid = Uuid::parse_str(company_id)?;
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT id, company_id, employee_id, event_type,
+                        extract(epoch FROM effective_at)::bigint,
+                        position_id, department_id, team_id, manager_id,
+                        notes, approval_reference, actor_id,
+                        extract(epoch FROM created_at)::bigint
+                   FROM employment_lifecycle_events
+                  WHERE company_id=$1
+                  ORDER BY effective_at DESC, created_at DESC, id DESC",
+                &[&company_uuid],
+            )
+            .await?;
+        rows.into_iter()
+            .map(|row| {
+                let event_type = match row.get::<_, String>(3).as_str() {
+                    "HIRED" => company_organization::EmploymentLifecycleEventType::Hired,
+                    "PROBATION_STARTED" => company_organization::EmploymentLifecycleEventType::ProbationStarted,
+                    "PROBATION_PASSED" => company_organization::EmploymentLifecycleEventType::ProbationPassed,
+                    "APPRENTICESHIP_STARTED" => company_organization::EmploymentLifecycleEventType::ApprenticeshipStarted,
+                    "APPOINTED" => company_organization::EmploymentLifecycleEventType::Appointed,
+                    "PROMOTED" => company_organization::EmploymentLifecycleEventType::Promoted,
+                    "TRANSFERRED" => company_organization::EmploymentLifecycleEventType::Transferred,
+                    "MANAGER_CHANGED" => company_organization::EmploymentLifecycleEventType::ManagerChanged,
+                    "SUSPENDED" => company_organization::EmploymentLifecycleEventType::Suspended,
+                    "REINSTATED" => company_organization::EmploymentLifecycleEventType::Reinstated,
+                    "TERMINATED" => company_organization::EmploymentLifecycleEventType::Terminated,
+                    other => return Err(format!("unknown employment lifecycle event: {other}").into()),
+                };
+                Ok(company_organization::EmploymentLifecycleEventRecord {
+                    id: row.get::<_, Uuid>(0).to_string(),
+                    company_id: row.get::<_, Uuid>(1).to_string(),
+                    employee_id: row.get::<_, Uuid>(2).to_string(),
+                    event_type,
+                    effective_at_epoch: row.get(4),
+                    position_id: row.get::<_, Option<Uuid>>(5).map(|id| id.to_string()),
+                    department_id: row.get::<_, Option<Uuid>>(6).map(|id| id.to_string()),
+                    team_id: row.get::<_, Option<Uuid>>(7).map(|id| id.to_string()),
+                    manager_id: row.get::<_, Option<Uuid>>(8).map(|id| id.to_string()),
+                    notes: row.get(9),
+                    approval_reference: row.get(10),
+                    actor_id: row.get(11),
+                    created_at_epoch: row.get(12),
+                })
+            })
+            .collect()
     }
 
     pub async fn list_departments(
@@ -4259,7 +4519,7 @@ impl CompanyStore {
         let client = self.client.lock().await;
         let rows = client
             .query(
-                "SELECT id, company_id, name, role, department_id, team_id, manager_id,
+                "SELECT id, company_id, name, role, department_id, team_id, manager_id, position_id,
                         employment_type, employment_level, joined_at_epoch, status
                    FROM employees
                   WHERE company_id=$1
@@ -4277,10 +4537,11 @@ impl CompanyStore {
                     department_id: row.get::<_, Option<Uuid>>(4).map(|id| id.to_string()),
                     team_id: row.get::<_, Option<Uuid>>(5).map(|id| id.to_string()),
                     manager_id: row.get::<_, Option<Uuid>>(6).map(|id| id.to_string()),
-                    employment_type: parse_employment_type(&row.get::<_, String>(7))?,
-                    employment_level: row.get(8),
-                    joined_at_epoch: row.get(9),
-                    status: parse_employee_status(&row.get::<_, String>(10))?,
+                    position_id: row.get::<_, Option<Uuid>>(7).map(|id| id.to_string()),
+                    employment_type: parse_employment_type(&row.get::<_, String>(8))?,
+                    employment_level: row.get(9),
+                    joined_at_epoch: row.get(10),
+                    status: parse_employee_status(&row.get::<_, String>(11))?,
                 })
             })
             .collect()
@@ -4290,7 +4551,11 @@ impl CompanyStore {
         &self,
         company_id: &str,
         input: &company_organization::OrganizationEmployeeUpsert,
+        actor_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if actor_id.trim().is_empty() {
+            return Err("employee onboarding actor is required".into());
+        }
         company_organization::validate_employee(&company_organization::Employee {
             id: input.employee.employee_id.clone(),
             name: input.name.clone(),
@@ -4317,6 +4582,7 @@ impl CompanyStore {
         let department_uuid = Uuid::parse_str(&input.employee.department_id)?;
         let team_uuid = input.employee.team_id.as_deref().map(Uuid::parse_str).transpose()?;
         let manager_uuid = input.employee.manager_id.as_deref().map(Uuid::parse_str).transpose()?;
+        let position_uuid = input.position_id.as_deref().map(Uuid::parse_str).transpose()?;
         let employment_type = match input.employee.employment_type {
             company_organization::EmploymentType::Official => "OFFICIAL",
             company_organization::EmploymentType::Probation => "PROBATION",
@@ -4345,28 +4611,54 @@ impl CompanyStore {
             return Err("employee already exists; employment changes require the controlled workflow".into());
         }
 
+        let position_id = match position_uuid {
+            Some(value) => value,
+            None => {
+                tx.rollback().await?;
+                return Err("employee onboarding requires an active position".into());
+            }
+        };
+        let position_row = tx
+            .query_one(
+                "SELECT title, level, employment_types::text
+                   FROM job_positions
+                  WHERE company_id=$1 AND id=$2 AND department_id=$3 AND active=true",
+                &[&company_uuid, &position_id, &department_uuid],
+            )
+            .await
+            .map_err(|_| "position must be active and belong to the selected department")?;
+        let authoritative_title: String = position_row.get(0);
+        let authoritative_level: String = position_row.get(1);
+        let allowed_types: Vec<String> = serde_json::from_str(&position_row.get::<_, String>(2))?;
+        if !allowed_types.iter().any(|value| value == employment_type) {
+            tx.rollback().await?;
+            return Err("employment type is not permitted for the selected position".into());
+        }
+
         tx.execute(
             "INSERT INTO employees
                  (id, company_id, name, role, monthly_cost_minor, currency, status,
-                  department_id, team_id, manager_id, employment_type, employment_level, joined_at_epoch)
-             VALUES ($1,$2,$3,$4,$5::numeric,$6,$7,$8,$9,$10,$11,$12,$13)",
-                &[
-                    &employee_uuid,
-                    &company_uuid,
-                    &input.name,
-                    &input.employee.title,
-                    &input.monthly_cost_minor.to_string(),
-                    &input.currency,
-                    &status,
-                    &department_uuid,
-                    &team_uuid,
-                    &manager_uuid,
-                    &employment_type,
-                    &input.employee.employment_level,
-                    &Some(input.employee.joined_at_epoch),
-                ],
-            )
-            .await?;
+                  department_id, team_id, manager_id, position_id, employment_type, employment_level, joined_at_epoch)
+             VALUES ($1,$2,$3,$4,$5::numeric,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
+            &[
+                &employee_uuid,
+                &company_uuid,
+                &input.name,
+                &input.employee.title,
+                &input.monthly_cost_minor.to_string(),
+                &input.currency,
+                &status,
+                &department_uuid,
+                &team_uuid,
+                &manager_uuid,
+                &position_uuid,
+                &employment_type,
+                &input.employee.employment_level,
+                &Some(input.employee.joined_at_epoch),
+            ],
+        )
+        .await?;
+
         let rows = tx
             .query(
                 "SELECT id, company_id, department_id, team_id, manager_id, role,
@@ -4398,6 +4690,84 @@ impl CompanyStore {
             return Err(error.to_string().into());
         }
 
+        let policy_code = if matches!(input.employee.employment_type, company_organization::EmploymentType::PartTime) {
+            "PART_1400"
+        } else {
+            "OFFICE_0830"
+        };
+        let joined_date = time::OffsetDateTime::from_unix_timestamp(input.employee.joined_at_epoch)?
+            .to_offset(time::UtcOffset::from_hms(7, 0, 0).expect("UTC+7 is valid"))
+            .date();
+
+        let policy_id: Uuid = tx
+            .query_opt(
+                "SELECT id
+                   FROM attendance_policies
+                  WHERE company_id=$1 AND code=$2 AND active=true",
+                &[&company_uuid, &policy_code],
+            )
+            .await?
+            .ok_or("standard attendance policy is not configured")?
+            .get(0);
+
+        tx.execute(
+            "INSERT INTO employee_attendance_policy_assignments
+                (id, company_id, employee_id, policy_id, effective_from)
+             VALUES ($1,$2,$3,$4,$5)
+             ON CONFLICT DO NOTHING",
+            &[&Uuid::new_v4(), &company_uuid, &employee_uuid, &policy_id, &joined_date],
+        )
+        .await?;
+
+        let event_time = time::OffsetDateTime::from_unix_timestamp(input.employee.joined_at_epoch)?;
+        tx.execute(
+            "INSERT INTO employment_lifecycle_events
+                (id, company_id, employee_id, event_type, effective_at,
+                 position_id, department_id, team_id, manager_id, notes, actor_id)
+             VALUES ($1,$2,$3,'HIRED',$4,$5,$6,$7,$8,$9,$10)
+             ON CONFLICT DO NOTHING",
+            &[
+                &Uuid::new_v4(),
+                &company_uuid,
+                &employee_uuid,
+                &event_time,
+                &position_uuid,
+                &department_uuid,
+                &team_uuid,
+                &manager_uuid,
+                &Some(format!("Initial onboarding as {employment_type}")),
+                &actor_id,
+            ],
+        )
+        .await?;
+
+        let secondary_event = match input.employee.employment_type {
+            company_organization::EmploymentType::Probation => Some("PROBATION_STARTED"),
+            company_organization::EmploymentType::Apprentice => Some("APPRENTICESHIP_STARTED"),
+            _ => Some("APPOINTED"),
+        };
+        tx.execute(
+            "INSERT INTO employment_lifecycle_events
+                (id, company_id, employee_id, event_type, effective_at,
+                 position_id, department_id, team_id, manager_id, notes, actor_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+             ON CONFLICT DO NOTHING",
+            &[
+                &Uuid::new_v4(),
+                &company_uuid,
+                &employee_uuid,
+                &secondary_event,
+                &event_time,
+                &position_uuid,
+                &department_uuid,
+                &team_uuid,
+                &manager_uuid,
+                &Some("Initial employment lifecycle state".to_string()),
+                &actor_id,
+            ],
+        )
+        .await?;
+
         tx.commit().await?;
         Ok(())
     }
@@ -4412,34 +4782,16 @@ impl CompanyStore {
         if company_uuid != record_company_uuid {
             return Err("attendance company_id does not match request company".into());
         }
-        if attendance.work_date.trim().is_empty()
-            || attendance.shift_start.trim().is_empty()
-            || attendance.shift_end.trim().is_empty()
-            || attendance.source.trim().is_empty()
-        {
-            return Err("attendance work_date, shift window and source are required".into());
+        if attendance.work_date.trim().is_empty() || attendance.source.trim().is_empty() {
+            return Err("attendance work_date and source are required".into());
         }
 
         let employee_uuid = Uuid::parse_str(&attendance.employee_id)?;
-        let status = match attendance.status {
-            company_organization::AttendanceStatus::Present => "PRESENT",
-            company_organization::AttendanceStatus::Remote => "REMOTE",
-            company_organization::AttendanceStatus::Late => "LATE",
-            company_organization::AttendanceStatus::Leave => "LEAVE",
-            company_organization::AttendanceStatus::Absent => "ABSENT",
-            company_organization::AttendanceStatus::CheckedOut => "CHECKED_OUT",
-        };
-        let check_in = attendance
-            .check_in_at_epoch
-            .map(time::OffsetDateTime::from_unix_timestamp)
-            .transpose()?;
-        let check_out = attendance
-            .check_out_at_epoch
-            .map(time::OffsetDateTime::from_unix_timestamp)
-            .transpose()?;
+        let requested_status = attendance.status;
 
         let mut client = self.client.lock().await;
         let tx = client.transaction().await?;
+
         let employee_exists = tx
             .query_opt(
                 "SELECT id FROM employees WHERE company_id=$1 AND id=$2",
@@ -4451,6 +4803,123 @@ impl CompanyStore {
             tx.rollback().await?;
             return Err("attendance employee does not belong to company".into());
         }
+
+        let policy = tx
+            .query_opt(
+                "SELECT p.shift_start::text, p.shift_end::text, p.grace_minutes
+                   FROM employee_attendance_policy_assignments a
+                   JOIN attendance_policies p
+                     ON p.company_id=a.company_id
+                    AND p.id=a.policy_id
+                    AND p.active=true
+                  WHERE a.company_id=$1
+                    AND a.employee_id=$2
+                    AND a.effective_from <= $3::date
+                    AND (a.effective_to IS NULL OR a.effective_to >= $3::date)
+                  ORDER BY a.effective_from DESC
+                  LIMIT 1",
+                &[&company_uuid, &employee_uuid, &attendance.work_date],
+            )
+            .await?
+            .ok_or("employee has no active attendance policy for this work date")?;
+
+        let policy_shift_start: String = policy.get(0);
+        let policy_shift_end: String = policy.get(1);
+        let grace_minutes: i32 = policy.get(2);
+
+        let check_in = attendance
+            .check_in_at_epoch
+            .map(time::OffsetDateTime::from_unix_timestamp)
+            .transpose()?;
+        let requested_check_out = attendance
+            .check_out_at_epoch
+            .map(time::OffsetDateTime::from_unix_timestamp)
+            .transpose()?;
+
+        let existing = tx
+            .query_opt(
+                "SELECT status, check_in_at, check_out_at
+                   FROM employee_attendance
+                  WHERE company_id=$1 AND employee_id=$2 AND work_date=$3::date
+                  FOR UPDATE",
+                &[&company_uuid, &employee_uuid, &attendance.work_date],
+            )
+            .await?;
+
+        let existing_check_in = existing
+            .as_ref()
+            .and_then(|row| row.get::<_, Option<time::OffsetDateTime>>(1));
+        let existing_check_out = existing
+            .as_ref()
+            .and_then(|row| row.get::<_, Option<time::OffsetDateTime>>(2));
+
+        if existing_check_out.is_some() {
+            tx.rollback().await?;
+            return Err("attendance day is already finalized with checkout".into());
+        }
+        if existing_check_in.is_some()
+            && requested_status != company_organization::AttendanceStatus::CheckedOut
+        {
+            tx.rollback().await?;
+            return Err("employee already has a check-in for this work date".into());
+        }
+
+        let effective_check_in = existing_check_in.or(check_in);
+
+        if requested_status == company_organization::AttendanceStatus::CheckedOut
+            && effective_check_in.is_none()
+        {
+            tx.rollback().await?;
+            return Err("checkout requires a recorded check-in".into());
+        }
+
+        if let (Some(check_in), Some(check_out)) = (effective_check_in, requested_check_out) {
+            if check_out < check_in {
+                tx.rollback().await?;
+                return Err("checkout cannot occur before check-in".into());
+            }
+        }
+
+        let effective_status = match requested_status {
+            company_organization::AttendanceStatus::Leave
+            | company_organization::AttendanceStatus::Absent
+            | company_organization::AttendanceStatus::CheckedOut => requested_status,
+            company_organization::AttendanceStatus::Present
+            | company_organization::AttendanceStatus::Remote
+            | company_organization::AttendanceStatus::Late => {
+                if let Some(check_in) = effective_check_in {
+                    let local = check_in.to_offset(time::UtcOffset::from_hms(7, 0, 0).expect("UTC+7 is valid")).time();
+                    let policy_start = time::Time::parse(
+                        &policy_shift_start,
+                        &time::format_description::parse("[hour]:[minute]:[second]")?,
+                    )?;
+                    let check_in_seconds =
+                        local.hour() as i64 * 3600 + local.minute() as i64 * 60 + local.second() as i64;
+                    let policy_start_seconds =
+                        policy_start.hour() as i64 * 3600 + policy_start.minute() as i64 * 60 + policy_start.second() as i64;
+                    if check_in_seconds > policy_start_seconds + (grace_minutes as i64 * 60) {
+                        company_organization::AttendanceStatus::Late
+                    } else if requested_status == company_organization::AttendanceStatus::Remote {
+                        company_organization::AttendanceStatus::Remote
+                    } else {
+                        company_organization::AttendanceStatus::Present
+                    }
+                } else if requested_status == company_organization::AttendanceStatus::Remote {
+                    company_organization::AttendanceStatus::Remote
+                } else {
+                    company_organization::AttendanceStatus::Present
+                }
+            }
+        };
+
+        let status = match effective_status {
+            company_organization::AttendanceStatus::Present => "PRESENT",
+            company_organization::AttendanceStatus::Remote => "REMOTE",
+            company_organization::AttendanceStatus::Late => "LATE",
+            company_organization::AttendanceStatus::Leave => "LEAVE",
+            company_organization::AttendanceStatus::Absent => "ABSENT",
+            company_organization::AttendanceStatus::CheckedOut => "CHECKED_OUT",
+        };
 
         tx.execute(
             "INSERT INTO employee_attendance
@@ -4472,10 +4941,10 @@ impl CompanyStore {
                 &employee_uuid,
                 &attendance.work_date,
                 &status,
-                &attendance.shift_start,
-                &attendance.shift_end,
-                &check_in,
-                &check_out,
+                &policy_shift_start,
+                &policy_shift_end,
+                &effective_check_in,
+                &requested_check_out,
                 &attendance.source,
                 &attendance.exception_reason,
             ],
@@ -8425,6 +8894,7 @@ fn standard_department_metadata(
         company_organization::DepartmentType::CommercialAndSales => ("Commercial & Sales".into(), "CORE"),
         company_organization::DepartmentType::RiskAndCompliance => ("Risk & Compliance".into(), "CONTROL"),
         company_organization::DepartmentType::CustomerSuccess => ("Customer Success".into(), "CORE"),
+        company_organization::DepartmentType::PeopleAndCulture => ("People & Culture".into(), "CONTROL"),
         company_organization::DepartmentType::TreasuryAndFinance => ("Treasury & Finance".into(), "CONTROL"),
         company_organization::DepartmentType::OperationsAndTech => ("Operations & Technology".into(), "CORE"),
     }
