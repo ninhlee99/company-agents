@@ -532,6 +532,7 @@ pub fn validate_reporting_tree(
 ) -> Result<(), OrganizationError> {
     use std::collections::{HashMap, HashSet};
 
+    let company_id = employees.first().map(|employee| employee.company_id.as_str());
     let mut ids = HashSet::new();
     let mut managers = HashMap::new();
     for employee in employees {
@@ -543,6 +544,11 @@ pub fn validate_reporting_tree(
         {
             return Err(OrganizationError::InvalidValue(
                 "employee organization record is incomplete".into(),
+            ));
+        }
+        if company_id != Some(employee.company_id.as_str()) {
+            return Err(OrganizationError::InvalidValue(
+                "reporting tree cannot mix employees from different companies".into(),
             ));
         }
         if !ids.insert(employee.employee_id.clone()) {
