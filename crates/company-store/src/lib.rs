@@ -3804,10 +3804,6 @@ impl CompanyStore {
                            responsibilities = EXCLUDED.responsibilities,
                            kpis = EXCLUDED.kpis,
                            currency = EXCLUDED.currency,
-                           lifecycle = CASE
-                               WHEN departments.lifecycle = 'CLOSED' THEN departments.lifecycle
-                               ELSE EXCLUDED.lifecycle
-                           END,
                            criticality = EXCLUDED.criticality,
                            updated_at = now()",
                     &[
