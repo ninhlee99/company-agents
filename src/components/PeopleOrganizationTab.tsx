@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   Building2,
@@ -47,7 +47,7 @@ type Person = {
   employmentType: EmploymentType;
   attendance: Attendance;
   location: string;
-  workMode: 'Văn phòng' | 'Hybrid' | 'Remote';
+  workMode: 'Văn phòng' | 'Hybrid' | 'Remote' | 'Chưa cấu hình';
   managerId: string | null;
   shift: string;
   checkedInAt?: string;
@@ -55,7 +55,7 @@ type Person = {
   avatar: string;
 };
 
-const departments: Department[] = [
+const seedDepartments: Department[] = [
   {
     id: 'exec',
     name: 'Executive Office',
@@ -142,7 +142,7 @@ const departments: Department[] = [
   },
 ];
 
-const people: Person[] = [
+const seedPeople: Person[] = [
   { id: 'p01', name: 'Alex Morgan', title: 'Chief Executive Officer', departmentId: 'exec', level: 'L9 · Executive', employmentType: 'Chính thức', attendance: 'Đang làm', location: 'Ho Chi Minh City', workMode: 'Hybrid', managerId: null, shift: '08:30–17:30', checkedInAt: '08:21', avatar: 'AM' },
   { id: 'p02', name: 'Sofia Nguyen', title: 'Chief Operating Officer', departmentId: 'ops', level: 'L8 · Director', employmentType: 'Chính thức', attendance: 'Đang làm', location: 'Ho Chi Minh City', workMode: 'Văn phòng', managerId: 'p01', shift: '08:30–17:30', checkedInAt: '08:26', avatar: 'SN' },
   { id: 'p03', name: 'Daniel Tran', title: 'Chief Financial Officer', departmentId: 'finance', level: 'L8 · Director', employmentType: 'Chính thức', attendance: 'Đang làm', location: 'Ho Chi Minh City', workMode: 'Hybrid', managerId: 'p01', shift: '08:30–17:30', checkedInAt: '08:34', avatar: 'DT' },
@@ -181,18 +181,172 @@ const deptTone: Record<Department['criticality'], string> = {
 
 const cx = (...v: Array<string | false | null | undefined>) => v.filter(Boolean).join(' ');
 
+type OrganizationWorkspaceResponse = {
+  company_id: string;
+  departments: Array<{
+    id: string;
+    company_id: string;
+    parent_department_id?: string | null;
+    code: string;
+    name: string;
+    charter: string;
+    responsibilities: string[];
+    kpis: string[];
+    owner_employee_id?: string | null;
+    monthly_budget_minor: number | string;
+    currency: string;
+    lifecycle: string;
+    criticality: string;
+    formation_reason?: string | null;
+  }>;
+  employees: Array<{
+    employee_id: string;
+    company_id: string;
+    name: string;
+    title: string;
+    department_id?: string | null;
+    team_id?: string | null;
+    manager_id?: string | null;
+    employment_type: string;
+    employment_level: string;
+    joined_at_epoch?: number | null;
+    status: string;
+  }>;
+  attendance: Array<{
+    employee_id: string;
+    status: string;
+    shift_start: string;
+    shift_end: string;
+    check_in_at_epoch?: number | null;
+    check_out_at_epoch?: number | null;
+  }>;
+  source: string;
+};
+
+const mapEmploymentType = (value: string): EmploymentType => {
+  switch (value) {
+    case 'PROBATION': return 'Thử việc';
+    case 'APPRENTICE': return 'Học việc';
+    case 'PART_TIME': return 'Part-time';
+    default: return 'Chính thức';
+  }
+};
+
+const mapAttendance = (value?: string): Attendance => {
+  switch (value) {
+    case 'CHECKED_OUT': return 'Đã ra về';
+    case 'LATE': return 'Đi muộn';
+    case 'LEAVE': return 'Nghỉ phép';
+    case 'ABSENT': return 'Vắng';
+    default: return 'Đang làm';
+  }
+};
+
+const mapCriticality = (value: string): Department['criticality'] => {
+  switch (value) {
+    case 'CONTROL': return 'Control';
+    case 'GROWTH': return 'Growth';
+    default: return 'Core';
+  }
+};
+
+const mapDepartmentStatus = (value: string): Department['status'] => {
+  switch (value) {
+    case 'PROPOSED': return 'Forming';
+    case 'SCALING': return 'Scaling';
+    default: return value === 'CLOSED' || value === 'PAUSED' ? 'Forming' : 'Active';
+  }
+};
+
+const formatEpochTime = (epoch?: number | null) =>
+  epoch == null
+    ? undefined
+    : new Intl.DateTimeFormat('vi-VN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Ho_Chi_Minh',
+      }).format(new Date(epoch * 1000));
+
+
 export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiAgentCount = 0 }) => {
+  const [livePeople, setLivePeople] = useState<Person[]>([]);
+  const [dataSource, setDataSource] = useState<'DATABASE' | 'DATABASE_EMPTY' | 'DEMO_FALLBACK'>('DEMO_FALLBACK');
   const [view, setView] = useState<'overview' | 'departments' | 'employees' | 'attendance'>('overview');
   const [selectedDepartmentId, setSelectedDepartmentId] = useState('people');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [search, setSearch] = useState('');
   const [employment, setEmployment] = useState<'All' | EmploymentType>('All');
   const [showAdvisor, setShowAdvisor] = useState(true);
-  const [departmentList, setDepartmentList] = useState<Department[]>(departments);
+  const [departmentList, setDepartmentList] = useState<Department[]>(seedDepartments);
   const [departmentActivationPending, setDepartmentActivationPending] = useState(false);
 
+  const people = livePeople.length ? livePeople : seedPeople;
   const selectedDepartment = departmentList.find((department) => department.id === selectedDepartmentId) ?? departmentList[0];
   const selectedEmployee = selectedEmployeeId ? people.find((person) => person.id === selectedEmployeeId) : undefined;
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadOrganization = async () => {
+      try {
+        const workDate = new Date().toISOString().slice(0, 10);
+        const response = await fetch(`/api/organization?work_date=${workDate}`);
+        if (!response.ok) throw new Error('organization API unavailable');
+        const data = (await response.json()) as OrganizationWorkspaceResponse;
+        if (cancelled) return;
+
+        const attendanceByEmployee = new Map(data.attendance.map((record) => [record.employee_id, record]));
+        const nextPeople: Person[] = data.employees.map((employee) => {
+          const attendance = attendanceByEmployee.get(employee.employee_id);
+          return {
+            id: employee.employee_id,
+            name: employee.name,
+            title: employee.title,
+            departmentId: employee.department_id ?? 'unassigned',
+            level: employee.employment_level,
+            employmentType: mapEmploymentType(employee.employment_type),
+            attendance: mapAttendance(attendance?.status),
+            location: 'Chưa cấu hình',
+            workMode: attendance?.status === 'REMOTE' ? 'Remote' : 'Chưa cấu hình',
+            managerId: employee.manager_id ?? null,
+            shift: attendance ? `${attendance.shift_start}–${attendance.shift_end}` : 'Theo attendance policy',
+            checkedInAt: formatEpochTime(attendance?.check_in_at_epoch),
+            checkedOutAt: formatEpochTime(attendance?.check_out_at_epoch),
+            avatar: employee.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(),
+          };
+        });
+
+        const nextDepartments: Department[] = data.departments.map((department) => ({
+          id: department.id,
+          name: department.name,
+          shortName: department.code,
+          owner: department.owner_employee_id ? 'Assigned owner' : 'Unassigned',
+          ownerTitle: department.owner_employee_id ? 'Accountable owner' : 'Owner required',
+          charter: department.charter,
+          responsibilities: department.responsibilities,
+          kpis: department.kpis,
+          headcount: nextPeople.filter((person) => person.departmentId === department.id).length,
+          openRoles: 0,
+          criticality: mapCriticality(department.criticality),
+          status: mapDepartmentStatus(department.lifecycle),
+        }));
+
+        setLivePeople(nextPeople);
+        if (nextDepartments.length) {
+          setDepartmentList(nextDepartments);
+          setSelectedDepartmentId((current) => nextDepartments.some((item) => item.id === current) ? current : nextDepartments[0].id);
+        }
+        setDataSource(nextPeople.length || nextDepartments.length ? 'DATABASE' : 'DATABASE_EMPTY');
+      } catch {
+        if (!cancelled) setDataSource('DEMO_FALLBACK');
+      }
+    };
+
+    void loadOrganization();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const presentCount = people.filter((person) => person.attendance === 'Đang làm' || person.attendance === 'Đã ra về').length;
   const lateCount = people.filter((person) => person.attendance === 'Đi muộn').length;
@@ -217,6 +371,9 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
             <div className="flex flex-wrap items-center gap-3 mt-2">
               <h1 className="text-2xl lg:text-[30px] font-semibold tracking-tight text-white">People, Departments & Organization</h1>
               <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-300">ENTERPRISE HR</span>
+              <span className={cx('rounded-full border px-2 py-1 text-[10px] font-semibold', dataSource === 'DATABASE' ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300' : 'border-amber-500/20 bg-amber-500/10 text-amber-300')}>
+                {dataSource === 'DATABASE' ? 'LIVE DATABASE' : dataSource === 'DATABASE_EMPTY' ? 'DATABASE · CHƯA CÓ RECORDS' : 'DEMO FALLBACK'}
+              </span>
             </div>
             <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-400">Công ty được vận hành theo mô hình <span className="text-slate-200 font-medium">Company → Department → Team → Employee</span>. Mỗi department có charter, owner, KPI và ranh giới trách nhiệm; mọi thay đổi tổ chức phải có governance record.</p>
           </div>
