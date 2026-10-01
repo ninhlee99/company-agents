@@ -140,7 +140,8 @@ fn recommended_provider(
         ModelTaskClass::Fast => providers
             .iter()
             .find(|name| is_local_provider(name))
-            .cloned(),
+            .cloned()
+            .or_else(|| providers.first().cloned()),
         ModelTaskClass::Deep if hardware == HardwareTier::Small => providers
             .iter()
             .find(|name| is_remote_api_provider(name))
@@ -226,8 +227,8 @@ pub fn model_error_kind(error: &ModelError) -> &'static str {
 pub async fn run_model_benchmark(
     provider_name: &str,
     model: &dyn Model,
+    providers: &[String],
 ) -> Vec<ModelBenchmarkObservation> {
-    let providers = vec![provider_name.to_string()];
     let mut observations = Vec::new();
 
     for case in model_benchmark_cases() {
@@ -1256,6 +1257,32 @@ mod tests {
     }
 
     #[test]
+    fn fast_routing_falls_back_to_available_remote_provider() {
+        let providers = vec!["gemini".into(), "anthropic".into()];
+        let meta = ModelRequestMetadata {
+            agent: AgentRole::Experiment,
+            system_bytes: 100,
+            user_bytes: 100,
+        };
+        let decision = route_model_request(&providers, &meta, ModelRoutingMode::Shadow);
+        assert_eq!(decision.task, ModelTaskClass::Fast);
+        assert_eq!(decision.recommended_provider.as_deref(), Some("gemini"));
+    }
+
+    #[test]
+    fn benchmark_routing_uses_the_shared_provider_pool() {
+        let providers = vec!["ollama".to_string(), "gemini".to_string(), "anthropic".to_string()];
+        let meta = ModelRequestMetadata {
+            agent: AgentRole::CEO,
+            system_bytes: 100,
+            user_bytes: 100,
+        };
+        let decision = route_model_request(&providers, &meta, ModelRoutingMode::Shadow);
+        assert_eq!(decision.task, ModelTaskClass::Deep);
+        assert_eq!(decision.recommended_provider.as_deref(), Some("gemini"));
+    }
+
+    #[test]
     fn routing_prefers_remote_for_deep_work_on_small_hardware() {
         let providers = vec!["ollama".into(), "gemini".into(), "anthropic".into()];
         let meta = ModelRequestMetadata {
@@ -1289,7 +1316,8 @@ mod tests {
 
     #[tokio::test]
     async fn mock_provider_benchmark_completes_without_external_services() {
-        let observations = run_model_benchmark("mock", &MockModel).await;
+        let providers = vec!["mock".to_string()];
+        let observations = run_model_benchmark("mock", &MockModel, &providers).await;
         assert_eq!(observations.len(), 3);
         assert!(observations.iter().all(|value| value.success));
         assert!(observations.iter().all(|value| value.output_object));
