@@ -3968,10 +3968,13 @@ impl CompanyStore {
             .to_ascii_uppercase();
         if code.len() < 2
             || code.len() > 32
-            || !code.bytes().all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_' || byte == b'-')
+            || !code
+                .bytes()
+                .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_' || byte == b'-')
         {
             return Err("department code must be 2-32 characters using A-Z, 0-9, _ or -".into());
         }
+
         let requested_name = signal
             .requested_name
             .as_deref()
@@ -3980,9 +3983,9 @@ impl CompanyStore {
         let fallback_name = standard_department_metadata(department_type).0;
         let department_name = requested_name.unwrap_or(fallback_name.as_str());
 
-        let client = self.client.lock().await;
-        let rows = client
-            .query(
+        let mut client = self.client.lock().await;
+        let row = client
+            .query_opt(
                 "SELECT id, name, monthly_budget_minor::text, currency, lifecycle
                    FROM departments
                   WHERE company_id=$1 AND code=$2",
@@ -3990,82 +3993,94 @@ impl CompanyStore {
             )
             .await?;
 
-        let existing = rows.first().map(|row| company_organization::Department {
+        if let Some(row) = &row {
+            let lifecycle: String = row.get(4);
+            match lifecycle.as_str() {
+                "ACTIVE" | "SCALING" => {
+                    return Ok(company_organization::DepartmentFormationDecision::ScaleExisting);
+                }
+                "PROPOSED" | "PAUSED" => {
+                    return Ok(company_organization::DepartmentFormationDecision::NoChange);
+                }
+                _ => {}
+            }
+        }
+
+        let existing = row.map(|row| company_organization::Department {
             id: row.get::<_, Uuid>(0).to_string(),
             name: row.get(1),
             department_type,
             lead_role: department_type.default_lead_role().into(),
             monthly_budget_minor: parse_i128_numeric(&row.get::<_, String>(2))?,
             currency: row.get(3),
-            active: row.get::<_, String>(4) == "ACTIVE",
+            active: false,
         });
 
         let decision = company_organization::evaluate_department_formation(existing.as_slice(), signal)?;
-        if decision == company_organization::DepartmentFormationDecision::FormDepartment {
-            let (_, criticality) = standard_department_metadata(department_type);
-            let charter = format!(
-                "Tự động đề xuất {department_name} vì thiếu năng lực kéo dài: {}.",
-                signal.required_capabilities.join(", ")
-            );
-            let responsibilities = serde_json::to_value(&signal.required_capabilities)?;
-            let kpis = serde_json::json!([
-                "Capability coverage",
-                "Capacity gap",
-                "SLA / throughput"
-            ]);
-            client.execute(
-                "INSERT INTO departments
-                    (id, company_id, code, name, charter, responsibilities, kpis,
-                     owner_employee_id, monthly_budget_minor, currency, lifecycle,
-                     criticality, formation_reason)
-                 VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,NULL,$8::numeric,$9,'PROPOSED',$10,$11)
-                 ON CONFLICT (company_id, code) DO UPDATE
-                    SET charter=EXCLUDED.charter,
-                        responsibilities=EXCLUDED.responsibilities,
-                        kpis=EXCLUDED.kpis,
-                        monthly_budget_minor=EXCLUDED.monthly_budget_minor,
-                        currency=EXCLUDED.currency,
-                        lifecycle='PROPOSED',
-                        criticality=EXCLUDED.criticality,
-                        formation_reason=EXCLUDED.formation_reason,
-                        updated_at=now()
-                  WHERE departments.lifecycle='CLOSED'",
-                &[
-                    &Uuid::new_v4(),
-                    &company_uuid,
-                    &code,
-                    &department_name,
-                    &charter,
-                    &responsibilities,
-                    &kpis,
-                    &signal.monthly_budget_ceiling_minor.to_string(),
-                    &currency,
-                    &criticality,
-                    &format!(
-                        "capacity_gap_pct={} sustained_cycles={} capabilities={}",
-                        signal.capacity_gap_pct,
-                        signal.sustained_cycles,
-                        signal.required_capabilities.join(",")
-                    ),
-                ],
-            ).await?;
-
-            let department_uuid: Uuid = client
-                .query_one(
-                    "SELECT id FROM departments WHERE company_id=$1 AND code=$2",
-                    &[&company_uuid, &code],
-                )
-                .await?
-                .get(0);
-            let team_name = format!("{department_name} · Core Team");
-            let team_charter = format!("Nhóm thực thi ban đầu của {department_name}.");
-            client.execute(
-                "INSERT INTO teams (id, company_id, department_id, name, charter, active)
-                 VALUES ($1,$2,$3,$4,$5,false)
-                 ON CONFLICT (company_id, department_id, name) DO NOTHING",
-                &[&Uuid::new_v4(), &company_uuid, &department_uuid, &team_name, &team_charter],
-            ).await?;
+        if decision != company_organization::DepartmentFormationDecision::FormDepartment {
+            return Ok(decision);
         }
+
+        let (_, criticality) = standard_department_metadata(department_type);
+        let charter = format!(
+            "Tự động đề xuất {department_name} vì thiếu năng lực kéo dài: {}.",
+            signal.required_capabilities.join(", ")
+        );
+        let responsibilities = serde_json::to_value(&signal.required_capabilities)?;
+        let kpis = serde_json::json!([
+            "Capability coverage",
+            "Capacity gap",
+            "SLA / throughput"
+        ]);
+        let formation_reason = format!(
+            "capacity_gap_pct={} sustained_cycles={} capabilities={}",
+            signal.capacity_gap_pct,
+            signal.sustained_cycles,
+            signal.required_capabilities.join(",")
+        );
+
+        let tx = client.transaction().await?;
+        tx.execute(
+            "INSERT INTO departments
+                (id, company_id, code, name, charter, responsibilities, kpis,
+                 owner_employee_id, monthly_budget_minor, currency, lifecycle,
+                 criticality, formation_reason)
+             VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,NULL,$8::numeric,$9,'PROPOSED',$10,$11)
+             ON CONFLICT (company_id, code) DO NOTHING",
+            &[
+                &Uuid::new_v4(),
+                &company_uuid,
+                &code,
+                &department_name,
+                &charter,
+                &responsibilities,
+                &kpis,
+                &signal.monthly_budget_ceiling_minor.to_string(),
+                &currency,
+                &criticality,
+                &formation_reason,
+            ],
+        )
+        .await?;
+
+        let department_uuid: Uuid = tx
+            .query_one(
+                "SELECT id FROM departments WHERE company_id=$1 AND code=$2",
+                &[&company_uuid, &code],
+            )
+            .await?
+            .get(0);
+        let team_name = format!("{department_name} · Core Team");
+        let team_charter = format!("Nhóm thực thi ban đầu của {department_name}.");
+        tx.execute(
+            "INSERT INTO teams (id, company_id, department_id, name, charter, active)
+             VALUES ($1,$2,$3,$4,$5,false)
+             ON CONFLICT (company_id, department_id, name) DO NOTHING",
+            &[&Uuid::new_v4(), &company_uuid, &department_uuid, &team_name, &team_charter],
+        )
+        .await?;
+
+        tx.commit().await?;
         Ok(decision)
     }
 
