@@ -373,12 +373,14 @@ export const PeopleOrganizationTab: React.FC<{ aiAgentCount?: number }> = ({ aiA
         const attendanceByEmployee = new Map(data.attendance.map((record) => [record.employee_id, record]));
         const nextPeople: Person[] = data.employees.map((employee) => {
           const attendance = attendanceByEmployee.get(employee.employee_id);
+          const position = data.positions.find((item) => item.id === employee.position_id);
           return {
             id: employee.employee_id,
             name: employee.name,
-            title: employee.title,
+            title: position?.title ?? employee.title,
+            positionId: employee.position_id ?? null,
             departmentId: employee.department_id ?? 'unassigned',
-            level: employee.employment_level,
+            level: position?.level ?? employee.employment_level,
             employmentType: mapEmploymentType(employee.employment_type),
             attendance: mapAttendance(attendance?.status),
             location: 'Chưa cấu hình',
